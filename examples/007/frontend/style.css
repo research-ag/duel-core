@@ -1,0 +1,133 @@
+/* 007-duel-specific visuals, layered on top of
+ * node_modules/duel-game-core/style.css (loaded first — see index.html),
+ * which already supplies the page chrome (header, buttons, lobby seats,
+ * turnbar, verdict banner, ...) and the CSS custom properties used below.
+ */
+
+h1 {
+  color: var(--accent);
+}
+
+.seat-label {
+  color: var(--accent);
+}
+
+.countdown {
+  color: var(--accent);
+}
+
+/* ── narration + agent panels (duel007-plugin.js's renderBoard) ────────── */
+
+.narration {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.8rem 1rem;
+  margin: 0 0 1.25rem;
+  font-style: italic;
+}
+
+.agents {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.agent {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+}
+
+.agent.self {
+  border-color: #3a4756;
+}
+
+.agent header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0;
+  margin-bottom: 0.75rem;
+  border: 0;
+}
+
+.agent .who {
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.agent dl {
+  margin: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.agent dl > div {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.agent dt {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.agent dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+}
+
+.agent dd.num {
+  font-size: 1.05rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+  background: #2b323b;
+}
+
+.pip.charge {
+  background: var(--accent);
+}
+
+.pip.shield {
+  background: var(--blue);
+}
+
+.pip.mirror {
+  background: #b98ce0;
+}
+
+.ready {
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.broken {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.waiting {
+  color: var(--accent);
+}
+
+.verdict.draw {
+  color: var(--accent);
+}

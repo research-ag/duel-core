@@ -1,0 +1,6 @@
+.mops
+frontend/node_modules
+.dfx
+.tmp
+.DS_Store
+*.wasm

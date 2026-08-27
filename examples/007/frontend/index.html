@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>007 — Duel</title>
+    <link rel="stylesheet" href="/node_modules/duel-game-core/style.css" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>007 <span class="sub">— Duel</span></h1>
+      <div class="session">
+        <span class="label">Agent ID</span>
+        <code id="sid">…</code>
+        <button id="new-sid" title="Play as a different agent">new</button>
+      </div>
+    </header>
+
+    <p id="error" class="error" hidden></p>
+
+    <main id="screen">
+      <p class="muted">Connecting to the board…</p>
+    </main>
+
+    <footer>
+      <p class="muted">
+        Your Agent ID is per browser tab — open a second tab to play the
+        other seat. An idle board can be taken over after 60&nbsp;seconds.
+      </p>
+    </footer>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
