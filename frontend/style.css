@@ -1,0 +1,305 @@
+/* Generic layout primitives for a TwoPlayer-engine client. Everything
+ * here supports the screens rendered directly by render.js (lobby,
+ * busy, staging, rematch, debrief chrome, endedByOther) plus a few
+ * neutral utility classes a GamePlugin's own board/action markup can
+ * opt into. Game-specific visuals (piece icons, resource meters, board
+ * grids of a particular shape, ...) belong in the game's own stylesheet,
+ * layered on top of this one.
+ */
+
+:root {
+  --bg: #0b0d10;
+  --panel: #14181d;
+  --panel-2: #1b2027;
+  --line: #262d36;
+  --ink: #e6e9ee;
+  --muted: #8b95a3;
+  --accent: #d4af37;
+  --red: #ff6b5e;
+  --green: #58d68d;
+  --blue: #6aa9ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 1.25rem 3rem;
+  background:
+    radial-gradient(1200px 500px at 50% -10%, #171c23 0%, transparent 70%),
+    var(--bg);
+  color: var(--ink);
+  font:
+    15px/1.55 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  min-height: 100vh;
+}
+
+body.working {
+  cursor: progress;
+}
+
+header {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 1.75rem 0 1.25rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+h1 .sub {
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  font-weight: 400;
+  font-size: 0.95rem;
+}
+
+h2 {
+  margin: 0 0 1rem;
+  font-size: 1.15rem;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.session .label {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.session code {
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.78rem;
+}
+
+main {
+  max-width: 860px;
+  margin: 1.75rem auto 0;
+}
+
+footer {
+  max-width: 860px;
+  margin: 2.5rem auto 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  max-width: 860px;
+  margin: 1rem auto 0;
+  padding: 0.65rem 0.9rem;
+  background: #2a1512;
+  border: 1px solid #5d2a24;
+  border-left: 3px solid var(--red);
+  border-radius: 4px;
+  color: #ffb4ac;
+  font-size: 0.88rem;
+}
+
+/* A neutral bordered callout — available for a GamePlugin's own board or
+ * action markup to reuse (e.g. a "last move" summary). Not used by
+ * render.js itself. */
+.callout {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.8rem 1rem;
+  margin: 0 0 1.25rem;
+}
+
+/* ── buttons ─────────────────────────────────────────────────────────── */
+
+button {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    transform 0.05s;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: #232a33;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #17130a;
+  font-weight: 650;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #e2c257;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+#new-sid {
+  padding: 0.1rem 0.45rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* ── lobby ───────────────────────────────────────────────────────────── */
+
+.seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+button.seat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  align-items: flex-start;
+  padding: 1.1rem 1.2rem;
+  background: var(--panel);
+}
+
+.seat-label {
+  color: var(--accent);
+  letter-spacing: 0.16em;
+  font-weight: 700;
+}
+
+.countdown {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── in-game chrome ──────────────────────────────────────────────────── */
+
+.turnbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+}
+
+.locked {
+  color: var(--green);
+}
+
+/* Wrapping container around whatever a GamePlugin's renderBoard()
+ * returns. A plugin is free to lay out its own grid inside this; the
+ * default here just gives it breathing room. */
+.board {
+  margin-bottom: 1.5rem;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.actions button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
+  background: var(--panel);
+}
+
+.actions .act {
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+
+.actions .hint {
+  font-size: 0.74rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.waiting {
+  padding: 0.85rem 1rem;
+  background: var(--panel);
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--accent);
+}
+
+/* ── debrief ─────────────────────────────────────────────────────────── */
+
+.verdict {
+  font-size: 1.5rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.verdict.win {
+  color: var(--green);
+}
+
+.verdict.lose {
+  color: var(--red);
+}
+
+.verdict.draw {
+  color: var(--accent);
+}
