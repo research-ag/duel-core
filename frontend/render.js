@@ -121,6 +121,13 @@ function renderAwaitingRematch(v, plugin) {
     <p class="muted">Ignore it and the seat opens to anyone after a while.</p>`;
 }
 
+// The Forfeit button carries `data-confirm="..."` — app.js's click
+// delegation shows a confirmation modal before dispatching any button
+// with that attribute, so a mid-game misclick can't hand the round to
+// the opponent unintentionally. The staging/debrief `data-leave` buttons
+// below (renderStagingYou/renderDebrief) deliberately don't carry it —
+// leaving before a game starts or after it's already over isn't
+// destructive the same way.
 function renderInGame(v, plugin) {
   const mySeat = tag(v.seat);
   const oppSeat = mySeat === "p1" ? "p2" : "p1";
@@ -138,7 +145,7 @@ function renderInGame(v, plugin) {
         ? `<p class="waiting">Move locked in — waiting for your opponent…</p>`
         : `<div class="actions">${plugin.renderActions(v.game, mySeat)}</div>`
     }
-    <p><button data-leave class="ghost">Forfeit</button></p>`;
+    <p><button data-leave data-confirm="Forfeit this game? Your opponent will win." class="ghost">Forfeit</button></p>`;
 }
 
 function renderDebrief(v, plugin) {

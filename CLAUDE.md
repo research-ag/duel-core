@@ -33,11 +33,17 @@ top.
   using the same `FakeGame.mo` spec, across `join`+`leave`, a full
   submitted round, and repeated `status` queries.
 
-This repo ships no example game and no deployable app — it is the
-framework two packages are built from, not a game. A real game lives in
-its own repo: a pure rules module implementing `TP.Spec<S, M>` plus a
-thin host actor (backend), and a `GamePlugin` plus your own `index.html`
-and deploy config (frontend).
+This repo is the framework the two packages are built from, not a game
+itself — `examples/007/` and `examples/racing/` are reference games built
+on top of it (a pure rules module implementing `TP.Spec<S, M>` plus a
+thin host actor for the backend; a `GamePlugin` plus `index.html` and
+deploy config for the frontend), kept here to prove the packages are
+usable end to end and to give a new game something concrete to copy. A
+real game normally lives in its own repo, structured the same way.
+Building one — whether from scratch or by adapting an existing client —
+is a whole workflow with its own hard-won lessons: see the
+`duel-game-core-new-game` skill
+(`.agents/skills/duel-game-core-new-game/SKILL.md`) before starting.
 
 ## Toolchain
 
@@ -120,12 +126,18 @@ resolved relative to `backend/`.
     `start()` takes an already-built `actor`; it doesn't import
     `@dfinity/agent` or hardcode a CDN. Don't reintroduce that coupling.
 
-## Motoko skills (read before editing)
+## Skills (read before editing)
 
 Local copies of the relevant SKILL.md playbooks live in this repo under
 `.agents/skills/` — consult these when working here, in order of
 relevance to this package:
 
+- `.agents/skills/duel-game-core-new-game/SKILL.md` — building a new
+  game (or adapting an existing client) on these two packages: the
+  `Spec<S, M>` design process, the generic-chrome-vs-rich-UI frontend
+  decision, and lessons learned building `examples/007` and
+  `examples/racing`. Covers both backend and frontend — read this one
+  first if that's the task, before the Motoko-specific skills below.
 - `.agents/skills/motoko-general-style-guidelines/SKILL.md` — naming,
   layout, 2-space indent, 80-char margin, type-annotation rules. House
   style for ALL code in this repo.

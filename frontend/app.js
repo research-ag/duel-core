@@ -128,17 +128,68 @@ export function start({
   const doReset = () => call((s) => actor.reset(s));
   const doAck = () => call((s) => actor.ackEnded(s));
 
+  // ---------------------------------------------------------------------
+  // Confirmation modal, for any button marked `data-confirm="..."` (e.g.
+  // render.js's Forfeit button) — built once and appended straight to
+  // `<body>` rather than into `screenEl`, so it survives `refresh()`
+  // replacing `screenEl.innerHTML` out from under it, and so it isn't
+  // hidden if a game's own CSS makes `#screen` (or part of it)
+  // click-through while overlaying its own view (see e.g.
+  // examples/racing/frontend/src/style.css's `body.in-race #screen`).
+  // ---------------------------------------------------------------------
+
+  const confirmOverlay = document.createElement("div");
+  confirmOverlay.className = "duel-confirm-overlay";
+  confirmOverlay.hidden = true;
+  confirmOverlay.innerHTML = `
+    <div class="duel-confirm-box">
+      <p class="duel-confirm-msg"></p>
+      <div class="duel-confirm-actions">
+        <button type="button" class="ghost" data-confirm-no>Cancel</button>
+        <button type="button" class="primary" data-confirm-yes>Confirm</button>
+      </div>
+    </div>`;
+  document.body.appendChild(confirmOverlay);
+  const confirmMsgEl = confirmOverlay.querySelector(".duel-confirm-msg");
+
+  let pendingConfirmed = null;
+
+  function showConfirm(msg, onConfirmed) {
+    confirmMsgEl.textContent = msg;
+    pendingConfirmed = onConfirmed;
+    confirmOverlay.hidden = false;
+  }
+
+  function hideConfirm() {
+    confirmOverlay.hidden = true;
+    pendingConfirmed = null;
+  }
+
+  confirmOverlay.addEventListener("click", (ev) => {
+    if (ev.target === confirmOverlay || "confirmNo" in ev.target.dataset) {
+      hideConfirm();
+    } else if ("confirmYes" in ev.target.dataset) {
+      const fn = pendingConfirmed;
+      hideConfirm();
+      if (fn) fn();
+    }
+  });
+
   // One delegated listener, so re-rendering never leaks handlers.
   const screenEl = $(screenElId);
   screenEl.addEventListener("click", (ev) => {
     const b = ev.target.closest("button");
     if (!b || b.disabled) return;
-    if (b.dataset.join) doJoin(b.dataset.join);
-    else if (b.dataset.act) doSubmit(JSON.parse(b.dataset.act));
-    else if ("rematch" in b.dataset) doRematch();
-    else if ("leave" in b.dataset) doLeave();
-    else if ("reset" in b.dataset) doReset();
-    else if ("ack" in b.dataset) doAck();
+    const dispatch = () => {
+      if (b.dataset.join) doJoin(b.dataset.join);
+      else if (b.dataset.act) doSubmit(JSON.parse(b.dataset.act));
+      else if ("rematch" in b.dataset) doRematch();
+      else if ("leave" in b.dataset) doLeave();
+      else if ("reset" in b.dataset) doReset();
+      else if ("ack" in b.dataset) doAck();
+    };
+    if (b.dataset.confirm) showConfirm(b.dataset.confirm, dispatch);
+    else dispatch();
   });
 
   // ---------------------------------------------------------------------

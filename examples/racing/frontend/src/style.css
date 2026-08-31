@@ -1,0 +1,226 @@
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+}
+
+#game-stage {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+#game-stage canvas {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+}
+
+/* duel-game-core's chrome (#duel-header/#screen/#error, from index.html,
+ * driven by duel/duel-app.js) is the whole page until a race starts.
+ * lobby-connection.service.ts adds `body.in-race` the moment its poll of
+ * the same canister notices #inGame, and `body.race-ready` once the map
+ * and both cars have finished loading (see main.ts) — only then does the
+ * race fill the viewport and the chrome shrink to a corner HUD (turn
+ * count / opponent status / forfeit button) so the track stays visible
+ * underneath. */
+
+#game-stage, #hud {
+  display: none;
+}
+
+body.in-race.race-ready #game-stage,
+body.in-race.race-ready #hud {
+  display: block;
+}
+
+body.in-race {
+  padding: 0;
+  overflow: hidden;
+}
+
+body.in-race #duel-header {
+  display: none;
+}
+
+body.in-race #screen {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  left: auto;
+  max-width: 320px;
+  margin: 0;
+  z-index: 10;
+  background: rgba(20, 24, 29, 0.88);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  /* This panel floats directly over the click-to-drive 3D canvas (see
+   * player-control.service.ts) — its own text/background must not eat
+   * clicks meant for the arc underneath it, only its buttons (the
+   * Forfeit button) should. Children opt back into pointer-events below;
+   * app.js's confirmation modal (for that same Forfeit button) is
+   * appended straight to <body>, outside #screen, so it's unaffected by
+   * this and stays fully clickable regardless. */
+  pointer-events: none;
+}
+
+body.in-race #screen button {
+  pointer-events: auto;
+}
+
+body.in-race #error {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 20;
+}
+
+/* In-race HUD (hud.ts): three fixed corner panels, none of them
+ * interactive (control is click-on-the-3d-plane, not on the HUD — see
+ * player-control.service.ts), so the whole root ignores pointer events and
+ * only individual panels need to be seen, never clicked. Deliberately
+ * placed in the corners #screen's own top-right box (see above) doesn't
+ * use, so the two never overlap: the race/position panel goes top-LEFT,
+ * since top-right is exactly where the duel-game-core overlay lives once
+ * a race starts. */
+
+#hud {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.hud-panel {
+  position: fixed;
+  background: rgba(20, 24, 29, 0.88);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  color: #eee;
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+}
+
+.hud-race {
+  top: 1rem;
+  left: 1rem;
+  min-width: 9rem;
+}
+
+.hud-race-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  font-weight: 500;
+}
+
+.hud-race-time {
+  font-family: "Roboto Mono", monospace;
+  color: #9aa4b2;
+}
+
+.hud-sep {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  margin: 0.5rem 0;
+}
+
+.hud-race-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+  color: #9aa4b2;
+}
+
+.hud-race-row--me {
+  color: #eee;
+  font-weight: 500;
+}
+
+.hud-race-row-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.85rem;
+}
+
+.hud-minimap {
+  left: 1rem;
+  bottom: 1rem;
+  width: 9rem;
+  height: 9rem;
+  padding: 0.5rem;
+}
+
+.hud-minimap svg {
+  width: 100%;
+  height: 100%;
+}
+
+.hud-map-track {
+  fill: none;
+  stroke: #9aa4b2;
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+
+.hud-map-finish {
+  fill: none;
+  stroke: #e30;
+  stroke-width: 3;
+}
+
+.hud-map-car {
+  r: 6;
+  stroke: #14181d;
+  stroke-width: 2;
+}
+
+.hud-map-car--0 {
+  fill: #4fc3f7;
+}
+
+.hud-map-car--1 {
+  fill: #e30;
+}
+
+.hud-speedometer {
+  right: 1rem;
+  bottom: 1rem;
+  padding: 0;
+  background: none;
+}
+
+.hud-speed-ring {
+  --hud-speed-pct: 0;
+  width: 7rem;
+  height: 7rem;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle, rgba(20, 24, 29, 0.88) 62%, transparent 63%),
+    conic-gradient(#e30 calc(var(--hud-speed-pct) * 360deg), rgba(255, 255, 255, 0.12) 0);
+}
+
+.hud-speed-value {
+  font-family: "Roboto Mono", monospace;
+  font-size: 1.9rem;
+  font-weight: 500;
+  color: #eee;
+  line-height: 1.1;
+}
+
+.hud-speed-unit {
+  font-size: 0.75rem;
+  color: #9aa4b2;
+  text-transform: uppercase;
+}

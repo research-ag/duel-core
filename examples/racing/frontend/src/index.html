@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Racing Duel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="node_modules/duel-game-core/style.css">
+  <link rel="stylesheet" href="style.css">
+  <!--
+    Sets up window.duelActorReady synchronously, before either the
+    duel-app.js module script below or main.js (this app's own bundle,
+    built by esbuild — see package.json's "build" script) runs — so it's
+    always there for
+    app/modules/gameplay/game-communication/utils/duel-actor.ts to await,
+    whichever of the two happens to execute first. See duel/duel-app.js.
+  -->
+  <script>
+    window.duelActorReady = new Promise((resolve) => { window.__resolveDuelActor = resolve; });
+  </script>
+</head>
+<body>
+  <!-- duel-game-core's generic chrome: lobby, staging, rematch, busy,
+       debrief, session identity — everything that isn't the 3D race
+       itself. Driven by duel/duel-app.js. Compact in-game HUD styling for
+       this strip lives in style.css (body.in-race). -->
+  <header id="duel-header">
+    <h1>Racing <span class="sub">— Duel</span></h1>
+    <div class="session">
+      <span class="label">Driver ID</span>
+      <code id="sid">…</code>
+      <button id="new-sid" title="Play as a different driver">new</button>
+    </div>
+  </header>
+  <p id="error" class="error" hidden></p>
+  <main id="screen">
+    <p class="muted">Connecting to the board…</p>
+  </main>
+
+  <!-- The 3D race — a full-viewport layer behind #screen, only made
+       visible (see body.in-race/body.race-ready in style.css) once a
+       game starts; driven independently by main.js (this app's own
+       bundle — see main.ts). -->
+  <div id="game-stage"></div>
+  <!-- In-race HUD (speedometer / minimap / position+time panel), built and
+       populated by app/modules/gameplay/game-viewport/hud/hud.ts. Same
+       visibility gating as #game-stage (see body.in-race.race-ready in
+       style.css). -->
+  <div id="hud"></div>
+
+  <script type="module" src="duel-app.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

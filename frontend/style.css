@@ -303,3 +303,43 @@ button.seat {
 .verdict.draw {
   color: var(--accent);
 }
+
+/* ── confirmation modal (app.js's showConfirm(), for data-confirm
+   buttons) ──────────────────────────────────────────────────────────── */
+
+.duel-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(6, 7, 9, 0.6);
+}
+
+.duel-confirm-overlay[hidden] {
+  display: none;
+}
+
+.duel-confirm-box {
+  max-width: 320px;
+  padding: 1.25rem 1.4rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.duel-confirm-msg {
+  margin: 0 0 1.1rem;
+  color: var(--ink);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.duel-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
