@@ -5,7 +5,7 @@ canisters:
     recipe:
       type: "@dfinity/motoko@v4.1.0"
       configuration:
-        main: example/Host.mo
+        main: src/Host.mo
   - name: frontend
     recipe:
       # v2.1.0 (used elsewhere) syncs via the `assets` step, which icp-cli

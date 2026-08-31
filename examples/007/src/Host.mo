@@ -1,6 +1,6 @@
 // Reference host actor, wired exactly as the duel-game-core README shows.
 import TP "mo:duel-game-core";
-import Rules "../Duel007Rules";
+import Rules "Duel007Rules";
 import Time "mo:core/Time";
 
 persistent actor {
