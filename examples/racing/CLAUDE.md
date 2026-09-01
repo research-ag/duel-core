@@ -21,10 +21,12 @@ first to complete the lap wins.
 - **`src/Host.mo`** — the host actor: forwards every call to the engine
   with `Time.now()` and `Rules.spec()`, wired exactly as
   `../../backend/README.md`'s example shows. Deploy target. Also wires
-  `mo:duel-game-core/Ws` (the optional WebSocket push transport) side by
-  side with the 7 plain methods — both forward into the SAME `table`, so
-  they always agree; see `../../backend/README.md`'s "Optional: real-time
-  push" section for the design this mirrors.
+  `mo:duel-game-core/Ws` (an alternative, real-server-push transport)
+  side by side with the 7 plain methods, purely as a complete reference —
+  this game's own frontend doesn't call it; `duel-app.js` gets its
+  push-shaped chrome from `duel-game-core/ws.js` polling the plain 7
+  methods instead, no extra backend wiring required. See
+  `../../backend/README.md`'s "Optional: real-time push" section.
 - **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
   `Rules.test.mo` are scenario walks (one long session / the headline game
   rules); `Engine.test.mo` and `RulesUnit.test.mo` are per-operation unit
@@ -50,20 +52,27 @@ first to complete the lap wins.
   `frontend/src/duel/duel-app.js` + `duel-racing-plugin.js` are the whole
   `duel-game-core` integration (a `GamePlugin`, exactly like the `examples/007`
   frontend) — they own the single global lobby/staging/rematch/debrief
-  chrome, driven by real-time push over WebSocket (`duel-game-core/ws.js`'s
-  `connectWs()`, exactly like `examples/007/frontend/app.js` — see
-  `../../backend/README.md`'s "Optional: real-time push" section; this
-  game's own code never touches `ic-websocket-js` or a Gateway URL
-  directly) rather than polling. `frontend/src/main.ts`'s own gameplay code (really
-  `lobby-connection.service.ts`, wired in via `gameplay.service.ts`) polls
-  the same canister INDEPENDENTLY for the race itself, on its own 1s
-  timer — this migration deliberately left that poller untouched (a
-  second `IcWebSocket` from the same tab would fight the backend's
-  sid→principal mapping with the chrome's own connection, and threading
-  one shared connection through `lobby-connection.service.ts`'s
-  submit/error-retry logic is a bigger, separate change). See
-  `frontend/README.md` and `frontend/CLAUDE.md` for the split in detail,
-  gameplay controls, and the headless verification workflow.
+  chrome, driven by the push-shaped transport `start()` requires
+  (`duel-game-core/ws.js`'s `connectWs()`, exactly like
+  `examples/007/frontend/app.js` — see `../../frontend/README.md`'s
+  "Real-time push" section; this game's own code never touches a
+  WebSocket, a Gateway, or any third-party library — `connectWs()` just
+  polls the plain actor methods on a fast interval). There is no polling
+  fallback anywhere in this stack any more.
+  `frontend/src/main.ts`'s own gameplay code (really
+  `lobby-connection.service.ts`, wired in via `gameplay.service.ts`)
+  shares that EXACT poller (`duel-app.js` publishes it on
+  `window.duelWsReady`, read via `duel-actor.ts`'s `getDuelWs()`) and has
+  no polling of its own at all — there is only ever ONE communication
+  channel to the canister, chrome and race alike (a second, independent
+  poll loop here once raced the shared poller's own fetches with no
+  ordering guarantee between them, which is what made cars briefly
+  animate backwards before "teleporting" to the correct position — see
+  `../../frontend/ws/poller.js`'s `_fetchView()` doc for the full story).
+  See `frontend/README.md` and `frontend/CLAUDE.md` for the split in
+  detail (including exactly how `lobby-connection.service.ts` uses the
+  shared poller's `request()`), gameplay controls, and the headless
+  verification workflow.
 
 ## Toolchain
 
@@ -77,10 +86,10 @@ first to complete the lap wins.
   license to import it yourself. `duel-game-core` re-exports nothing of
   `core`'s own surface, so `src/Host.mo`'s direct `mo:core/Time` import
   needs `core` listed here too, same as any real game repo would.
-- `ic-websocket-js` is NOT an npm dependency of `frontend/`, and
-  `duel-app.js` never imports it — `duel-game-core/ws.js` (see
-  `../../CLAUDE.md`'s toolchain note) is the one place that does, loaded
-  from esm.sh, so no bundler is needed to resolve its own dependency tree.
+- `frontend/` has no third-party npm dependency for push — `duel-app.js`
+  imports `duel-game-core/ws.js` (see `../../CLAUDE.md`'s toolchain
+  note), which is plain polling of the actor wearing a WebSocket-shaped
+  interface, nothing more, so no bundler is needed to resolve anything.
 - **Gotcha:** `frontend/.npmrc` sets `install-links=true` (same reasoning
   as `examples/007`'s — see its `CLAUDE.md`), so `duel-game-core` is
   COPIED into `node_modules/duel-game-core`, not symlinked. A plain `npm

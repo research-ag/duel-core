@@ -10,15 +10,16 @@
   <link rel="stylesheet" href="node_modules/duel-game-core/style.css">
   <link rel="stylesheet" href="style.css">
   <!--
-    Sets up window.duelActorReady synchronously, before either the
-    duel-app.js module script below or main.js (this app's own bundle,
-    built by esbuild — see package.json's "build" script) runs — so it's
-    always there for
+    Sets up window.duelActorReady/duelWsReady synchronously, before either
+    the duel-app.js module script below or main.js (this app's own
+    bundle, built by esbuild — see package.json's "build" script) runs —
+    so both are always there for
     app/modules/gameplay/game-communication/utils/duel-actor.ts to await,
     whichever of the two happens to execute first. See duel/duel-app.js.
   -->
   <script>
     window.duelActorReady = new Promise((resolve) => { window.__resolveDuelActor = resolve; });
+    window.duelWsReady = new Promise((resolve) => { window.__resolveDuelWs = resolve; });
   </script>
 </head>
 <body>

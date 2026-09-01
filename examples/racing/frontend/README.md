@@ -13,10 +13,11 @@ It has two independent halves that share one page and one canister session:
   framework — see its header comment for the construction order) from the
   gameplay/physics/rendering modules under `src/app/modules/gameplay/`.
   `src/app/modules/gameplay/game-communication/services/lobby-connection.service.ts`
-  is the bridge: it polls the same canister `status` query
-  `duel-app.js` polls (via `window.duelActorReady`, set up inline in
-  `index.html`) and turns it into the `{ slot, step }[]` event shape the
-  rest of the gameplay code already expects.
+  is the bridge: it shares `duel-app.js`'s own push poller (via
+  `window.duelActorReady`/`duelWsReady`, set up inline in `index.html`)
+  rather than polling independently, and turns whatever view arrives into
+  the `{ slot, step }[]` event shape the rest of the gameplay code already
+  expects.
 
 ## Build
 

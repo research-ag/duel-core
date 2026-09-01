@@ -1,8 +1,8 @@
-// Bootstrap for the 007 duel client. Builds the actor, then hands off to
-// `duel-game-core`'s generic session/poll/render wiring — everything that
-// is the same for every game on this engine lives in the npm package, not
-// here. This file only knows how to reach the canister and which
-// GamePlugin to use.
+// Bootstrap for the 007 duel client. Builds the actor and a push-shaped
+// `ws` over it, then hands off to `duel-game-core`'s generic session/
+// render wiring — everything that is the same for every game on this
+// engine lives in the npm package, not here. This file only knows how to
+// reach the canister and which GamePlugin to use.
 //
 // Uses @dfinity/agent loaded from esm.sh — no build step required for
 // THIS file; `duel-game-core` itself is fetched once via `npm install`
@@ -36,11 +36,12 @@ const agent = await HttpAgent.create({
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
-// Real-time push over WebSocket, in place of polling — see
-// ../../../backend/README.md's "Optional: real-time push" section.
-// connectWs() picks the right Gateway automatically (self-hosted locally,
-// public otherwise — see ../../../frontend/ws.js) and returns `undefined`
-// (falling back to polling) if `?ws=0` is in the page URL.
-const ws = connectWs({ canisterId, actor, host });
+// A push-shaped transport — see ../../../frontend/README.md's "Optional:
+// real-time push" section. connectWs() polls this same actor's plain
+// methods on a fast interval and hands back a WebSocket-like object (no
+// Gateway, no third-party library — see ../../../frontend/ws/poller.js).
+// `app.js`'s start() sends every action and refresh over this — there is
+// no plain-actor-call/polling code path any more, `ws` is required.
+const ws = connectWs({ actor });
 
-start({ actor, plugin, ws });
+start({ plugin, ws });

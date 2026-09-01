@@ -1,47 +1,44 @@
 // Generic bootstrap for any TwoPlayer-engine-backed game client.
 //
 // This module owns everything that's the same for every game: session
-// identity, polling `status` (or, optionally, real-time push over
-// WebSocket), the generic screens (via render.js), and dispatching clicks
-// back to the canister. It deliberately does NOT create the actor (or the
-// WebSocket) itself — the caller builds them however it likes (esm.sh, a
-// bundled `@dfinity/agent`/`ic-websocket-js`, mocks for tests, ...) and
-// hands them to `start()`. That keeps this package decoupled from any
-// particular agent- or transport-loading strategy.
+// identity, real-time push over `ws`, the generic screens (via
+// render.js), and dispatching clicks back to the canister. It
+// deliberately does NOT create the WebSocket-like `ws` itself — the
+// caller builds it however it likes (`duel-game-core/ws.js`'s
+// `connectWs()`, a real `ic-websocket-js` `IcWebSocket`, a mock for
+// tests, ...) and hands it to `start()`. That keeps this package
+// decoupled from any particular transport-loading strategy.
 //
 //   1. `sid` identifies the PLAYER, not the game. There is ONE global
 //      board; a session id is how you claim a seat on it. Keeping it in
 //      sessionStorage (per-tab) means a second tab is automatically a
 //      second player.
-//   2. `status(sid)` returns a per-caller View that already encodes which
-//      screen to show — see render.js.
-//   3. The IC has no native server push, so by default this polls `status`
-//      (a cheap query) on an interval. If the host canister wires
-//      `mo:duel-game-core/Ws` and the caller passes `ws` (see below),
-//      polling is replaced entirely by push: actions are sent over the
-//      socket and the resulting view arrives the instant the canister
-//      pushes it, for both players.
+//   2. `status(sid)` (sent as a `#status` request over `ws`) returns a
+//      per-caller View that already encodes which screen to show — see
+//      render.js.
+//   3. There is exactly one transport: everything — every action AND
+//      every refresh — goes over `ws`. `start()` never calls a plain
+//      actor method itself and never runs a poll loop of its own; see
+//      `ws.js`'s own header for why that's still fine on the IC, which
+//      has no native server push (short version: `ws.js`'s `connectWs()`
+//      builds a `ws` that polls internally and hands back a
+//      WebSocket-shaped object, so `start()` doesn't have to know or
+//      care that it isn't a real socket).
 //
-// Usage (polling — always works):
+// Usage:
 //
+//   import { connectWs } from "duel-game-core/ws.js";
 //   import { start } from "duel-game-core/app.js";
 //   import { plugin } from "./my-game-plugin.js";
 //
-//   start({ actor, plugin });
+//   const ws = connectWs({ actor });
+//   start({ plugin, ws });
 //
-// Usage (optional real-time push — see ../backend/README.md's "Optional:
-// real-time push" section and this package's README for the full recipe):
-//
-//   const ws = new IcWebSocket(gatewayUrl, undefined, wsConfig); // ic-websocket-js
-//   start({ actor, plugin, ws });
-//
-// `actor` must implement the 7-method service from idl.js:
-// join/submit/rematch/leave/reset/ackEnded/status. `ws`, if given, must
-// implement the standard WebSocket-like surface `ic-websocket-js`'s
-// `IcWebSocket` already does: assignable `onopen`/`onmessage`/`onclose`/
-// `onerror` and a `send(msg)` that candid-encodes `msg` as a
-// `Ws.Msg<State, Action>` (see idl.js) — `start()` takes ownership of the
-// four handlers once `ws` is passed in.
+// `ws` must implement the standard WebSocket-like surface (assignable
+// `onopen`/`onmessage`/`onclose`/`onerror` and a `send(msg)` where `msg`
+// is a plain JS object shaped like `Ws.Msg<State, Action>` — see
+// idl.js) — `start()` takes ownership of the four handlers once passed
+// in.
 
 import { renderView, errText } from "./render.js";
 
@@ -53,29 +50,42 @@ function randomSid() {
   return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
-/// Boots the generic session/poll/click wiring against `actor`, using
-/// `plugin` for the game-specific board and action markup.
+/// Structural equality for two decoded Candid values (Views, here) — used
+/// to skip a redundant re-render when a push tick delivers the exact same
+/// view as last time (the common case: nothing happened between ticks).
+/// Not `JSON.stringify(a) === JSON.stringify(b)`: Motoko `Nat`/`Int`
+/// fields decode to JS `bigint`, which `JSON.stringify` throws on.
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object") return false;
+  if (a === null || b === null) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every(
+    (k) => Object.hasOwn(b, k) && deepEqual(a[k], b[k]),
+  );
+}
+
+/// Boots the generic session/click wiring against `ws`, using `plugin`
+/// for the game-specific board and action markup.
 ///
-/// Options (all optional except `actor`/`plugin`):
+/// Options (all optional except `plugin`/`ws`):
 ///   sidElId      - id of the element that displays the session id (default "sid")
 ///   newSidBtnId  - id of a "play as someone else" button (default "new-sid")
 ///   screenElId   - id of the element `renderView` output is written into (default "screen")
 ///   errorElId    - id of the element transient errors are shown in (default "error")
-///   pollMs       - status poll interval in ms; ignored when `ws` is given (default 1000)
-///   ws           - optional WebSocket transport (see the file header); when
-///                  given, replaces both polling AND actor.* action calls
+///   ws           - WebSocket-like transport (see the file header)
 export function start({
-  actor,
   plugin,
   ws,
   sidElId = "sid",
   newSidBtnId = "new-sid",
   screenElId = "screen",
   errorElId = "error",
-  pollMs = 1000,
 } = {}) {
-  if (!actor) throw new Error("start(): `actor` is required");
   if (!plugin) throw new Error("start(): `plugin` is required");
+  if (!ws) throw new Error("start(): `ws` is required");
 
   // ---------------------------------------------------------------------
   // Session identity. sessionStorage is per-tab, so tab #2 is player #2.
@@ -115,11 +125,10 @@ export function start({
   }
 
   // ---------------------------------------------------------------------
-  // Calls. Every update pauses polling, then forces a refresh so the new
-  // phase lands immediately instead of on the next tick. Over `ws`, there's
-  // no response to await — the canister pushes the resulting view (or a
-  // rejection) back asynchronously; `ws.onmessage` below clears `inFlight`
-  // when that arrives.
+  // Calls. Every update marks `inFlight` so a stray click can't double
+  // -submit — there's no response to await here — the canister pushes
+  // the resulting view (or a rejection) back asynchronously over `ws`;
+  // `ws.onmessage` below clears `inFlight` when that arrives.
   // ---------------------------------------------------------------------
 
   let inFlight = false;
@@ -134,37 +143,19 @@ export function start({
     }
   }
 
-  async function call(actorFn, wsReq) {
+  function call(req) {
     if (inFlight) return;
     inFlight = true;
     document.body.classList.add("working");
-    if (ws) {
-      sendWs(wsReq);
-      return;
-    }
-    try {
-      const res = await actorFn(sid);
-      // ackEnded returns nothing; the Res-returning calls return {ok}/{err}.
-      if (res && typeof res === "object" && "err" in res) {
-        showError(errText(res.err));
-      }
-    } catch (e) {
-      showError(`Call failed: ${e.message ?? e}`);
-    } finally {
-      inFlight = false;
-      document.body.classList.remove("working");
-      await refresh();
-    }
+    sendWs(req);
   }
 
-  const doJoin = (seat) =>
-    call((s) => actor.join(s, { [seat]: null }), { join: { [seat]: null } });
-  const doSubmit = (action) =>
-    call((s) => actor.submit(s, action), { submit: action });
-  const doRematch = () => call((s) => actor.rematch(s), { rematch: null });
-  const doLeave = () => call((s) => actor.leave(s), { leave: null });
-  const doReset = () => call((s) => actor.reset(s), { reset: null });
-  const doAck = () => call((s) => actor.ackEnded(s), { ackEnded: null });
+  const doJoin = (seat) => call({ join: { [seat]: null } });
+  const doSubmit = (action) => call({ submit: action });
+  const doRematch = () => call({ rematch: null });
+  const doLeave = () => call({ leave: null });
+  const doReset = () => call({ reset: null });
+  const doAck = () => call({ ackEnded: null });
 
   // ---------------------------------------------------------------------
   // Confirmation modal, for any button marked `data-confirm="..."` (e.g.
@@ -231,42 +222,41 @@ export function start({
   });
 
   // ---------------------------------------------------------------------
-  // Refresh. Over `ws`, this SENDS a `#status` request instead of awaiting
-  // one — the resulting view arrives via `ws.onmessage` below, same path as
-  // any other action's response. Without `ws`, `status` is a cheap query,
-  // polled on an interval; we still skip ticks while an update is in
-  // flight to avoid rendering a phase about to change.
+  // Refresh. Sends a `#status` request — the resulting view arrives via
+  // `ws.onmessage` below, same path as any other action's response.
+  // Doesn't mark `inFlight`/show the "working" spinner itself (unlike
+  // `call()`): this is a sync ping, not a mutating action, so there's no
+  // pending user intent to guard.
   // ---------------------------------------------------------------------
 
-  async function refresh() {
+  function refresh() {
     if (inFlight) return;
-    if (ws) {
-      sendWs({ status: null });
-      return;
-    }
-    try {
-      screenEl.innerHTML = renderView(await actor.status(sid), plugin);
-    } catch (e) {
-      showError(`Could not reach the board: ${e.message ?? e}`);
-    }
+    sendWs({ status: null });
   }
 
-  if (ws) {
-    screenEl.innerHTML = `<p class="duel-connecting">Connecting…</p>`;
-    ws.onopen = () => refresh();
-    ws.onmessage = (ev) => {
-      inFlight = false;
-      document.body.classList.remove("working");
-      const msg = ev.data;
-      if ("err" in msg) showError(errText(msg.err));
-      else if ("view" in msg) screenEl.innerHTML = renderView(msg.view, plugin);
-    };
-    ws.onerror = (ev) => showError(`WebSocket error: ${ev?.error?.message ?? ev}`);
-    ws.onclose = () => showError("Connection closed — reload to reconnect.");
-  } else {
-    (async function loop() {
-      await refresh();
-      setTimeout(loop, pollMs);
-    })();
-  }
+  // Tracks the last view actually drawn, so a push tick that delivers the
+  // SAME view (the common case — most ticks land while nothing changed)
+  // can skip the redraw entirely. Replacing screenEl.innerHTML destroys
+  // and recreates every button in it even when the markup is byte-for-
+  // byte identical; a freshly created element under a stationary cursor
+  // isn't considered `:hover` until the next mouse move, so redrawing on
+  // every tick made hover states visibly blink on a ~500ms cycle. See
+  // deepEqual()'s own doc for why this isn't a JSON.stringify comparison.
+  let lastView;
+
+  screenEl.innerHTML = `<p class="duel-connecting">Connecting…</p>`;
+  ws.onopen = () => refresh();
+  ws.onmessage = (ev) => {
+    inFlight = false;
+    document.body.classList.remove("working");
+    const msg = ev.data;
+    if ("err" in msg) {
+      showError(errText(msg.err));
+    } else if ("view" in msg && !deepEqual(msg.view, lastView)) {
+      lastView = msg.view;
+      screenEl.innerHTML = renderView(msg.view, plugin);
+    }
+  };
+  ws.onerror = (ev) => showError(`WebSocket error: ${ev?.error?.message ?? ev}`);
+  ws.onclose = () => showError("Connection closed — reload to reconnect.");
 }

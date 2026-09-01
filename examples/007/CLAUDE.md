@@ -14,10 +14,12 @@ concrete to copy — it is **not** part of either package itself.
 - **`src/Host.mo`** — the host actor: forwards every call to the
   engine with `Time.now()` and `Rules.spec()`, wired exactly as
   `../../backend/README.md`'s example shows. Deploy target. Also wires
-  `mo:duel-game-core/Ws` (the optional WebSocket push transport) side by
-  side with the 7 plain methods — both forward into the SAME `table`, so
-  they always agree; see `../../backend/README.md`'s "Optional: real-time
-  push" section for the design this mirrors.
+  `mo:duel-game-core/Ws` (an alternative, real-server-push transport)
+  side by side with the 7 plain methods, purely as a complete reference —
+  this game's own frontend doesn't call it; `frontend/app.js` gets its
+  push-shaped UI from `duel-game-core/ws.js` polling the plain 7 methods
+  instead, no extra backend wiring required. See
+  `../../backend/README.md`'s "Optional: real-time push" section.
 - **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
   `Rules.test.mo` are scenario walks (one long session / the headline
   game rules); `Engine.test.mo` and `RulesUnit.test.mo` are per-operation
@@ -37,20 +39,21 @@ concrete to copy — it is **not** part of either package itself.
   game-specific surface: it implements the `GamePlugin` contract
   (`idlTypes`, `seatLabel`, `renderBoard`, `renderActions`) from
   `../../frontend/README.md`. `app.js` builds the actor, calls
-  `duel-game-core/ws.js`'s `connectWs({ canisterId, actor, host })` for
-  real-time push (see `../../backend/README.md`'s "Optional: real-time
-  push" section) — this game's own code never touches `ic-websocket-js`
-  or a Gateway URL directly; `connectWs()` picks `../../gateway/`'s
-  self-hosted Gateway for a local deploy or the public one on mainnet
-  automatically (`?ws=0` forces plain polling either way; `?gateway=<url>`
-  overrides) — and calls `start({ actor, plugin, ws })` —
-  every screen that's the same for every game (lobby, staging, rematch,
-  busy countdown, debrief chrome, session identity, polling/push) comes
-  from the npm package. `style.css` here holds only 007-specific visuals
-  (narration box, agent stat panels, resource pips), layered on top of
-  `node_modules/duel-game-core/style.css` (loaded first in `index.html`),
-  which supplies the page chrome and the CSS custom properties this file
-  reuses.
+  `duel-game-core/ws.js`'s `connectWs({ actor })` for the push-shaped
+  transport `start()` requires (see `../../frontend/README.md`'s
+  "Real-time push" section) — this game's own code never touches a
+  WebSocket, a Gateway, or any third-party library at all;
+  `connectWs()` just polls the same plain actor methods on a fast
+  interval and hands back a WebSocket-like object (`?wsInterval=<ms>`
+  tunes the poll rate) — and calls `start({ plugin, ws })` — every screen
+  that's the same for every game (lobby, staging, rematch, busy
+  countdown, debrief chrome, session identity, push) comes from the npm
+  package. There is no polling fallback anywhere in this stack any more —
+  `ws` is required, `start()` throws without one. `style.css` here holds
+  only 007-specific visuals (narration box, agent stat panels, resource
+  pips), layered on top of `node_modules/duel-game-core/style.css`
+  (loaded first in `index.html`), which supplies the page chrome and the
+  CSS custom properties this file reuses.
 
 ## Toolchain
 
@@ -79,10 +82,9 @@ concrete to copy — it is **not** part of either package itself.
   a local `file:` dependency when it thinks something changed (a version
   bump, or the target simply not existing yet). To force a refresh after
   touching the root package, `rm -rf node_modules/duel-game-core && npm
-  install`. `ic-websocket-js` is NOT an npm dependency here — `app.js`
-  never imports it; `duel-game-core/ws.js` (see `../../../CLAUDE.md`'s
-  toolchain note) is the one place that does, loaded from esm.sh, so no
-  bundler is needed to resolve its own dependency tree.
+  install`. `duel-game-core/ws.js` (see `../../../CLAUDE.md`'s toolchain
+  note) is plain polling of the actor wearing a WebSocket-shaped
+  interface — no third-party library, no bundler needed.
 
 ## Build & test
 

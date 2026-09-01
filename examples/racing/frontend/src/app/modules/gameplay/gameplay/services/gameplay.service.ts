@@ -39,6 +39,14 @@ export class GameplayService {
 
   private mapData: MapDataModel | undefined;
   private stepsCount: number = 0;
+  // Set true by startRace(), cleared the moment the FIRST onStepComplete()
+  // after it runs — decouples "should this step animate" from stepsCount's
+  // actual value, since startRace() now seeds stepsCount from the
+  // canister's true round count on a mid-race reload (see its own doc)
+  // rather than always 0. The very first step after (re)starting is
+  // always a snap to the current position, never an animation, whether
+  // that's round 0 of a fresh race or round 40 of one just reconnected to.
+  private isFirstStepSinceStart: boolean = true;
   // whether the move whose result is about to arrive (the one most recently requested for mySlot)
   // was a forced skip (crash penalty) rather than a real player-selected move
   private lastRequestedMoveWasSkip: boolean = false;
@@ -87,14 +95,23 @@ export class GameplayService {
   }
 
   // Runs once per race — the first one, and again on every rematch (see
-  // LobbyConnectionService.raceStarted). This service is a page-lifetime
-  // singleton, never recreated between races, so every field below must be
-  // reset explicitly here — skipping this on a rematch would leak the
-  // previous race's crash-recovery/skip state, step counter, and
-  // lap-tracking cache straight into the new one.
-  startRace() {
+  // LobbyConnectionService.raceStarted). Also runs when a page reload
+  // lands back in a race already under way — from THIS service's point
+  // of view that's indistinguishable from "a race just started" (it's a
+  // page-lifetime singleton, but it's never lived through the earlier
+  // part of this race). `resumedAtStep` is the canister's true current
+  // round (0 for a genuinely fresh race, nonzero on a reload) — seeding
+  // stepsCount from it, instead of always 0, keeps the HUD's elapsed-time
+  // clock (see GameStateService.resetRaceClock) and the lap-tracking
+  // cache's own timestamps consistent with the ACTUAL race progress
+  // rather than restarting from zero and staying permanently offset for
+  // the rest of the race. Every field below must be reset explicitly
+  // here regardless — skipping this on a rematch would leak the previous
+  // race's crash-recovery/skip state straight into the new one.
+  startRace(resumedAtStep: number = 0) {
     this.isWaitingPlayers = true;
-    this.stepsCount = 0;
+    this.stepsCount = resumedAtStep;
+    this.isFirstStepSinceStart = true;
     this.lastRequestedMoveWasSkip = false;
     this.lastCarPositionsOnRoadSpline = new Map();
     this.gameStateService.skippedMovesRemaining.next(0);
@@ -104,7 +121,7 @@ export class GameplayService {
     this.gameStateService.currentlySelectedTrajectory.next(null);
     this.gameStateService.currentStepArcProperties.next(null);
     this.gameStateService.playerPositions.next(null);
-    this.gameStateService.resetRaceClock();
+    this.gameStateService.resetRaceClock(resumedAtStep);
     this.lobbyConnectionService.emitLoadingStateChanged(false)
       .subscribe();
   }
@@ -167,7 +184,14 @@ export class GameplayService {
       };
     }
     this.stepsCount++;
-    const isPlayAnimation: boolean = this.stepsCount > 1;
+    // The first step delivered after (re)starting is always a snap to the
+    // current position (see startRace()'s own doc) — NOT `stepsCount > 1`,
+    // which only worked back when stepsCount was unconditionally 0 at the
+    // start of every race; it now seeds from the true round count on a
+    // mid-race reload, so a fixed threshold would wrongly animate the
+    // very first (sync) step there.
+    const isPlayAnimation: boolean = !this.isFirstStepSinceStart;
+    this.isFirstStepSinceStart = false;
     if (isPlayAnimation) {
       await this.playAnimations(steps);
     }

@@ -142,31 +142,35 @@ service and pair it with a **GamePlugin** on the frontend — see
 
 ### Optional: real-time push
 
-By default, every game on this engine is driven by polling: the frontend
-calls the cheap `status` query on an interval (see
-[`../frontend/README.md`](../frontend/README.md)). `src/Ws.mo` — imported
-separately as `mo:duel-game-core/Ws`, never merged into the engine itself
-— adds an opt-in transport that replaces polling with real-time push,
-built on [`ic-websocket-cdk`](https://github.com/omnia-network/ic-websocket-cdk-mo)
+Every game on this engine is driven by `duel-game-core/ws.js` on the
+frontend, with **zero backend changes** — see that package's README for
+how it works (short version: it polls the SAME plain 7 methods below, on
+a fast interval, and hands the caller a WebSocket-like object; there is
+no plain-polling mode to fall back to any more, `ws` is required).
+Nothing below this point is required reading unless you want *actual*
+server push over a real external relay instead of fast client-side
+polling wearing a push-shaped interface.
+
+`src/Ws.mo` — imported separately as `mo:duel-game-core/Ws`, never merged
+into the engine itself — is that real-push alternative, built on
+[`ic-websocket-cdk`](https://github.com/omnia-network/ic-websocket-cdk-mo)
 (mops) and its matching browser client,
 [`ic-websocket-js`](https://github.com/omnia-network/ic-websocket-sdk-js)
-(npm).
-
-**Why this is a separate module, not part of the engine.** The IC has no
-native WebSocket support — `ic-websocket-cdk` works by having the browser
-open a real WebSocket to a relay, the **WS Gateway**, which polls the
-canister's `ws_get_messages` and relays both directions. [`gateway/`](../gateway/)
-in this repo builds and runs
-[the Gateway](https://github.com/omnia-network/ic-websocket-gateway) in
-Docker for local development (`docker compose up --build` there — see
-its README); `examples/007/frontend/app.js` points at it automatically
-for a local deploy, and at the CDK authors' public instance
-(`wss://gateway.icws.io`) otherwise. That CDK depends on the legacy
-`mo:base` (this package's own code never does —
-see the root `CLAUDE.md`'s toolchain rule), and its last release
-(`0.4.1`, Oct 2024) predates this repo. Keeping it confined to `Ws.mo`
-means a host actor that never imports `mo:duel-game-core/Ws` never
-compiles any of that in; `src/lib.mo` stays exactly as pure as the
+(npm). The IC has no native WebSocket support — `ic-websocket-cdk` works
+by having the browser open a real WebSocket to a relay, the **WS
+Gateway**, which polls the canister's `ws_get_messages` and relays both
+directions; you'd need to run one yourself (or point at the CDK authors'
+public instance, `wss://gateway.icws.io`) and wire `ic-websocket-js` into
+your frontend by hand — none of that is bundled in this repo any more
+(an earlier version of this package shipped a self-hosted Gateway Docker
+setup and a `ws.js` that spoke to it directly; both were dissolved in
+favor of the frontend polling its own canister once it became clear a
+real Gateway process bought nothing a 2-player casual game actually
+needed). That CDK depends on the legacy `mo:base` (this package's own
+code never does — see the root `CLAUDE.md`'s toolchain rule), and its
+last release (`0.4.1`, Oct 2024) predates this repo. Keeping it confined
+to `Ws.mo` means a host actor that never imports `mo:duel-game-core/Ws`
+never compiles any of that in; `src/lib.mo` stays exactly as pure as the
 architecture rules require.
 
 **The wire protocol.** `ic-websocket-js` requires ONE application-message
@@ -237,20 +241,19 @@ Add the dependency: `mops add ic-websocket-cdk` (pins `0.4.1`). On the
 frontend, `duel-game-core/idl.js`'s `makeIdlFactory` already declares the
 four `ws_*` Candid methods for every game (fixed CDK shapes plus your
 game's `Action`/`State` embedded in `Ws.Msg`) — nothing game-specific to
-add there. A game's client code doesn't need to touch `ic-websocket-js`
-at all: `duel-game-core/ws.js`'s `connectWs({ canisterId, actor, host })`
-builds a ready-to-use `ws`, and `app.js`'s `start()` takes it as an
-optional param — see [`../frontend/README.md`](../frontend/README.md).
+add there, but note `duel-game-core/ws.js`'s shipped `connectWs()`
+doesn't call any of them (see above); wiring a real `ic-websocket-js`
+client against this is on you.
 
-See `examples/007/src/Host.mo` and `examples/007/frontend/app.js` for a
-complete, wired example. **This has been type-checked and reviewed
-against the CDK's actual source and its own reference test canister, and
-[`gateway/`](../gateway/)'s Docker image has been built and smoke-tested
-locally — but the full round trip (a canister, this gateway, and a
-browser actually joining and seeing a push) has not been proven
-end-to-end.** The wiring is new; treat it as a solid starting point, not
-a battle-tested one, and sanity-check it against a real deploy before
-relying on it.
+`examples/007/src/Host.mo` and `examples/racing/src/Host.mo` both wire
+`Ws.mo` (harmlessly unused, since neither example's frontend talks to it
+— left in place as a complete, type-checked reference for anyone who
+wants to build a real Gateway-backed client against it). **This has been
+type-checked and reviewed against the CDK's actual source and its own
+reference test canister, but the full round trip (a canister, a Gateway,
+and a browser actually joining and seeing a push) has not been proven
+end-to-end.** Treat it as a solid starting point, not a battle-tested
+one, and sanity-check it against a real deploy before relying on it.
 
 ### Build & test
 

@@ -1,12 +1,14 @@
-// Bootstrap for the racing duel client. Builds the actor, then hands off
-// to duel-game-core's generic session/poll/render wiring for everything
-// that's the same for every game on this engine (lobby, staging, rematch,
-// debrief, session identity, polling/push) — see index.html's #screen. It
-// also publishes that same actor on `window.duelActorReady` so the app's
-// own esbuild bundle loaded alongside this page (see main.ts) can drive
-// the actual 3D race against the identical session, without building a
-// second one — see
-// ../app/modules/gameplay/game-communication/utils/duel-actor.ts.
+// Bootstrap for the racing duel client. Builds the actor and a
+// push-shaped `ws` over it, then hands off to duel-game-core's generic
+// session/render wiring for everything that's the same for every game on
+// this engine (lobby, staging, rematch, debrief) — see index.html's
+// #screen. It also publishes that same actor AND `ws` on
+// `window.duelActorReady`/`duelWsReady` so the app's own esbuild bundle
+// loaded alongside this page (see main.ts) can drive the actual 3D race
+// against the identical session and the SAME poller, without building
+// either a second actor or a second poll loop — see
+// ../app/modules/gameplay/game-communication/utils/duel-actor.ts and
+// game-communication/services/lobby-connection.service.ts.
 //
 // Uses @dfinity/agent loaded from esm.sh — no build step required for
 // THIS file; `duel-game-core` itself is fetched once via `npm install`
@@ -27,8 +29,8 @@ import { plugin } from './duel-racing-plugin.js';
 // INLINE (non-module) script in index.html's <head>, so the Promise exists
 // before any deferred module script runs — the app's own bundle can then
 // safely `await` it no matter which of the two loads/executes first.
-if (!window.__resolveDuelActor) {
-  throw new Error("window.__resolveDuelActor is missing — check index.html's inline bootstrap script");
+if (!window.__resolveDuelActor || !window.__resolveDuelWs) {
+  throw new Error("window.__resolveDuelActor/__resolveDuelWs is missing — check index.html's inline bootstrap script");
 }
 
 const env = readIcEnv();
@@ -52,15 +54,20 @@ const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
 window.__resolveDuelActor(actor);
 
-// Real-time push over WebSocket, in place of polling, for the generic
-// lobby/staging/rematch/debrief chrome below — see ../../../../../backend/
-// README.md's "Optional: real-time push" section. connectWs() picks the
-// right Gateway automatically (self-hosted locally, public otherwise —
-// see ../../../../../frontend/ws.js) and returns `undefined` (falling
-// back to polling) if `?ws=0` is in the page URL. NOTE: this only
-// migrates the chrome — the actual race (lobby-connection.service.ts)
-// still polls independently, unchanged; see that file's own header
-// comment.
-const ws = connectWs({ canisterId, actor, host });
+// A push-shaped transport for the generic lobby/staging/rematch/debrief
+// chrome below — see ../../../../../frontend/README.md's "Optional:
+// real-time push" section. connectWs() polls this same actor's plain
+// methods on a fast interval and hands back a WebSocket-like object (no
+// Gateway, no third-party library — see
+// ../../../../../frontend/ws/poller.js). `app.js`'s start() sends every
+// action and refresh over this — there is no plain-actor-call/polling
+// code path any more, `ws` is required.
+//
+// Published on window.duelWsReady (same pattern as the actor above) so
+// lobby-connection.service.ts shares this EXACT poller for the actual
+// race instead of running a second independent one — `PollingWs` extends
+// EventTarget for exactly this, see its own header.
+const ws = connectWs({ actor });
+window.__resolveDuelWs(ws);
 
-start({ actor, plugin, ws });
+start({ plugin, ws });

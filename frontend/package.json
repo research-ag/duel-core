@@ -1,7 +1,7 @@
 {
   "name": "duel-game-core",
   "version": "0.1.0",
-  "description": "Rules-agnostic client plumbing for a TwoPlayer-engine-backed game: session identity, polling, and generic lobby/staging/rematch/debrief screens.",
+  "description": "Rules-agnostic client plumbing for a TwoPlayer-engine-backed game: session identity, real-time push, and generic lobby/staging/rematch/debrief screens.",
   "type": "module",
   "main": "app.js",
   "exports": {
@@ -11,6 +11,7 @@
     "./idl.js": "./idl.js",
     "./ic-env.js": "./ic-env.js",
     "./ws.js": "./ws.js",
+    "./ws/poller.js": "./ws/poller.js",
     "./style.css": "./style.css"
   },
   "files": [
@@ -19,6 +20,7 @@
     "idl.js",
     "ic-env.js",
     "ws.js",
+    "ws",
     "style.css",
     "README.md"
   ],

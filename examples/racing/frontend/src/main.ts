@@ -52,12 +52,15 @@ if (!hudContainer) {
 }
 hud.mount(hudContainer);
 
-// Fires once for the very first race and again on every rematch (see
+// Fires once for the very first race (including a page reload landing
+// back in a race already under way) and again on every rematch (see
 // LobbyConnectionService.raceStarted's doc). Scene/map setup only ever
 // runs once (sceneInitialized guard); every emission — including the
-// first — resets and (re)starts the actual race via startRace().
+// first — resets and (re)starts the actual race via startRace(), passing
+// through `resumedAtStep` so a mid-race reload seeds the HUD clock/step
+// counter from the TRUE current round instead of restarting them from 0.
 let sceneInitialized = false;
-lobbyConnectionService.connectToLobby().subscribe(async () => {
+lobbyConnectionService.connectToLobby().subscribe(async ({ resumedAtStep }) => {
   if (!sceneInitialized) {
     sceneInitialized = true;
     await gameplayService.init();
@@ -82,6 +85,6 @@ lobbyConnectionService.connectToLobby().subscribe(async () => {
     gameStateService.cars.subscribe(check);
   });
 
-  gameplayService.startRace();
+  gameplayService.startRace(resumedAtStep);
   document.body.classList.add('race-ready');
 });

@@ -18,12 +18,19 @@ top.
   `backend/README.md`'s "Optional: real-time push" section. It is never
   merged into `lib.mo`; see the toolchain note below.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
-  client plumbing (session identity, polling or optional WebSocket push,
-  the generic lobby/staging/rematch/busy/debrief screens, Candid IDL
-  scaffolding). See [`frontend/README.md`](frontend/README.md) for the
-  `GamePlugin` contract (Candid types, seat labels, board/action
-  rendering) a game implements, and its "Optional: real-time push"
-  section for the matching `ws` param.
+  client plumbing (session identity, WebSocket-shaped push, the generic
+  lobby/staging/rematch/busy/debrief screens, Candid IDL scaffolding).
+  See [`frontend/README.md`](frontend/README.md) for the `GamePlugin`
+  contract (Candid types, seat labels, board/action rendering) a game
+  implements, and its "Real-time push" section for the required `ws`
+  param — there is no plain-polling mode, `start()` throws without one.
+  `frontend/ws/` (`ws.js` is its public entry point) is that push
+  transport: it polls the SAME plain 7 methods on a fast interval and
+  hands back a WebSocket-shaped object — no Gateway process, no
+  `ic-websocket-js`, no backend changes needed.
+  `backend/src/Ws.mo` is a separate, unrelated-by-default module for
+  anyone who wants *real* server push over an actual external Gateway
+  instead — see below.
 - **`backend/test/*.test.mo`** — interpreter-run suites for the engine.
   `Lifecycle.test.mo` walks one long session narrative; `Engine.test.mo`
   drives each entry point in isolation, covering the error variants,
@@ -50,13 +57,6 @@ is a whole workflow with its own hard-won lessons: see the
 `duel-game-core-new-game` skill
 (`.agents/skills/duel-game-core-new-game/SKILL.md`) before starting.
 
-- **`gateway/`** — Docker config that builds and runs
-  [`omnia-network/ic-websocket-gateway`](https://github.com/omnia-network/ic-websocket-gateway)
-  from source (`docker compose up --build`), the off-chain relay
-  `backend/src/Ws.mo`'s optional push transport needs against a local
-  replica. Vendors no upstream source — the `Dockerfile` clones a pinned
-  release tag at build time. See `gateway/README.md`.
-
 ## Toolchain
 
 - moc **1.11.2** (mops toolchain).
@@ -71,17 +71,14 @@ is a whole workflow with its own hard-won lessons: see the
 - `bench-helper` is a dev-dependency, used only by `backend/bench/`.
   Benchmarking requires `[toolchain] pocket-ic` and `wasm-opt` pinned in
   `mops.toml` (already done) — `mops bench` fails outright without them.
-- The frontend package has no npm dependencies of its own — `app.js`'s
-  `start()` takes an already-constructed IC `actor` (and, optionally, a
-  WebSocket-like `ws`) from its caller (see `frontend/README.md`), so it
-  never hardcodes an agent-loading strategy. `frontend/ws.js` is the one
-  deliberate, narrow exception: it imports `ic-websocket-js` from esm.sh
-  to build that optional `ws` FOR the caller, because — unlike agent
-  loading — `Ws.mo`'s wire protocol leaves no real choice for a game to
-  make there; it's callable, not required (`start()` itself is unchanged
-  either way). Don't let that precedent creep into `app.js`/`idl.js`/
-  `render.js` themselves, or justify a real npm dependency anywhere in
-  this package — see rule 10.
+- The frontend package has no npm dependencies at all, full stop —
+  `app.js`'s `start()` takes an already-constructed IC `actor` (and,
+  optionally, a WebSocket-like `ws`) from its caller (see
+  `frontend/README.md`), so it never hardcodes an agent-loading strategy.
+  `frontend/ws.js`/`frontend/ws/poller.js` build that optional `ws` FOR
+  the caller by polling `actor`'s own plain methods — no external
+  library, no Gateway URL, nothing to load from a CDN. Don't let a real
+  npm dependency creep into this package anywhere — see rule 10.
 
 ## Build & test
 
@@ -111,7 +108,7 @@ mops bench
 ```bash
 # Frontend (from the repo root): syntax/sanity check — no build step, no
 # DOM needed to import:
-node --check frontend/app.js frontend/render.js frontend/idl.js frontend/ic-env.js
+node --check frontend/app.js frontend/render.js frontend/idl.js frontend/ic-env.js frontend/ws.js frontend/ws/poller.js
 ```
 
 With mops installed, `<path-to-core/src>` is typically
@@ -152,13 +149,14 @@ resolved relative to `backend/`.
    `query`. Lazy idle-reset happens only in mutating calls.
 9. **Pending moves are hidden by construction**: `status` exposes only
    Booleans for the opponent's pending move, never the move itself.
-10. **The frontend never assumes an agent-loading strategy.** `app.js`'s
-    `start()` takes an already-built `actor` (and, optionally, an
-    already-built `ws`); it doesn't import `@dfinity/agent` or hardcode a
-    CDN. Don't reintroduce that coupling. `frontend/ws.js`'s `ic-websocket-js`
-    import is the one documented exception (see the toolchain note above)
-    — it builds a `ws` a caller can choose to use, `start()` itself stays
-    exactly as agnostic as before.
+10. **The frontend never assumes an agent-loading strategy, and has no
+    npm dependencies at all.** `app.js`'s `start()` takes an already-built
+    `actor` (and, optionally, an already-built `ws`); it doesn't import
+    `@dfinity/agent` or hardcode a CDN. `frontend/ws.js`/`ws/poller.js`
+    build an optional `ws` a caller can choose to use, entirely by
+    polling `actor`'s own plain methods — no third-party library
+    involved, so there's no exception to carve out here any more.
+    `start()` itself stays exactly as agnostic as before either way.
 11. **`Ws.mo` reimplements no game logic.** Every WebSocket request
     dispatches to the same plain engine operations (`TP.join`,
     `TP.submit`, ...) the 7-method polling surface uses — it's a second

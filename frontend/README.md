@@ -4,7 +4,7 @@ Rules-agnostic browser client for any canister built on the
 [`duel-game-core`](../backend/README.md) Motoko engine. It implements every screen
 that's the same for every game — lobby, staging, rematch offer, busy
 countdown, debrief chrome, the `#endedByOther` notice — plus session
-identity and polling, so a new game only has to supply a small
+identity and real-time push, so a new game only has to supply a small
 **GamePlugin**: the two Candid types, seat labels, and how to draw the
 board and action buttons.
 
@@ -63,19 +63,22 @@ messages, verdict banner, rematch/leave/forfeit buttons) is handled by
 
 You build the `actor` — this package doesn't import `@dfinity/agent` or
 hardcode a CDN, so you're free to load it however you like (esm.sh, a
-bundled dependency, a mock for tests):
+bundled dependency, a mock for tests) — and a `ws` over it (see "Real-time
+push" below; `start()` requires one, there is no plain-polling mode):
 
 ```js
 import { Actor, HttpAgent } from "@dfinity/agent"; // however you prefer to load it
 import { makeIdlFactory } from "duel-game-core/idl.js";
 import { start } from "duel-game-core/app.js";
+import { connectWs } from "duel-game-core/ws.js";
 import { plugin } from "./my-game-plugin.js";
 
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const agent = await HttpAgent.create({ host });
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
+const ws = connectWs({ actor });
 
-start({ actor, plugin });
+start({ plugin, ws });
 ```
 
 `start()` expects a handful of element ids in your page (all optional,
@@ -96,40 +99,64 @@ shown here with their defaults):
   are delegated from, so re-rendering never leaks event listeners.
 - `error` — where a transient rejection (`errText`) is shown.
 
-Override any of the ids: `start({ actor, plugin, sidElId: "...", ... })`.
+Override any of the ids: `start({ plugin, ws, sidElId: "...", ... })`.
 
-## Optional: real-time push
+## Real-time push
 
-By default `start()` polls `status` on an interval. If the host canister
-wires `mo:duel-game-core/Ws` (see
-[`../backend/README.md`](../backend/README.md)'s "Optional: real-time
-push" section), pass a `ws` alongside `actor` and polling is replaced
-entirely by push — actions are sent over the socket and the resulting
-view arrives the instant the canister pushes it, for both players:
+`start()` has exactly one transport: a WebSocket-shaped `ws` is
+required. Every action is sent through `ws.send()` and the resulting
+view arrives via `ws.onmessage`, for both players:
 
 ```js
 import { connectWs } from "duel-game-core/ws.js";
+import { start } from "duel-game-core/app.js";
 
-const ws = connectWs({ canisterId, actor, host });
-start({ actor, plugin, ws });
+const ws = connectWs({ actor });
+start({ plugin, ws });
 ```
 
-`connectWs()` picks the Gateway automatically — `../gateway/`'s
-self-hosted instance (see its README) for a local replica, the public
-`wss://gateway.icws.io` (run by `ic-websocket-cdk`'s authors) otherwise —
-and returns `undefined` (falling back to polling) if `?ws=0` is in the
-page URL; `?gateway=<url>` forces a specific one. It's the only place in
-this package that imports `ic-websocket-js` (from esm.sh, same "no build
-step" deal as everything else here) — a deliberate, narrow exception to
-`start()`'s own "never assume a transport-loading strategy" rule, since
-the wire shape `ws.js` builds is entirely fixed by `Ws.mo`'s protocol
-(see `idl.js`) — there's no real choice left for a game to make, just
-boilerplate to avoid repeating in every game's client. `start()` itself
-is unchanged: it only ever takes an already-built `ws` and just needs the
-small WebSocket-like surface `IcWebSocket` already has
-(`onopen`/`onmessage`/`onclose`/`onerror`, `send(msg)`) — bring your own
-`ic-websocket-js` (skip `ws.js` entirely) or a mock for tests if
-`connectWs()`'s choices don't fit.
+There's no Gateway process and no extra canister wiring required —
+`connectWs()` returns a small poller (`./ws/poller.js`) that calls the
+SAME plain `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`/`status`
+methods `actor` already has, on a fast interval (default 500ms;
+`?wsInterval=<ms>` overrides it), and re-shapes the results into the
+`onopen`/`onmessage`/`onclose`/`onerror`/`send(msg)` surface `start()`
+expects. It's push-shaped polling, not real server push — an opponent's
+move shows up on the next tick, not the instant it resolves, which is an
+imperceptible difference for a casual 2-player game and a much simpler
+stack (no Docker, no relay process, no signing identity, no second wire
+protocol to keep in sync with a plain one — there's only ever one
+transport). `start()` itself doesn't know or care which kind of `ws` it
+got — bring your own WebSocket-like object (a mock for tests, or a real
+one talking to `mo:duel-game-core/Ws` — see that module's own doc header
+in `../backend/src/Ws.mo` — if you want actual server push over a real
+Gateway instead) and skip `ws.js` entirely if `connectWs()`'s choices
+don't fit; `start()` only needs the four handlers and `send(msg)`,
+nothing about `ws.js`/`PollingWs` specifically.
+
+**Sharing one `ws` with a game's own runtime code, not just the generic
+chrome.** `PollingWs` extends `EventTarget`, same as a real `WebSocket`,
+so more than one part of a page can use the SAME poller instead of each
+running an independent one — publish it somewhere your other code can
+reach (e.g. on `window`, the way `examples/racing` does) and:
+
+```js
+ws.addEventListener("message", (ev) => {
+  if ("view" in ev.data) /* ...update your own UI... */;
+});
+```
+
+`ws.send(msg)` stays fire-and-forget (the plain WebSocket contract
+`app.js` relies on) — its result only ever shows up as a `message`/`error`
+event, racing against the poller's own periodic tick. If you need a
+specific call's own response correlated back to you (e.g. "was MY move
+rejected?"), use `ws.request(sid, req)` instead: same dispatch, same
+`message` event fired as a side effect, but it also returns a Promise of
+that exact call's `{ view } | { err }`, and rejects on a genuine transport
+failure. See `examples/racing/frontend/src/app/modules/gameplay/
+game-communication/services/lobby-connection.service.ts` for a complete,
+working example (its own gameplay loop, not just the chrome, runs over
+this one shared poller).
 
 ## Optional: `ic-env.js`
 
@@ -144,11 +171,12 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 
 | Module        | Exports                                   |
 | ------------- | ------------------------------------------ |
-| `idl.js`      | `makeIdlFactory(buildGameTypes)` — also declares the 4 `ws_*` methods (see "Optional: real-time push") |
+| `idl.js`      | `makeIdlFactory(buildGameTypes)` — also declares 4 `ws_*` methods for the optional `Ws.mo`/Gateway path (unused by `ws.js`; see `../backend/src/Ws.mo`) |
 | `render.js`   | `renderView(view, plugin)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
-| `app.js`      | `start({ actor, plugin, ws, ...elIds })`   |
+| `app.js`      | `start({ plugin, ws, ...elIds })`          |
 | `ic-env.js`   | `readIcEnv()`, `deriveHost()` (optional)   |
-| `ws.js`       | `connectWs({ canisterId, actor, host, ...opts })` (optional — see "Optional: real-time push") |
+| `ws.js`       | `connectWs({ actor, ...opts })` — see "Real-time push"; `start()` requires its result |
+| `ws/poller.js`| `PollingWs`, `connectWs()` — the actual implementation behind `ws.js` |
 | `style.css`   | generic layout primitives                  |
 
 See [`../backend/README.md`](../backend/README.md) for the matching
