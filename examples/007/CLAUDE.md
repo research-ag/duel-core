@@ -11,9 +11,13 @@ concrete to copy — it is **not** part of either package itself.
   via `spec() : TP.Spec<State, Action>`, where `TP` is
   `mo:duel-game-core` (imported from `../../backend` — see
   `mops.toml`).
-- **`example/Host.mo`** — the host actor: forwards every call to the
+- **`src/Host.mo`** — the host actor: forwards every call to the
   engine with `Time.now()` and `Rules.spec()`, wired exactly as
-  `../../backend/README.md`'s example shows. Deploy target.
+  `../../backend/README.md`'s example shows. Deploy target. Also wires
+  `mo:duel-game-core/Ws` (the optional WebSocket push transport) side by
+  side with the 7 plain methods — both forward into the SAME `table`, so
+  they always agree; see `../../backend/README.md`'s "Optional: real-time
+  push" section for the design this mirrors.
 - **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
   `Rules.test.mo` are scenario walks (one long session / the headline
   game rules); `Engine.test.mo` and `RulesUnit.test.mo` are per-operation
@@ -25,31 +29,42 @@ concrete to copy — it is **not** part of either package itself.
   `*.test.mo` suffix is what `mops test` discovers — a file named
   `FooTest.mo` is silently skipped, so keep the suffix when adding
   suites.
-- **`icp.yaml`** — icp-cli manifest; deploys `example/Host.mo` as
+- **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as
   canister `backend` and `frontend/` as an asset canister.
 - **`frontend/`** — vanilla-JS web client, no bundler/build step (uses
   `@dfinity/agent` from esm.sh; `duel-game-core` fetched locally via
   `npm install`, see below). `duel007-plugin.js` is the whole
   game-specific surface: it implements the `GamePlugin` contract
   (`idlTypes`, `seatLabel`, `renderBoard`, `renderActions`) from
-  `../../frontend/README.md`. `app.js` just builds the actor and calls
-  `start({ actor, plugin })` — every screen that's the same for every
-  game (lobby, staging, rematch, busy countdown, debrief chrome, session
-  identity, polling) comes from the npm package. `style.css` here holds
-  only 007-specific visuals (narration box, agent stat panels, resource
-  pips), layered on top of `node_modules/duel-game-core/style.css`
-  (loaded first in `index.html`), which supplies the page chrome and the
-  CSS custom properties this file reuses.
+  `../../frontend/README.md`. `app.js` builds the actor, calls
+  `duel-game-core/ws.js`'s `connectWs({ canisterId, actor, host })` for
+  real-time push (see `../../backend/README.md`'s "Optional: real-time
+  push" section) — this game's own code never touches `ic-websocket-js`
+  or a Gateway URL directly; `connectWs()` picks `../../gateway/`'s
+  self-hosted Gateway for a local deploy or the public one on mainnet
+  automatically (`?ws=0` forces plain polling either way; `?gateway=<url>`
+  overrides) — and calls `start({ actor, plugin, ws })` —
+  every screen that's the same for every game (lobby, staging, rematch,
+  busy countdown, debrief chrome, session identity, polling/push) comes
+  from the npm package. `style.css` here holds only 007-specific visuals
+  (narration box, agent stat panels, resource pips), layered on top of
+  `node_modules/duel-game-core/style.css` (loaded first in `index.html`),
+  which supplies the page chrome and the CSS custom properties this file
+  reuses.
 
 ## Toolchain
 
 - moc **1.11.2** (mops toolchain), node/npm for the frontend.
 - Motoko dependencies: `duel-game-core` (path dependency on
-  `../../backend` — see `mops.toml`) and `core` (mo:core). Never import
-  `mo:base` — it is the legacy library. `duel-game-core` re-exports
-  nothing of `core`'s own surface, so `example/Host.mo`'s direct
-  `mo:core/Time` import needs `core` listed here too, same as any real
-  game repo would.
+  `../../backend` — see `mops.toml`), `core` (mo:core), and
+  `ic-websocket-cdk` (only because `src/Host.mo` opts into
+  `mo:duel-game-core/Ws` — see `../../CLAUDE.md`'s toolchain note). Never
+  import `mo:base` directly in this game's own code — it's the legacy
+  library; `ic-websocket-cdk` pulling it in transitively is a
+  documented, contained exception, not license to import it yourself.
+  `duel-game-core` re-exports nothing of `core`'s own surface, so
+  `src/Host.mo`'s direct `mo:core/Time` import needs `core` listed here
+  too, same as any real game repo would.
 - The frontend's only npm dependency is `duel-game-core` itself, pulled
   in as a `file:../../../frontend` dependency (see
   `frontend/package.json`). `frontend/.npmrc` sets `install-links=true`
@@ -58,7 +73,16 @@ concrete to copy — it is **not** part of either package itself.
   no build step, so whatever lands in `node_modules/` is what gets
   served, byte for byte, and a symlink may not survive an asset-sync
   step. `npm install` is the only "build" this frontend needs, exactly
-  as `mops install` is for the backend.
+  as `mops install` is for the backend. **Gotcha:** because it's a copy,
+  not a symlink, a plain `npm install` after editing `../../../frontend/`
+  reports "up to date" and does NOT refresh the copy — npm only re-copies
+  a local `file:` dependency when it thinks something changed (a version
+  bump, or the target simply not existing yet). To force a refresh after
+  touching the root package, `rm -rf node_modules/duel-game-core && npm
+  install`. `ic-websocket-js` is NOT an npm dependency here — `app.js`
+  never imports it; `duel-game-core/ws.js` (see `../../../CLAUDE.md`'s
+  toolchain note) is the one place that does, loaded from esm.sh, so no
+  bundler is needed to resolve its own dependency tree.
 
 ## Build & test
 
@@ -67,8 +91,8 @@ cd examples/007
 mops install                       # fetches duel-game-core (../../backend) + core
 
 # Type-check:
-moc --check $(mops sources) Duel007Rules.mo
-moc --check $(mops sources) example/Host.mo
+moc --check $(mops sources) src/Duel007Rules.mo
+moc --check $(mops sources) src/Host.mo
 
 # Run the test suites (interpreter mode; they Debug.print progress and end
 # with "ALL ... CHECKS PASSED"; any trap = a FAIL, exit code 1):
@@ -113,7 +137,7 @@ time, rules stay pure, `validate` is the only legality gate, etc.) — read
 that file first. Two rules specific to this example:
 
 1. **The engine lives in `../../backend` and is never vendored here.**
-   `Duel007Rules.mo` and `example/Host.mo` import it as
+   `Duel007Rules.mo` and `src/Host.mo` import it as
    `mo:duel-game-core`. If you find yourself copy-pasting engine code
    into this directory to fix something, fix it in `../../backend/src/lib.mo`
    instead and re-run `mops install` here.
@@ -146,7 +170,7 @@ that file first. Two rules specific to this example:
 
 Local copies of the relevant SKILL.md playbooks live in this repo under
 `../../.agents/skills/` — the same set `../../CLAUDE.md` points to.
-Consult those before editing `Duel007Rules.mo` or `example/Host.mo`.
+Consult those before editing `Duel007Rules.mo` or `src/Host.mo`.
 
 ## Conventions
 

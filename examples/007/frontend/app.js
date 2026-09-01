@@ -13,6 +13,7 @@
 import { Actor, HttpAgent } from "https://esm.sh/@dfinity/agent@2.4.1";
 import { makeIdlFactory } from "./node_modules/duel-game-core/idl.js";
 import { start } from "./node_modules/duel-game-core/app.js";
+import { connectWs } from "./node_modules/duel-game-core/ws.js";
 import { readIcEnv, deriveHost } from "./node_modules/duel-game-core/ic-env.js";
 import { plugin } from "./duel007-plugin.js";
 
@@ -35,4 +36,11 @@ const agent = await HttpAgent.create({
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
-start({ actor, plugin });
+// Real-time push over WebSocket, in place of polling — see
+// ../../../backend/README.md's "Optional: real-time push" section.
+// connectWs() picks the right Gateway automatically (self-hosted locally,
+// public otherwise — see ../../../frontend/ws.js) and returns `undefined`
+// (falling back to polling) if `?ws=0` is in the page URL.
+const ws = connectWs({ canisterId, actor, host });
+
+start({ actor, plugin, ws });

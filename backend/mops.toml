@@ -6,6 +6,7 @@ files = [ "src/**/*.mo" ]
 
 [dependencies]
 core = "2.6.1"
+ic-websocket-cdk = "0.4.1"
 
 [optimize]
 

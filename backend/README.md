@@ -140,6 +140,118 @@ From there, generate (or hand-write) the Candid interface for this
 service and pair it with a **GamePlugin** on the frontend — see
 [`../frontend/README.md`](../frontend/README.md).
 
+### Optional: real-time push
+
+By default, every game on this engine is driven by polling: the frontend
+calls the cheap `status` query on an interval (see
+[`../frontend/README.md`](../frontend/README.md)). `src/Ws.mo` — imported
+separately as `mo:duel-game-core/Ws`, never merged into the engine itself
+— adds an opt-in transport that replaces polling with real-time push,
+built on [`ic-websocket-cdk`](https://github.com/omnia-network/ic-websocket-cdk-mo)
+(mops) and its matching browser client,
+[`ic-websocket-js`](https://github.com/omnia-network/ic-websocket-sdk-js)
+(npm).
+
+**Why this is a separate module, not part of the engine.** The IC has no
+native WebSocket support — `ic-websocket-cdk` works by having the browser
+open a real WebSocket to a relay, the **WS Gateway**, which polls the
+canister's `ws_get_messages` and relays both directions. [`gateway/`](../gateway/)
+in this repo builds and runs
+[the Gateway](https://github.com/omnia-network/ic-websocket-gateway) in
+Docker for local development (`docker compose up --build` there — see
+its README); `examples/007/frontend/app.js` points at it automatically
+for a local deploy, and at the CDK authors' public instance
+(`wss://gateway.icws.io`) otherwise. That CDK depends on the legacy
+`mo:base` (this package's own code never does —
+see the root `CLAUDE.md`'s toolchain rule), and its last release
+(`0.4.1`, Oct 2024) predates this repo. Keeping it confined to `Ws.mo`
+means a host actor that never imports `mo:duel-game-core/Ws` never
+compiles any of that in; `src/lib.mo` stays exactly as pure as the
+architecture rules require.
+
+**The wire protocol.** `ic-websocket-js` requires ONE application-message
+type shared by both directions (it reads the type straight off the
+canister's `ws_message` method's second Candid parameter at runtime) — so
+`Ws.Msg<S, M>` is a variant covering client→canister requests
+(`#req { sid; req }`, where `req` mirrors the engine's six mutating
+operations plus an explicit `#status` resync) AND canister→client pushes
+(`#view` / `#err`), not two separate types. Every mutating request re-uses
+the plain engine operations you've already wired above — `Ws.mo`
+reimplements no game logic — and, after each one, pushes a fresh `#view`
+to **every connected participant of the affected match** (both seats),
+read directly off `table.phase`'s `p1`/`p2` fields. `Hub` is what makes
+that possible: the engine's identity is a client-chosen `SessionId`
+(`Text`), decoupled from any IC principal on purpose, but a WebSocket
+connection is keyed by principal — `Hub` learns the `sid <-> principal`
+pairing from the `sid` every inbound message carries, and forgets it on
+`ws_close`.
+
+**Wiring it into a host actor** — extending the example above:
+
+```motoko
+import Ws "mo:duel-game-core/Ws";
+import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
+
+persistent actor {
+  let table : TP.Table<Rules.State, Rules.Action> = TP.create(60_000_000_000);
+
+  // ...the 7 plain methods from the example above, unchanged...
+
+  // `IcWebSocketCdk.IcWebSocket` holds live connections/closures — not a
+  // stable type. `transient` rebuilds both fresh on every upgrade; no game
+  // state is lost, since `table` is untouched by any of this and browser
+  // clients reconnect on their own.
+  transient let wsHub : Ws.Hub = Ws.createHub();
+  transient let ws = Ws.attach<Rules.State, Rules.Action>(
+    Rules.spec(), table, wsHub,
+    // Built here, where S/M are concrete — sidesteps any question of
+    // whether to_candid/from_candid specialize inside a function still
+    // generic over S/M.
+    {
+      encode = func(m : Ws.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
+      decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
+    },
+    IcWebSocketCdkTypes.WsInitParams(null, null),
+  );
+  ws.init<system>(); // starts the CDK's keep-alive/ack timers
+
+  public shared ({ caller }) func ws_open(args : IcWebSocketCdkTypes.CanisterWsOpenArguments) : async IcWebSocketCdkTypes.CanisterWsOpenResult {
+    await ws.ws_open(caller, args);
+  };
+  public shared ({ caller }) func ws_close(args : IcWebSocketCdkTypes.CanisterWsCloseArguments) : async IcWebSocketCdkTypes.CanisterWsCloseResult {
+    await ws.ws_close(caller, args);
+  };
+  public shared ({ caller }) func ws_message(args : IcWebSocketCdkTypes.CanisterWsMessageArguments, msgType : ?Ws.Msg<Rules.State, Rules.Action>) : async IcWebSocketCdkTypes.CanisterWsMessageResult {
+    await ws.ws_message(caller, args, msgType);
+  };
+  public shared query ({ caller }) func ws_get_messages(args : IcWebSocketCdkTypes.CanisterWsGetMessagesArguments) : async IcWebSocketCdkTypes.CanisterWsGetMessagesResult {
+    ws.ws_get_messages(caller, args);
+  };
+
+  // IC timers don't survive an upgrade on their own — reschedule them.
+  system func postupgrade() { ws.init<system>() };
+};
+```
+
+Add the dependency: `mops add ic-websocket-cdk` (pins `0.4.1`). On the
+frontend, `duel-game-core/idl.js`'s `makeIdlFactory` already declares the
+four `ws_*` Candid methods for every game (fixed CDK shapes plus your
+game's `Action`/`State` embedded in `Ws.Msg`) — nothing game-specific to
+add there. A game's client code doesn't need to touch `ic-websocket-js`
+at all: `duel-game-core/ws.js`'s `connectWs({ canisterId, actor, host })`
+builds a ready-to-use `ws`, and `app.js`'s `start()` takes it as an
+optional param — see [`../frontend/README.md`](../frontend/README.md).
+
+See `examples/007/src/Host.mo` and `examples/007/frontend/app.js` for a
+complete, wired example. **This has been type-checked and reviewed
+against the CDK's actual source and its own reference test canister, and
+[`gateway/`](../gateway/)'s Docker image has been built and smoke-tested
+locally — but the full round trip (a canister, this gateway, and a
+browser actually joining and seeing a push) has not been proven
+end-to-end.** The wiring is new; treat it as a solid starting point, not
+a battle-tested one, and sanity-check it against a real deploy before
+relying on it.
+
 ### Build & test
 
 We need up-to-date versions of `node`, `moc` and `mops` installed.

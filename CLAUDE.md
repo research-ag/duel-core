@@ -12,13 +12,18 @@ top.
   `backend/src/lib.mo` (the package's entry point — import it as
   `mo:duel-game-core`, no subpath). See [`backend/README.md`](backend/README.md)
   for the `Spec<S, M>` contract a game implements and a full host-actor
-  wiring example.
+  wiring example. `backend/src/Ws.mo` (`mo:duel-game-core/Ws`) is a
+  separate, OPTIONAL module layered on top of the engine: real-time push
+  over WebSocket via `ic-websocket-cdk`, instead of frontend polling — see
+  `backend/README.md`'s "Optional: real-time push" section. It is never
+  merged into `lib.mo`; see the toolchain note below.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
-  client plumbing (session identity, polling, the generic
-  lobby/staging/rematch/busy/debrief screens, Candid IDL scaffolding).
-  See [`frontend/README.md`](frontend/README.md) for the `GamePlugin`
-  contract (Candid types, seat labels, board/action rendering) a game
-  implements.
+  client plumbing (session identity, polling or optional WebSocket push,
+  the generic lobby/staging/rematch/busy/debrief screens, Candid IDL
+  scaffolding). See [`frontend/README.md`](frontend/README.md) for the
+  `GamePlugin` contract (Candid types, seat labels, board/action
+  rendering) a game implements, and its "Optional: real-time push"
+  section for the matching `ws` param.
 - **`backend/test/*.test.mo`** — interpreter-run suites for the engine.
   `Lifecycle.test.mo` walks one long session narrative; `Engine.test.mo`
   drives each entry point in isolation, covering the error variants,
@@ -45,17 +50,38 @@ is a whole workflow with its own hard-won lessons: see the
 `duel-game-core-new-game` skill
 (`.agents/skills/duel-game-core-new-game/SKILL.md`) before starting.
 
+- **`gateway/`** — Docker config that builds and runs
+  [`omnia-network/ic-websocket-gateway`](https://github.com/omnia-network/ic-websocket-gateway)
+  from source (`docker compose up --build`), the off-chain relay
+  `backend/src/Ws.mo`'s optional push transport needs against a local
+  replica. Vendors no upstream source — the `Dockerfile` clones a pinned
+  release tag at build time. See `gateway/README.md`.
+
 ## Toolchain
 
 - moc **1.11.2** (mops toolchain).
-- Only Motoko dependency: `core` (mo:core, the current Motoko standard
-  library). Never import `mo:base` — it is the legacy library.
+- `src/lib.mo` (the engine) has exactly one Motoko dependency: `core`
+  (mo:core, the current Motoko standard library). Never import `mo:base`
+  in it — that's the legacy library. `src/Ws.mo` is the sole exception:
+  it additionally depends on `ic-websocket-cdk` (which is itself built on
+  `mo:base` — outside this repo's control) — confined there on purpose,
+  so a host actor that never imports `mo:duel-game-core/Ws` never
+  compiles any of it in. Don't let a THIRD module grow a new dependency
+  without the same "why is this not in lib.mo" scrutiny.
 - `bench-helper` is a dev-dependency, used only by `backend/bench/`.
   Benchmarking requires `[toolchain] pocket-ic` and `wasm-opt` pinned in
   `mops.toml` (already done) — `mops bench` fails outright without them.
-- The frontend package has no npm dependencies of its own — it takes an
-  already-constructed IC `actor` from its caller (see
-  `frontend/README.md`), so it never hardcodes an agent-loading strategy.
+- The frontend package has no npm dependencies of its own — `app.js`'s
+  `start()` takes an already-constructed IC `actor` (and, optionally, a
+  WebSocket-like `ws`) from its caller (see `frontend/README.md`), so it
+  never hardcodes an agent-loading strategy. `frontend/ws.js` is the one
+  deliberate, narrow exception: it imports `ic-websocket-js` from esm.sh
+  to build that optional `ws` FOR the caller, because — unlike agent
+  loading — `Ws.mo`'s wire protocol leaves no real choice for a game to
+  make there; it's callable, not required (`start()` itself is unchanged
+  either way). Don't let that precedent creep into `app.js`/`idl.js`/
+  `render.js` themselves, or justify a real npm dependency anywhere in
+  this package — see rule 10.
 
 ## Build & test
 
@@ -98,8 +124,12 @@ resolved relative to `backend/`.
    types; storing the `Spec` in state would break canister upgrades. Every
    engine entry point takes `spec` as its first parameter.
 2. **The engine owns time.** `now : Int` (nanoseconds, `Time.now()` at the
-   host) is a parameter everywhere; neither module may import `Time`.
-   This is what makes the test suites deterministic.
+   host) is a parameter everywhere; `lib.mo` itself may not import `Time`.
+   This is what makes the test suites deterministic. `Ws.mo` is the one
+   documented exception — it plays the HOST's role (it calls `Time.now()`
+   itself, same as any host actor would, then hands it to the engine as a
+   parameter exactly like the plain wiring does); it is not part of the
+   engine and must never fold into `lib.mo`.
 3. **Rules stay pure.** `init`/`validate`/`resolve` in a game's `Spec`
    must remain pure functions over immutable records. State transitions
    build new records (`{ me with ... }`), never mutate.
@@ -123,8 +153,17 @@ resolved relative to `backend/`.
 9. **Pending moves are hidden by construction**: `status` exposes only
    Booleans for the opponent's pending move, never the move itself.
 10. **The frontend never assumes an agent-loading strategy.** `app.js`'s
-    `start()` takes an already-built `actor`; it doesn't import
-    `@dfinity/agent` or hardcode a CDN. Don't reintroduce that coupling.
+    `start()` takes an already-built `actor` (and, optionally, an
+    already-built `ws`); it doesn't import `@dfinity/agent` or hardcode a
+    CDN. Don't reintroduce that coupling. `frontend/ws.js`'s `ic-websocket-js`
+    import is the one documented exception (see the toolchain note above)
+    — it builds a `ws` a caller can choose to use, `start()` itself stays
+    exactly as agnostic as before.
+11. **`Ws.mo` reimplements no game logic.** Every WebSocket request
+    dispatches to the same plain engine operations (`TP.join`,
+    `TP.submit`, ...) the 7-method polling surface uses — it's a second
+    transport for the same calls, not a second code path. If the two
+    transports could ever disagree about what's legal, that's the bug.
 
 ## Skills (read before editing)
 

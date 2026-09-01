@@ -1,0 +1,30 @@
+# Local dev: builds gateway/Dockerfile and runs the WS Gateway against
+# your local dfx/icp replica. See README.md.
+#
+#   cp .env.example .env    # adjust IC_NETWORK_URL if your replica isn't
+#                            # on the default port
+#   docker compose up --build
+
+services:
+  ic-websocket-gateway:
+    build:
+      context: .
+      args:
+        GATEWAY_VERSION: ${GATEWAY_VERSION:-v1.4.6}
+    image: duel-core/ic-websocket-gateway:${GATEWAY_VERSION:-v1.4.6}
+    container_name: duel-core-ws-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    command:
+      - "--gateway-address"
+      - "0.0.0.0:8080"
+      - "--ic-network-url"
+      - "${IC_NETWORK_URL:-http://host.docker.internal:4943}"
+      - "--polling-interval"
+      - "${POLLING_INTERVAL:-100}"
+    extra_hosts:
+      # Lets `host.docker.internal` resolve on Linux too (Docker Desktop
+      # on macOS/Windows already provides it) — needed so the container
+      # can reach a replica bound to localhost on the host.
+      - "host.docker.internal:host-gateway"

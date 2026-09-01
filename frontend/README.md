@@ -98,6 +98,39 @@ shown here with their defaults):
 
 Override any of the ids: `start({ actor, plugin, sidElId: "...", ... })`.
 
+## Optional: real-time push
+
+By default `start()` polls `status` on an interval. If the host canister
+wires `mo:duel-game-core/Ws` (see
+[`../backend/README.md`](../backend/README.md)'s "Optional: real-time
+push" section), pass a `ws` alongside `actor` and polling is replaced
+entirely by push — actions are sent over the socket and the resulting
+view arrives the instant the canister pushes it, for both players:
+
+```js
+import { connectWs } from "duel-game-core/ws.js";
+
+const ws = connectWs({ canisterId, actor, host });
+start({ actor, plugin, ws });
+```
+
+`connectWs()` picks the Gateway automatically — `../gateway/`'s
+self-hosted instance (see its README) for a local replica, the public
+`wss://gateway.icws.io` (run by `ic-websocket-cdk`'s authors) otherwise —
+and returns `undefined` (falling back to polling) if `?ws=0` is in the
+page URL; `?gateway=<url>` forces a specific one. It's the only place in
+this package that imports `ic-websocket-js` (from esm.sh, same "no build
+step" deal as everything else here) — a deliberate, narrow exception to
+`start()`'s own "never assume a transport-loading strategy" rule, since
+the wire shape `ws.js` builds is entirely fixed by `Ws.mo`'s protocol
+(see `idl.js`) — there's no real choice left for a game to make, just
+boilerplate to avoid repeating in every game's client. `start()` itself
+is unchanged: it only ever takes an already-built `ws` and just needs the
+small WebSocket-like surface `IcWebSocket` already has
+(`onopen`/`onmessage`/`onclose`/`onerror`, `send(msg)`) — bring your own
+`ic-websocket-js` (skip `ws.js` entirely) or a mock for tests if
+`connectWs()`'s choices don't fit.
+
 ## Optional: `ic-env.js`
 
 If you're deploying to the Internet Computer via an asset canister,
@@ -111,10 +144,11 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 
 | Module        | Exports                                   |
 | ------------- | ------------------------------------------ |
-| `idl.js`      | `makeIdlFactory(buildGameTypes)`           |
+| `idl.js`      | `makeIdlFactory(buildGameTypes)` — also declares the 4 `ws_*` methods (see "Optional: real-time push") |
 | `render.js`   | `renderView(view, plugin)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
-| `app.js`      | `start({ actor, plugin, ...elIds })`       |
+| `app.js`      | `start({ actor, plugin, ws, ...elIds })`   |
 | `ic-env.js`   | `readIcEnv()`, `deriveHost()` (optional)   |
+| `ws.js`       | `connectWs({ canisterId, actor, host, ...opts })` (optional — see "Optional: real-time push") |
 | `style.css`   | generic layout primitives                  |
 
 See [`../backend/README.md`](../backend/README.md) for the matching

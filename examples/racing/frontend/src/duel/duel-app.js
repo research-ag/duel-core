@@ -1,10 +1,10 @@
 // Bootstrap for the racing duel client. Builds the actor, then hands off
 // to duel-game-core's generic session/poll/render wiring for everything
 // that's the same for every game on this engine (lobby, staging, rematch,
-// debrief, session identity, polling) — see index.html's #screen. It also
-// publishes that same actor on `window.duelActorReady` so the app's own
-// esbuild bundle loaded alongside this page (see main.ts) can drive the
-// actual 3D race against the identical session, without building a
+// debrief, session identity, polling/push) — see index.html's #screen. It
+// also publishes that same actor on `window.duelActorReady` so the app's
+// own esbuild bundle loaded alongside this page (see main.ts) can drive
+// the actual 3D race against the identical session, without building a
 // second one — see
 // ../app/modules/gameplay/game-communication/utils/duel-actor.ts.
 //
@@ -19,6 +19,7 @@
 import { Actor, HttpAgent } from 'https://esm.sh/@dfinity/agent@2.4.1';
 import { makeIdlFactory } from './node_modules/duel-game-core/idl.js';
 import { start } from './node_modules/duel-game-core/app.js';
+import { connectWs } from './node_modules/duel-game-core/ws.js';
 import { readIcEnv, deriveHost } from './node_modules/duel-game-core/ic-env.js';
 import { plugin } from './duel-racing-plugin.js';
 
@@ -50,4 +51,16 @@ const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
 window.__resolveDuelActor(actor);
-start({ actor, plugin });
+
+// Real-time push over WebSocket, in place of polling, for the generic
+// lobby/staging/rematch/debrief chrome below — see ../../../../../backend/
+// README.md's "Optional: real-time push" section. connectWs() picks the
+// right Gateway automatically (self-hosted locally, public otherwise —
+// see ../../../../../frontend/ws.js) and returns `undefined` (falling
+// back to polling) if `?ws=0` is in the page URL. NOTE: this only
+// migrates the chrome — the actual race (lobby-connection.service.ts)
+// still polls independently, unchanged; see that file's own header
+// comment.
+const ws = connectWs({ canisterId, actor, host });
+
+start({ actor, plugin, ws });
