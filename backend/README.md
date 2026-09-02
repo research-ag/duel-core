@@ -219,14 +219,31 @@ reconnect on their own).
 type shared by both directions (it reads the type straight off the
 canister's `ws_message` method's second Candid parameter at runtime) — so
 `Ws.Msg<S, M>` is a variant covering client→canister requests
-(`#req { sid; req }`, where `req` mirrors the engine's six mutating
+(`#req { sid; req; reqId }`, where `req` mirrors the engine's six mutating
 operations plus an explicit `#status` resync) AND canister→client pushes
-(`#view` / `#err`), not two separate types. Every mutating request re-uses
-the plain engine operations you've already wired above — `Ws.mo`
-reimplements no game logic — and, after each one, pushes a fresh `#view`
-to **every connected participant of the affected match** (both seats),
-read directly off `table.phase`'s `p1`/`p2` fields. `Hub` is what makes
-that possible: the engine's identity is a client-chosen `SessionId`
+(`#view { reqId; view }` / `#err { reqId; err }`), not two separate types.
+Every mutating request re-uses the plain engine operations you've already
+wired above — `Ws.mo` reimplements no game logic — and, after each one,
+pushes a fresh view to whoever needs to see it changed: once a match has
+two fixed seats (`#active`/`#debrief`), that's read directly off
+`table.phase`'s `p1`/`p2` fields, so a connection routinely receives a
+push it never asked for whenever the OTHER seat is the one who acted.
+Before that (`#empty`/`#staging`) there IS no fixed pair yet — a seat
+opening or closing needs to reach anyone watching the lobby, not just
+whoever happens to be seated, so that case instead pushes to every
+session `Hub` currently knows is connected at all (see below). Either
+way, a client can receive a view it never requested. `reqId` is an opaque token the
+CLIENT makes up for a `#req` it wants correlated to its own reply; `Ws.mo`
+only ever echoes it straight back on that SAME session's own push, never
+inspecting or generating it — a push to the other, non-acting participant
+always carries `reqId = null`, since it's a broadcast, not a reply to
+anything they asked. This exists because, without it, a client has no way
+to tell "the reply to my own request" apart from "an unrelated broadcast
+that happened to arrive around the same time" — a real bug this closes:
+a client-side FIFO match-next-message-to-oldest-pending-request scheme
+let an opponent's broadcast steal the slot meant for this connection's
+own reply, silently hanging the real one forever. `Hub` is the other half
+of the bridge: the engine's identity is a client-chosen `SessionId`
 (`Text`), decoupled from any IC principal on purpose, but a WebSocket
 connection is keyed by principal — `Hub` learns the `sid <-> principal`
 pairing from the `sid` every inbound message carries, and forgets it on

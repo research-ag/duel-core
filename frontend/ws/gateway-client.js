@@ -34,8 +34,19 @@ export class GatewayWs extends EventTarget {
     this._pollTimer = null;
     this._ticking = false; // re-entrancy guard for _tick() — see _pollSoon()
     this._wantsAnotherTick = false;
-    this._pending = []; // FIFO of {resolve, reject} for in-flight request()s
+    // In-flight request()s, keyed by the reqId THIS call made up — see
+    // request()'s own doc and Ws.mo's "The wire protocol" section for why
+    // this can no longer be a plain FIFO: a `#view`/`#err` this connection
+    // receives is routinely NOT a reply to anything of ours at all (the
+    // OTHER seat acting pushes here too — see Ws.mo's pushRelevant), so
+    // matching "the next message" to "the oldest pending request" let an
+    // unrelated broadcast steal a real reply's slot, hanging the actual
+    // caller forever while resolving with someone else's payload.
+    this._pending = new Map();
+    this._nextReqId = 1n; // BigInt, matches the wire's Nat64 — see idl.js's WsMsg
     this._erroredSinceSuccess = false;
+    this._opening = null; // in-flight _ensureOpen() promise, if any — see its own doc
+    this._sendChain = Promise.resolve(); // serializes every outgoing ws_message — see _serialSend()
 
     // Assignable by the caller, same as a real WebSocket.
     this.onopen = null;
@@ -88,11 +99,7 @@ export class GatewayWs extends EventTarget {
     this._ticking = true;
     let fast = false;
     try {
-      if (!this._transport.isOpen) {
-        const clientNonce = BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
-        await this._transport.open(clientNonce);
-        this._protocol.resetSequence();
-      }
+      await this._ensureOpen();
       const { envelopes, isEndOfQueue } = await this._transport.poll();
       this._markAlive();
       for (const envelope of envelopes) await this._handle(envelope);
@@ -109,6 +116,95 @@ export class GatewayWs extends EventTarget {
     if (!this._closed) {
       this._pollTimer = setTimeout(() => this._tick(), fast ? 0 : this._intervalMs);
     }
+  }
+
+  /// Redoes the `ws_open` handshake if the transport isn't currently
+  /// registered, coalescing concurrent callers onto ONE in-flight open
+  /// instead of racing two independent ones. `_tick()` (above) is one
+  /// caller; `send()`/`request()` (below) are the other — a caller can
+  /// invoke either right after construction, before the very first
+  /// scheduled `_tick()` has even run, so without this a message built
+  /// from `this._transport.clientKey` (still `null` at that point) got
+  /// sent with a null `client_key`, rejected deep in the canister's own
+  /// Candid decoder as "Invalid record ... Cannot read properties of
+  /// null" — a real bug this coalescing exists to close, not a
+  /// hypothetical one. Safe to call whether or not opening is already
+  /// under way: every caller awaits the SAME promise.
+  _ensureOpen() {
+    if (this._transport.isOpen) return Promise.resolve();
+    if (!this._opening) {
+      const clientNonce = BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
+      this._opening = this._transport
+        .open(clientNonce)
+        .then(() => this._protocol.resetSequence())
+        .finally(() => {
+          this._opening = null;
+        });
+    }
+    return this._opening;
+  }
+
+  /// Sends one already-built `WebsocketMessage` record, serialized behind
+  /// every other outgoing send on this connection. `ic-websocket-cdk`
+  /// tracks a strict per-connection expected sequence number and evicts
+  /// the client outright (`WrongSequenceNumber`, surfacing here as
+  /// `onclose`/"Connection closed — reload to reconnect") the instant a
+  /// message arrives out of order (see `ic-websocket-cdk`'s own
+  /// `lib.mo`) — and TWO independent `ws_message` update calls, once
+  /// both are in flight, have no guaranteed relative arrival/processing
+  /// order on the IC, regardless of which was dispatched first. Without
+  /// this, the periodic keep-alive ack-reply (fired from `_tick()`'s own
+  /// poll handling, see the "ack" case below) and a user-triggered
+  /// `send()`/`request()` could both have a `ws_message` call in flight
+  /// at once — a real, load-dependent race, not a hypothetical one; the
+  /// more actively a game is being played (more submits racing the
+  /// periodic ack cycle), the more often it fires. Chaining every send
+  /// onto the SAME promise means the next one is only ever dispatched
+  /// once the previous has fully completed (or failed) — real added
+  /// latency per message, but that is what a strict sequence protocol
+  /// requires. A failed send doesn't break the chain for whatever comes
+  /// after it (`.catch(() => {})`); the failure itself still propagates
+  /// to THIS call's own caller via the returned promise.
+  _serialSend(record) {
+    const result = this._sendChain.then(() => this._transport.send(record));
+    this._sendChain = result.catch(() => {});
+    return result;
+  }
+
+  /// Reacts to a failed `ws_message` (an ack-reply, `send()`, or
+  /// `request()`) the same way `_tick()` already reacts to a failed
+  /// poll: presumptively treat it as the canister having forgotten this
+  /// registration, and redo the `ws_open` handshake right away rather
+  /// than continuing to hammer a connection that "looks" open
+  /// client-side (`clientKey` still set) but the canister has already
+  /// stopped recognizing. This is defense in depth, not a fix on its
+  /// own, for a real `ic-websocket-cdk@0.4.1` cleanup bug: `remove_client`
+  /// in its `State.mo` deletes `CURRENT_CLIENT_KEY_MAP` by PRINCIPAL
+  /// alone, not scoped to the exact `client_key` being removed — so a
+  /// stale, delayed `ws_close`/eviction for an OLD registration that
+  /// shares a principal with a NEW, live one (e.g. a caller building its
+  /// agent with an identity kept stable across a reload — DON'T do that,
+  /// see the callers of this file for the worked example and why) can
+  /// silently erase the NEW connection's own principal->client_key
+  /// mapping even though nothing is actually wrong with it. The visible
+  /// symptom is exactly `ws_message: Client with principal ... doesn't
+  /// have an open connection` — without this, that error just got
+  /// reported and left to rot until the canister's OWN 60s keep-alive
+  /// timeout finally evicted it for real (a `KeepAliveTimeout` this
+  /// client could never successfully ack once its outgoing messages
+  /// started failing), surfacing as a much-delayed, confusing
+  /// "Connection closed — reload to reconnect." A fresh `ws_open` (a
+  /// brand new `client_key`) unconditionally repopulates
+  /// `CURRENT_CLIENT_KEY_MAP` for this principal, so IF this ever
+  /// happens, recovery takes about one poll interval instead of up to
+  /// 60-120s — but the real fix is not sharing a principal across two
+  /// registrations in the first place; this alone was tried and did NOT
+  /// resolve the issue in practice when the identity was still
+  /// sid-derived, which is why that approach was reverted rather than
+  /// kept and relied on this to paper over it.
+  _invalidateAndRetry() {
+    this._transport.invalidate();
+    this._pollSoon();
   }
 
   /// Wakes the poll loop up right away instead of leaving it to wait out
@@ -145,6 +241,9 @@ export class GatewayWs extends EventTarget {
 
   async _handle(envelope) {
     const action = this._protocol.interpret(envelope);
+    // TEMPORARY diagnostic — remove once the "other seat's push never
+    // arrives" bug is root-caused.
+    console.debug("[duel-ws] handle kind=%s reqId=%s", action.kind, action.reqId);
     switch (action.kind) {
       case "open": {
         if (this._opened) break;
@@ -163,9 +262,10 @@ export class GatewayWs extends EventTarget {
             this._transport.clientKey,
             action.lastIncomingSequenceNum,
           );
-          await this._transport.send(reply);
+          await this._serialSend(reply);
         } catch (e) {
           this._reportError(e);
+          this._invalidateAndRetry();
         }
         break;
       }
@@ -178,9 +278,21 @@ export class GatewayWs extends EventTarget {
         break;
       }
       case "message": {
+        // Always deliver generically first — a game's own `onmessage`
+        // listener (and app.js's own fire-and-forget refresh()) needs
+        // every push regardless of whether it's also someone's `request()`
+        // reply. Only THEN check for a matching pending request, by the
+        // reqId Ws.mo echoed back — `null` means this was never a reply to
+        // anything of ours (an unsolicited broadcast; see this._pending's
+        // own doc), so there's nothing to resolve.
         this._deliver(action.payload);
-        const p = this._pending.shift();
-        if (p) p.resolve(action.payload);
+        if (action.reqId != null) {
+          const p = this._pending.get(action.reqId);
+          if (p) {
+            this._pending.delete(action.reqId);
+            p.resolve(action.payload);
+          }
+        }
         break;
       }
       case "unknown":
@@ -193,16 +305,37 @@ export class GatewayWs extends EventTarget {
   /// doc for the full contract. The eventual result only ever surfaces
   /// as a `message`/`error` event, same as a real WebSocket — use
   /// `request()` instead if you need this specific call's own response.
+  ///
+  /// Awaits `_ensureOpen()` before building the record — `clientKey` is
+  /// `null` until the transport's first successful `ws_open`, and this
+  /// can be called before that's happened (e.g. right after construction,
+  /// ahead of the very first scheduled `_tick()` — see `_ensureOpen()`'s
+  /// own doc for the bug that produced).
   send(msg) {
     if (this._closed) return;
     const envelope = msg?.req;
     if (!envelope) return;
     const { sid, req } = envelope;
     this._sid = sid;
-    const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req);
-    this._transport.send(record).then(
-      () => this._pollSoon(),
-      (e) => this._reportError(e),
+    this._ensureOpen().then(
+      () => {
+        // `reqId: null` — nothing awaits this call's own reply (that's the
+        // whole point of `send()`), so it needs no correlation token; its
+        // eventual push (if any) is delivered generically like any other,
+        // same as an unsolicited broadcast from the other seat.
+        const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req, null);
+        this._serialSend(record).then(
+          () => this._pollSoon(),
+          (e) => {
+            this._reportError(e);
+            this._invalidateAndRetry();
+          },
+        );
+      },
+      (e) => {
+        this._reportError(e);
+        this._invalidateAndRetry();
+      },
     );
   }
 
@@ -210,28 +343,61 @@ export class GatewayWs extends EventTarget {
   /// see `poller.js`'s `request()` for the contract `app.js` relies on.
   /// Unlike `PollingWs` (which issues its own dedicated `status()` call
   /// right after, so correlation to its own response is exact), this
-  /// resolves off the shared push stream: the oldest still-pending
-  /// `request()` claims the next app-level message that arrives (also
-  /// calling `_pollSoon()` — see its own doc — so that message is
-  /// fetched right away instead of waiting out the usual poll interval).
-  /// Exact as long as at most one request is in flight at a time, which
-  /// is the contract `app.js`'s own `inFlight` guard (and any game code
-  /// sharing this `ws`) already relies on. Rejects on a genuine transport
-  /// failure (the `ws_message` call itself throwing), same as
-  /// `PollingWs.request()`.
+  /// resolves off the shared push stream: a fresh `reqId` is minted for
+  /// this call and `Ws.mo` echoes it back verbatim on the resulting
+  /// `#view`/`#err` (see `../idl.js`'s `WsMsg` doc and
+  /// `../../backend/README.md`'s "The wire protocol" section) — `_handle()`
+  /// matches replies by that id instead of assuming the next message
+  /// belongs to the oldest pending call, so any number of `request()`s
+  /// (from this class's own callers, and any OTHER code sharing this same
+  /// `ws` — see `lobby-connection.service.ts`) can be genuinely in flight
+  /// at once, interleaved with unsolicited pushes from the other seat
+  /// acting, with no risk of one stealing another's reply. Rejects on a
+  /// genuine transport failure (the `ws_message` call itself throwing),
+  /// same as `PollingWs.request()`.
+  ///
+  /// Awaits `_ensureOpen()` first — see `send()`'s own doc for why.
   request(sid, req) {
     if (this._closed) return Promise.reject(new Error("GatewayWs: closed"));
     this._sid = sid;
-    const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req);
-    return new Promise((resolve, reject) => {
-      this._transport.send(record).then(
-        () => {
-          this._pending.push({ resolve, reject });
-          this._pollSoon();
-        },
-        (e) => reject(e),
-      );
-    });
+    const reqId = this._nextReqId++;
+    return this._ensureOpen().then(
+      () => {
+        const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req, reqId);
+        return new Promise((resolve, reject) => {
+          // Register BEFORE dispatching the send, not after it resolves.
+          // The reply gets enqueued into the canister's outgoing queue
+          // the instant THIS SAME `ws_message` update call is processed
+          // server-side — but `_tick()`'s own independent poll loop
+          // (`ws_get_messages`, a query call) can observe and consume
+          // that reply before OUR client-side `await` on the update call
+          // itself resolves (a query round-trip can genuinely outrace an
+          // update call's own certified-response polling). Setting
+          // `_pending` only once `_serialSend` resolved missed exactly
+          // that window: `_handle()`'s "message" case ran with nothing
+          // registered yet, `_deliver()` still fired (so the UI updated
+          // normally), but the reqId was never claimed — and since that
+          // one-time reply had already come and gone, `request()`'s own
+          // promise then hung forever with no way to ever resolve. Real,
+          // not hypothetical: this is what made "take seat" visually
+          // complete while `app.js`'s `inFlight` stayed stuck, silently
+          // swallowing every subsequent button click (including Leave).
+          this._pending.set(reqId, { resolve, reject });
+          this._serialSend(record).then(
+            () => this._pollSoon(),
+            (e) => {
+              this._pending.delete(reqId);
+              this._invalidateAndRetry();
+              reject(e);
+            },
+          );
+        });
+      },
+      (e) => {
+        this._invalidateAndRetry();
+        throw e;
+      },
+    );
   }
 
   /// True once closed (see `close()`) — a way to check without needing
@@ -257,9 +423,10 @@ export class GatewayWs extends EventTarget {
       }
     }
     // Reject anything still waiting rather than leaving it hanging.
-    for (const p of this._pending.splice(0)) {
+    for (const p of this._pending.values()) {
       p.reject(new Error("GatewayWs: closed"));
     }
+    this._pending.clear();
     if (this.onclose) this.onclose();
     this.dispatchEvent(new Event("close"));
   }
@@ -278,6 +445,10 @@ export class GatewayWs extends EventTarget {
   // failing fast (not just hanging) would otherwise spam it on every
   // tick; same dedupe poller.js's own _reportError does.
   _reportError(e) {
+    // TEMPORARY diagnostic — remove once the "Expected incoming sequence
+    // number" bug is root-caused. Logs every error this connection sees,
+    // even ones deduped from onerror by _erroredSinceSuccess.
+    console.debug("[duel-ws] error:", e && e.message ? e.message : e);
     if (this._erroredSinceSuccess) return;
     this._erroredSinceSuccess = true;
     if (this.onerror) this.onerror({ error: e });

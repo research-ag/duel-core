@@ -94,14 +94,33 @@ export class SelfGatewayTransport {
   /// see `Host.mo`'s own comment on that) and just needs to force the
   /// next `open()` to redo the handshake from scratch.
   invalidate() {
+    // TEMPORARY diagnostic — remove once the "Expected incoming sequence
+    // number" bug is root-caused.
+    console.debug("[duel-ws] invalidate() clientKey nonce was=%s", this._clientKey?.client_nonce);
     this._clientKey = null;
   }
 
   async open(clientNonce) {
-    this._clientKey = {
-      client_principal: this._principal,
-      client_nonce: clientNonce,
-    };
+    // TEMPORARY diagnostic — remove once the "Expected incoming sequence
+    // number" bug is root-caused. See gateway-protocol.js's matching log.
+    console.debug("[duel-ws] ws_open start nonce=%s", clientNonce);
+    // `this._clientKey` (and so `isOpen`) must NOT be set until `ws_open`
+    // has actually SUCCEEDED — it used to be set right here, synchronously,
+    // before the `await` below even started the real network call. That
+    // made `isOpen` true the instant an open merely BEGAN, not once it
+    // actually finished: a second caller's `_ensureOpen()` (gateway-
+    // client.js), racing in during that window, saw "already open", skipped
+    // the `_opening` coalescing entirely, and built+sent a message with
+    // whatever `_nextOutgoingSeq` currently held — BEFORE this open's own
+    // `resetSequence()` (also in gateway-client.js) had run. Once this
+    // open's `ws_open` call finally resolved and reset the counter back to
+    // 1, the ORIGINAL caller then sent ITS message, also stamped 1 — a real
+    // duplicate sequence number, rejected by the canister as
+    // `IncomingSequenceNumberWrong`. Confirmed live: `_tick()`'s own
+    // `_ensureOpen()` and a game's own connect-time `request()` (e.g.
+    // `lobby-connection.service.ts`'s `init()`) both fire within
+    // milliseconds of a fresh page load, reliably landing in this window
+    // on the very FIRST connection — no reload or second player needed.
     // Deliberately NOT resetting `this._nonce` here. The CDK's outgoing
     // queue is keyed by `gateway_principal` (see `ic-websocket-cdk-mo`'s
     // `State.mo`: `get_gateway_messages_queue`/`push_message_in_gateway_
@@ -126,9 +145,16 @@ export class SelfGatewayTransport {
       gateway_principal: this._principal,
     });
     if ("Err" in res) {
-      this._clientKey = null;
+      console.debug("[duel-ws] ws_open FAILED nonce=%s err=%s", clientNonce, res.Err);
       throw new Error(`ws_open: ${res.Err}`);
     }
+    // Only NOW does this transport count as open — see this method's own
+    // doc above for why that used to happen too early.
+    this._clientKey = {
+      client_principal: this._principal,
+      client_nonce: clientNonce,
+    };
+    console.debug("[duel-ws] ws_open OK nonce=%s", clientNonce);
   }
 
   /// Returns `{envelopes, isEndOfQueue}` — the batch waiting since the
@@ -150,6 +176,11 @@ export class SelfGatewayTransport {
       }
     }
     this._nonce = nextNonce;
+    // TEMPORARY diagnostic — remove once the "other seat's push never
+    // arrives" bug is root-caused.
+    if (messages.length) {
+      console.debug("[duel-ws] poll got %d msg(s), nonce now=%s, eoq=%s", messages.length, this._nonce, is_end_of_queue);
+    }
     return {
       envelopes: messages.map((m) => decodeEnvelope(m.content)),
       isEndOfQueue: is_end_of_queue,

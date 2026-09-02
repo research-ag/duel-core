@@ -10,22 +10,26 @@
 // imported below by its plain on-disk path — the browser has no bare
 // "duel-game-core/..." specifier resolution without an import map.
 
-import { Actor, HttpAgent } from "https://esm.sh/@dfinity/agent@2.4.1";
-import { Ed25519KeyIdentity } from "https://esm.sh/@dfinity/identity@2.4.1";
+// Both imports pin the SAME exact @dfinity/candid and @dfinity/principal
+// versions via esm.sh's `?deps=` — @dfinity/identity@2.4.1 itself
+// imports @dfinity/candid with NO version constraint at all, so left
+// unpinned, esm.sh resolves it to whatever's currently tagged "latest"
+// instead of the 2.4.1 line @dfinity/agent@2.4.1 was built against. That
+// mismatch is real, not hypothetical: it surfaced as `Uncaught
+// SyntaxError: The requested module '/@dfinity/candid?target=es2022'
+// does not provide an export named 'bufFromBufLike'` (a since-renamed/
+// removed export) the first time this shipped without the pin. `?deps=`
+// forces both esm.sh module graphs to resolve to byte-identical URLs for
+// the shared dependencies (verified: same hash-suffixed path either
+// way) — remove it and this breaks again the next time "latest"
+// @dfinity/candid changes shape.
+import { Actor, HttpAgent } from "https://esm.sh/@dfinity/agent@2.4.1?deps=@dfinity/candid@2.4.1,@dfinity/principal@2.4.1";
+import { Ed25519KeyIdentity } from "https://esm.sh/@dfinity/identity@2.4.1?deps=@dfinity/agent@2.4.1,@dfinity/candid@2.4.1,@dfinity/principal@2.4.1";
 import { makeIdlFactory } from "./node_modules/duel-game-core/idl.js";
-import { start, getOrCreateSid } from "./node_modules/duel-game-core/app.js";
+import { start } from "./node_modules/duel-game-core/app.js";
 import { connectWs } from "./node_modules/duel-game-core/ws.js";
 import { readIcEnv, deriveHost } from "./node_modules/duel-game-core/ic-env.js";
 import { plugin } from "./duel007-plugin.js";
-
-// Deterministically derives a 32-byte Ed25519 seed from this tab's own
-// sid (see getOrCreateSid() below) — SHA-256 of the sid's UTF-8 bytes is
-// exactly 32 bytes, which is what Ed25519KeyIdentity.generate() wants.
-async function seedFromSid(sid) {
-  const bytes = new TextEncoder().encode(sid);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return new Uint8Array(digest);
-}
 
 const env = readIcEnv();
 const canisterId = env["PUBLIC_CANISTER_ID:backend"];
@@ -39,27 +43,44 @@ if (!canisterId) {
 }
 
 const host = deriveHost();
-// A per-tab identity derived from this tab's own sid — NOT anonymous,
-// and NOT a fresh random keypair on every load either. This game has no
-// login (players are told apart by seat/sid, never by principal — see
-// ../../../backend/src/Ws.mo's doc header: the engine's own identity is
-// the client-chosen `sid`, decoupled from IC principal on purpose), so
-// `HttpAgent.create()` with no `identity` would sign every call,
-// including ws_open, as the anonymous principal — and
+// A fresh, throwaway Ed25519 identity generated on EVERY page load —
+// deliberately NOT anonymous, and deliberately NOT derived from/stable
+// across this tab's own sid either (an earlier version of this file
+// derived it from `sid` so it stayed the same across a reload — reverted
+// after that turned out to actively cause "Connection closed — reload
+// to reconnect" / `ws_message: Client with principal ... doesn't have an
+// open connection", see below).
+//
+// This game has no login (players are told apart by seat/sid, never by
+// principal — see ../../../backend/src/Ws.mo's doc header: the engine's
+// own identity is the client-chosen `sid`, decoupled from IC principal
+// on purpose), so `HttpAgent.create()` with no `identity` would sign
+// every call, including ws_open, as the anonymous principal — and
 // `ic-websocket-cdk`'s `ws_open` hard-rejects an anonymous caller
 // ("Anonymous principal is not allowed"), so the WS handshake, and with
-// it the whole app (there's no polling fallback), never came up. Deriving
-// the identity's seed from `sid` instead of generating it fresh each
-// time means a plain page reload — which `getOrCreateSid()` keeps pinned
-// to the SAME sid via sessionStorage — also keeps the SAME principal; it
-// only changes when the sid does (clicking "play as someone else", a
-// `?sid=` override, or clearing site storage — see `getOrCreateSid()`'s
-// own doc).
-const sid = getOrCreateSid();
-const seed = await seedFromSid(sid);
+// it the whole app (there's no polling fallback), never came up. Any
+// real, non-anonymous identity fixes that; a FRESH one every load is the
+// right choice specifically BECAUSE of a real bug in
+// `ic-websocket-cdk@0.4.1`'s own bookkeeping: `remove_client` (in its
+// `State.mo`) deletes its principal->client_key lookup by PRINCIPAL
+// ALONE, not scoped to the exact client_key being removed. A plain page
+// reload gives the OLD page's own `ws_close()` (fired from
+// `pagehide`/`visibilitychange`, see
+// `../../../frontend/ws/gateway-client.js`) no guarantee of completing
+// before the tab is torn down — so if that stale close (or its eventual
+// keep-alive-timeout eviction) is still pending when the NEW page's
+// `ws_open` registers, and BOTH share the same principal (which a
+// sid-derived identity guarantees across a reload), the stale close can
+// land AFTER and silently erase the NEW, perfectly-live connection's own
+// lookup entry. A fresh random principal every load means no two
+// registrations ever share a principal in the first place, so this whole
+// class of collision can't happen — the engine's own player identity
+// (`sid`) already persists across reload regardless, completely
+// independent of this principal, so nothing player-visible is lost by
+// NOT also pinning the WS-layer principal.
 const agent = await HttpAgent.create({
   host,
-  identity: Ed25519KeyIdentity.generate(seed),
+  identity: Ed25519KeyIdentity.generate(),
   shouldFetchRootKey: /localhost|127\.0\.0\.1/.test(host),
 });
 const idlFactory = makeIdlFactory(plugin.idlTypes);

@@ -121,10 +121,28 @@ module {
     #status;
   };
 
+  /// `reqId` is an opaque token the CLIENT makes up and this module only
+  /// ever echoes back verbatim — never inspected or generated here. It
+  /// exists because a single WS connection's incoming stream mixes two
+  /// unrelated things a client cannot otherwise tell apart: the direct
+  /// reply to ITS OWN outstanding request, and an unsolicited push this
+  /// same connection gets because the OTHER seat just did something (see
+  /// `pushRelevant` below — a submit/join/etc. pushes a fresh view to
+  /// BOTH participants, not just the acting one). Before this field
+  /// existed, a client-side FIFO match-the-next-message-to-the-oldest-
+  /// pending-request scheme (the only thing available) could have an
+  /// opponent's broadcast steal the slot meant for this connection's own
+  /// reply — the caller's own request then hangs forever (the real reply
+  /// arrives to an already-empty queue) while resolving with someone
+  /// else's payload instead. `#view`/`#err` pass `reqId` straight through
+  /// from whichever `#req` triggered them; a push to the OTHER
+  /// participant (who asked for nothing) carries `null`, same as this
+  /// connection's own periodic keep-alive/service traffic which never
+  /// touches this type at all.
   public type Msg<S, M> = {
-    #req : { sid : TP.SessionId; req : Request<M> };  // client -> canister
-    #view : TP.View<S>;                               // canister -> client
-    #err : TP.Err;                                     // canister -> client
+    #req : { sid : TP.SessionId; req : Request<M>; reqId : ?Nat64 }; // client -> canister
+    #view : { reqId : ?Nat64; view : TP.View<S> };                   // canister -> client
+    #err : { reqId : ?Nat64; err : TP.Err };                         // canister -> client
   };
 
   /// Built at a call site where `S`/`M` are concrete (a host actor, not
@@ -192,25 +210,51 @@ module {
       };
     };
 
-    func pushView(now : Int, sid : TP.SessionId) : async () {
-      await pushTo(sid, #view(TP.status(table, now, sid)));
+    /// `reqId` is `null` unless `sid` is the session whose OWN request
+    /// triggered this push — see `pushRelevant`'s doc for why a push to
+    /// anyone else always passes `null` here.
+    func pushView(now : Int, sid : TP.SessionId, reqId : ?Nat64) : async () {
+      await pushTo(sid, #view({ reqId; view = TP.status(table, now, sid) }));
     };
 
     /// Views change for both seats on almost every mutation (a submit can
     /// resolve the round, a leave/rematch/reset can end or restart the
     /// match) — push to whichever sids are actually part of the current
     /// match, falling back to just the acting `sid` while staging/empty.
-    func pushRelevant(now : Int, sid : TP.SessionId) : async () {
+    /// `reqId` (the acting session's own request token, see `Msg`'s doc)
+    /// is passed through ONLY to `sid` itself; the partner's push is
+    /// always an unsolicited broadcast from their point of view, `null`
+    /// regardless of what `sid` passed in.
+    func pushRelevant(now : Int, sid : TP.SessionId, reqId : ?Nat64) : async () {
+      func forSid(other : TP.SessionId) : ?Nat64 {
+        if (other == sid) reqId else null;
+      };
       switch (table.phase) {
         case (#active g) {
-          await pushView(now, g.p1);
-          await pushView(now, g.p2);
+          await pushView(now, g.p1, forSid(g.p1));
+          await pushView(now, g.p2, forSid(g.p2));
         };
         case (#debrief d) {
-          await pushView(now, d.p1);
-          await pushView(now, d.p2);
+          await pushView(now, d.p1, forSid(d.p1));
+          await pushView(now, d.p2, forSid(d.p2));
         };
-        case (_) { await pushView(now, sid) };
+        case (_) {
+          // No fixed pair of participants yet (#empty / #staging) — the
+          // engine has no notion of "who else is watching an open seat"
+          // the way #active/#debrief's own p1/p2 fields do, so the only
+          // place that DOES know is this transport's own `hub`: everyone
+          // currently connected over WS, seated or not. Push to all of
+          // them, not just the session that acted — otherwise a tab
+          // sitting in the lobby watching for an opponent never finds out
+          // a seat was taken (or freed) until it happens to send a
+          // request of its own. `sid` itself is always among `hub.bySid`
+          // here (`remember` ran at the top of `onMessage`, before this),
+          // so it needs no special case — `forSid` still gives it its own
+          // `reqId` like any other branch.
+          for (other in Map.keys(hub.bySid)) {
+            await pushView(now, other, forSid(other));
+          };
+        };
       };
     };
 
@@ -218,44 +262,44 @@ module {
       args : IcWebSocketCdkTypes.OnMessageCallbackArgs
     ) : async () {
       switch (codec.decode(args.message)) {
-        case (? #req { sid; req }) {
+        case (? #req { sid; req; reqId }) {
           remember(hub, sid, args.client_principal);
           let now = Time.now();
           switch (req) {
-            case (#status) { await pushView(now, sid) };
+            case (#status) { await pushView(now, sid, reqId) };
             case (#join seat) {
               switch (TP.join(spec, table, now, sid, seat)) {
-                case (#ok _) { await pushRelevant(now, sid) };
-                case (#err e) { await pushTo(sid, #err e) };
+                case (#ok _) { await pushRelevant(now, sid, reqId) };
+                case (#err e) { await pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#submit move) {
               switch (TP.submit(spec, table, now, sid, move)) {
-                case (#ok _) { await pushRelevant(now, sid) };
-                case (#err e) { await pushTo(sid, #err e) };
+                case (#ok _) { await pushRelevant(now, sid, reqId) };
+                case (#err e) { await pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#rematch) {
               switch (TP.rematch(spec, table, now, sid)) {
-                case (#ok _) { await pushRelevant(now, sid) };
-                case (#err e) { await pushTo(sid, #err e) };
+                case (#ok _) { await pushRelevant(now, sid, reqId) };
+                case (#err e) { await pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#leave) {
               switch (TP.leave(table, now, sid)) {
-                case (#ok _) { await pushRelevant(now, sid) };
-                case (#err e) { await pushTo(sid, #err e) };
+                case (#ok _) { await pushRelevant(now, sid, reqId) };
+                case (#err e) { await pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#reset) {
               switch (TP.reset(table, now, sid)) {
-                case (#ok _) { await pushRelevant(now, sid) };
-                case (#err e) { await pushTo(sid, #err e) };
+                case (#ok _) { await pushRelevant(now, sid, reqId) };
+                case (#err e) { await pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#ackEnded) {
               TP.ackEnded(table, sid);
-              await pushView(now, sid);
+              await pushView(now, sid, reqId);
             };
           };
         };
@@ -325,7 +369,7 @@ module {
             };
             case (_) {};
           };
-          await pushRelevant(now, s);
+          await pushRelevant(now, s, null);
         };
       };
     };

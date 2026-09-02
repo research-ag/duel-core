@@ -44,15 +44,6 @@
 // call's own response instead of off `onmessage`'s shared push stream
 // — see the "Calls" section below for why that distinction matters.
 //
-// `getOrCreateSid()` is also exported on its own for a caller that needs
-// this tab's sid BEFORE calling `start()` — e.g. to derive a per-tab WS
-// identity deterministically from it, so a page reload keeps the same
-// principal instead of a fresh throwaway one every load (needed because
-// `ic-websocket-cdk`'s `ws_open` rejects the anonymous principal outright
-// — see `examples/racing/frontend/src/duel/duel-app.js` for a worked
-// example). Calling it more than once (there and again inside `start()`)
-// is safe — it's idempotent once sessionStorage holds a value.
-
 import { renderView, errText } from "./render.js";
 
 const $ = (id) => document.getElementById(id);
@@ -61,22 +52,6 @@ function randomSid() {
   const b = new Uint8Array(8);
   crypto.getRandomValues(b);
   return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
-}
-
-/// Resolves this tab's session id: `?sid=` in the URL wins (and is
-/// persisted to sessionStorage), else whatever's already there, else a
-/// fresh random one (persisted). The one authoritative place this
-/// resolution happens — `start()` uses it internally, below, and a
-/// caller that needs the sid BEFORE `start()` runs (e.g. to derive a
-/// per-tab WS identity deterministically from it, so the same player
-/// gets the same principal across a plain reload — see
-/// `examples/racing/frontend/src/duel/duel-app.js`) can call this
-/// directly instead of duplicating the resolution logic.
-export function getOrCreateSid() {
-  const urlSid = new URLSearchParams(location.search).get("sid");
-  if (urlSid) sessionStorage.setItem("sid", urlSid);
-  if (!sessionStorage.getItem("sid")) sessionStorage.setItem("sid", randomSid());
-  return sessionStorage.getItem("sid");
 }
 
 /// Structural equality for two decoded Candid values (Views, here) — used
@@ -121,26 +96,20 @@ export function start({
   // `?sid=` wins, so you can pin an identity across reloads if you want.
   // ---------------------------------------------------------------------
 
-  const sid = getOrCreateSid();
+  const urlSid = new URLSearchParams(location.search).get("sid");
+  if (urlSid) sessionStorage.setItem("sid", urlSid);
+  if (!sessionStorage.getItem("sid")) sessionStorage.setItem("sid", randomSid());
+
+  let sid = sessionStorage.getItem("sid");
   const sidEl = $(sidElId);
   if (sidEl) sidEl.textContent = sid;
   const newSidBtn = $(newSidBtnId);
   if (newSidBtn) {
     newSidBtn.addEventListener("click", () => {
-      // A full reload, not an in-place refresh: a caller that derives a
-      // per-tab identity from `sid` before `start()` even runs (e.g. a
-      // deterministic WS keypair — see
-      // examples/racing/frontend/src/duel/duel-app.js) only builds that
-      // identity once, at page load, so "play as someone else" has to
-      // actually reload for the identity to change along with the
-      // session id — an in-place refresh would leave the OLD identity
-      // signing calls under the NEW sid. `?sid=` in the target URL wins
-      // on the next load (see `getOrCreateSid()`), so this is the same
-      // "pin an identity across reloads" mechanism already documented
-      // above, just triggered programmatically.
-      const url = new URL(location.href);
-      url.searchParams.set("sid", randomSid());
-      location.href = url.toString();
+      sid = randomSid();
+      sessionStorage.setItem("sid", sid);
+      if (sidEl) sidEl.textContent = sid;
+      refresh();
     });
   }
 

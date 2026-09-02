@@ -42,21 +42,66 @@ TypeScript with no framework:
   `control-scene.service.ts`, `world-scene.service.ts`); the camera is
   always the static view — don't add a settings UI or a camera-mode
   switch without being asked.
-- `src/duel/duel-app.js` builds `agent`'s identity from an Ed25519 keypair
-  DERIVED from this tab's own sid (`getOrCreateSid()`, from
-  `duel-game-core/app.js` — see `../../../frontend/README.md`'s
-  "Real-time push" section), not the plain anonymous identity
-  `HttpAgent.create({ host })` defaults to. This game has no login, but
-  `ic-websocket-cdk`'s `ws_open` hard-rejects an anonymous caller
-  outright ("Anonymous principal is not allowed") — with no `identity`
-  passed, the WS handshake (and with it the whole app, since there's no
-  polling fallback) never came up at all; that's the real bug behind a
-  console full of repeating `ws_open: Anonymous principal is not
-  allowed` errors and a lobby that never leaves the loading state.
-  Deriving the seed from `sid` (SHA-256 of its UTF-8 bytes — see
-  `seedFromSid()`) rather than generating a fresh keypair per load also
-  keeps the SAME principal across a plain reload, since `getOrCreateSid()`
-  itself pins `sid` to sessionStorage; it only changes when the sid does.
+- `src/duel/duel-app.js` builds `agent`'s identity from a FRESH Ed25519
+  keypair generated on every page load (`Ed25519KeyIdentity.generate()`,
+  no seed), not the plain anonymous identity `HttpAgent.create({ host })`
+  defaults to. This game has no login, but `ic-websocket-cdk`'s
+  `ws_open` hard-rejects an anonymous caller outright ("Anonymous
+  principal is not allowed") — with no `identity` passed, the WS
+  handshake (and with it the whole app, since there's no polling
+  fallback) never came up at all; that's the real bug behind a console
+  full of repeating `ws_open: Anonymous principal is not allowed` errors
+  and a lobby that never leaves the loading state.
+  **Do NOT derive that identity's seed from this tab's own `sid`** so it
+  stays the same across a plain reload — an earlier version of this file
+  did exactly that (`getOrCreateSid()` + SHA-256 of the sid), and it
+  actively broke reload instead of helping: `ic-websocket-cdk@0.4.1`'s
+  own `remove_client` cleans up its principal->client_key lookup by
+  PRINCIPAL alone, not scoped to the specific `client_key` being removed.
+  A plain reload gives the OLD page's own `ws_close()` no guarantee of
+  completing before the tab is torn down, so if that stale close (or its
+  eventual keep-alive-timeout eviction) lands AFTER the NEW page has
+  re-registered under the SAME principal, it silently erases the NEW,
+  perfectly-live connection's own lookup entry — surfacing as
+  `ws_message: Client with principal ... doesn't have an open
+  connection` immediately, and "Connection closed — reload to
+  reconnect." once the ack keep-alive can no longer be sent either. Two
+  successive attempts to SELF-HEAL from this (retrying sends,
+  `_invalidateAndRetry()` reopening on a send failure — see
+  `../../../frontend/ws/gateway-client.js`) did NOT fix it in practice;
+  only removing the shared-principal-across-reload property itself
+  (this fresh-per-load identity) did. `sid` itself — the engine's actual
+  player identity — already persists across reload via sessionStorage
+  regardless, completely independent of this principal, so nothing
+  player-visible is lost by not also pinning the WS-layer identity. If
+  "Connection closed" or this exact `ws_message` error ever comes back,
+  check whether something reintroduced a stable-across-reload principal
+  before assuming it's a new bug.
+  **esm.sh gotcha:** loading `@dfinity/identity@2.4.1` bare (no `?deps=`)
+  breaks with `Uncaught SyntaxError: The requested module
+  '/@dfinity/candid?target=es2022' does not provide an export named
+  'bufFromBufLike'` — that package's own `delegation.ts` imports
+  `@dfinity/candid` with NO version constraint at all (unlike
+  `@dfinity/agent@2.4.1`, which pins `^2.4.1`), so esm.sh resolves it to
+  whatever's currently tagged "latest," which has since renamed/dropped
+  that export. Fixed by pinning both esm.sh imports to the exact same
+  dependency versions via `?deps=@dfinity/candid@2.4.1,...` (see
+  `duel-app.js`'s import lines) — confirmed this makes both modules'
+  `@dfinity/candid`/`@dfinity/principal` imports resolve to
+  byte-identical esm.sh URLs. Don't drop the `?deps=` query strings.
+- `lobby-connection.service.ts`'s `init()` fires an immediate `status`
+  `request()` the moment `getDuelWs()` resolves, ahead of the shared
+  connection's own first poll tick — this is exactly what once surfaced
+  `GatewayWs`'s "call before the handshake finished" race as "duel status
+  request failed" in the console, with the underlying error `Invalid
+  record ... field client_key -> Cannot read properties of null (reading
+  'hasOwnProperty')` (a `null` `client_key`, since `ws_open` hadn't
+  completed yet). Fixed in `../../../frontend/ws/gateway-client.js`
+  itself (`_ensureOpen()` — see `../../../frontend/README.md`'s
+  "Real-time push" section), not here: `send()`/`request()` are now
+  safe to call before the connection is known-open. Don't reintroduce a
+  "wait for onopen first" workaround here if this symptom ever reappears
+  — check whether `_ensureOpen()`'s coalescing itself regressed instead.
 - `game-communication/services/lobby-connection.service.ts` shares the
   SAME `GatewayWs` duel-game-core's own chrome uses for push (one
   connection via `window.duelWsReady`, one session id via

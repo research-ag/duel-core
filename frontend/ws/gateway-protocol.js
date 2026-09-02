@@ -60,9 +60,14 @@ export class GatewayProtocol {
 
   /// Builds the outer `WebsocketMessage` record for an application
   /// request (`{join: ...}`, `{submit: ...}`, ...) bound for `sid` —
-  /// ready to hand to a transport's `send()`.
-  buildAppMessage(clientKey, sid, req) {
-    const content = this._encode(this._types.WsMsg, { req: { sid, req } });
+  /// ready to hand to a transport's `send()`. `reqId` (a BigInt, or
+  /// `null` for a fire-and-forget caller with nothing to correlate) is
+  /// echoed back verbatim on this request's own `#view`/`#err` reply —
+  /// see `../idl.js`'s `WsMsg` doc for why that round-trip exists.
+  buildAppMessage(clientKey, sid, req, reqId) {
+    const content = this._encode(this._types.WsMsg, {
+      req: { sid, req, reqId: reqId == null ? [] : [reqId] },
+    });
     return this._envelope(clientKey, content, false);
   }
 
@@ -80,6 +85,16 @@ export class GatewayProtocol {
   _envelope(clientKey, content, isServiceMessage) {
     const sequence_num = this._nextOutgoingSeq;
     this._nextOutgoingSeq += 1n;
+    // TEMPORARY diagnostic — remove once the "Expected incoming sequence
+    // number" bug is root-caused. Logs every outgoing envelope's identity
+    // so a live repro's console shows exactly which client_key/nonce and
+    // sequence_num was actually sent, in order.
+    console.debug(
+      "[duel-ws] send seq=%s svc=%s nonce=%s",
+      sequence_num,
+      isServiceMessage,
+      clientKey?.client_nonce,
+    );
     return {
       client_key: clientKey,
       sequence_num,
@@ -97,7 +112,12 @@ export class GatewayProtocol {
   ///   {kind: "open"}                                  — CDK's own hello
   ///   {kind: "ack", lastIncomingSequenceNum}           — reply with a keep-alive
   ///   {kind: "close", reason}                          — canister evicted us
-  ///   {kind: "message", payload: {view: V} | {err: E}} — an app-level push
+  ///   {kind: "message", payload: {view: V} | {err: E}, reqId} — an
+  ///     app-level push; `reqId` (a BigInt, or `null`) is `Ws.mo`'s
+  ///     echoed-back correlation token — `null` means this is an
+  ///     unsolicited broadcast (the OTHER seat acted), not a reply to
+  ///     anything THIS connection asked for — see `gateway-client.js`'s
+  ///     `_pending` doc for why that distinction matters.
   ///   {kind: "unknown"}                                — malformed/unexpected; drop it
   ///
   /// Never throws: a decode failure is exactly as actionable as any
@@ -123,8 +143,14 @@ export class GatewayProtocol {
         return { kind: "unknown" }; // KeepAliveMessage: canister never sends this
       }
       const msg = this._decode(this._types.WsMsg, envelope.content);
-      if ("view" in msg) return { kind: "message", payload: { view: msg.view } };
-      if ("err" in msg) return { kind: "message", payload: { err: msg.err } };
+      if ("view" in msg) {
+        const reqId = msg.view.reqId.length ? msg.view.reqId[0] : null;
+        return { kind: "message", payload: { view: msg.view.view }, reqId };
+      }
+      if ("err" in msg) {
+        const reqId = msg.err.reqId.length ? msg.err.reqId[0] : null;
+        return { kind: "message", payload: { err: msg.err.err }, reqId };
+      }
       return { kind: "unknown" }; // a stray #req echoed back — nothing to do with it
     } catch {
       return { kind: "unknown" };

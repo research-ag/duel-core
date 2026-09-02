@@ -39,17 +39,18 @@ concrete to copy — it is **not** part of either package itself.
   game-specific surface: it implements the `GamePlugin` contract
   (`idlTypes`, `seatLabel`, `renderBoard`, `renderActions`) from
   `../../frontend/README.md`. `app.js` builds the actor and this tab's
-  own `principal` — an Ed25519 identity DERIVED from this tab's sid
-  (`getOrCreateSid()`, from `duel-game-core/app.js`; `seedFromSid()`
-  SHA-256-hashes it into the 32-byte seed `Ed25519KeyIdentity.generate()`
-  wants), not the plain anonymous identity `HttpAgent.create({ host })`
-  defaults to. This game has no login, but `ic-websocket-cdk`'s
-  `ws_open` hard-rejects an anonymous caller outright, so building
-  `agent` with no `identity` at all breaks the WS handshake completely
-  (there's no polling fallback) — see
-  `../../frontend/README.md`'s "Real-time push" section for why, and why
-  deriving from `sid` rather than a fresh keypair per load also keeps
-  the same principal across a plain reload. Then calls
+  own `principal` — a FRESH Ed25519 identity generated on every page load
+  (`Ed25519KeyIdentity.generate()`, no seed), not the plain anonymous
+  identity `HttpAgent.create({ host })` defaults to. This game has no
+  login, but `ic-websocket-cdk`'s `ws_open` hard-rejects an anonymous
+  caller outright, so building `agent` with no `identity` at all breaks
+  the WS handshake completely (there's no polling fallback) — see
+  `../../frontend/README.md`'s "Real-time push" section for why, and for
+  why the identity must NOT be derived from `sid` to stay stable across a
+  reload (a real, reachable `ic-websocket-cdk@0.4.1` cleanup bug — a
+  stale close from an old, same-principal registration can erase a new,
+  perfectly-live one's own lookup entry — makes that actively worse than
+  a fresh keypair every load, not better). Then calls
   `duel-game-core/ws.js`'s `connectWs({ actor,
   principal, gameIdlTypes: plugin.idlTypes })` for the real push
   transport `start()` requires (see `../../frontend/README.md`'s

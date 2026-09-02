@@ -159,10 +159,17 @@ export function buildEngineTypes({ IDL, Action, State }) {
     ackEnded: IDL.Null,
     status: IDL.Null,
   });
+  // `reqId` (opaque, client-chosen) lets a client tell "the reply to MY
+  // request" apart from an unsolicited push this same connection gets
+  // because the OTHER seat acted (`Ws.mo`'s `pushRelevant` pushes to both
+  // participants of a match) — see `../backend/README.md`'s "The wire
+  // protocol" section and `ws/gateway-client.js`'s `_pending` doc for the
+  // bug this closes. `Ws.mo` only ever echoes it back verbatim on `#view`/
+  // `#err`; a push to the non-acting participant always carries `null`.
   const WsMsg = IDL.Variant({
-    req: IDL.Record({ sid: IDL.Text, req: WsRequest }),
-    view: View,
-    err: Err,
+    req: IDL.Record({ sid: IDL.Text, req: WsRequest, reqId: IDL.Opt(IDL.Nat64) }),
+    view: IDL.Record({ reqId: IDL.Opt(IDL.Nat64), view: View }),
+    err: IDL.Record({ reqId: IDL.Opt(IDL.Nat64), err: Err }),
   });
 
   return {

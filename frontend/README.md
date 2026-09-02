@@ -117,22 +117,37 @@ const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
 start({ plugin, ws });
 ```
 
-**`principal` must not be the anonymous principal.** `agent`'s identity
-doesn't need to mean anything — the engine's own identity is the
-client-chosen `sid`, decoupled from any IC principal on purpose (see
+**`principal` must not be the anonymous principal — and should be a
+FRESH one every page load, not stable across a reload.** `agent`'s
+identity doesn't need to mean anything — the engine's own identity is
+the client-chosen `sid`, decoupled from any IC principal on purpose (see
 `../backend/src/Ws.mo`'s doc header) — but `ic-websocket-cdk`'s
 `ws_open` hard-rejects an anonymous caller outright ("Anonymous
 principal is not allowed"), so a game with no login step (the common
 case — see both `examples/`) must not build `agent` with
 `HttpAgent.create({ host })` and nothing else, since that defaults to
 the anonymous identity: the WS handshake, and with it the whole app
-(there is no polling fallback by default), never comes up. Deriving a
-per-tab identity's seed from `getOrCreateSid()`'s own `sid` (exported
-from `duel-game-core/app.js`, callable before `start()`) rather than
-generating a fresh keypair on every load also means a plain reload keeps
-the same principal instead of a new throwaway one each time — see
+(there is no polling fallback by default), never comes up. See
 `examples/racing/frontend/src/duel/duel-app.js` for the worked example
-(`seedFromSid()` + `Ed25519KeyIdentity.generate(seed)`).
+(`Ed25519KeyIdentity.generate()`, no seed).
+
+Resist the temptation to derive that identity's seed from `sid` so it
+stays the same across a plain reload (a previous version of this
+worked example did exactly that) — it actively causes `ws_message:
+Client with principal ... doesn't have an open connection` and
+"Connection closed — reload to reconnect.": `ic-websocket-cdk@0.4.1`'s
+own `remove_client` (in its `State.mo`) deletes its
+principal->client_key lookup by PRINCIPAL ALONE, not scoped to the exact
+client_key being removed. A plain reload gives the OLD page's own
+`ws_close()` no guarantee of completing before the tab is torn down, so
+if that stale close (or its eventual keep-alive-timeout eviction) lands
+AFTER the NEW page has re-registered under the SAME principal, it
+silently erases the new, perfectly-live connection's own lookup entry.
+A fresh random principal every load means no two registrations ever
+share a principal, so this collision can't happen at all — and nothing
+player-visible is lost, since `sid` (the engine's actual player
+identity) already persists across reload on its own, completely
+independent of this principal.
 
 `connectWs()` builds a `GatewayWs` (`./ws/gateway-client.js`) that
 speaks `mo:duel-game-core/Ws`'s real `ic-websocket-cdk` protocol
@@ -194,9 +209,50 @@ poll while its own previous one is still pending, and drains a backlog
 faster than its usual interval when the canister reports more is
 waiting (`is_end_of_queue`). If the canister's transient WS state gets
 wiped — an upgrade, see `Host.mo`'s own comment on that — the very next
-poll/send failure is treated as presumptively that: `GatewayWs`
+poll OR send failure (an ack-reply, `send()`, or `request()` — see
+`_invalidateAndRetry()`) is treated as presumptively that: `GatewayWs`
 transparently redoes the `ws_open` handshake and resumes, with no
-`onclose` firing for what the caller never has to notice happened.
+`onclose` firing for what the caller never has to notice happened. This
+is defense in depth, not the primary fix, for the SAME
+`ic-websocket-cdk@0.4.1` cleanup bug the "Real-time push" section above
+warns against causing in the first place (a stale close erasing a live
+registration's principal->client_key lookup, keyed by principal alone):
+the actual fix is not reusing one principal across a reload to begin
+with (see above); `_invalidateAndRetry()` just means that if this ever
+happens anyway — some OTHER same-principal-reuse scenario, or a
+genuinely wiped upgrade — recovery takes about one poll interval instead
+of up to the 60-120s it'd otherwise take for the canister's own
+keep-alive timeout to notice and evict.
+
+**`send()`/`request()` are safe to call before the connection has
+opened.** Both await the same handshake `GatewayWs`'s own poll loop
+uses (coalesced onto one in-flight `ws_open`, never two racing opens)
+before building the outgoing message — so a caller doesn't have to wait
+for `onopen`/an `open` event first. This matters for any game-specific
+code sharing the connection (see below) that fires its own request the
+instant it gets hold of `ws`, e.g. `examples/racing`'s
+`lobby-connection.service.ts` sending an immediate `status` right after
+`getDuelWs()` resolves: calling `request()` before the very first tick's
+own `ws_open` had completed used to build the message with a `null`
+`client_key` (not yet assigned), which the canister's own Candid decoder
+rejected with an opaque "Invalid record ... Cannot read properties of
+null" — a real bug, not a hypothetical one.
+
+**Every outgoing `ws_message` is serialized, never sent concurrently.**
+`ic-websocket-cdk` tracks a strict per-connection expected sequence
+number and evicts the client outright (`WrongSequenceNumber` — surfaces
+here as `onclose`/"Connection closed — reload to reconnect") the instant
+a message arrives out of order — and two independent `ws_message` update
+calls, once both are actually in flight, have no guaranteed relative
+processing order on the IC, regardless of which was dispatched first.
+The periodic keep-alive ack-reply (driven by the poll loop) and a
+user-triggered `send()`/`request()` are two such independent sources
+that can otherwise both have a call in flight at once — a real,
+load-dependent race (the more actively a game is played, the more often
+it fires), not a hypothetical one. `GatewayWs` chains every send behind
+the one before it (`_serialSend()`) so the next is only ever dispatched
+once the previous has fully completed — real added per-message latency,
+but what a strict sequence protocol requires.
 
 **Sharing one `ws` with a game's own runtime code, not just the generic
 chrome.** `GatewayWs` extends `EventTarget`, same as a real `WebSocket`
@@ -222,6 +278,29 @@ modules/gameplay/game-communication/services/lobby-connection.service.ts`
 for a complete, working example (its own gameplay loop, not just the
 chrome, runs over this one shared connection).
 
+**Any number of `request()`s can be genuinely in flight at once, from
+any code sharing this `ws`.** This connection's incoming stream isn't
+only replies to its own calls — `Ws.mo`'s `pushRelevant` pushes a fresh
+view to BOTH seats of a match on almost every mutation, so this same
+connection routinely gets an unsolicited push whenever the OTHER seat
+acts, indistinguishable on the wire from a genuine reply unless
+something says otherwise. `GatewayWs` mints a fresh `reqId` per
+`request()` call and `Ws.mo` echoes it back verbatim on that request's
+own `#view`/`#err` (`null` on a push to the non-acting seat — see
+`../backend/README.md`'s "The wire protocol" section); `_handle()`
+matches replies to their own pending `request()` by that id. An earlier
+version of this file matched "the next incoming message" to "the oldest
+still-pending `request()`" instead, and required every caller sharing
+this `ws` to serialize their own calls to stay correct — a real bug an
+opponent's own broadcast could trigger: it could steal the slot meant
+for this connection's own reply, silently hanging that `request()`
+forever (the real reply arrives to an already-empty queue) while
+resolving the wrong caller with someone else's payload. That constraint
+is gone now — `app.js`'s own `refresh()`-on-`onopen` (a `send()`, so it
+carries no `reqId` and is never itself waited on) and something like
+`lobby-connection.service.ts`'s own concurrent `request()` calls can
+freely overlap.
+
 ## Optional: `ic-env.js`
 
 If you're deploying to the Internet Computer via an asset canister,
@@ -237,7 +316,7 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 | ------------------------ | ------------------------------------------ |
 | `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — the 7 plain methods' types plus the `Ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
 | `render.js`              | `renderView(view, plugin)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
-| `app.js`                 | `start({ plugin, ws, ...elIds })`, `getOrCreateSid()` |
+| `app.js`                 | `start({ plugin, ws, ...elIds })`          |
 | `ic-env.js`              | `readIcEnv()`, `deriveHost()` (optional)   |
 | `ws.js`                  | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result |
 | `ws/gateway-client.js`   | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds |
