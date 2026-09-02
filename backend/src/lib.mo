@@ -18,7 +18,9 @@
 ///     own rematch option isn't cut short by your exit
 ///   • after `idleTimeoutNs` of inactivity, third parties may take over:
 ///     claim a squatted staging seat, reset a dead game, or start fresh
-///     over an expired debrief
+///     over an expired debrief — or a host may call `sweep` on its own
+///     periodic timer to free an abandoned board even with no visitor
+///     around to trigger that lazily
 ///   • every session gets one truthful `status` view — including the
 ///     proactive #endedByOther notice when a game was ripped away
 ///
@@ -572,6 +574,35 @@ module {
           #ok(());
         } else {
           #err(#notIdle { secondsLeft = secsLeft(t, d.since, now) });
+        };
+      };
+    };
+  };
+
+  /// Frees an idle board with no visitor required to trigger it — the same
+  /// eviction rule `join`/`reset` already apply to an outsider, just
+  /// callable with no session at all. Meant to be driven by a host's own
+  /// periodic timer (see README's wiring example): in a 2-player casual
+  /// game there is often nobody left to poll an abandoned board and
+  /// trigger the lazy, visitor-driven eviction those two functions do, so
+  /// without this a board both players walked away from just sits
+  /// occupied forever instead of freeing itself.
+  public func sweep<S, M>(t : Table<S, M>, now : Int) {
+    switch (t.phase) {
+      case (#empty) {};
+      case (#staging st) {
+        if (expired(t, st.since, now)) { t.phase := #empty };
+      };
+      case (#active g) {
+        if (expired(t, g.lastActivity, now)) {
+          noteEnded(t, g.p1, g.p2, []);
+          t.phase := #empty;
+        };
+      };
+      case (#debrief d) {
+        if (expired(t, d.since, now)) {
+          noteEnded(t, d.p1, d.p2, [d.p1, d.p2]); // they already saw it
+          t.phase := #empty;
         };
       };
     };

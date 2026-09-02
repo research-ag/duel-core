@@ -30,6 +30,25 @@
       </p>
     </footer>
 
+    <!--
+      Bare-specifier resolution for duel-game-core/ws/gateway-*.js's own
+      dependencies (see ../../../frontend/README.md's "Real-time push"
+      section / ../../../CLAUDE.md rule 10) — the browser has no
+      node_modules resolution of its own, so these three need mapping
+      the same way app.js loads @dfinity/agent from a full esm.sh URL
+      directly (that one's a bare specifier deep inside a COPIED
+      node_modules/duel-game-core file, so it can't use the same
+      full-URL trick app.js does).
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@dfinity/candid": "https://esm.sh/@dfinity/candid@2.4.1",
+          "@dfinity/principal": "https://esm.sh/@dfinity/principal@2.4.1",
+          "cborg": "https://esm.sh/cborg@4.5.8"
+        }
+      }
+    </script>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

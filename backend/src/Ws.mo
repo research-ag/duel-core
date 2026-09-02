@@ -28,6 +28,19 @@
 /// opponent's screen updates the instant a round resolves, not on their
 /// next poll).
 ///
+/// `ws_close` — whether the client's own goodbye or the CDK's internal
+/// keep-alive timeout catching an involuntary disappearance (crash,
+/// force-quit, network drop) — also drives an implicit `TP.leave` on
+/// behalf of that session (see `attach`'s `onClose`/`disconnectSession`):
+/// a live game a player vanished from ends in a shared debrief instead of
+/// leaving their opponent staring at a move that's never coming, and a
+/// board BOTH players vanished from frees itself instead of sitting
+/// occupied with nobody left to poll it into freeing lazily. The CDK's
+/// keep-alive timeout is fixed at 60s (not configurable via
+/// `WsInitParams`), so involuntary disappearance has a real detection
+/// floor of roughly 60-120s depending on where in the ack cycle it
+/// happens — see `../README.md`'s real-time-push section.
+///
 /// ── How a host actor wires it ──────────────────────────────────────────
 ///
 ///   import IcWebSocketCdk "mo:ic-websocket-cdk";
@@ -72,8 +85,8 @@
 ///   // IC timers do NOT survive an upgrade on their own — reschedule them:
 ///   system func postupgrade() { ws.init<system>() };
 ///
-/// See `../README.md`'s "Optional: real-time push" section for the full
-/// worked example, including the frontend half.
+/// See `../README.md`'s "Real-time push" section for the full worked
+/// example, including the frontend half.
 /// ═══════════════════════════════════════════════════════════════════════════
 
 import Map "mo:core/Map";
@@ -251,8 +264,70 @@ module {
       };
     };
 
+    /// Drives an implicit `#leave` on behalf of a session whose socket
+    /// just closed — reuses the exact same plain engine operation a
+    /// client's own `#leave` request already dispatches to (rule 11: no
+    /// second code path for what's legal). Two calls: the first performs
+    /// whatever `leave` means for the session's CURRENT phase (staging ->
+    /// empty / active -> shared `#aborted` debrief / debrief -> ack); the
+    /// second acks that same debrief immediately, since a session whose
+    /// socket just closed will never come back to click "leave" a second
+    /// time itself the way a still-connected player would.
+    func disconnectSession(now : Int, sid : TP.SessionId) : async () {
+      ignore TP.leave(table, now, sid);
+      ignore TP.leave(table, now, sid);
+    };
+
+    /// Fires when the CDK detects a connection is gone — either the
+    /// client's own `ws_close` (a cooperative goodbye) or the CDK's
+    /// internal keep-alive timeout (an involuntary disappearance: crash,
+    /// force-quit, network drop — see this module's doc header and
+    /// `../README.md`'s real-time-push section for the ~60-120s detection
+    /// floor that timeout imposes). Either way this is the one place a
+    /// disappearing player can be told apart from one who's merely gone
+    /// quiet mid-thought, so both `disconnectSession(s)` (ends/acks
+    /// THEIR game instead of leaving a still-present opponent staring at
+    /// a move that's never coming) and the "is the partner ALSO gone"
+    /// check below (frees the board instead of it sitting occupied with
+    /// nobody left to poll it) live here rather than in `lib.mo`.
     func onClose(args : IcWebSocketCdkTypes.OnCloseCallbackArgs) : async () {
-      forget(hub, args.client_principal);
+      let p = args.client_principal;
+      let sid = Map.get(hub.byPrincipal, Principal.compare, p);
+      forget(hub, p);
+      switch (sid) {
+        case null {}; // this principal was never registered to a sid — nothing to do
+        case (?s) {
+          let now = Time.now();
+          await disconnectSession(now, s);
+          // Both gone: free the board now instead of leaving it occupied
+          // until the idle timeout notices. Only reachable via #debrief
+          // here, since disconnectSession() above already collapsed
+          // #active into #debrief and #staging into #empty.
+          //
+          // Caveat: `hub.bySid` only tracks sessions connected over THIS
+          // WS transport — if a table were ever driven by mixed
+          // transports (one seat on this real gateway client, the other
+          // on `frontend/ws/poller.js`'s plain-polling `PollingWs`), this
+          // would wrongly treat a still-active `PollingWs` player as
+          // gone. Not engineered around: a single game deployment uses
+          // one transport for both seats (the frontend build is the same
+          // for every player), so this is a theoretical edge, not a
+          // practical one.
+          switch (table.phase) {
+            case (#debrief d) {
+              if (d.p1 == s or d.p2 == s) {
+                let partner = if (d.p1 == s) d.p2 else d.p1;
+                switch (Map.get(hub.bySid, Text.compare, partner)) {
+                  case null { await disconnectSession(now, partner) };
+                  case (?_) {}; // partner is still connected — nothing to do
+                };
+              };
+            };
+            case (_) {};
+          };
+          await pushRelevant(now, s);
+        };
+      };
     };
 
     let handlers = IcWebSocketCdkTypes.WsHandlers(null, ?onMessage, ?onClose);

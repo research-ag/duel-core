@@ -108,10 +108,23 @@ Then wire a host actor that forwards every call to the engine, supplying
 import TP "mo:duel-game-core";
 import Rules "YourGameRules";       // your module, implementing TP.Spec<S, M>
 import Time "mo:core/Time";
+import Timer "mo:core/Timer";
 
 persistent actor {
   let table : TP.Table<Rules.State, Rules.Action> =
     TP.create(60_000_000_000); // 60 s idle timeout
+
+  // Frees an abandoned board on its own — with only 2 players, there's
+  // often nobody left to visit the board and trigger the lazy,
+  // visitor-driven eviction `join`/`reset` already do. Timers don't
+  // survive an upgrade, so restart in `postupgrade` too.
+  func startSweeping<system>() {
+    ignore Timer.recurringTimer<system>(#seconds(30), func() : async () {
+      TP.sweep(table, Time.now());
+    });
+  };
+  startSweeping<system>();
+  system func postupgrade() { startSweeping<system>() };
 
   public func join(sid : Text, seat : TP.Seat) : async TP.Res<TP.JoinOk> {
     TP.join(Rules.spec(), table, Time.now(), sid, seat);
@@ -145,38 +158,62 @@ From there, generate (or hand-write) the Candid interface for this
 service and pair it with a **GamePlugin** on the frontend — see
 [`../frontend/README.md`](../frontend/README.md).
 
-### Optional: real-time push
+### Real-time push
 
 Every game on this engine is driven by `duel-game-core/ws.js` on the
-frontend, with **zero backend changes** — see that package's README for
-how it works (short version: it polls the SAME plain 7 methods below, on
-a fast interval, and hands the caller a WebSocket-like object; there is
-no plain-polling mode to fall back to any more, `ws` is required).
-Nothing below this point is required reading unless you want *actual*
-server push over a real external relay instead of fast client-side
-polling wearing a push-shaped interface.
+frontend — a `GatewayWs` that speaks this section's protocol directly
+against your canister's plain `ws_*` Candid methods (see that package's
+README for the frontend half in full; `ws` is required, there's no
+plain-polling mode).
 
 `src/Ws.mo` — imported separately as `mo:duel-game-core/Ws`, never merged
-into the engine itself — is that real-push alternative, built on
+into the engine itself — is built on
 [`ic-websocket-cdk`](https://github.com/omnia-network/ic-websocket-cdk-mo)
-(mops) and its matching browser client,
-[`ic-websocket-js`](https://github.com/omnia-network/ic-websocket-sdk-js)
-(npm). The IC has no native WebSocket support — `ic-websocket-cdk` works
-by having the browser open a real WebSocket to a relay, the **WS
-Gateway**, which polls the canister's `ws_get_messages` and relays both
-directions; you'd need to run one yourself (or point at the CDK authors'
-public instance, `wss://gateway.icws.io`) and wire `ic-websocket-js` into
-your frontend by hand — none of that is bundled in this repo any more
-(an earlier version of this package shipped a self-hosted Gateway Docker
-setup and a `ws.js` that spoke to it directly; both were dissolved in
-favor of the frontend polling its own canister once it became clear a
-real Gateway process bought nothing a 2-player casual game actually
-needed). That CDK depends on the legacy `mo:base` (this package's own
-code never does — see the root `CLAUDE.md`'s toolchain rule), and its
-last release (`0.4.1`, Oct 2024) predates this repo. Keeping it confined
-to `Ws.mo` means a host actor that never imports `mo:duel-game-core/Ws`
-never compiles any of that in; `src/lib.mo` stays exactly as pure as the
-architecture rules require.
+(mops). The IC has no native WebSocket support; `ic-websocket-cdk`'s
+normal deployment shape has the browser open a real WebSocket to an
+off-chain relay, the **WS Gateway**, which polls the canister's
+`ws_get_messages` and relays both directions. This repo runs it
+differently, and deliberately: `ic-websocket-cdk` doesn't require a
+pre-registered Gateway principal — a client's own `ws_open` call
+supplies whichever principal it wants registered as its
+`gateway_principal`, and the CDK accepts that dynamically (see
+`ic-websocket-cdk-mo`'s `State.mo`, `REGISTERED_GATEWAYS`) — so
+`duel-game-core/ws.js`'s `GatewayWs` has each browser tab register
+**itself** as its own Gateway and poll its own messages, exactly as a
+real Gateway process would poll on a client's behalf. No relay process
+to run, no `ic-websocket-js` dependency, no second signing identity (an
+earlier version of this package shipped a self-hosted Gateway Docker
+setup and a separate `ws.js` client for it; both were dissolved once it
+became clear a genuinely separate relay process bought nothing a
+2-player casual game actually needed — see git history around "self-
+hosted gateway websockets"/"dissolved gateway code into client library"
+if you want the full story). That CDK depends on the legacy `mo:base`
+(this package's own code never does — see the root `CLAUDE.md`'s
+toolchain rule), and its last release (`0.4.1`, Oct 2024) predates this
+repo. Keeping it confined to `Ws.mo` means a host actor that never
+imports `mo:duel-game-core/Ws` never compiles any of that in; `src/lib.mo`
+stays exactly as pure as the architecture rules require.
+
+**Disappearance handling.** Real WS close detection is exactly what
+makes it possible for the backend to tell a genuinely vanished player
+apart from one merely thinking — `attach()`'s `onClose` (see `Ws.mo`)
+drives an implicit `TP.leave` on behalf of whichever session's
+connection just closed, whether that close was the client's own
+cooperative goodbye or the CDK's internal keep-alive timeout catching an
+involuntary disappearance (crash, force-quit, network drop): a live game
+someone vanished from ends in a shared debrief instead of leaving the
+opponent staring at a move that's never coming, and if the OTHER
+participant is also found disconnected at that point, their side of the
+same debrief is acked too, freeing the board immediately instead of it
+sitting occupied with nobody left to poll it free. The CDK's keep-alive
+timeout is fixed at 60s (not configurable via `WsInitParams`), so an
+involuntary disappearance has a real detection floor of roughly
+60-120s depending on where in the ack cycle it happens — not instant,
+but bounded, and independent of `TP.sweep` (see `src/lib.mo`), which
+stays in place underneath this as a second, timeout-based backstop for
+anything that reaches the engine outside this transport at all (e.g. a
+canister upgrade dropping every live connection until browsers
+reconnect on their own).
 
 **The wire protocol.** `ic-websocket-js` requires ONE application-message
 type shared by both directions (it reads the type straight off the
@@ -220,7 +257,11 @@ persistent actor {
       encode = func(m : Ws.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
       decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
-    IcWebSocketCdkTypes.WsInitParams(null, null),
+    // 65s: the fastest legal ack interval above the CDK's hardcoded 60s
+    // keep-alive timeout (send_ack_interval_ms must exceed it) — keeps
+    // the involuntary-disappearance detection floor as tight as the
+    // dependency allows (see this section's "Disappearance handling").
+    IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
   );
   ws.init<system>(); // starts the CDK's keep-alive/ack timers
 
@@ -243,22 +284,25 @@ persistent actor {
 ```
 
 Add the dependency: `mops add ic-websocket-cdk` (pins `0.4.1`). On the
-frontend, `duel-game-core/idl.js`'s `makeIdlFactory` already declares the
-four `ws_*` Candid methods for every game (fixed CDK shapes plus your
-game's `Action`/`State` embedded in `Ws.Msg`) — nothing game-specific to
-add there, but note `duel-game-core/ws.js`'s shipped `connectWs()`
-doesn't call any of them (see above); wiring a real `ic-websocket-js`
-client against this is on you.
+frontend, `duel-game-core/idl.js`'s `makeIdlFactory` (via its exported
+`buildEngineTypes`) already declares the four `ws_*` Candid methods for
+every game (fixed CDK shapes plus your game's `Action`/`State` embedded
+in `Ws.Msg`) — nothing game-specific to add there;
+`duel-game-core/ws.js`'s `connectWs()` calls all four directly (see
+`../frontend/README.md`'s "Real-time push" section for the frontend
+half).
 
 `examples/007/src/Host.mo` and `examples/racing/src/Host.mo` both wire
-`Ws.mo` (harmlessly unused, since neither example's frontend talks to it
-— left in place as a complete, type-checked reference for anyone who
-wants to build a real Gateway-backed client against it). **This has been
-type-checked and reviewed against the CDK's actual source and its own
-reference test canister, but the full round trip (a canister, a Gateway,
-and a browser actually joining and seeing a push) has not been proven
-end-to-end.** Treat it as a solid starting point, not a battle-tested
-one, and sanity-check it against a real deploy before relying on it.
+`Ws.mo` exactly this way — it's the live transport both examples'
+frontends actually talk to, not a reference-only add-on. **The Motoko
+side has been type-checked and reviewed against the CDK's actual
+source; the Candid/CBOR codec on the frontend side has been round-tripped
+against the same type descriptions in a standalone script (encode →
+decode agreement, no live canister involved). The full round trip — a
+real canister, a browser tab registering as its own Gateway, and an
+actual push arriving — has not been proven end-to-end.** Treat it as a
+solid, carefully-reasoned starting point, not a battle-tested one, and
+sanity-check it against a real deploy before relying on it.
 
 ### Build & test
 

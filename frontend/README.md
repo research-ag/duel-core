@@ -76,7 +76,8 @@ import { plugin } from "./my-game-plugin.js";
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const agent = await HttpAgent.create({ host });
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
-const ws = connectWs({ actor });
+const principal = await agent.getPrincipal();
+const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
 
 start({ plugin, ws });
 ```
@@ -111,47 +112,81 @@ view arrives via `ws.onmessage`, for both players:
 import { connectWs } from "duel-game-core/ws.js";
 import { start } from "duel-game-core/app.js";
 
-const ws = connectWs({ actor });
+const principal = await agent.getPrincipal();
+const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
 start({ plugin, ws });
 ```
 
-There's no Gateway process and no extra canister wiring required —
-`connectWs()` returns a small poller (`./ws/poller.js`) that calls the
-SAME plain `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`/`status`
-methods `actor` already has, on a fast interval (default 500ms;
-`?wsInterval=<ms>` overrides it), and re-shapes the results into the
-`onopen`/`onmessage`/`onclose`/`onerror`/`send(msg)` surface `start()`
-expects. It's push-shaped polling, not real server push — an opponent's
-move shows up on the next tick, not the instant it resolves, which is an
-imperceptible difference for a casual 2-player game and a much simpler
-stack (no Docker, no relay process, no signing identity, no second wire
-protocol to keep in sync with a plain one — there's only ever one
-transport). `start()` itself doesn't know or care which kind of `ws` it
-got — bring your own WebSocket-like object (a mock for tests, or a real
-one talking to `mo:duel-game-core/Ws` — see that module's own doc header
-in `../backend/src/Ws.mo` — if you want actual server push over a real
-Gateway instead) and skip `ws.js` entirely if `connectWs()`'s choices
-don't fit; `start()` only needs the four handlers and `send(msg)`,
-nothing about `ws.js`/`PollingWs` specifically.
+`connectWs()` builds a `GatewayWs` (`./ws/gateway-client.js`) that
+speaks `mo:duel-game-core/Ws`'s real `ic-websocket-cdk` protocol
+directly against `actor` — genuine canister-driven push, not client-side
+polling wearing a push-shaped interface. There is still no separate
+Gateway *process* to run: `ic-websocket-cdk` doesn't require a
+pre-registered Gateway principal — its `ws_open` lets a caller register
+**itself** as its own Gateway — so this tab calls
+`ws_open`/`ws_get_messages`/`ws_message`/`ws_close` on the canister
+directly, polling itself the way a real Gateway would poll on a client's
+behalf (see `./ws/gateway-transport.js`'s own header for the full
+story). This is also what makes an opponent's disappearance a genuine
+server-side signal instead of a guess: the CDK's own canister-side timer
+(periodic ack → wait for a keep-alive reply → evict) calls `on_close` on
+its own if a connection goes quiet, independent of any explicit goodbye
+— see `../backend/src/Ws.mo`'s doc header for what the backend does with
+that (ends/frees the affected game) and the resulting detection floor
+(that timeout is fixed at 60s inside the CDK, not configurable — expect
+roughly 60-120s for an involuntary disappearance to be noticed, not
+instant; a cooperative one, e.g. the tab closing normally, is much
+faster since `GatewayWs` proactively calls `ws_close` itself on
+`pagehide`/backgrounding).
 
-**Overlap control and liveness.** The periodic timer never starts a new
-query while its own previous one is still pending — a bad connection can
-leave a `status()` call hanging far longer than `intervalMs`, and firing
-a new one every tick regardless piles up unboundedly (dozens of
-forever-pending queries on a frozen tab). And since the IC gives no
-server-side heartbeat to lean on, liveness is entirely client-side: any
-call that resolves at all (a business `{err}` included — even a
-rejection proves the network works) counts as "still connected"; after
-`disconnectAfterMs` (default 10s; `?wsDisconnectAfter=<ms>` overrides it)
-with no successful round trip at all, the poller closes itself rather
-than continuing to retry into a dead connection — `ws.onclose` fires,
-same as any other close.
+**Dependencies and the trade-off that buys.** This is the one place in
+this package that pulls in real npm dependencies — `@dfinity/candid`
+(Candid encode/decode of the message content blob) and `cborg`
+(CBOR-decoding `ws_get_messages`' envelope) — confined to
+`./ws/gateway-*.js`, the same narrow, documented exception
+`ic-websocket-cdk` gets on the backend (see the root `CLAUDE.md`'s rule
+10). `GatewayWs` also deliberately skips verifying the `cert`/`tree`
+fields `ws_get_messages` returns: the CDK certifies its queue so a
+client can trust a *Gateway's* relay without trusting the Gateway
+itself, but since our "gateway" here is the player's own tab (already
+as trusted as the plain `status()` query already implicitly is), that
+property buys nothing and would cost a real BLS-verification dependency
+to check — a documented trade-off, not an oversight.
+
+**`./ws/poller.js`'s `PollingWs`/`connectPollingWs`** remain available
+as an explicit opt-in fallback — plain HTTP polling of `actor`'s own
+`join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`/`status` methods, no
+WS protocol and no extra dependencies involved at all:
+
+```js
+import { connectPollingWs } from "duel-game-core/ws/poller.js";
+const ws = connectPollingWs({ actor });
+```
+
+Reach for this for a canister that never wires `mo:duel-game-core/Ws`,
+or as a mock-free transport in tests that don't want a real WS
+handshake. `start()` itself doesn't know or care which kind of `ws` it
+got — bring your own WebSocket-like object entirely (a genuine mock for
+tests, or a hand-rolled one talking to a real EXTERNAL Gateway relay
+instead of `GatewayWs`'s self-registered one) if neither built-in choice
+fits; `start()` only needs the four handlers and `send(msg)`, nothing
+about `ws.js`/`GatewayWs`/`PollingWs` specifically.
+
+**Overlap control and reconnection.** `GatewayWs` never starts a new
+poll while its own previous one is still pending, and drains a backlog
+faster than its usual interval when the canister reports more is
+waiting (`is_end_of_queue`). If the canister's transient WS state gets
+wiped — an upgrade, see `Host.mo`'s own comment on that — the very next
+poll/send failure is treated as presumptively that: `GatewayWs`
+transparently redoes the `ws_open` handshake and resumes, with no
+`onclose` firing for what the caller never has to notice happened.
 
 **Sharing one `ws` with a game's own runtime code, not just the generic
-chrome.** `PollingWs` extends `EventTarget`, same as a real `WebSocket`,
-so more than one part of a page can use the SAME poller instead of each
-running an independent one — publish it somewhere your other code can
-reach (e.g. on `window`, the way `examples/racing` does) and:
+chrome.** `GatewayWs` extends `EventTarget`, same as a real `WebSocket`
+(and same as `PollingWs`), so more than one part of a page can use the
+SAME connection instead of each running an independent one — publish it
+somewhere your other code can reach (e.g. on `window`, the way
+`examples/racing` does) and:
 
 ```js
 ws.addEventListener("message", (ev) => {
@@ -161,15 +196,14 @@ ws.addEventListener("message", (ev) => {
 
 `ws.send(msg)` stays fire-and-forget (the plain WebSocket contract
 `app.js` relies on) — its result only ever shows up as a `message`/`error`
-event, racing against the poller's own periodic tick. If you need a
-specific call's own response correlated back to you (e.g. "was MY move
-rejected?"), use `ws.request(sid, req)` instead: same dispatch, same
-`message` event fired as a side effect, but it also returns a Promise of
-that exact call's `{ view } | { err }`, and rejects on a genuine transport
-failure. See `examples/racing/frontend/src/app/modules/gameplay/
-game-communication/services/lobby-connection.service.ts` for a complete,
-working example (its own gameplay loop, not just the chrome, runs over
-this one shared poller).
+event. If you need a specific call's own response correlated back to
+you (e.g. "was MY move rejected?"), use `ws.request(sid, req)` instead:
+same dispatch, same `message` event fired as a side effect, but it also
+returns a Promise of that exact call's `{ view } | { err }`, and rejects
+on a genuine transport failure. See `examples/racing/frontend/src/app/
+modules/gameplay/game-communication/services/lobby-connection.service.ts`
+for a complete, working example (its own gameplay loop, not just the
+chrome, runs over this one shared connection).
 
 ## Optional: `ic-env.js`
 
@@ -182,15 +216,18 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 
 ## Modules
 
-| Module        | Exports                                   |
-| ------------- | ------------------------------------------ |
-| `idl.js`      | `makeIdlFactory(buildGameTypes)` — also declares 4 `ws_*` methods for the optional `Ws.mo`/Gateway path (unused by `ws.js`; see `../backend/src/Ws.mo`) |
-| `render.js`   | `renderView(view, plugin)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
-| `app.js`      | `start({ plugin, ws, ...elIds })`          |
-| `ic-env.js`   | `readIcEnv()`, `deriveHost()` (optional)   |
-| `ws.js`       | `connectWs({ actor, ...opts })` — see "Real-time push"; `start()` requires its result |
-| `ws/poller.js`| `PollingWs`, `connectWs()` — the actual implementation behind `ws.js` |
-| `style.css`   | generic layout primitives                  |
+| Module                   | Exports                                   |
+| ------------------------ | ------------------------------------------ |
+| `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — the 7 plain methods' types plus the `Ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
+| `render.js`              | `renderView(view, plugin)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
+| `app.js`                 | `start({ plugin, ws, ...elIds })`          |
+| `ic-env.js`              | `readIcEnv()`, `deriveHost()` (optional)   |
+| `ws.js`                  | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result |
+| `ws/gateway-client.js`   | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds |
+| `ws/gateway-transport.js`| `SelfGatewayTransport` — moves bytes (the embedded-Gateway registration/poll/send/close calls); swap this for a real-external-Gateway transport without touching the other two `ws/gateway-*.js` files |
+| `ws/gateway-protocol.js` | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, and interpreting a decoded envelope; transport-agnostic |
+| `ws/poller.js`           | `PollingWs`, `connectPollingWs({ actor, ...opts })` — the dependency-free plain-polling fallback, opt-in only (see "Real-time push") |
+| `style.css`              | generic layout primitives                  |
 
 See [`../backend/README.md`](../backend/README.md) for the matching
 backend `Spec` contract.

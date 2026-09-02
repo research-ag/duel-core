@@ -55,17 +55,18 @@ function reconstructTrajectory(before: RacingCarState, after: RacingCarState): S
 /// there is no lobby URL/slot/car selection here — duel-game-core's own
 /// screens (index.html's #screen, driven by duel-app.js) already handle
 /// choosing a seat and waiting for an opponent. This service's only job
-/// is to notice (by sharing duel-app.js's own push poller — see
+/// is to notice (by sharing duel-app.js's own push connection — see
 /// getDuelWs()) when a game is under way, and translate it into the
 /// `{ slot, step }[]` event shape gameplay.service.ts already expects —
 /// so nothing downstream of here needed to change. This service has NO
 /// polling of its own: `onMessage()` just reacts to whatever view the
-/// shared `PollingWs` delivers next (its own interval, plus immediately
+/// shared `GatewayWs` delivers next (canister push, plus immediately
 /// after every submitted move — see emitNextStep()) — a second,
-/// independent poll loop here would race the shared one's own fetches
-/// with no ordering guarantee between them, which is exactly what once
-/// made cars briefly animate backwards before "teleporting" to the
-/// correct position (see duel-game-core/ws/poller.js's `_fetchView()`
+/// independent poll loop here would race the shared connection's own
+/// fetches with no ordering guarantee between them, which is exactly
+/// what once made cars briefly animate backwards before "teleporting"
+/// to the correct position, back when this ran over `PollingWs` (see
+/// duel-game-core/ws/poller.js's `_fetchView()`
 /// doc for the full story). There's no plain-polling fallback anywhere
 /// in `duel-game-core` any more — `duel-app.js`'s `ws` always exists, and
 /// this is the only communication channel to the canister, chrome and
@@ -104,7 +105,7 @@ export class LobbyConnectionService {
   // I've already committed to. See onStatus()'s own comment on both.
   public raceStarted: Subject<{ resumedAtStep: number, youAlreadySubmitted: boolean }> = new Subject();
 
-  private ws: any; // shared PollingWs — see duel-game-core/ws/poller.js
+  private ws: any; // shared GatewayWs — see duel-game-core/ws/gateway-client.js
   private mySlot: number = -1;
   private wasInGame: boolean = false;
   private prevGame: RacingState | null = null;

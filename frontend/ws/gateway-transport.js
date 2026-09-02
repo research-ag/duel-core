@@ -1,0 +1,162 @@
+// Moves bytes for the embedded-gateway client — and ONLY that. Nothing
+// in this file decides what a message MEANS (that's
+// `gateway-protocol.js`) or owns the poll loop / reconnect policy /
+// public WebSocket-shaped surface (that's `gateway-client.js`). This
+// split exists so a future transport that speaks to a REAL external
+// Gateway relay (the way `ic-websocket-cdk` is normally deployed — see
+// `../../backend/src/Ws.mo`'s doc header) can be dropped in later
+// without touching protocol or client code: it would just need to
+// implement the same four methods (`open`/`poll`/`send`/`close`) and
+// hand `poll()`'s caller the same decoded-envelope shape.
+//
+// What THIS transport actually does: no external relay process at all.
+// `ic-websocket-cdk` doesn't require a pre-registered Gateway principal
+// — `ws_open` lets a caller register ITSELF as its own gateway (see
+// `ic-websocket-cdk-mo`'s `State.mo`: `REGISTERED_GATEWAYS` is populated
+// dynamically from whatever `gateway_principal` a client's own `ws_open`
+// call supplies) — so this browser tab calls `ws_open`/`ws_get_messages`/
+// `ws_message`/`ws_close` on the canister directly, polling itself the
+// way a real Gateway would poll on a client's behalf.
+//
+// `ws_get_messages` returns each message's `content` as a CBOR-encoded
+// `WebsocketMessage` envelope (the CDK certifies the CBOR bytes, not a
+// Candid record — see `ic-websocket-cdk-mo`'s `Types.mo`,
+// `encode_websocket_message`) — decoding that framing is this
+// transport's job; `gateway-protocol.js` never sees CBOR, only the
+// decoded `{clientKey, sequenceNum, timestamp, isServiceMessage,
+// content}` shape every message boils down to regardless of which
+// transport produced it.
+//
+// Certificate verification (`cert`/`tree` in `ws_get_messages`' result)
+// is deliberately NOT performed — the CDK certifies its queue so a
+// client can trust a GATEWAY's relay without trusting the Gateway
+// itself; since our "gateway" here is the player's own tab (already as
+// trusted as the plain `status()` query already implicitly is), that
+// property buys nothing and would cost a real BLS-verification
+// dependency to check. Documented trade-off, not an oversight — see
+// `../README.md`'s "Real-time push" section.
+
+import { decode as cborDecode } from "cborg";
+import { Principal } from "@dfinity/principal";
+
+/// CBOR maps decode to plain JS objects (`useMaps: false`) so the rest
+/// of this file never has to special-case `Map` — the fixed shape
+/// `encode_websocket_message` produces is only ever string-keyed, at
+/// most two levels deep (`client_key` nests one more map inside).
+const CBOR_OPTS = { useMaps: false };
+
+/// `CanisterOutputMessage.key`'s trailing `_{20-digit nonce}` — see
+/// `ic-websocket-cdk-mo`'s `State.mo`'s `format_message_for_gateway_key`.
+const NONCE_SUFFIX = /_(\d+)$/;
+
+function decodeEnvelope(contentBytes) {
+  const raw = cborDecode(contentBytes, CBOR_OPTS);
+  return {
+    clientKey: {
+      client_principal: Principal.fromUint8Array(
+        new Uint8Array(raw.client_key.client_principal),
+      ),
+      client_nonce: BigInt(raw.client_key.client_nonce),
+    },
+    sequenceNum: BigInt(raw.sequence_num),
+    timestamp: BigInt(raw.timestamp),
+    isServiceMessage: Boolean(raw.is_service_message),
+    content: new Uint8Array(raw.content),
+  };
+}
+
+/// One instance per connection attempt — `principal`'s tab registers as
+/// its own `gateway_principal` on `open()`, then `poll()` walks its own
+/// outgoing queue exactly as a real Gateway's polling loop would.
+export class SelfGatewayTransport {
+  constructor({ actor, principal }) {
+    this._actor = actor;
+    this._principal = principal;
+    this._nonce = 0n;
+    this._clientKey = null; // set by open()
+  }
+
+  get clientKey() {
+    return this._clientKey;
+  }
+
+  /// False right after construction or after `invalidate()` — the
+  /// caller (`gateway-client.js`) uses this to decide whether a tick
+  /// needs to redo the `ws_open` handshake before polling.
+  get isOpen() {
+    return this._clientKey !== null;
+  }
+
+  /// Drops this transport's registration WITHOUT calling `ws_close` —
+  /// for when the caller already knows (or must assume) the canister
+  /// side is gone (a failed poll/send after a previously successful
+  /// open — presumptively an upgrade wiped `Ws.mo`'s transient state;
+  /// see `Host.mo`'s own comment on that) and just needs to force the
+  /// next `open()` to redo the handshake from scratch.
+  invalidate() {
+    this._clientKey = null;
+  }
+
+  async open(clientNonce) {
+    this._clientKey = {
+      client_principal: this._principal,
+      client_nonce: clientNonce,
+    };
+    this._nonce = 0n;
+    const res = await this._actor.ws_open({
+      client_nonce: clientNonce,
+      gateway_principal: this._principal,
+    });
+    if ("Err" in res) {
+      this._clientKey = null;
+      throw new Error(`ws_open: ${res.Err}`);
+    }
+  }
+
+  /// Returns `{envelopes, isEndOfQueue}` — the batch waiting since the
+  /// last poll, advancing this transport's own nonce past whatever it
+  /// just read. That nonce is purely local bookkeeping a real-Gateway-
+  /// backed transport wouldn't need at all (a relay pushes messages as
+  /// they arrive; there is no "nonce" to track client-side), which is
+  /// exactly why it lives here and not in `gateway-protocol.js`.
+  async poll() {
+    const res = await this._actor.ws_get_messages({ nonce: this._nonce });
+    if ("Err" in res) throw new Error(`ws_get_messages: ${res.Err}`);
+    const { messages, is_end_of_queue } = res.Ok;
+    let nextNonce = this._nonce;
+    for (const m of messages) {
+      const match = NONCE_SUFFIX.exec(m.key);
+      if (match) {
+        const n = BigInt(match[1]) + 1n;
+        if (n > nextNonce) nextNonce = n;
+      }
+    }
+    this._nonce = nextNonce;
+    return {
+      envelopes: messages.map((m) => decodeEnvelope(m.content)),
+      isEndOfQueue: is_end_of_queue,
+    };
+  }
+
+  /// `record` is an already-built `WebsocketMessage` Candid record (see
+  /// `gateway-protocol.js`'s `buildAppMessage`/`buildKeepAliveReply`) —
+  /// this transport only ever transmits it, never builds or interprets
+  /// its `content`.
+  async send(record) {
+    const res = await this._actor.ws_message({ msg: record }, []);
+    if ("Err" in res) throw new Error(`ws_message: ${res.Err}`);
+  }
+
+  async close() {
+    if (!this._clientKey) return;
+    // Best-effort: a teardown call racing an already-dead connection
+    // (network gone, tab closing) failing silently is fine — the CDK's
+    // own keep-alive timeout is the backstop either way (see
+    // `../../backend/src/Ws.mo`'s doc header).
+    try {
+      await this._actor.ws_close({ client_key: this._clientKey });
+    } catch {
+      // already gone; nothing to do
+    }
+  }
+}

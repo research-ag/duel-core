@@ -1,15 +1,46 @@
 // The real-time push transport — the only one `start()` supports; there
-// is no plain-polling mode any more. No Gateway process and no
-// `ic-websocket-js` dependency here — the actual work is one small poller
-// in `./ws/poller.js`, kept in its own directory since it's a
-// self-contained little library in its own right (not a one-off helper
-// like `ic-env.js`). This file is just the stable public entry point, so
-// `duel-game-core/ws.js` keeps meaning the same thing it always has.
+// is no plain-polling mode any more. `connectWs()` builds a `GatewayWs`
+// (`./ws/gateway-client.js`): a client that speaks `mo:duel-game-core/Ws`'s
+// real `ic-websocket-cdk` protocol directly, self-registering each tab
+// as its own Gateway (see `./ws/gateway-transport.js`'s header for why
+// that's a legitimate use of the protocol, not a hack) — genuine
+// canister-driven push, and a genuine server-side signal when a
+// connection goes quiet (crash, force-quit, network drop; see
+// `../backend/src/Ws.mo`'s doc header for the resulting detection
+// floor), not client-side polling wearing a push-shaped interface.
 //
 // Usage:
 //
 //   import { connectWs } from "duel-game-core/ws.js";
-//   const ws = connectWs({ actor });
+//   const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
 //   start({ plugin, ws });
+//
+// `principal` is the SAME identity `actor` itself signs calls with (e.g.
+// `await agent.getPrincipal()`) — needed to self-register as a Gateway.
+// `gameIdlTypes` is the SAME `buildGameTypes` function already passed to
+// `makeIdlFactory()` (see `./idl.js`) — needed to Candid-encode/decode
+// the message content blob, which embeds the game's own `Action`/`State`
+// types.
+//
+// `./ws/poller.js`'s `PollingWs` (plain HTTP polling of the same 7
+// methods, no WS protocol involved) is still exported from there
+// directly as an explicit opt-in fallback — see that file's own header —
+// for a canister that never wires `mo:duel-game-core/Ws`, or as a mock
+// transport for tests. `connectWs()` here always returns a `GatewayWs`.
 
-export { connectWs, PollingWs } from "./ws/poller.js";
+import { GatewayWs } from "./ws/gateway-client.js";
+
+/// Builds a ready-to-use `ws` for `app.js`'s `start()` — a `GatewayWs`
+/// wired to `actor`/`principal`/`gameIdlTypes`. See this file's header
+/// for what it actually does and why.
+///
+/// Options (all required except `intervalMs`):
+///   actor        - the game's actor, already built with an agent/identity
+///   principal    - that same identity's own Principal
+///   gameIdlTypes - the `buildGameTypes` function passed to `makeIdlFactory`
+///   intervalMs   - how often to poll `ws_get_messages`, in ms (default 500)
+export function connectWs({ actor, principal, gameIdlTypes, intervalMs } = {}) {
+  return new GatewayWs({ actor, principal, gameIdlTypes, intervalMs });
+}
+
+export { GatewayWs };

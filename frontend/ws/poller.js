@@ -1,26 +1,24 @@
-// The push transport, dissolved down to one small class.
+// A plain-polling fallback transport — NOT what `../ws.js`'s `connectWs()`
+// builds by default any more (see that file's header: it now builds a
+// `GatewayWs`, `../ws/gateway-client.js`, which speaks
+// `mo:duel-game-core/Ws`'s real `ic-websocket-cdk` protocol). This module
+// is kept as an explicit opt-in — `import { PollingWs, connectPollingWs }
+// from "duel-game-core/ws/poller.js"` — for a canister that never wires
+// `mo:duel-game-core/Ws` at all, or as a mock transport for tests that
+// don't want a real WS handshake.
 //
-// Earlier versions of this package built real-time push the way
-// `ic-websocket-cdk` intends: a browser opens an actual `WebSocket` to an
-// off-chain Gateway process, which relays it to the canister's
-// `ws_open`/`ws_message`/`ws_get_messages`/`ws_close` Candid methods (see
-// `../../backend/src/Ws.mo`). That needed a Gateway server running
-// somewhere and an `ic-websocket-js` dependency to speak its wire
-// protocol.
-//
-// This module removes the Gateway and the SDK entirely. The browser
-// already has everything it needs to reach the canister — its own
-// `actor`, already wired with an agent and an identity by the caller — so
-// `PollingWs` just calls the SAME plain 7-method surface `app.js` already
-// knows how to drive without a `ws` (`join`/`submit`/`rematch`/`leave`/
-// `reset`/`ackEnded`/`status`), on a fast interval, and re-shapes the
-// results into the exact WebSocket-like surface `app.js`'s `ws` branch
-// expects (`onopen`/`onmessage`/`onerror`/`onclose`, `send(msg)`,
-// `{data: {view} | {err}}` messages — see `../app.js`'s header). Nothing
-// downstream of `connectWs()` can tell the difference: `app.js` is
-// unchanged, and `../../backend/src/Ws.mo`/`ic-websocket-cdk` are
-// untouched but no longer needed for this to work — a canister only needs
-// its plain 7 methods.
+// The browser already has everything it needs to reach the canister —
+// its own `actor`, already wired with an agent and an identity by the
+// caller — so `PollingWs` just calls the SAME plain 7-method surface
+// `app.js` already knows how to drive without a `ws` (`join`/`submit`/
+// `rematch`/`leave`/`reset`/`ackEnded`/`status`), on a fast interval, and
+// re-shapes the results into the exact WebSocket-like surface `app.js`'s
+// `ws` branch expects (`onopen`/`onmessage`/`onerror`/`onclose`,
+// `send(msg)`, `{data: {view} | {err}}` messages — see `../app.js`'s
+// header). Nothing downstream of `connectPollingWs()` can tell the
+// difference: `app.js` is unchanged, and `../../backend/src/Ws.mo`/
+// `ic-websocket-cdk` aren't needed for this path to work — a canister
+// only needs its plain 7 methods.
 //
 // `PollingWs` extends `EventTarget`, same as a real `WebSocket`, so it
 // supports both single-slot handler assignment (`ws.onmessage = fn`, what
@@ -341,9 +339,8 @@ export class PollingWs extends EventTarget {
 
 /// Builds a ready-to-use `ws` for `app.js`'s `start()` — a `PollingWs`
 /// wired to `actor`. See this file's header for what it actually does
-/// (polling, not a real socket) and why. Always returns a `PollingWs` —
-/// there is no polling-fallback escape hatch here; `ws` is the only
-/// transport this package ships.
+/// (polling, not a real socket) and why you'd reach for this over
+/// `../ws.js`'s `connectWs()` (the `GatewayWs`-based default).
 ///
 /// Options (all optional except `actor`):
 ///   intervalMs        - how often to poll for a fresh view, in ms (default 500)
@@ -358,17 +355,17 @@ export class PollingWs extends EventTarget {
 /// option, handy for testing without editing code.
 ///
 /// Accepts (and ignores) `canisterId`/`host`/`gatewayUrl`/`identity` too
-/// — no Gateway to pick or identity to sign with anymore — so existing
-/// call sites written for the old Gateway-backed `connectWs()` keep
-/// working unchanged.
-export function connectWs({
+/// — no Gateway to pick or identity to sign with — so existing call
+/// sites written for the old Gateway-backed `connectWs()` keep working
+/// unchanged, before this became an opt-in fallback.
+export function connectPollingWs({
   actor,
   intervalMs = DEFAULT_INTERVAL_MS,
   disconnectAfterMs = DEFAULT_DISCONNECT_AFTER_MS,
   params = new URLSearchParams(location.search),
   ...ignored // canisterId, host, gatewayUrl, identity — see doc above
 } = {}) {
-  if (!actor) throw new Error("connectWs(): `actor` is required");
+  if (!actor) throw new Error("connectPollingWs(): `actor` is required");
 
   const wsInterval = Number(params.get("wsInterval"));
   const wsDisconnectAfter = Number(params.get("wsDisconnectAfter"));

@@ -386,4 +386,80 @@ switch (TP.status(t, T0, "b")) {
 };
 Debug.print("17. debrief reset delegates to leave-semantics OK");
 
+// ── 18. sweep: frees an idle board with no visitor, on every phase ─────────
+// #empty: a no-op.
+t := fresh();
+TP.sweep(t, T0);
+switch (TP.status(t, T0, "zz")) {
+  case (#lobby _) {};
+  case (_) Runtime.trap("sweeping an empty board must stay a no-op");
+};
+
+// #staging: untouched before the timeout, freed after.
+t := fresh();
+ignore ok(TP.join(spec, t, T0, "a", #p1), "a stages");
+TP.sweep(t, SOON);
+switch (TP.status(t, SOON, "a")) {
+  case (#stagingYou _) {};
+  case (_) Runtime.trap("a fresh staging must survive a sweep");
+};
+TP.sweep(t, LATER);
+switch (TP.status(t, LATER, "a")) {
+  case (#lobby l) { assert l.p1Open; assert l.p2Open };
+  case (_) Runtime.trap("an idle staging must be swept away");
+};
+Debug.print("18a. sweep on #staging OK");
+
+// #active: untouched before the timeout; after it, freed with
+// #endedByOther for BOTH former players — nobody needs to visit the
+// board to learn their game is over, unlike outsider takeover.
+t := gameOf(T0);
+TP.sweep(t, SOON);
+switch (TP.status(t, SOON, "a")) {
+  case (#inGame _) {};
+  case (_) Runtime.trap("a live game must survive a sweep");
+};
+TP.sweep(t, LATER);
+switch (TP.status(t, LATER, "a")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("a stalled game must be swept into #endedByOther for a");
+};
+switch (TP.status(t, LATER, "b")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("...and for b too, with no visitor required");
+};
+switch (TP.status(t, LATER, "zz")) {
+  case (#lobby l) { assert l.p1Open; assert l.p2Open };
+  case (_) Runtime.trap("an outsider should see the board free after a sweep");
+};
+Debug.print("18b. sweep on #active OK");
+
+// #debrief: untouched before the timeout; after it, freed, and both
+// participants are pre-acked (they already saw their debrief) — same
+// asymmetry an outsider's join/reset already applies to an expired
+// debrief (see lib.mo's doc header, rule 7): unlike a stalled #active
+// game (18b, fresh #endedByOther — nobody has seen anything yet), a
+// swept debrief goes straight to #lobby, since both players already
+// saw their result.
+t := debriefOf(T0);
+TP.sweep(t, SOON);
+switch (TP.status(t, SOON, "a")) {
+  case (#debrief _) {};
+  case (_) Runtime.trap("a fresh debrief must survive a sweep");
+};
+TP.sweep(t, LATER);
+switch (TP.status(t, LATER, "a")) {
+  case (#lobby _) {};
+  case (_) Runtime.trap("a swept, already-seen debrief should go straight to #lobby");
+};
+switch (TP.status(t, LATER, "b")) {
+  case (#lobby _) {};
+  case (_) Runtime.trap("...and for b too, with no visitor required");
+};
+switch (ok(TP.join(spec, t, LATER, "a", #p1), "a re-joins after the sweep")) {
+  case (#staged(#p1)) {};
+  case (_) Runtime.trap("a should be a fresh outsider, not still #notSeated-gated");
+};
+Debug.print("18c. sweep on #debrief OK");
+
 Debug.print("ALL ENGINE CHECKS PASSED");

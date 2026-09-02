@@ -13,24 +13,30 @@ top.
   `mo:duel-game-core`, no subpath). See [`backend/README.md`](backend/README.md)
   for the `Spec<S, M>` contract a game implements and a full host-actor
   wiring example. `backend/src/Ws.mo` (`mo:duel-game-core/Ws`) is a
-  separate, OPTIONAL module layered on top of the engine: real-time push
-  over WebSocket via `ic-websocket-cdk`, instead of frontend polling — see
-  `backend/README.md`'s "Optional: real-time push" section. It is never
-  merged into `lib.mo`; see the toolchain note below.
+  separate module layered on top of the engine, never merged into
+  `lib.mo` (see the toolchain note below): real-time push over
+  `ic-websocket-cdk` — the live transport `frontend/ws.js` actually
+  talks to (not an unused reference add-on) — plus the disappearance
+  handling a real WS close signal makes possible (ending a game a
+  vanished player left mid-round, freeing a board both walked away from
+  — see `backend/README.md`'s "Real-time push" section).
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
-  client plumbing (session identity, WebSocket-shaped push, the generic
+  client plumbing (session identity, real-time push, the generic
   lobby/staging/rematch/busy/debrief screens, Candid IDL scaffolding).
   See [`frontend/README.md`](frontend/README.md) for the `GamePlugin`
   contract (Candid types, seat labels, board/action rendering) a game
   implements, and its "Real-time push" section for the required `ws`
   param — there is no plain-polling mode, `start()` throws without one.
-  `frontend/ws/` (`ws.js` is its public entry point) is that push
-  transport: it polls the SAME plain 7 methods on a fast interval and
-  hands back a WebSocket-shaped object — no Gateway process, no
-  `ic-websocket-js`, no backend changes needed.
-  `backend/src/Ws.mo` is a separate, unrelated-by-default module for
-  anyone who wants *real* server push over an actual external Gateway
-  instead — see below.
+  `frontend/ws.js`'s `connectWs()` builds a `GatewayWs`
+  (`frontend/ws/gateway-*.js`) that speaks `backend/src/Ws.mo`'s real
+  `ic-websocket-cdk` protocol directly: each browser tab registers
+  itself as its own Gateway (the CDK allows this — no pre-registered
+  Gateway principal required) and polls its own messages, so there's
+  still no external relay *process* to run, just a real WS handshake
+  and genuine canister-driven push instead of client-side polling
+  wearing a push-shaped interface. `frontend/ws/poller.js`'s
+  `PollingWs`/`connectPollingWs` remains as an explicit, dependency-free
+  opt-in fallback for a canister that never wires `Ws.mo`, or for tests.
 - **`backend/test/*.test.mo`** — interpreter-run suites for the engine.
   `Lifecycle.test.mo` walks one long session narrative; `Engine.test.mo`
   drives each entry point in isolation, covering the error variants,
@@ -108,7 +114,7 @@ mops bench
 ```bash
 # Frontend (from the repo root): syntax/sanity check — no build step, no
 # DOM needed to import:
-node --check frontend/app.js frontend/render.js frontend/idl.js frontend/ic-env.js frontend/ws.js frontend/ws/poller.js
+node --check frontend/app.js frontend/render.js frontend/idl.js frontend/ic-env.js frontend/ws.js frontend/ws/poller.js frontend/ws/gateway-client.js frontend/ws/gateway-transport.js frontend/ws/gateway-protocol.js
 ```
 
 With mops installed, `<path-to-core/src>` is typically
@@ -149,13 +155,23 @@ resolved relative to `backend/`.
    `query`. Lazy idle-reset happens only in mutating calls.
 9. **Pending moves are hidden by construction**: `status` exposes only
    Booleans for the opponent's pending move, never the move itself.
-10. **The frontend never assumes an agent-loading strategy, and has no
-    npm dependencies at all.** `app.js`'s `start()` takes an already-built
-    `actor` (and, optionally, an already-built `ws`); it doesn't import
-    `@dfinity/agent` or hardcode a CDN. `frontend/ws.js`/`ws/poller.js`
-    build an optional `ws` a caller can choose to use, entirely by
-    polling `actor`'s own plain methods — no third-party library
-    involved, so there's no exception to carve out here any more.
+10. **The frontend never assumes an agent-loading strategy.** `app.js`'s
+    `start()` takes an already-built `actor` (and an already-built `ws`);
+    it doesn't import `@dfinity/agent` or hardcode a CDN, and never will
+    — that rule is absolute, not just "no dependencies yet". Dependencies
+    are a narrower, deliberate exception: `frontend/ws/gateway-*.js`
+    (the real `mo:duel-game-core/Ws` client `frontend/ws.js`'s
+    `connectWs()` builds by default) depends on `@dfinity/candid` (Candid
+    encode/decode of the message content blob) and `cborg` (CBOR-decoding
+    `ws_get_messages`' certified envelope) — confined there for the same
+    reason `ic-websocket-cdk` is confined to `backend/src/Ws.mo`: every
+    OTHER file in this package (`app.js`, `render.js`, `idl.js`,
+    `ic-env.js`, `ws/poller.js`) stays dependency-free, so a game that
+    only imports those never pulls either in. `ws/poller.js`'s
+    `PollingWs`/`connectPollingWs` remain the dependency-free fallback,
+    polling `actor`'s own plain methods with no WS protocol involved at
+    all — reach for it explicitly (`duel-game-core/ws/poller.js`) when a
+    canister never wires `Ws.mo`, or for a mock transport in tests.
     `start()` itself stays exactly as agnostic as before either way.
 11. **`Ws.mo` reimplements no game logic.** Every WebSocket request
     dispatches to the same plain engine operations (`TP.join`,

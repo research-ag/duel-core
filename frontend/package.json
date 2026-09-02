@@ -12,6 +12,9 @@
     "./ic-env.js": "./ic-env.js",
     "./ws.js": "./ws.js",
     "./ws/poller.js": "./ws/poller.js",
+    "./ws/gateway-client.js": "./ws/gateway-client.js",
+    "./ws/gateway-transport.js": "./ws/gateway-transport.js",
+    "./ws/gateway-protocol.js": "./ws/gateway-protocol.js",
     "./style.css": "./style.css"
   },
   "files": [
@@ -26,5 +29,9 @@
   ],
   "sideEffects": [
     "*.css"
-  ]
+  ],
+  "dependencies": {
+    "@dfinity/candid": "^2.4.1",
+    "cborg": "^4.2.3"
+  }
 }

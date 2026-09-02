@@ -26,9 +26,9 @@ export async function getDuelActor(): Promise<any> {
   return window.duelActorReady;
 }
 
-// Resolves to the SAME `PollingWs` duel-app.js's generic chrome uses (see
-// duel-game-core/ws/poller.js) — always present; there is no
-// plain-polling fallback anywhere in duel-game-core any more.
+// Resolves to the SAME `GatewayWs` duel-app.js's generic chrome uses (see
+// duel-game-core/ws/gateway-client.js) — always present; there is no
+// plain-polling fallback in duel-game-core by default any more.
 export async function getDuelWs(): Promise<any> {
   if (!window.duelWsReady) {
     throw new Error('window.duelWsReady is missing — check index.html\'s inline bootstrap script');

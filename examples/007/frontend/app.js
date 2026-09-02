@@ -36,12 +36,18 @@ const agent = await HttpAgent.create({
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
-// A push-shaped transport — see ../../../frontend/README.md's "Optional:
-// real-time push" section. connectWs() polls this same actor's plain
-// methods on a fast interval and hands back a WebSocket-like object (no
-// Gateway, no third-party library — see ../../../frontend/ws/poller.js).
-// `app.js`'s start() sends every action and refresh over this — there is
-// no plain-actor-call/polling code path any more, `ws` is required.
-const ws = connectWs({ actor });
+// A real push transport — see ../../../frontend/README.md's "Real-time
+// push" section. connectWs() builds a GatewayWs that speaks
+// mo:duel-game-core/Ws's ic-websocket-cdk protocol directly, self-
+// registering this tab as its own Gateway (see
+// ../../../frontend/ws/gateway-transport.js) — genuine canister push,
+// and a genuine server-side signal if this tab goes quiet. `principal`
+// is the same identity `agent`/`actor` already sign calls with;
+// `gameIdlTypes` supplies the Candid shape of this game's own
+// Action/State (needed to decode the message content blob). `app.js`'s
+// start() sends every action and refresh over this — there is no
+// plain-actor-call/polling code path any more, `ws` is required.
+const principal = await agent.getPrincipal();
+const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
 
 start({ plugin, ws });

@@ -14,12 +14,12 @@ concrete to copy — it is **not** part of either package itself.
 - **`src/Host.mo`** — the host actor: forwards every call to the
   engine with `Time.now()` and `Rules.spec()`, wired exactly as
   `../../backend/README.md`'s example shows. Deploy target. Also wires
-  `mo:duel-game-core/Ws` (an alternative, real-server-push transport)
-  side by side with the 7 plain methods, purely as a complete reference —
-  this game's own frontend doesn't call it; `frontend/app.js` gets its
-  push-shaped UI from `duel-game-core/ws.js` polling the plain 7 methods
-  instead, no extra backend wiring required. See
-  `../../backend/README.md`'s "Optional: real-time push" section.
+  `mo:duel-game-core/Ws` side by side with the 7 plain methods — this
+  IS what `frontend/app.js` talks to (`duel-game-core/ws.js`'s
+  `GatewayWs`, a real `ic-websocket-cdk` client that self-registers each
+  tab as its own Gateway, not client-side polling), for genuine
+  canister-driven push and real close-detection-driven disappearance
+  handling. See `../../backend/README.md`'s "Real-time push" section.
 - **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
   `Rules.test.mo` are scenario walks (one long session / the headline
   game rules); `Engine.test.mo` and `RulesUnit.test.mo` are per-operation
@@ -38,20 +38,25 @@ concrete to copy — it is **not** part of either package itself.
   `npm install`, see below). `duel007-plugin.js` is the whole
   game-specific surface: it implements the `GamePlugin` contract
   (`idlTypes`, `seatLabel`, `renderBoard`, `renderActions`) from
-  `../../frontend/README.md`. `app.js` builds the actor, calls
-  `duel-game-core/ws.js`'s `connectWs({ actor })` for the push-shaped
+  `../../frontend/README.md`. `app.js` builds the actor and this tab's
+  own `principal`, calls `duel-game-core/ws.js`'s `connectWs({ actor,
+  principal, gameIdlTypes: plugin.idlTypes })` for the real push
   transport `start()` requires (see `../../frontend/README.md`'s
-  "Real-time push" section) — this game's own code never touches a
-  WebSocket, a Gateway, or any third-party library at all;
-  `connectWs()` just polls the same plain actor methods on a fast
-  interval and hands back a WebSocket-like object (`?wsInterval=<ms>`
-  tunes the poll rate) — and calls `start({ plugin, ws })` — every screen
+  "Real-time push" section) — this game's own code never touches
+  `mo:duel-game-core/Ws`'s protocol directly (`duel-game-core/ws/
+  gateway-*.js` does, registering this tab as its own WS Gateway) or
+  imports any third-party library itself; `index.html`'s import map
+  resolves `duel-game-core`'s own `@dfinity/candid`/`cborg` dependencies
+  (bare specifiers a raw browser can't resolve on its own — see that
+  file's comment) — and calls `start({ plugin, ws })` — every screen
   that's the same for every game (lobby, staging, rematch, busy
   countdown, debrief chrome, session identity, push) comes from the npm
   package. There is no polling fallback anywhere in this stack any more —
-  `ws` is required, `start()` throws without one. `style.css` here holds
-  only 007-specific visuals (narration box, agent stat panels, resource
-  pips), layered on top of `node_modules/duel-game-core/style.css`
+  `ws` is required, `start()` throws without one (`duel-game-core/ws/
+  poller.js`'s `PollingWs` remains available as an explicit opt-in if a
+  canister ever needs the dependency-free fallback instead). `style.css`
+  here holds only 007-specific visuals (narration box, agent stat panels,
+  resource pips), layered on top of `node_modules/duel-game-core/style.css`
   (loaded first in `index.html`), which supplies the page chrome and the
   CSS custom properties this file reuses.
 
@@ -68,7 +73,7 @@ concrete to copy — it is **not** part of either package itself.
   `duel-game-core` re-exports nothing of `core`'s own surface, so
   `src/Host.mo`'s direct `mo:core/Time` import needs `core` listed here
   too, same as any real game repo would.
-- The frontend's only npm dependency is `duel-game-core` itself, pulled
+- The frontend's direct npm dependency is `duel-game-core` itself, pulled
   in as a `file:../../../frontend` dependency (see
   `frontend/package.json`). `frontend/.npmrc` sets `install-links=true`
   so `npm install` COPIES those files into `node_modules/duel-game-core`
@@ -83,8 +88,12 @@ concrete to copy — it is **not** part of either package itself.
   bump, or the target simply not existing yet). To force a refresh after
   touching the root package, `rm -rf node_modules/duel-game-core && npm
   install`. `duel-game-core/ws.js` (see `../../../CLAUDE.md`'s toolchain
-  note) is plain polling of the actor wearing a WebSocket-shaped
-  interface — no third-party library, no bundler needed.
+  note) talks to `mo:duel-game-core/Ws`'s real `ic-websocket-cdk`
+  protocol, and pulls in `@dfinity/candid`/`cborg` transitively through
+  `duel-game-core`'s own `package.json` (a normal `npm install` picks
+  them up — nothing to add here) — resolved in the browser via
+  `index.html`'s import map, since bare specifiers deep inside a COPIED
+  `node_modules/duel-game-core` file have no other way to resolve.
 
 ## Build & test
 

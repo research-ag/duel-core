@@ -62,6 +62,22 @@
     <p>Loading track…</p>
   </div>
 
+  <!--
+    Bare-specifier resolution for duel-game-core/ws/gateway-*.js's own
+    dependencies (see ../../../frontend/README.md's "Real-time push"
+    section / ../../../CLAUDE.md rule 10) — duel-app.js is copied
+    as-is (see build.js), not esbuild-bundled, so it has no
+    node_modules resolution of its own, same as the 007 example.
+  -->
+  <script type="importmap">
+    {
+      "imports": {
+        "@dfinity/candid": "https://esm.sh/@dfinity/candid@2.4.1",
+        "@dfinity/principal": "https://esm.sh/@dfinity/principal@2.4.1",
+        "cborg": "https://esm.sh/cborg@4.5.8"
+      }
+    }
+  </script>
   <script type="module" src="duel-app.js"></script>
   <script type="module" src="main.js"></script>
 </body>

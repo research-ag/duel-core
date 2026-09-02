@@ -43,27 +43,32 @@ TypeScript with no framework:
   always the static view — don't add a settings UI or a camera-mode
   switch without being asked.
 - `game-communication/services/lobby-connection.service.ts` shares the
-  SAME `PollingWs` duel-game-core's own chrome uses for push (one poller
-  via `window.duelWsReady`, one session id via `sessionStorage` — see
-  `duel-actor.ts`), and turns whatever view it delivers into the
-  `{ slot, step }[]` event shape (`nextStep`, `emitNextStep`,
-  `lobbyData`, ...) `gameplay.service.ts` expects. It has **no polling of
-  its own**: `init()` subscribes to the poller's `message` event
-  (`PollingWs` extends `EventTarget`, so this doesn't steal duel-app.js's
-  own `ws.onmessage` — see `../../../frontend/ws/poller.js`), and
-  `emitNextStep()` submits a move via the poller's `request(sid, req)`
-  (not `send()`), which resolves to THAT call's own `{ view } | { err }`
-  — correlated to this specific submission, not whichever view the
-  shared poller's periodic tick happens to deliver next — so
-  `gameplay.service.ts`'s existing rejection/retry logic needed no
-  changes. An earlier version of this service ran its own independent
-  poll loop even after the poller existed to share; that raced the
-  shared poller's own fetches with no ordering guarantee between them,
-  which is what made cars briefly animate backwards before "teleporting"
-  to the correct position — see `../../../frontend/ws/poller.js`'s
-  `_fetchView()` doc for the full story. There is no plain-polling
-  fallback anywhere in `duel-game-core` any more (no `?ws=0`, no
-  `app.js`-side poll loop) — `ws` is unconditionally required end to end.
+  SAME `GatewayWs` duel-game-core's own chrome uses for push (one
+  connection via `window.duelWsReady`, one session id via
+  `sessionStorage` — see `duel-actor.ts`), and turns whatever view it
+  delivers into the `{ slot, step }[]` event shape (`nextStep`,
+  `emitNextStep`, `lobbyData`, ...) `gameplay.service.ts` expects. It has
+  **no polling of its own**: `init()` subscribes to the connection's
+  `message` event (`GatewayWs` extends `EventTarget`, so this doesn't
+  steal duel-app.js's own `ws.onmessage` — see
+  `../../../frontend/ws/gateway-client.js`), and `emitNextStep()`
+  submits a move via `request(sid, req)` (not `send()`), which resolves
+  to THAT call's own `{ view } | { err }` — correlated to this specific
+  submission, not whichever view the shared connection's push stream
+  happens to deliver next — so `gameplay.service.ts`'s existing
+  rejection/retry logic needed no changes. An earlier version of this
+  service ran its own independent poll loop even after a shared
+  connection existed to use; back when the shared connection was
+  `PollingWs`, that raced its own concurrent fetches with no ordering
+  guarantee between them, which is what made cars briefly animate
+  backwards before "teleporting" to the correct position — see
+  `../../../frontend/ws/poller.js`'s `_fetchView()` doc for that
+  history (`GatewayWs` has no equivalent race to begin with: one poll
+  loop, messages delivered in the canister's own queue order). There is
+  no plain-polling fallback anywhere in `duel-game-core` by default (no
+  `?ws=0`, no `app.js`-side poll loop) — `ws` is unconditionally required
+  end to end; `ws/poller.js`'s `PollingWs` remains an explicit opt-in if
+  ever needed instead.
 - The in-race HUD (speedometer / minimap / position+time panel) is
   `app/modules/gameplay/game-viewport/hud/hud.ts` — one plain class that
   subscribes to `GameStateService`'s subjects directly and pokes the DOM
