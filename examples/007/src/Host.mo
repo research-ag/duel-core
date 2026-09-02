@@ -13,12 +13,18 @@
 // path), and they're a game's fallback surface for
 // `duel-game-core/ws/poller.js`'s dependency-free `PollingWs` if ever
 // needed.
+//
+// Five of those seven (join/rematch/leave/reset/ackEnded) plus the
+// idle-sweep timer come from `mo:duel-game-core/Session` below — see that
+// module's doc header and ../../../backend/README.md's "Session mixin"
+// section for why `submit`/`status` stay hand-written instead (their
+// Candid types are game-specific; Motoko mixins can't be generic).
 import TP "mo:duel-game-core";
+import Session "mo:duel-game-core/Session";
 import Ws "mo:duel-game-core/Ws";
 import Rules "Duel007Rules";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 import Time "mo:core/Time";
-import Timer "mo:core/Timer";
 
 persistent actor {
   // Implicitly stable under `persistent actor` (moc 1.x); mutation happens
@@ -26,35 +32,20 @@ persistent actor {
   let table : TP.Table<Rules.State, Rules.Action> =
     TP.create(60_000_000_000); // 60 s idle timeout
 
-  // Frees an abandoned board on its own — with only 2 players, there's
-  // often nobody left to visit the board and trigger the lazy,
-  // visitor-driven eviction `join`/`reset` already do below. Timers
-  // don't survive an upgrade, so restart in `postupgrade` too (see the
-  // bottom of this actor, alongside `ws.init<system>()`).
-  func startSweeping<system>() {
-    ignore Timer.recurringTimer<system>(#seconds(30), func() : async () {
-      TP.sweep(table, Time.now());
-    });
-  };
-  startSweeping<system>();
+  include Session<system>(
+    func(sid : Text, seat : TP.Seat) : TP.Res<TP.JoinOk> =
+      TP.join(Rules.spec(), table, Time.now(), sid, seat),
+    func(sid : Text) : TP.Res<TP.RematchOk> =
+      TP.rematch(Rules.spec(), table, Time.now(), sid),
+    func(sid : Text) : TP.Res<()> = TP.leave(table, Time.now(), sid),
+    func(sid : Text) : TP.Res<()> = TP.reset(table, Time.now(), sid),
+    func(sid : Text) : () = TP.ackEnded(table, sid),
+    func() = TP.sweep(table, Time.now()),
+    30, // sweep every 30 s
+  );
 
-  public func join(sid : Text, seat : TP.Seat) : async TP.Res<TP.JoinOk> {
-    TP.join(Rules.spec(), table, Time.now(), sid, seat);
-  };
   public func submit(sid : Text, a : Rules.Action) : async TP.Res<TP.SubmitOk> {
     TP.submit(Rules.spec(), table, Time.now(), sid, a);
-  };
-  public func rematch(sid : Text) : async TP.Res<TP.RematchOk> {
-    TP.rematch(Rules.spec(), table, Time.now(), sid);
-  };
-  public func leave(sid : Text) : async TP.Res<()> {
-    TP.leave(table, Time.now(), sid);
-  };
-  public func reset(sid : Text) : async TP.Res<()> {
-    TP.reset(table, Time.now(), sid);
-  };
-  public func ackEnded(sid : Text) : async () {
-    TP.ackEnded(table, sid);
   };
   public query func status(sid : Text) : async TP.View<Rules.State> {
     TP.status(table, Time.now(), sid);

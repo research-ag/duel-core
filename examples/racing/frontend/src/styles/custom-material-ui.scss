@@ -1,0 +1,10 @@
+.mat-button, .mat-stroked-button, .mat-flat-button {
+  min-height: 3rem;
+  font-size: large;
+}
+
+.mat-stroked-button {
+  border: 0.1rem solid currentColor;
+  border-radius: 0.3rem;
+  background: white;
+}

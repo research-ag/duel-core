@@ -47,6 +47,15 @@
 /// are stable types. The `Spec` (functions) is passed on every call and never
 /// stored, so the engine survives upgrades with no migration gymnastics.
 ///
+/// `mo:duel-game-core/Session` is an optional mixin that splices five of
+/// the seven entry points above (`join`/`rematch`/`leave`/`reset`/
+/// `ackEnded`, plus the idle-sweep timer) straight into a host actor via
+/// `include Session<system>(...)` — `submit`/`status` stay hand-written as
+/// shown above either way, since their Candid types are game-specific and
+/// Motoko mixins can't be generic. See `backend/README.md`'s "Session
+/// mixin" section for the full before/after and `src/Session.mo`'s doc
+/// header for why.
+///
 /// ── Design guarantees (each maps to a bug class found in the wild) ─────────
 ///
 ///   1. RACE-FREE REMATCH. `rematch` from #debrief stages a new game with the

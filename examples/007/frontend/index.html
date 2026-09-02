@@ -39,6 +39,28 @@
       directly (that one's a bare specifier deep inside a COPIED
       node_modules/duel-game-core file, so it can't use the same
       full-URL trick app.js does).
+
+      INLINE ON PURPOSE, and the CSP knows it by content hash, not
+      'unsafe-inline': .ic-assets.json5's script-src has no
+      'unsafe-inline' (that would allow ANY inline script, not just this
+      one — a real weakening of the policy), and `src="..."` on an
+      external import map was tried and does NOT work in practice (a live
+      `import("cborg")` still failed to resolve after load with a
+      `src`-based importmap.json in place) — so a CSP hash allow-listing
+      this exact inline script is the only option that keeps the policy
+      otherwise strict. If you edit the JSON below, recompute the hash in
+      .ic-assets.json5's `Content-Security-Policy` header or every game
+      screen breaks silently (stuck on "Connecting to the board…", the
+      only symptom is a swallowed
+      `TypeError: Failed to resolve module specifier "cborg"` in the
+      console):
+
+        python3 -c "
+        import hashlib, base64, re
+        html = open('index.html').read()
+        m = re.search(r'<script type=\"importmap\">(.*?)</script>', html, re.S)
+        print('sha256-' + base64.b64encode(hashlib.sha256(m.group(1).encode()).digest()).decode())
+        "
     -->
     <script type="importmap">
       {

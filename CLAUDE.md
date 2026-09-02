@@ -12,14 +12,25 @@ top.
   `backend/src/lib.mo` (the package's entry point — import it as
   `mo:duel-game-core`, no subpath). See [`backend/README.md`](backend/README.md)
   for the `Spec<S, M>` contract a game implements and a full host-actor
-  wiring example. `backend/src/Ws.mo` (`mo:duel-game-core/Ws`) is a
-  separate module layered on top of the engine, never merged into
-  `lib.mo` (see the toolchain note below): real-time push over
-  `ic-websocket-cdk` — the live transport `frontend/ws.js` actually
-  talks to (not an unused reference add-on) — plus the disappearance
-  handling a real WS close signal makes possible (ending a game a
-  vanished player left mid-round, freeing a board both walked away from
-  — see `backend/README.md`'s "Real-time push" section).
+  wiring example. `backend/src/Session.mo` (`mo:duel-game-core/Session`)
+  is an optional Motoko *mixin* — `include Session<system>(...)` splices
+  five of the engine's seven entry points (`join`/`rematch`/`leave`/
+  `reset`/`ackEnded`, plus the idle-sweep timer) straight into a host
+  actor, cutting that boilerplate down to one call; `submit`/`status`
+  stay hand-written regardless, since their Candid types are
+  game-specific and Motoko mixins can't be generic (no
+  `mixin <S, M>(...)`) — see `Session.mo`'s doc header and
+  `backend/README.md`'s "Session mixin" section, including the known moc
+  1.11.2 limitation that blocks an interpreter test for it (mixins
+  compile/deploy fine; `moc -r` currently crashes on any `include`).
+  `backend/src/Ws.mo` (`mo:duel-game-core/Ws`) is a separate module
+  layered on top of the engine, never merged into `lib.mo` (see the
+  toolchain note below): real-time push over `ic-websocket-cdk` — the
+  live transport `frontend/ws.js` actually talks to (not an unused
+  reference add-on) — plus the disappearance handling a real WS close
+  signal makes possible (ending a game a vanished player left mid-round,
+  freeing a board both walked away from — see `backend/README.md`'s
+  "Real-time push" section).
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
   client plumbing (session identity, real-time push, the generic
   lobby/staging/rematch/busy/debrief screens, Candid IDL scaffolding).
@@ -72,8 +83,11 @@ is a whole workflow with its own hard-won lessons: see the
   it additionally depends on `ic-websocket-cdk` (which is itself built on
   `mo:base` — outside this repo's control) — confined there on purpose,
   so a host actor that never imports `mo:duel-game-core/Ws` never
-  compiles any of it in. Don't let a THIRD module grow a new dependency
-  without the same "why is this not in lib.mo" scrutiny.
+  compiles any of it in. `src/Session.mo` is a THIRD module (the
+  `Session` mixin) — it stays within the one-dependency rule (`core`
+  only, for `Timer`), so it isn't a second documented exception, but any
+  FUTURE module added here still needs the same "why is this not in
+  lib.mo" scrutiny before it grows a new dependency.
 - `bench-helper` is a dev-dependency, used only by `backend/bench/`.
   Benchmarking requires `[toolchain] pocket-ic` and `wasm-opt` pinned in
   `mops.toml` (already done) — `mops bench` fails outright without them.

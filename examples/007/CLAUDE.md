@@ -13,8 +13,14 @@ concrete to copy — it is **not** part of either package itself.
   `mops.toml`).
 - **`src/Host.mo`** — the host actor: forwards every call to the
   engine with `Time.now()` and `Rules.spec()`, wired exactly as
-  `../../backend/README.md`'s example shows. Deploy target. Also wires
-  `mo:duel-game-core/Ws` side by side with the 7 plain methods — this
+  `../../backend/README.md`'s example shows. Deploy target. `join`/
+  `rematch`/`leave`/`reset`/`ackEnded` plus the idle-sweep timer come from
+  `include Session<system>(...)` (`mo:duel-game-core/Session`, a Motoko
+  mixin) rather than being hand-written; `submit`/`status` stay
+  hand-written since their Candid types are game-specific (`Rules.Action`/
+  `Rules.State`) and mixins can't be generic — see
+  `../../backend/README.md`'s "Session mixin" section. Also wires
+  `mo:duel-game-core/Ws` side by side with that 7-method surface — this
   IS what `frontend/app.js` talks to (`duel-game-core/ws.js`'s
   `GatewayWs`, a real `ic-websocket-cdk` client that self-registers each
   tab as its own Gateway, not client-side polling), for genuine

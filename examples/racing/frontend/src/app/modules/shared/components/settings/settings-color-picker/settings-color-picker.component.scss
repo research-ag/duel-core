@@ -1,0 +1,16 @@
+:host {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  > :first-child {
+    flex-grow: 1;
+  }
+
+  > :not(:first-child) {
+    width: 20rem;
+    max-width: 50%;
+    text-align: right;
+  }
+}

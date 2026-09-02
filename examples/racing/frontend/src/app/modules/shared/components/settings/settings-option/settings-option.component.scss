@@ -1,0 +1,14 @@
+:host {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+
+  > :first-child {
+    flex-grow: 1;
+  }
+
+  > :not(:first-child) {
+    width: 20rem;
+    max-width: 50%;
+  }
+}
