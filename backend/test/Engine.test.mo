@@ -212,6 +212,21 @@ switch (TP.status(t, T0, "b")) {
   case (#debrief _) {};
   case (_) Runtime.trap("b has not dismissed yet");
 };
+// a's OWN status must stop showing the debrief it just dismissed — the
+// board itself legitimately stays #debrief (b might still want a
+// rematch), but a is no longer a participant of it as far as a's own
+// view is concerned. Before this, a kept seeing the exact same #debrief
+// screen — with live Rematch/Leave buttons — until b also left, giving
+// no sign the click had done anything ("Return to lobby" not working).
+switch (TP.status(t, T0, "a")) {
+  case (#busy _) {};
+  case (_) Runtime.trap("a should stop seeing its own dismissed debrief");
+};
+// ...and every OTHER debrief-phase operation treats a the same way, not
+// just status — a stale rematch/join click can't silently revive a match
+// with the old partner after a already said it was done.
+expectErr(TP.rematch(spec, t, T0, "a"), "a can't rematch a debrief it already left");
+expectErr(TP.join(spec, t, T0, "a", #p1), "a can't rejoin a debrief it already left (still gated by the timeout)");
 ok(TP.leave(t, T0, "a"), "a dismisses twice");
 switch (TP.status(t, T0, "b")) {
   case (#debrief _) {};

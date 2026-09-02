@@ -146,6 +146,28 @@ export class ControlSceneService {
     );
     this.controlTrajectoryHelper = new TrajectoryDisplayObject();
     this.controlAreaHelper = new StepArcDisplayObject();
+    // Three.js Object3D defaults to visible=true, but "nothing selected
+    // yet" is this app's actual default state — the combineLatest
+    // subscriptions above that toggle .visible were wired up BEFORE these
+    // three even existed (their `if (this.controlSphere && ...)` guards
+    // silently skipped that first, synchronous, upon-subscribe emission),
+    // so nothing ever explicitly hid them to start with. That's normally
+    // masked by TrajectoryDisplayObject/StepArcDisplayObject both starting
+    // with degenerate (all-zero) geometry — invisible by accident, not by
+    // the `visible` flag — but controlSphere is a real unit sphere, so it
+    // rendered at this stale true default. Usually a later genuine
+    // isInSelectionState transition (a real click) fixes it via
+    // distinctUntilChanged — except when nothing selected fires this
+    // reload, since it never had one: startNewIteration() sets
+    // isInSelectionState back to the SAME `false` it already was
+    // (see its own doc on awaitingOwnSubmissionFromBeforeReload), a
+    // no-op distinctUntilChanged suppresses, and the sphere is left
+    // visible with no arc/line to go with it. Set the real default
+    // explicitly instead of relying on a transition that might never
+    // come.
+    this.controlSphere.visible = false;
+    this.controlTrajectoryHelper.visible = false;
+    this.controlAreaHelper.visible = false;
     this.controlPlaneContainer.add(this.controlPlane, this.controlSphere, this.controlTrajectoryHelper, this.controlAreaHelper);
     this.scene.scene.add(this.controlPlaneContainer);
     // @ts-ignore

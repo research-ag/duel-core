@@ -49,6 +49,30 @@
 // `../../CLAUDE.md`'s architecture rule 11, which this sidesteps by
 // construction: there is only ever one transport now).
 //
+// Two more things a real WebSocket gets "for free" that a naive
+// setInterval poller doesn't:
+//
+//   - Overlap control. A `status()` call doesn't stop just because a
+//     network is down — a bad connection can leave one hanging far
+//     longer than `intervalMs`. Firing a new one on every tick
+//     regardless (what an earlier version of this file did) piles up
+//     unboundedly: dozens of forever-pending queries on a frozen tab,
+//     each one a real outstanding request. The periodic timer now skips
+//     a tick outright while its own previous fetch is still in flight —
+//     at most one periodic fetch outstanding, ever.
+//   - Liveness. There's no server-side heartbeat to lean on here — the
+//     engine's `lastActivity`/`since` timestamps (see
+//     `../../backend/src/lib.mo`) exist purely for IDLE-BOARD TAKEOVER
+//     (reclaiming an abandoned board from a third party), not per-client
+//     connection liveness, and nothing calls them on a timer either way.
+//     So liveness is entirely client-side: every successful round trip
+//     (an `actor` call that resolves at all, `{err}` included — even a
+//     rejection proves the network works) resets a clock; if too long
+//     passes with no successful round trip at all (`disconnectAfterMs`),
+//     this closes itself rather than continuing to retry into a dead
+//     connection — `app.js`'s existing `ws.onclose` handler already
+//     shows "Connection closed — reload to reconnect" for exactly this.
+//
 // Usage:
 //
 //   import { connectWs } from "duel-game-core/ws.js"; // re-exports this
@@ -56,18 +80,39 @@
 //   start({ plugin, ws });
 
 const DEFAULT_INTERVAL_MS = 500;
+const DEFAULT_DISCONNECT_AFTER_MS = 10_000;
 
 /// A WebSocket-shaped wrapper around fast polling of a plain
 /// `duel-game-core` actor. See this file's header for the full story.
 export class PollingWs extends EventTarget {
-  constructor({ actor, intervalMs = DEFAULT_INTERVAL_MS } = {}) {
+  constructor({
+    actor,
+    intervalMs = DEFAULT_INTERVAL_MS,
+    disconnectAfterMs = DEFAULT_DISCONNECT_AFTER_MS,
+  } = {}) {
     super();
     if (!actor) throw new Error("PollingWs: `actor` is required");
     this._actor = actor;
     this._intervalMs = intervalMs;
+    this._disconnectAfterMs = disconnectAfterMs;
     this._sid = null;
     this._timer = null;
     this._closed = false;
+    // Set (or bumped) on every actor call that resolves at all — see
+    // this file's header on liveness. Starts optimistic, at construction
+    // time: if even the FIRST call never completes within
+    // disconnectAfterMs, that's just as much "disconnected" as one going
+    // dead mid-session.
+    this._lastSuccessAt = Date.now();
+    // True while the periodic timer's own fetch is still pending — see
+    // this file's header on overlap control.
+    this._periodicFetchInFlight = false;
+    // Set the first time onerror fires after a success, cleared again on
+    // the next success — a connection actively rejecting fast (not just
+    // hanging) would otherwise fire onerror on every single tick, and
+    // app.js's own onerror handler doesn't dedupe (each call re-shows and
+    // re-times the same toast) — see _reportError().
+    this._erroredSinceSuccess = false;
     // The periodic timer and each request()'s own post-action status
     // fetch are concurrent, independent actor.status() calls with no
     // ordering guarantee between them — one issued earlier can resolve
@@ -115,7 +160,7 @@ export class PollingWs extends EventTarget {
         if ("err" in payload) this._deliver(payload);
       },
       async (e) => {
-        if (this.onerror) this.onerror({ error: e });
+        this._reportError(e);
         // A thrown error (network blip, agent failure) isn't necessarily
         // terminal — try once to recover a fresh view so the caller's
         // "working" state doesn't get stuck with no way out. If this
@@ -155,6 +200,7 @@ export class PollingWs extends EventTarget {
   /// broadcast (via `_fetchView()`), since a fresh view is genuinely
   /// relevant to every consumer, not just this caller.
   async request(sid, req) {
+    if (this._closed) throw new Error("PollingWs: closed");
     if (sid !== this._sid) {
       this._sid = sid;
       this._restartPolling();
@@ -187,6 +233,9 @@ export class PollingWs extends EventTarget {
       default:
         throw new Error(`PollingWs: unknown ws request "${tag}"`);
     }
+    // The call above resolved at all — whatever it returns, that's proof
+    // the connection works (see this file's header on liveness).
+    this._markAlive();
     // ackEnded returns nothing; the Res-returning calls return {ok}/{err}
     // — same guard app.js's own non-ws call() uses.
     if (res && typeof res === "object" && "err" in res) {
@@ -199,22 +248,50 @@ export class PollingWs extends EventTarget {
     return { view: await this._fetchView(sid) };
   }
 
+  /// True once closed (see `close()`) — a way to check without needing
+  /// to have caught the `close` event/`onclose` at the moment it fired;
+  /// e.g. a retry loop can check this before trying again rather than
+  /// spinning against a connection it doesn't know is already gone.
+  get closed() {
+    return this._closed;
+  }
+
   close() {
     if (this._closed) return;
     this._closed = true;
     clearInterval(this._timer);
+    // Dispatched (not just the single-slot onclose property) so a shared
+    // consumer other than app.js's chrome — e.g. a game's own gameplay
+    // code, same as "message" — can also learn the connection is gone,
+    // not just whichever one happened to claim the property.
     if (this.onclose) this.onclose();
+    this.dispatchEvent(new Event("close"));
   }
 
   _restartPolling() {
     clearInterval(this._timer);
-    this._timer = setInterval(async () => {
+    this._timer = setInterval(() => {
       if (this._closed) return;
-      try {
-        await this._fetchView(this._sid);
-      } catch (e) {
-        if (this.onerror) this.onerror({ error: e });
+      if (Date.now() - this._lastSuccessAt > this._disconnectAfterMs) {
+        // No call has round-tripped at all in a long while. A hung
+        // status() query doesn't resolve just because the network came
+        // back or went away for good — only a real response (success OR
+        // a business {err}, see request()) proves the connection still
+        // works — so this can't tell "slow" from "dead" any other way.
+        // Stop cleanly (see close()) instead of continuing to pile up
+        // fetches into a connection that isn't coming back on its own.
+        this.close();
+        return;
       }
+      if (this._periodicFetchInFlight) return; // previous tick's fetch hasn't resolved yet — don't start another on top of it
+      this._periodicFetchInFlight = true;
+      this._fetchView(this._sid)
+        .catch((e) => {
+          this._reportError(e);
+        })
+        .finally(() => {
+          this._periodicFetchInFlight = false;
+        });
     }, this._intervalMs);
   }
 
@@ -231,6 +308,7 @@ export class PollingWs extends EventTarget {
   async _fetchView(sid) {
     const seq = ++this._fetchSeq;
     const view = await this._actor.status(sid);
+    this._markAlive();
     if (seq > this._deliveredSeq) {
       this._deliveredSeq = seq;
       this._deliver({ view });
@@ -243,6 +321,22 @@ export class PollingWs extends EventTarget {
     if (this.onmessage) this.onmessage({ data });
     this.dispatchEvent(new MessageEvent("message", { data }));
   }
+
+  // Called wherever an actor call resolves at all — see this file's
+  // header on liveness.
+  _markAlive() {
+    this._lastSuccessAt = Date.now();
+    this._erroredSinceSuccess = false;
+  }
+
+  // Fires onerror at most once per bad streak (see _erroredSinceSuccess's
+  // own doc) — a connection actively rejecting fast, not just hanging,
+  // would otherwise spam it on every tick.
+  _reportError(e) {
+    if (this._erroredSinceSuccess) return;
+    this._erroredSinceSuccess = true;
+    if (this.onerror) this.onerror({ error: e });
+  }
 }
 
 /// Builds a ready-to-use `ws` for `app.js`'s `start()` — a `PollingWs`
@@ -252,12 +346,16 @@ export class PollingWs extends EventTarget {
 /// transport this package ships.
 ///
 /// Options (all optional except `actor`):
-///   intervalMs - how often to poll for a fresh view, in ms (default 500)
-///   params     - URLSearchParams to read `wsInterval` from (default:
-///                `new URLSearchParams(location.search)`)
+///   intervalMs        - how often to poll for a fresh view, in ms (default 500)
+///   disconnectAfterMs - how long without a single successful round trip
+///                       before giving up and closing (default 10000) —
+///                       see this file's header on liveness
+///   params            - URLSearchParams to read `wsInterval`/
+///                       `wsDisconnectAfter` from (default:
+///                       `new URLSearchParams(location.search)`)
 ///
-/// `?wsInterval=<ms>` overrides `intervalMs`, handy for testing without
-/// editing code.
+/// `?wsInterval=<ms>`/`?wsDisconnectAfter=<ms>` override the matching
+/// option, handy for testing without editing code.
 ///
 /// Accepts (and ignores) `canisterId`/`host`/`gatewayUrl`/`identity` too
 /// — no Gateway to pick or identity to sign with anymore — so existing
@@ -266,14 +364,17 @@ export class PollingWs extends EventTarget {
 export function connectWs({
   actor,
   intervalMs = DEFAULT_INTERVAL_MS,
+  disconnectAfterMs = DEFAULT_DISCONNECT_AFTER_MS,
   params = new URLSearchParams(location.search),
   ...ignored // canisterId, host, gatewayUrl, identity — see doc above
 } = {}) {
   if (!actor) throw new Error("connectWs(): `actor` is required");
 
   const wsInterval = Number(params.get("wsInterval"));
+  const wsDisconnectAfter = Number(params.get("wsDisconnectAfter"));
   return new PollingWs({
     actor,
     intervalMs: wsInterval > 0 ? wsInterval : intervalMs,
+    disconnectAfterMs: wsDisconnectAfter > 0 ? wsDisconnectAfter : disconnectAfterMs,
   });
 }

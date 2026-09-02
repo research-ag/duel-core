@@ -47,6 +47,17 @@ export class GameplayService {
   // always a snap to the current position, never an animation, whether
   // that's round 0 of a fresh race or round 40 of one just reconnected to.
   private isFirstStepSinceStart: boolean = true;
+  // Set true by startRace() when the canister's own View.youSubmitted
+  // said my move for the CURRENT round was already locked in when this
+  // (re)start fired (a reload after submitting, before the opponent
+  // moved) — consumed (reset false) by the very next startNewIteration()
+  // to skip asking for (and submitting) a SECOND move for a round I've
+  // already committed to server-side. Doing that unconditionally used to
+  // show a stale, wrong selection arc alongside the chrome's own correct
+  // "Move locked in" message, and the resulting rejected resubmission's
+  // bogus trajectory corrupted the eventual animation once the opponent
+  // actually moved — see startRace()'s own doc.
+  private awaitingOwnSubmissionFromBeforeReload: boolean = false;
   // whether the move whose result is about to arrive (the one most recently requested for mySlot)
   // was a forced skip (crash penalty) rather than a real player-selected move
   private lastRequestedMoveWasSkip: boolean = false;
@@ -105,13 +116,18 @@ export class GameplayService {
   // clock (see GameStateService.resetRaceClock) and the lap-tracking
   // cache's own timestamps consistent with the ACTUAL race progress
   // rather than restarting from zero and staying permanently offset for
-  // the rest of the race. Every field below must be reset explicitly
-  // here regardless — skipping this on a rematch would leak the previous
-  // race's crash-recovery/skip state straight into the new one.
-  startRace(resumedAtStep: number = 0) {
+  // the rest of the race. `youAlreadySubmitted` is the canister's own
+  // View.youSubmitted at that same moment — see
+  // awaitingOwnSubmissionFromBeforeReload's own doc for why startRace()
+  // must NOT always ask for a fresh move here. Every field below must be
+  // reset explicitly here regardless — skipping this on a rematch would
+  // leak the previous race's crash-recovery/skip state straight into the
+  // new one.
+  startRace(resumedAtStep: number = 0, youAlreadySubmitted: boolean = false) {
     this.isWaitingPlayers = true;
     this.stepsCount = resumedAtStep;
     this.isFirstStepSinceStart = true;
+    this.awaitingOwnSubmissionFromBeforeReload = youAlreadySubmitted;
     this.lastRequestedMoveWasSkip = false;
     this.lastCarPositionsOnRoadSpline = new Map();
     this.gameStateService.skippedMovesRemaining.next(0);
@@ -223,6 +239,22 @@ export class GameplayService {
       }
     }
     this.calculateCarPositionsOnRoad();
+
+    if (this.awaitingOwnSubmissionFromBeforeReload) {
+      // My move for THIS round is already locked in server-side (see
+      // startRace()'s own doc) — cars are now positioned correctly, but
+      // don't ask for (and submit) a second one. Only ever true for the
+      // very first startNewIteration() after a (re)start, so consume it
+      // now: once the round I already submitted for actually resolves,
+      // the normal nextStep-driven flow reaches here again with this
+      // false, and asks for the NEXT round's move as usual.
+      this.awaitingOwnSubmissionFromBeforeReload = false;
+      this.gameStateService.isInSelectionState.next(false);
+      this.gameStateService.isSkippedStepWaiting.next(false);
+      this.gameStateService.currentStepArcProperties.next(null);
+      return;
+    }
+
     const myCar: Car = (this.gameStateService.cars.getValue() || [])[this.gameStateService.mySlot.getValue()];
     let { minDistance, maxDistance, maxSteeringCurvature } = this.gamePhysicsService.getNextStepArea(myCar);
     // Already the canister's own authoritative value as of the step that
@@ -321,6 +353,15 @@ export class GameplayService {
     // did its job — do nothing further and let the normal flow own it.
     const retryIfStillOwed = () => {
       if (this.stepsCount !== roundFence) return;
+      // The shared poller gives up on a dead connection on its own (see
+      // duel-game-core/ws/poller.js's disconnect doc) — once it has,
+      // ws.request() rejects immediately, every time, forever. Retrying
+      // anyway would spin a tight loop doing nothing but reject again
+      // (submitSkippedMove's forced-skip path resolves instantly, with
+      // no click to naturally pace it) — app.js's own chrome already
+      // shows "Connection closed — reload to reconnect" once this
+      // happens, so there's nothing productive left to do here.
+      if (!this.lobbyConnectionService.isConnected) return;
       this.requestAndSubmitMove(myCar, minDistance, maxDistance, maxSteeringCurvature, isSkipped).then();
     };
     this.lobbyConnectionService.emitNextStep(stepData)

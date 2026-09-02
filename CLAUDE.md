@@ -162,6 +162,16 @@ resolved relative to `backend/`.
     `TP.submit`, ...) the 7-method polling surface uses — it's a second
     transport for the same calls, not a second code path. If the two
     transports could ever disagree about what's legal, that's the bug.
+12. **Leave means left.** `status`/`join`/`rematch` all treat a session
+    that already acked its own debrief (via `leave`) as no longer a
+    participant of it (`activeDebriefSeat`, not plain `seatInDebrief`),
+    even while the phase itself legitimately lingers in `#debrief` for
+    the still-deciding partner. `leave` itself keeps using plain
+    `seatInDebrief` — it must stay idempotently callable to ack in the
+    first place. Skipping this gate anywhere it's needed reintroduces a
+    real shipped bug: "Return to lobby" showing that player the identical
+    debrief screen — with live Rematch/Leave buttons — until the partner
+    ALSO left, indistinguishable from the button doing nothing.
 
 ## Skills (read before editing)
 

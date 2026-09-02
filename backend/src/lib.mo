@@ -11,6 +11,11 @@
 ///     (`end = #aborted seat`) instead of the game silently vanishing
 ///   • during the debrief, either previous player can request a REMATCH;
 ///     two simultaneous rematch requests converge race-free (see below)
+///   • `leave` from a debrief dismisses it for YOU specifically — your own
+///     `status`/`join`/`rematch` stop treating you as a participant of it
+///     immediately, even though the underlying phase legitimately stays
+///     #debrief until your partner also leaves (or it expires), so their
+///     own rematch option isn't cut short by your exit
 ///   • after `idleTimeoutNs` of inactivity, third parties may take over:
 ///     claim a squatted staging seat, reset a dead game, or start fresh
 ///     over an expired debrief
@@ -56,6 +61,13 @@
 ///   4. NO SILENT ENDINGS. Aborting yields a shared #aborted debrief; an idle
 ///      takeover records the evicted players so `status` shows them
 ///      #endedByOther until they acknowledge (`ackEnded` / any re-entry).
+///   5. LEAVE MEANS LEFT. `status`/`join`/`rematch` all treat a session that
+///      already acked its own debrief (via `leave`) as no longer a
+///      participant of it, even while the phase itself lingers in #debrief
+///      for the still-deciding partner. Without this, "Return to lobby"
+///      kept showing that same player the identical #debrief screen (with
+///      live Rematch/Leave buttons) until the partner ALSO left — visually
+///      indistinguishable from the button doing nothing at all.
 ///
 /// Alternating-turn games: this engine is simultaneous-reveal. Model strictly
 /// alternating games with a pass-move convention — include a #pass move, have
@@ -237,6 +249,21 @@ module {
     if (d.p1 == session) { ?#p1 } else if (d.p2 == session) { ?#p2 } else { null };
   };
 
+  /// Like `seatInDebrief`, but a session that already acknowledged THIS
+  /// debrief (via `leave` — see its own doc) no longer counts as a
+  /// participant, even though the table's `phase` can still legitimately
+  /// be `#debrief` (it lingers until the OTHER participant also leaves,
+  /// or it expires, so a still-deciding partner keeps their rematch
+  /// option open). Used by every debrief-phase operation EXCEPT `leave`
+  /// itself (which must stay callable, idempotently, to ack in the first
+  /// place — see `push`'s dedup). Without this, a session that clicked
+  /// "leave" kept seeing the exact same `#debrief` view from `status`
+  /// until the partner also left, with no sign their own click had done
+  /// anything — indistinguishable from the button not working at all.
+  func activeDebriefSeat<S, M>(t : Table<S, M>, d : Debrief<S>, session : SessionId) : ?Seat {
+    if (member(t.debriefAcked, session)) { null } else { seatInDebrief(d, session) };
+  };
+
   /// A game vanished without a debrief for these players — remember them so
   /// `status` can show #endedByOther until they acknowledge.
   func noteEnded<S, M>(t : Table<S, M>, p1 : SessionId, p2 : SessionId, acked : [SessionId]) {
@@ -334,10 +361,14 @@ module {
       };
 
       case (#debrief d) {
-        switch (seatInDebrief(d, session)) {
+        switch (activeDebriefSeat(t, d, session)) {
           case (?_) {
             // veteran: joining from the debrief = starting a rematch staging,
-            // with a free choice of seat; the partner gets the reservation
+            // with a free choice of seat; the partner gets the reservation.
+            // (A session that already acked THIS debrief via `leave` falls
+            // through to `case null` below instead — having said "I'm
+            // done here", clicking a lobby seat shouldn't quietly turn
+            // into a rematch with the old partner.)
             let partner = if (d.p1 == session) d.p2 else d.p1;
             stage(t, now, session, seat, ?partner);
             #ok(#staged(seat));
@@ -365,7 +396,12 @@ module {
     switch (t.phase) {
 
       case (#debrief d) {
-        switch (seatInDebrief(d, session)) {
+        // A session that already acked THIS debrief via `leave` is
+        // treated as no longer a participant (see activeDebriefSeat's
+        // doc) — #notSeated below, same as any other outsider, rather
+        // than silently reviving a rematch with the old partner after
+        // they said they were done.
+        switch (activeDebriefSeat(t, d, session)) {
           case (?mySeat) {
             let partner = if (d.p1 == session) d.p2 else d.p1;
             stage(t, now, session, mySeat, ?partner);
@@ -603,7 +639,13 @@ module {
       };
 
       case (#debrief d) {
-        switch (seatInDebrief(d, session)) {
+        // activeDebriefSeat (not plain seatInDebrief): once THIS session
+        // has acked its own debrief (see `leave`), it falls through to
+        // `case null` below exactly like a non-participant — otherwise
+        // "Return to lobby" kept showing the SAME #debrief view (nothing
+        // about d.p1/d.p2 membership changed) until the partner also
+        // left, giving no sign the click had done anything.
+        switch (activeDebriefSeat(t, d, session)) {
           case (?mySeat) {
             #debrief { seat = mySeat; end = d.end; turns = d.turns; finalGame = d.finalGame };
           };

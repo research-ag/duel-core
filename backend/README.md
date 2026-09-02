@@ -17,6 +17,11 @@ needs — and knows nothing about any particular game's rules:
   shared `#aborted` debrief instead of the game silently vanishing.
 - **Rematch** — from the debrief, either player can request a rematch;
   two simultaneous rematch clicks converge race-free (see Design).
+  Leaving a debrief dismisses it for you specifically: your own `status`
+  stops showing it (and `join`/`rematch` stop treating you as one of its
+  two participants) right away, even though the underlying board can
+  legitimately linger in that debrief until your partner also leaves (or
+  it expires) — their own rematch option isn't cut short by your exit.
 - **Idle takeover** — after a configurable timeout, third parties may
   reclaim a squatted staging seat, reset a dead game, or start fresh over
   an expired debrief. No lobby is occupied forever by a player who
@@ -331,6 +336,13 @@ ad-hoc 2-player game backends:
 4. **No silent endings.** Aborting yields a shared `#aborted` debrief; an
    idle takeover records the evicted players so `status` shows them
    `#endedByOther` until they acknowledge (`ackEnded` / any re-entry).
+5. **Leave means left.** `status`/`join`/`rematch` all treat a session
+   that already acked its own debrief (via `leave`) as no longer a
+   participant of it, even while the phase itself lingers in `#debrief`
+   for the still-deciding partner. Without this, "Return to lobby" kept
+   showing that same player the identical debrief screen — with live
+   Rematch/Leave buttons — until the partner ALSO left: visually
+   indistinguishable from the button doing nothing at all.
 
 ## Implementation notes
 

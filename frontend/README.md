@@ -134,6 +134,19 @@ Gateway instead) and skip `ws.js` entirely if `connectWs()`'s choices
 don't fit; `start()` only needs the four handlers and `send(msg)`,
 nothing about `ws.js`/`PollingWs` specifically.
 
+**Overlap control and liveness.** The periodic timer never starts a new
+query while its own previous one is still pending — a bad connection can
+leave a `status()` call hanging far longer than `intervalMs`, and firing
+a new one every tick regardless piles up unboundedly (dozens of
+forever-pending queries on a frozen tab). And since the IC gives no
+server-side heartbeat to lean on, liveness is entirely client-side: any
+call that resolves at all (a business `{err}` included — even a
+rejection proves the network works) counts as "still connected"; after
+`disconnectAfterMs` (default 10s; `?wsDisconnectAfter=<ms>` overrides it)
+with no successful round trip at all, the poller closes itself rather
+than continuing to retry into a dead connection — `ws.onclose` fires,
+same as any other close.
+
 **Sharing one `ws` with a game's own runtime code, not just the generic
 chrome.** `PollingWs` extends `EventTarget`, same as a real `WebSocket`,
 so more than one part of a page can use the SAME poller instead of each

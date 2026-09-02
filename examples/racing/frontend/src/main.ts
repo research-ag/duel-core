@@ -57,10 +57,12 @@ hud.mount(hudContainer);
 // LobbyConnectionService.raceStarted's doc). Scene/map setup only ever
 // runs once (sceneInitialized guard); every emission — including the
 // first — resets and (re)starts the actual race via startRace(), passing
-// through `resumedAtStep` so a mid-race reload seeds the HUD clock/step
-// counter from the TRUE current round instead of restarting them from 0.
+// through `resumedAtStep` (seeds the HUD clock/step counter from the
+// TRUE current round instead of restarting them from 0) and
+// `youAlreadySubmitted` (skips asking for a second move when reconnecting
+// mid-round with one already locked in server-side).
 let sceneInitialized = false;
-lobbyConnectionService.connectToLobby().subscribe(async ({ resumedAtStep }) => {
+lobbyConnectionService.connectToLobby().subscribe(async ({ resumedAtStep, youAlreadySubmitted }) => {
   if (!sceneInitialized) {
     sceneInitialized = true;
     await gameplayService.init();
@@ -85,6 +87,6 @@ lobbyConnectionService.connectToLobby().subscribe(async ({ resumedAtStep }) => {
     gameStateService.cars.subscribe(check);
   });
 
-  gameplayService.startRace(resumedAtStep);
+  gameplayService.startRace(resumedAtStep, youAlreadySubmitted);
   document.body.classList.add('race-ready');
 });

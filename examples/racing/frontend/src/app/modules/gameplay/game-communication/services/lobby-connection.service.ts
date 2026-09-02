@@ -96,9 +96,13 @@ export class LobbyConnectionService {
   // canister was ACTUALLY at when this fired — 0 for a genuinely fresh
   // race, but nonzero when reconnecting mid-race (a reload) — so
   // gameplay.service.ts's startRace() can seed its own step/clock
-  // counters correctly instead of always assuming a 0-start; see
-  // onStatus()'s own comment on why that distinction matters.
-  public raceStarted: Subject<{ resumedAtStep: number }> = new Subject();
+  // counters correctly instead of always assuming a 0-start.
+  // `youAlreadySubmitted` is the canister's own View.youSubmitted at that
+  // same moment — true when reconnecting mid-round with my own move
+  // already locked in — so startRace() can sync car positions/HUD
+  // without ALSO asking for (and submitting) a second move for a round
+  // I've already committed to. See onStatus()'s own comment on both.
+  public raceStarted: Subject<{ resumedAtStep: number, youAlreadySubmitted: boolean }> = new Subject();
 
   private ws: any; // shared PollingWs — see duel-game-core/ws/poller.js
   private mySlot: number = -1;
@@ -136,10 +140,20 @@ export class LobbyConnectionService {
     return getSid();
   }
 
+  /// False once the shared poller has given up (see
+  /// duel-game-core/ws/poller.js's `closed`/disconnect doc) — used by
+  /// gameplay.service.ts's requestAndSubmitMove() to stop retrying a
+  /// submit against a connection that's already gone, rather than
+  /// spinning a tight retry loop against it (app.js's own chrome already
+  /// shows "Connection closed — reload to reconnect" once this happens).
+  public get isConnected(): boolean {
+    return !!this.ws && !this.ws.closed;
+  }
+
   /// Subscribes to the shared push poller and returns `raceStarted` —
   /// subscribe to it for "a race is under way" events, fired once per
   /// race (see its own doc).
-  public connectToLobby(): Observable<{ resumedAtStep: number }> {
+  public connectToLobby(): Observable<{ resumedAtStep: number, youAlreadySubmitted: boolean }> {
     this.init().then();
     return this.raceStarted.asObservable();
   }
@@ -230,10 +244,21 @@ export class LobbyConnectionService {
         // would permanently desync the HUD's elapsed-time clock from the
         // canister's actual round count for the rest of that race (it'd
         // count from 0 instead of from wherever the race actually was).
+        // `v.youSubmitted` is ALSO passed through, for the same reason:
+        // if this reconnect lands mid-round with my own move already
+        // locked in server-side (I submitted, then reloaded before the
+        // opponent moved), gameplay.service.ts must NOT ask for another
+        // one — see startRace()'s own doc on why that used to show a
+        // stale, wrong selection arc alongside the chrome's correct
+        // "Move locked in" message, and corrupt the eventual animation
+        // with a bogus, rejected resubmission.
         this.prevGame = null;
         this.pendingMine = null;
         this.lobbyData.next(this.buildLobbyRuntimeData());
-        this.raceStarted.next({ resumedAtStep: Number(game.step) });
+        this.raceStarted.next({
+          resumedAtStep: Number(game.step),
+          youAlreadySubmitted: v.youSubmitted,
+        });
       }
       if (this.prevGame && Number(game.step) !== Number(this.prevGame.step)) {
         this.nextStep.next({ steps: this.buildSteps(this.prevGame, game), isFinal: false });
