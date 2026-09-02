@@ -69,6 +69,11 @@ switch (TP.status(t, SOON, "a")) {
   case (#stagingYou v) {
     assert v.seat == #p2;
     assert not v.reservedForPartner;
+    // Switching seats re-stamps `since = now` (see lib.mo's join, the
+    // seat-switch branch) — so even though the ORIGINAL join was at T0,
+    // the clock restarted at SOON when "a" switched to p2, and checking
+    // at that same instant sees the full 60s, not 59.
+    assert v.secondsUntilReclaimable == 60;
   };
   case (_) Runtime.trap("a should still be staging");
 };
@@ -80,6 +85,15 @@ ignore ok(TP.join(spec, t, T0, "a", #p1), "a stages");
 switch (TP.join(spec, t, SOON, "b", #p1)) {
   case (#err(#seatTaken)) {};
   case (_) Runtime.trap("a fresh seat must not be stealable");
+};
+// Once expired but before anyone actually evicts it, "a" still sees their
+// OWN #stagingYou (status()'s own-occupant branch never checks expiry) —
+// secondsUntilReclaimable clamps to 0 rather than going negative, which is
+// what a host's UI uses to switch from a quiet wait into an active warning
+// (see frontend/render.js's renderReclaimWarning).
+switch (TP.status(t, LATER, "a")) {
+  case (#stagingYou v) { assert v.secondsUntilReclaimable == 0 };
+  case (_) Runtime.trap("a should still see their own staging until evicted");
 };
 switch (ok(TP.join(spec, t, LATER, "b", #p1), "b evicts the squatter")) {
   case (#staged(#p1)) {};
@@ -126,7 +140,12 @@ switch (ok(TP.join(spec, t, T0, "a", #p2), "a rematches on p2")) {
   case (_) Runtime.trap("a veteran may pick a different seat");
 };
 switch (TP.status(t, T0, "a")) {
-  case (#stagingYou v) { assert v.seat == #p2; assert v.reservedForPartner };
+  case (#stagingYou v) {
+    assert v.seat == #p2;
+    assert v.reservedForPartner;
+    // staged and checked at the same instant — the full timeout is left.
+    assert v.secondsUntilReclaimable == 60;
+  };
   case (_) Runtime.trap("a's rematch staging should reserve b's seat");
 };
 switch (ok(TP.join(spec, t, T0, "b", #p1), "b takes the swapped seat")) {

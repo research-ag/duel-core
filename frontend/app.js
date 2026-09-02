@@ -38,7 +38,11 @@
 // `onopen`/`onmessage`/`onclose`/`onerror` and a `send(msg)` where `msg`
 // is a plain JS object shaped like `Ws.Msg<State, Action>` — see
 // idl.js) — `start()` takes ownership of the four handlers once passed
-// in.
+// in. If `ws` also exposes `request(sid, req) => Promise<{view}|{err}>`
+// (PollingWs, the transport `ws.js` builds, always does — see its own
+// doc), `start()` uses it to settle each button's own spinner off THAT
+// call's own response instead of off `onmessage`'s shared push stream
+// — see the "Calls" section below for why that distinction matters.
 
 import { renderView, errText } from "./render.js";
 
@@ -126,12 +130,30 @@ export function start({
 
   // ---------------------------------------------------------------------
   // Calls. Every update marks `inFlight` so a stray click can't double
-  // -submit — there's no response to await here — the canister pushes
-  // the resulting view (or a rejection) back asynchronously over `ws`;
-  // `ws.onmessage` below clears `inFlight` when that arrives.
+  // -submit.
+  //
+  // `PollingWs` (the only transport this package ships — see ws.js) also
+  // exposes `request(sid, req)`: a Promise of THIS call's own `{view}`/
+  // `{err}`, correlated to this specific submission, as opposed to
+  // `send()`'s fire-and-forget message which races the poller's own
+  // periodic tick (see poller.js's own doc). `call()` prefers `request()`
+  // when it's there, and settles `inFlight`/the button spinner off ITS
+  // resolution — not off `ws.onmessage`, which now only renders whatever
+  // view the shared push stream (periodic ticks AND every request's own
+  // fetch alike) delivers next. Settling off the shared stream instead
+  // (an earlier version of this file did) clears the spinner the moment
+  // ANY unrelated periodic tick lands — almost immediately, usually well
+  // before the slow update this button triggered has actually resolved —
+  // and only THEN, once the real response finally arrives, does the
+  // screen jump to the next view: spinner gone, then a dead pause, then
+  // the switch. A caller whose `ws` doesn't implement `request()` (a
+  // minimal hand-rolled WebSocket, say) falls back to that same
+  // send()-and-await-onmessage behavior — the best available without a
+  // way to correlate a response to its own request.
   // ---------------------------------------------------------------------
 
   let inFlight = false;
+  const canCorrelate = typeof ws.request === "function";
 
   function sendWs(req) {
     try {
@@ -139,15 +161,33 @@ export function start({
     } catch (e) {
       inFlight = false;
       document.body.classList.remove("working");
+      endButtonLoading();
       showError(`Send failed: ${e.message ?? e}`);
     }
+  }
+
+  function settleCall(payload) {
+    inFlight = false;
+    document.body.classList.remove("working");
+    endButtonLoading();
+    if ("err" in payload) showError(errText(payload.err));
+    else renderIfChanged(payload.view);
   }
 
   function call(req) {
     if (inFlight) return;
     inFlight = true;
     document.body.classList.add("working");
-    sendWs(req);
+    if (canCorrelate) {
+      ws.request(sid, req).then(settleCall, (e) => {
+        inFlight = false;
+        document.body.classList.remove("working");
+        endButtonLoading();
+        showError(`Call failed: ${e.message ?? e}`);
+      });
+    } else {
+      sendWs(req);
+    }
   }
 
   const doJoin = (seat) => call({ join: { [seat]: null } });
@@ -156,6 +196,43 @@ export function start({
   const doLeave = () => call({ leave: null });
   const doReset = () => call({ reset: null });
   const doAck = () => call({ ackEnded: null });
+
+  // ---------------------------------------------------------------------
+  // Per-button loading spinner (see style.css's `button.duel-loading`).
+  // IC update calls are slow enough (hundreds of ms to a few seconds)
+  // that clicking, say, a seat button with zero visual feedback until
+  // the whole screen suddenly changes reads as broken/unresponsive.
+  //
+  // Snapshots every button's disabled state before disabling them all
+  // (not just the clicked one — a slow update in flight means every
+  // other action is also illegal right now) and marks the clicked one
+  // `.duel-loading`. Restoring is a no-op for any button `refresh()`'s
+  // eventual re-render already threw away (`renderView` replaces
+  // `screenEl.innerHTML` wholesale — see below), so it's safe to call
+  // this unconditionally once a response arrives, whether or not that
+  // response actually changed the view.
+  // ---------------------------------------------------------------------
+
+  let loadingSnapshot = null;
+
+  function beginButtonLoading(activeBtn) {
+    loadingSnapshot = [...screenEl.querySelectorAll("button")].map((btn) => [
+      btn,
+      btn.disabled,
+    ]);
+    for (const [btn] of loadingSnapshot) btn.disabled = true;
+    activeBtn.classList.add("duel-loading");
+  }
+
+  function endButtonLoading() {
+    if (!loadingSnapshot) return;
+    for (const [btn, wasDisabled] of loadingSnapshot) {
+      if (!btn.isConnected) continue;
+      btn.disabled = wasDisabled;
+      btn.classList.remove("duel-loading");
+    }
+    loadingSnapshot = null;
+  }
 
   // ---------------------------------------------------------------------
   // Confirmation modal, for any button marked `data-confirm="..."` (e.g.
@@ -210,6 +287,7 @@ export function start({
     const b = ev.target.closest("button");
     if (!b || b.disabled) return;
     const dispatch = () => {
+      beginButtonLoading(b);
       if (b.dataset.join) doJoin(b.dataset.join);
       else if (b.dataset.act) doSubmit(JSON.parse(b.dataset.act));
       else if ("rematch" in b.dataset) doRematch();
@@ -244,18 +322,29 @@ export function start({
   // deepEqual()'s own doc for why this isn't a JSON.stringify comparison.
   let lastView;
 
+  function renderIfChanged(view) {
+    if (deepEqual(view, lastView)) return;
+    lastView = view;
+    screenEl.innerHTML = renderView(view, plugin);
+  }
+
   screenEl.innerHTML = `<p class="duel-connecting">Connecting…</p>`;
   ws.onopen = () => refresh();
   ws.onmessage = (ev) => {
-    inFlight = false;
-    document.body.classList.remove("working");
-    const msg = ev.data;
-    if ("err" in msg) {
-      showError(errText(msg.err));
-    } else if ("view" in msg && !deepEqual(msg.view, lastView)) {
-      lastView = msg.view;
-      screenEl.innerHTML = renderView(msg.view, plugin);
+    // When `call()` can correlate its own response (see above), it
+    // already settled `inFlight`/the spinner off THAT response — doing
+    // it again here, off whichever message the shared push stream
+    // happens to deliver next, is exactly the premature-clear this was
+    // built to avoid. The fallback transport has no such signal of its
+    // own, so this remains its only one.
+    if (!canCorrelate) {
+      inFlight = false;
+      document.body.classList.remove("working");
+      endButtonLoading();
     }
+    const msg = ev.data;
+    if ("err" in msg) showError(errText(msg.err));
+    else renderIfChanged(msg.view);
   };
   ws.onerror = (ev) => showError(`WebSocket error: ${ev?.error?.message ?? ev}`);
   ws.onclose = () => showError("Connection closed — reload to reconnect.");

@@ -50,6 +50,17 @@
        visibility gating as #game-stage (see body.in-race.race-ready in
        style.css). -->
   <div id="hud"></div>
+  <!-- Fills the gap between body.in-race (added the moment the poller
+       notices #inGame) and body.race-ready (added by main.ts once the
+       map and both cars have actually finished loading — see its
+       comment) — without this, that window is just the dark page
+       background with nothing on it while track/car assets download.
+       Shown/hidden purely by CSS (body.in-race:not(.race-ready) in
+       style.css); no script drives it. -->
+  <div id="loading-overlay">
+    <div class="loading-spinner"></div>
+    <p>Loading track…</p>
+  </div>
 
   <script type="module" src="duel-app.js"></script>
   <script type="module" src="main.js"></script>

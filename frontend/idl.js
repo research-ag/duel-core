@@ -56,7 +56,11 @@ export function makeIdlFactory(buildGameTypes) {
         resetAvailable: IDL.Bool,
       }),
       busy: IDL.Record({ secondsUntilTakeover: IDL.Nat }),
-      stagingYou: IDL.Record({ seat: Seat, reservedForPartner: IDL.Bool }),
+      stagingYou: IDL.Record({
+        seat: Seat,
+        reservedForPartner: IDL.Bool,
+        secondsUntilReclaimable: IDL.Nat,
+      }),
       awaitingRematch: IDL.Record({ openSeat: Seat }),
       inGame: IDL.Record({
         seat: Seat,

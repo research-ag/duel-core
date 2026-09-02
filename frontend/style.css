@@ -172,6 +172,52 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* Shown on the specific button that dispatched an update call (see
+ * app.js's beginButtonLoading()) for as long as it's in flight — IC
+ * update calls are slow enough (hundreds of ms to a few seconds) that a
+ * click with no feedback at all reads as broken. The label stays in the
+ * DOM (just hidden via `color`/`visibility`, not removed) so the button
+ * doesn't reflow/resize while spinning, and so it reappears instantly —
+ * with no re-render — if `beginButtonLoading`'s snapshot ever needs to
+ * restore it (the "server replied but the view didn't change" case; see
+ * app.js). `:disabled`'s 0.35 opacity above would otherwise dim this
+ * same button (JS disables it too, to block a second click); this rule
+ * wins by coming after it, same specificity, and pins opacity back to 1.
+ * The spinner's own `color` is set explicitly rather than inherited,
+ * since the button's own text color is hidden via `color: transparent`
+ * right below and `currentColor` would otherwise resolve to that. */
+button.duel-loading {
+  position: relative;
+  opacity: 1;
+  color: transparent;
+  cursor: progress;
+}
+
+button.duel-loading > * {
+  visibility: hidden;
+}
+
+button.duel-loading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1em;
+  height: 1em;
+  margin: -0.5em 0 0 -0.5em;
+  color: var(--ink);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: duel-btn-spin 0.6s linear infinite;
+}
+
+@keyframes duel-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 button.primary {
   background: var(--accent);
   border-color: var(--accent);

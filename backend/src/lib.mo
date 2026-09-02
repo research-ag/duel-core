@@ -206,7 +206,11 @@ module {
   public type View<S> = {
     #lobby : { p1Open : Bool; p2Open : Bool; resetAvailable : Bool };
     #busy : { secondsUntilTakeover : Nat };
-    #stagingYou : { seat : Seat; reservedForPartner : Bool };
+    #stagingYou : {
+      seat : Seat;
+      reservedForPartner : Bool;
+      secondsUntilReclaimable : Nat;
+    };
     #awaitingRematch : { openSeat : Seat };
     #inGame : {
       seat : Seat;
@@ -597,7 +601,18 @@ module {
 
       case (#staging st) {
         if (st.session == session) {
-          #stagingYou { seat = st.seat; reservedForPartner = isSome(st.reservedFor) };
+          // This branch never checks `expired(t, st.since, now)` — the
+          // seat stays #stagingYou for its own occupant no matter how
+          // idle it's gone (only a THIRD PARTY's `join` actually evicts
+          // it, below). `secondsUntilReclaimable` is how that occupant
+          // learns they're on a clock at all — without it, a host's UI
+          // has nothing to warn "waiting for an opponent" with, and the
+          // seat can vanish out from under them with no notice.
+          #stagingYou {
+            seat = st.seat;
+            reservedForPartner = isSome(st.reservedFor);
+            secondsUntilReclaimable = secsLeft(t, st.since, now);
+          };
         } else if (st.reservedFor == ?session) {
           #awaitingRematch { openSeat = otherSeat(st.seat) };
         } else if (unackedEnded(t, session)) {

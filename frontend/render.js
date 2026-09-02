@@ -94,6 +94,26 @@ function renderBusy(v) {
     <p class="countdown">${v.secondsUntilTakeover}s until it can be taken over</p>`;
 }
 
+// Once a staged (not-yet-started) seat is close to going idle, warn its own
+// occupant — status()'s own #stagingYou branch never checks expiry (see
+// lib.mo's comment on it), so without this a player sees a calm "Waiting
+// for an opponent" right up until another tab's `join` legitimately (and
+// silently, from this player's point of view) reclaims the seat — the
+// engine's documented "no ghost lobbies" idle takeover, working exactly as
+// designed, just with no warning attached. Quiet below the threshold so a
+// normal, short wait doesn't carry a running countdown the whole time.
+const RECLAIM_WARNING_SECS = 15n;
+
+function renderReclaimWarning(secondsUntilReclaimable) {
+  if (secondsUntilReclaimable > RECLAIM_WARNING_SECS) return "";
+  const when =
+    secondsUntilReclaimable === 0n
+      ? "any moment now"
+      : `in ${secondsUntilReclaimable}s`;
+  return `<p class="countdown">Still there? This seat may be given to
+    someone else ${when} if the page stays idle.</p>`;
+}
+
 function renderStagingYou(v, plugin) {
   const seat = tag(v.seat);
   return `
@@ -106,6 +126,7 @@ function renderStagingYou(v, plugin) {
         : `<p class="muted">Open this page in another tab to take the other
              seat.</p>`
     }
+    ${renderReclaimWarning(v.secondsUntilReclaimable)}
     <p><button data-leave class="ghost">Leave</button></p>`;
 }
 
