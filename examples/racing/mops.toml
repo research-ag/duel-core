@@ -9,4 +9,4 @@ core = "2.6.1"
 ic-websocket-cdk = "0.4.1"
 
 [toolchain]
-moc = "1.11.2"
+moc = "1.14.0"
