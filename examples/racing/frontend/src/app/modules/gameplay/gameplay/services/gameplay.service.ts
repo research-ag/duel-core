@@ -258,6 +258,14 @@ export class GameplayService {
   private async requestAndSubmitMove(
     myCar: Car, minDistance: number, maxDistance: number, maxSteeringCurvature: number, isSkipped: boolean,
   ): Promise<void> {
+    // Fences the retry below against the round having ALREADY advanced
+    // through the normal channel (onStepComplete -> startNewIteration,
+    // triggered by lobbyConnectionService.nextStep) while this attempt
+    // was in flight — see the retry callbacks' own comment for why that
+    // matters. Stable to capture here: the round can't resolve (and so
+    // stepsCount can't advance) until AFTER my own move lands, and I
+    // haven't submitted yet at this point.
+    const roundFence = this.stepsCount;
     const trajectory: StepTrajectoryModel = await (isSkipped ?
       this.playerControlService.submitSkippedMove(minDistance, maxDistance, myCar.speed, maxSteeringCurvature) :
       this.playerControlService.askForSelectedPosition(minDistance, maxDistance, myCar.speed, maxSteeringCurvature));
@@ -285,19 +293,49 @@ export class GameplayService {
       ]
     )[0](1);
 
+    // Retrying here re-asks the player and resubmits with the SAME
+    // (myCar, minDistance, maxDistance, maxSteeringCurvature, isSkipped)
+    // this attempt used — safe ONLY if the round this was for hasn't
+    // already moved on. An `err`/thrown failure here is ambiguous: it
+    // can mean the submission was genuinely rejected, OR that it
+    // actually landed and just the RESPONSE got lost (a network hiccup,
+    // more likely right after a crash since RacingRules.mo's collision
+    // walk makes resolve() slower than an ordinary move) — ws.request()
+    // already resolves this specific call's OWN result directly (see
+    // its own doc), so the retry itself is never what shows a confusing
+    // "you already moved" toast any more, but blindly resubmitting
+    // anyway is still wrong: if the original attempt DID land, the
+    // round may have already advanced through the normal channel
+    // (onStepComplete -> startNewIteration, driven by
+    // lobbyConnectionService.nextStep) by the time this callback runs —
+    // that flow has ALREADY asked for and is tracking the NEXT round's
+    // move using fresh car state. A retry firing on top of that would
+    // run a second, uncoordinated askForSelectedPosition/
+    // submitSkippedMove cycle against STALE bounds computed for the OLD
+    // round, pushing its own arc/selection-state updates alongside the
+    // legitimate ones with no ordering between them — this is what
+    // produced two overlapping, differently-sized arcs (and a
+    // speed/camera mismatch to match) rendered at once. `roundFence`
+    // (captured before this attempt asked for a move) catches exactly
+    // that: if stepsCount has moved on, the original submission already
+    // did its job — do nothing further and let the normal flow own it.
+    const retryIfStillOwed = () => {
+      if (this.stepsCount !== roundFence) return;
+      this.requestAndSubmitMove(myCar, minDistance, maxDistance, maxSteeringCurvature, isSkipped).then();
+    };
     this.lobbyConnectionService.emitNextStep(stepData)
       .subscribe({
         next: (result: any) => {
           if (result && 'err' in result) {
             console.warn('duel: move rejected by canister, asking again', result.err);
-            this.requestAndSubmitMove(myCar, minDistance, maxDistance, maxSteeringCurvature, isSkipped).then();
+            retryIfStillOwed();
           }
           // ok: nothing else to do - the resolved step arrives through the
           // regular status poll (see lobby-connection.service.ts's nextStep).
         },
         error: (e: unknown) => {
           console.warn('duel: move submission failed, asking again', e);
-          this.requestAndSubmitMove(myCar, minDistance, maxDistance, maxSteeringCurvature, isSkipped).then();
+          retryIfStillOwed();
         },
       });
   }

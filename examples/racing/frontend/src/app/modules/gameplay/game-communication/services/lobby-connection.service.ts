@@ -101,7 +101,6 @@ export class LobbyConnectionService {
   public raceStarted: Subject<{ resumedAtStep: number }> = new Subject();
 
   private ws: any; // shared PollingWs — see duel-game-core/ws/poller.js
-  private sid: string = '';
   private mySlot: number = -1;
   private wasInGame: boolean = false;
   private prevGame: RacingState | null = null;
@@ -118,6 +117,23 @@ export class LobbyConnectionService {
 
   public get isSocketAvailable(): boolean {
     return true;
+  }
+
+  // Read LIVE on every use, never cached: sessionStorage's "sid" key is
+  // written by duel-app.js's own start() (see its own comments), a
+  // SEPARATE script from this one — caching a single early read here
+  // raced that write and could permanently capture "" (getSid()'s
+  // not-set fallback) for the rest of the session, since nothing ever
+  // re-read it afterward. That's exactly what produced "You are not
+  // seated in this game." on a session's first submitted move: an empty
+  // sid isn't seated in anything, and every subsequent move kept reusing
+  // the same wrong, cached value. By the time a player can actually
+  // submit a move, they've already joined through duel-app.js's own UI,
+  // which only exists once its start() has already run and written the
+  // real sid — so a live read here is always safe AND simpler than
+  // reasoning about which of two separately-loaded scripts runs first.
+  private get sid(): string {
+    return getSid();
   }
 
   /// Subscribes to the shared push poller and returns `raceStarted` —
@@ -166,7 +182,6 @@ export class LobbyConnectionService {
   }
 
   private async init(): Promise<void> {
-    this.sid = getSid();
     this.ws = await getDuelWs();
     this.ws.addEventListener('message', this.onMessage);
     // Kick off an immediate status fetch instead of waiting for the

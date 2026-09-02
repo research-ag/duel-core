@@ -4,11 +4,12 @@ A plain-TypeScript client — no framework — bundled with [esbuild](https://es
 It has two independent halves that share one page and one canister session:
 
 - **`duel-app.js` + `duel-racing-plugin.js`** (`src/duel/`, copied byte-for-byte
-  into the build, never bundled) — build the actor and hand off to
-  `duel-game-core`'s generic session/poll/render wiring: lobby, staging,
-  rematch, busy countdown, debrief. This is the *only* game-specific piece
-  that package needs (a `GamePlugin`), exactly like the `examples/007`
-  frontend. See `duel-racing-plugin.js`'s own header comment.
+  into the build, never bundled) — build the actor and a push-shaped `ws`
+  over it, then hand off to `duel-game-core`'s generic session/render
+  wiring: lobby, staging, rematch, busy countdown, debrief. This is the
+  *only* game-specific piece that package needs (a `GamePlugin`), exactly
+  like the `examples/007` frontend. See `duel-racing-plugin.js`'s own
+  header comment.
 - **`src/main.ts`** — the actual 3D race (Three.js), wired by hand (no DI
   framework — see its header comment for the construction order) from the
   gameplay/physics/rendering modules under `src/app/modules/gameplay/`.

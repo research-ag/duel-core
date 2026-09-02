@@ -1,11 +1,15 @@
 // Reference host actor, wired exactly as the duel-game-core README shows.
 //
-// Exposes the plain 7-method polling surface AND the optional WebSocket
-// push transport (mo:duel-game-core/Ws) side by side — a client is free to
-// use either (see frontend/app.js): the WS methods are pure add-ons that
-// forward into the SAME `table`/`Rules.spec()`, so both transports always
-// agree. See ../../../backend/README.md's "Optional: real-time push"
-// section for the full design.
+// Exposes the plain 7-method surface every client actually uses —
+// `frontend/app.js`'s push-shaped `ws` (see duel-game-core/ws.js) calls
+// these directly, on a fast interval, there is no separate polling mode
+// any more. Also exposes the optional WebSocket push transport
+// (mo:duel-game-core/Ws) as pure add-on methods that forward into the
+// SAME `table`/`Rules.spec()`, kept here purely as a complete reference
+// for anyone wiring a REAL external Gateway-backed client against it —
+// this example's own frontend never calls them. See
+// ../../../backend/README.md's "Optional: real-time push" section for
+// the full design.
 import TP "mo:duel-game-core";
 import Ws "mo:duel-game-core/Ws";
 import Rules "Duel007Rules";

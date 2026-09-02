@@ -106,18 +106,28 @@ export class PollingWs extends EventTarget {
     const envelope = msg?.req;
     if (!envelope) return;
     const { sid, req } = envelope;
-    this.request(sid, req).catch(async (e) => {
-      if (this.onerror) this.onerror({ error: e });
-      // A thrown error (network blip, agent failure) isn't necessarily
-      // terminal — try once to recover a fresh view so the caller's
-      // "working" state doesn't get stuck with no way out. If this also
-      // fails, the error above already told the user something's wrong.
-      try {
-        await this._fetchView(this._sid);
-      } catch {
-        // still down; nothing more to do here.
-      }
-    });
+    this.request(sid, req).then(
+      (payload) => {
+        // request() itself never broadcasts an `err` payload (see its own
+        // doc) — send() has to, since a fire-and-forget caller has no
+        // other way to learn its own result. A `view` payload was
+        // already broadcast by request() itself; nothing more to do.
+        if ("err" in payload) this._deliver(payload);
+      },
+      async (e) => {
+        if (this.onerror) this.onerror({ error: e });
+        // A thrown error (network blip, agent failure) isn't necessarily
+        // terminal — try once to recover a fresh view so the caller's
+        // "working" state doesn't get stuck with no way out. If this
+        // also fails, the error above already told the user something's
+        // wrong.
+        try {
+          await this._fetchView(this._sid);
+        } catch {
+          // still down; nothing more to do here.
+        }
+      },
+    );
   }
 
   /// Like `send()`, but returns a Promise of THIS call's own result —
@@ -127,11 +137,23 @@ export class PollingWs extends EventTarget {
   /// MY move rejected?") rather than just observing whichever view
   /// happens to arrive next — `send()`'s fire-and-forget messages race
   /// against this poller's own periodic tick, so they can't answer that
-  /// question on their own. Still dispatches the SAME `message` event as
-  /// `send()` as a side effect, so a shared `addEventListener("message")`
-  /// subscriber sees this call's result exactly once, same as any other.
-  /// Rejects (never resolves) on a genuine transport failure (thrown by
-  /// `actor`), same as calling `actor` directly would.
+  /// question on their own. Rejects (never resolves) on a genuine
+  /// transport failure (thrown by `actor`), same as calling `actor`
+  /// directly would.
+  ///
+  /// An `{ err }` result is returned to THIS caller only — it is
+  /// deliberately NOT broadcast as a `message` event. A caller using
+  /// `request()` already has the answer directly; broadcasting it too
+  /// would leak one caller's own rejection to every OTHER consumer
+  /// sharing this poller (e.g. a game's own gameplay code retrying its
+  /// own submit after an ambiguous failure, and the retry landing after
+  /// the original actually succeeded — an expected, harmless outcome
+  /// the retry logic already handles via this return value — used to
+  /// also surface as a confusing "you already moved" toast on
+  /// `app.js`'s generic chrome, since it shares this same poller and
+  /// listens for exactly this event). A `{ view }` result IS still
+  /// broadcast (via `_fetchView()`), since a fresh view is genuinely
+  /// relevant to every consumer, not just this caller.
   async request(sid, req) {
     if (sid !== this._sid) {
       this._sid = sid;
@@ -168,17 +190,7 @@ export class PollingWs extends EventTarget {
     // ackEnded returns nothing; the Res-returning calls return {ok}/{err}
     // — same guard app.js's own non-ws call() uses.
     if (res && typeof res === "object" && "err" in res) {
-      // A rejection changed nothing, so there's no fresher view to fetch
-      // — but still claim a sequence number before delivering, so this
-      // can't itself land out of order against a genuinely fresher view
-      // that was issued concurrently (see _fetchView).
-      const seq = ++this._fetchSeq;
-      const payload = { err: res.err };
-      if (seq > this._deliveredSeq) {
-        this._deliveredSeq = seq;
-        this._deliver(payload);
-      }
-      return payload;
+      return { err: res.err }; // not broadcast — see this method's doc
     }
     // The caller (e.g. a game's own gameplay code correlating THIS
     // submit's result) always gets the actual view back, even if it lost

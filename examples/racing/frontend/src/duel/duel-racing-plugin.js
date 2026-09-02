@@ -1,8 +1,8 @@
 // GamePlugin for the racing duel — the only game-specific piece
 // duel-game-core's generic chrome (lobby, staging, rematch, debrief,
-// session identity, polling — see duel-app.js) needs. It does NOT render
+// session identity, push — see duel-app.js) needs. It does NOT render
 // the actual race: that's the app's own esbuild bundle (main.ts) loaded
-// alongside this page, which polls the same canister independently (see
+// alongside this page, which shares duel-app.js's own push poller (see
 // ../app/modules/gameplay/game-communication/services/lobby-connection.service.ts)
 // and takes over the full viewport (CSS class `body.in-race`, added by
 // that service) once a game is under way — see style.scss.
@@ -10,6 +10,8 @@
 // The `Action`/`State` Candid shapes here must mirror
 // `../../../src/RacingRules.mo` exactly, and this plugin's own
 // `LAPS_TO_WIN` must match that module's constant of the same name.
+
+import { esc } from './node_modules/duel-game-core/render.js';
 
 // The raw `lap` field (below) counts wrap-boundary crossings of the track,
 // not real laps driven — the starting grid sits right before the track's
@@ -79,7 +81,3 @@ export const plugin = {
     return '';
   },
 };
-
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-}
