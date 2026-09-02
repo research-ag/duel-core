@@ -33,12 +33,4 @@ persistent actor {
     func() = TP.sweep(table, Time.now()),
   );
 
-  // TODO mixins do not support generics :(
-  public shared ({ caller }) func ws_message(
-    args : IcWebSocketCdkTypes.CanisterWsMessageArguments,
-    msgType : ?Ws.Msg<Rules.State, Rules.Action>,
-  ) : async IcWebSocketCdkTypes.CanisterWsMessageResult {
-    await ws.ws_message(caller, args, msgType);
-  };
-
 };

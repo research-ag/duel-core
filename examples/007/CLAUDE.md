@@ -25,10 +25,14 @@ concrete to copy — it is **not** part of either package itself.
   close-detection-driven disappearance handling, AND to close the race a
   plain update call would otherwise open (two independent update calls
   have no guaranteed relative processing order once both are in flight —
-  see `../../backend/src/Ws.mo`'s doc header). An idle-sweep timer is
-  wired directly in `Host.mo` alongside `status` and `Ws.mo` — there's no
-  mixin any more; it's three lines of `Timer.recurringTimer<system>`. See
-  `../../backend/README.md`'s "Real-time push" section for the full
+  see `../../backend/src/Ws.mo`'s doc header). `status` and `Ws.attach`
+  are wired directly in `Host.mo`; the four `ws_*` Candid methods
+  (including `ws_message`) plus the idle-sweep timer come from a single
+  `include ActorMixin<system>(ws, ...)` (`mo:duel-game-core/ActorMixin`)
+  — no per-game `ws_message` declaration needed, since its `msgType`
+  parameter is a plain `Blob`, not a type generic over this game's
+  `State`/`Action`. See `../../backend/README.md`'s "Real-time push" section
+  for the full
   design.
 - **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
   `Rules.test.mo` are scenario walks (one long session / the headline

@@ -192,8 +192,21 @@ export function makeIdlFactory(buildGameTypes) {
       status: IDL.Func([IDL.Text], [t.View], ["query"]),
       ws_open: IDL.Func([t.CanisterWsOpenArguments], [t.WsResult], []),
       ws_close: IDL.Func([t.CanisterWsCloseArguments], [t.WsResult], []),
+      // `msgType` (the second parameter) is a plain `opt blob`, not
+      // `opt WsMsg` — the canister ignores its VALUE either way (see
+      // `../backend/src/Ws.mo`'s doc header: this parameter exists only
+      // for `ic-websocket-cdk`'s own convention of shaping a canister's
+      // Candid interface with SOME app-message type, never actually read
+      // by anything on that side), so there's nothing to gain from
+      // spelling out the full `WsMsg` variant here — a blob is simpler,
+      // and independent of any game's `Action`/`State` shape. `content`
+      // (inside `msg`, the first parameter) carries the real, certified
+      // message; `gateway-transport.js`'s `send()` packs the exact same
+      // encoded bytes into this second parameter too, purely so
+      // `from_candid` on the backend could recover the original
+      // `Ws.Msg` if it ever needed to (see that method's own doc).
       ws_message: IDL.Func(
-        [t.CanisterWsMessageArguments, IDL.Opt(t.WsMsg)],
+        [t.CanisterWsMessageArguments, IDL.Opt(IDL.Vec(IDL.Nat8))],
         [t.WsResult],
         [],
       ),

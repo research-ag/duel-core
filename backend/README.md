@@ -141,7 +141,8 @@ persistent actor {
   startSweeping<system>();
 
   // ...wire mo:duel-game-core/Ws here — see "Real-time push" below for
-  // the full four-method forward, which is what actually drives
+  // the full `ActorMixin` wiring (all four `ws_*` methods plus this same
+  // idle-sweep timer, in one `include`), which is what actually drives
   // join/submit/rematch/leave/reset/ackEnded.
 
   system func postupgrade() {
@@ -263,12 +264,13 @@ pairing from the `sid` every inbound message carries, and forgets it on
 
 ```motoko
 import Ws "mo:duel-game-core/Ws";
+import ActorMixin "mo:duel-game-core/ActorMixin";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
 persistent actor {
   let table : TP.Table<Rules.State, Rules.Action> = TP.create(60_000_000_000);
 
-  // ...`status` and the idle-sweep timer from the example above, unchanged...
+  // ...`status` from the example above, unchanged...
 
   // `IcWebSocketCdk.IcWebSocket` holds live connections/closures — not a
   // stable type. `transient` rebuilds both fresh on every upgrade; no game
@@ -292,18 +294,19 @@ persistent actor {
   );
   ws.init<system>(); // starts the CDK's keep-alive/ack timers
 
-  public shared ({ caller }) func ws_open(args : IcWebSocketCdkTypes.CanisterWsOpenArguments) : async IcWebSocketCdkTypes.CanisterWsOpenResult {
-    await ws.ws_open(caller, args);
-  };
-  public shared ({ caller }) func ws_close(args : IcWebSocketCdkTypes.CanisterWsCloseArguments) : async IcWebSocketCdkTypes.CanisterWsCloseResult {
-    await ws.ws_close(caller, args);
-  };
-  public shared ({ caller }) func ws_message(args : IcWebSocketCdkTypes.CanisterWsMessageArguments, msgType : ?Ws.Msg<Rules.State, Rules.Action>) : async IcWebSocketCdkTypes.CanisterWsMessageResult {
-    await ws.ws_message(caller, args, msgType);
-  };
-  public shared query ({ caller }) func ws_get_messages(args : IcWebSocketCdkTypes.CanisterWsGetMessagesArguments) : async IcWebSocketCdkTypes.CanisterWsGetMessagesResult {
-    ws.ws_get_messages(caller, args);
-  };
+  // Supplies `ws_open`/`ws_close`/`ws_message`/`ws_get_messages` AND the
+  // idle-sweep timer in one `include` — no host actor hand-declares any
+  // of the four. `ws_message`'s second Candid parameter (`ActorMixin`'s
+  // own `msgType`) is a plain `Blob`, not `Ws.Msg<Rules.State,
+  // Rules.Action>` — the mixin only ever holds the already-built `ws`,
+  // with no `S`/`M` in scope to name a game-specific type with, and the
+  // CDK ignores this parameter's VALUE regardless of its declared type
+  // (it exists solely to shape the canister's `.did`, for tooling that
+  // introspects it). The real message driving this call always arrives
+  // through `args`'s own `content` field, decoded via `codec.decode`
+  // exactly as before; `from_candid(msgType) : ?Ws.Msg<Rules.State,
+  // Rules.Action>` recovers the identical value if you ever need it too.
+  include ActorMixin<system>(ws, func() = TP.sweep(table, Time.now()));
 
   // IC timers don't survive an upgrade on their own — reschedule them.
   system func postupgrade() { ws.init<system>() };
@@ -314,7 +317,8 @@ Add the dependency: `mops add ic-websocket-cdk` (pins `0.4.1`). On the
 frontend, `duel-game-core/idl.js`'s `makeIdlFactory` (via its exported
 `buildEngineTypes`) already declares the four `ws_*` Candid methods for
 every game (fixed CDK shapes plus your game's `Action`/`State` embedded
-in `Ws.Msg`) — nothing game-specific to add there;
+in `Ws.Msg`, and a plain `blob` for `ws_message`'s otherwise-unused
+second parameter) — nothing game-specific to add there;
 `duel-game-core/ws.js`'s `connectWs()` calls all four directly (see
 `../frontend/README.md`'s "Real-time push" section for the frontend
 half).

@@ -56,9 +56,12 @@
 ///
 /// ── How a host actor wires it ──────────────────────────────────────────
 ///
+///   import Time "mo:core/Time";
+///   import TP "mo:duel-game-core";
 ///   import IcWebSocketCdk "mo:ic-websocket-cdk";
 ///   import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 ///   import Ws "mo:duel-game-core/Ws";
+///   import ActorMixin "mo:duel-game-core/ActorMixin";
 ///
 ///   let hub : Ws.Hub = Ws.createHub();
 ///   let ws = Ws.attach<Rules.State, Rules.Action>(
@@ -73,30 +76,27 @@
 ///   );
 ///   ws.init<system>();          // (re)start the CDK's ack timers
 ///
-///   public shared ({ caller }) func ws_open(
-///     args : IcWebSocketCdkTypes.CanisterWsOpenArguments
-///   ) : async IcWebSocketCdkTypes.CanisterWsOpenResult {
-///     await ws.ws_open(caller, args);
-///   };
-///   public shared ({ caller }) func ws_close(
-///     args : IcWebSocketCdkTypes.CanisterWsCloseArguments
-///   ) : async IcWebSocketCdkTypes.CanisterWsCloseResult {
-///     await ws.ws_close(caller, args);
-///   };
-///   public shared ({ caller }) func ws_message(
-///     args : IcWebSocketCdkTypes.CanisterWsMessageArguments,
-///     msgType : ?Ws.Msg<Rules.State, Rules.Action>,
-///   ) : async IcWebSocketCdkTypes.CanisterWsMessageResult {
-///     await ws.ws_message(caller, args, msgType);
-///   };
-///   public shared query ({ caller }) func ws_get_messages(
-///     args : IcWebSocketCdkTypes.CanisterWsGetMessagesArguments
-///   ) : async IcWebSocketCdkTypes.CanisterWsGetMessagesResult {
-///     ws.ws_get_messages(caller, args);
-///   };
+///   // `ActorMixin` supplies all four `ws_*` Candid methods (open, close,
+///   // message, get_messages) plus the idle-sweep timer — a host actor
+///   // never has to hand-declare any of them:
+///   include ActorMixin<system>(ws, func() = TP.sweep(table, Time.now()));
 ///
 ///   // IC timers do NOT survive an upgrade on their own — reschedule them:
 ///   system func postupgrade() { ws.init<system>() };
+///
+/// `ws_message`'s second Candid parameter — `ActorMixin`'s own `msgType`
+/// — is a plain `Blob`, not `Ws.Msg<S, M>` itself: the CDK ignores its
+/// VALUE either way (it exists only so a canister's `.did` exposes SOME
+/// app-message type, for tooling that introspects it — see
+/// `ic-websocket-cdk`'s own doc comment on `ws_message`), and `S`/`M`
+/// aren't in scope inside a mixin that only ever holds the already-built
+/// `ws`. Nothing is lost: the real message this connection is acting on
+/// always arrives through `args`'s own `content` field and is decoded via
+/// `codec.decode` inside this module's own `onMessage` (see `attach`
+/// below), exactly as before. A caller that ever wants to reconstruct
+/// `msgType` itself can still do
+/// `from_candid(msgType) : ?Ws.Msg<Rules.State, Rules.Action>` — the
+/// identical decode `codec.decode` already performs on the live path.
 ///
 /// See `../README.md`'s "Real-time push" section for the full worked
 /// example, including the frontend half.

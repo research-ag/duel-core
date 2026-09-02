@@ -192,9 +192,15 @@ export class SelfGatewayTransport {
   /// `record` is an already-built `WebsocketMessage` Candid record (see
   /// `gateway-protocol.js`'s `buildAppMessage`/`buildKeepAliveReply`) —
   /// this transport only ever transmits it, never builds or interprets
-  /// its `content`.
+  /// its `content`. `ws_message`'s second parameter (`opt blob`, see
+  /// `../idl.js`'s doc on it) is decorative on the canister side — the
+  /// CDK ignores its value — but we pack `record.content`'s own bytes
+  /// into it anyway rather than sending `[]`: it costs nothing (the same
+  /// bytes are already sitting right here) and means `from_candid` on
+  /// the backend can recover the original `Ws.Msg` from it directly,
+  /// without a live canister to poll `content` off of.
   async send(record) {
-    const res = await this._actor.ws_message({ msg: record }, []);
+    const res = await this._actor.ws_message({ msg: record }, [record.content]);
     if ("Err" in res) throw new Error(`ws_message: ${res.Err}`);
   }
 
