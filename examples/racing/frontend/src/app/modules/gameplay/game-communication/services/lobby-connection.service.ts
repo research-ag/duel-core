@@ -200,6 +200,30 @@ export class LobbyConnectionService {
     return of(null);
   }
 
+  /// Submits a `leave` over the same shared connection/session id
+  /// emitNextStep() uses — exactly what clicking duel-game-core's own
+  /// "Forfeit" button does (see ../../../../../../../frontend/render.js's
+  /// renderInGame/doLeave), just triggered from app code instead of a
+  /// click. Used by gameplay.service.ts's init() when the track fails to
+  /// load even after retries: rather than leaving this tab stuck forever
+  /// on a loading screen the opponent can't see past either, bail out of
+  /// the race the same way a human clicking Forfeit would (see
+  /// ../../../../../../CLAUDE.md's architecture rule 7 — `leave` from an
+  /// active game produces a shared `#aborted` debrief for both seats, it
+  /// never leaves a game silently hanging). Swallows its own failure:
+  /// this is already the last resort, and if `leave` itself doesn't land
+  /// duel-game-core's own chrome will surface the underlying connection
+  /// problem on its own (e.g. "Connection closed — reload to
+  /// reconnect.").
+  public async forfeit(): Promise<void> {
+    if (!this.ws) return;
+    try {
+      await this.ws.request(this.sid, { leave: null });
+    } catch (err) {
+      console.error('duel: auto-forfeit request failed', err);
+    }
+  }
+
   private async init(): Promise<void> {
     this.ws = await getDuelWs();
     this.ws.addEventListener('message', this.onMessage);

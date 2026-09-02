@@ -86,7 +86,22 @@ export class GameplayService {
   async init(): Promise<void> {
     await Promise.all([this.worldSceneService.init(), this.controlSceneService.init()]);
     //TODO: get map name from lobby item
-    this.mapData = await this.mapLoaderService.loadMap();
+    try {
+      this.mapData = await this.mapLoaderService.loadMap();
+    } catch (err) {
+      // model-loader.service.ts already retried this a few times — if it
+      // still won't load (e.g. the asset canister is returning 502s),
+      // there's no track to race on and no point waiting forever: forfeit
+      // this race instead of leaving the player (and their opponent, who
+      // has no visibility into this tab's asset load at all) stuck on a
+      // permanent loading screen. main.ts's caller leaves
+      // `sceneInitialized` false on this failure, so the NEXT race
+      // (rematch, or this same table if the outage was transient) tries
+      // loading the map again from scratch.
+      console.error('duel: could not load the track — forfeiting this race', err);
+      await this.lobbyConnectionService.forfeit();
+      throw err;
+    }
     this.gameStateService.mapData.next(this.mapData);
     this.lobbyConnectionService.lobbyData
       .subscribe(this.gameStateService.runtimeData);

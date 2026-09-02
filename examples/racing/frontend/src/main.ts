@@ -64,8 +64,18 @@ hud.mount(hudContainer);
 let sceneInitialized = false;
 lobbyConnectionService.connectToLobby().subscribe(async ({ resumedAtStep, youAlreadySubmitted }) => {
   if (!sceneInitialized) {
+    try {
+      await gameplayService.init();
+    } catch (err) {
+      // gameplayService.init() already forfeited this race (see its own
+      // doc — most likely the track failed to load even after retries).
+      // `sceneInitialized` stays false so the next raceStarted (a
+      // rematch, or anyone re-joining this table) tries loading again
+      // from scratch instead of getting permanently stuck.
+      console.error('duel: race init failed, not starting', err);
+      return;
+    }
     sceneInitialized = true;
-    await gameplayService.init();
   }
 
   // Wait for the map to finish loading and our own car to exist before

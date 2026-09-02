@@ -11,6 +11,17 @@ type Meta = {
 
 export class ModelLoaderService {
 
+  // Assets (maps/cars/proxies) are served off an asset canister, which
+  // can return a transient 502/503 (boot-storm, subnet hiccup, ...) the
+  // same way any other HTTP endpoint can — a couple of retries clears
+  // most of those without bothering the player. If it's still failing
+  // after this many attempts, treat it as a real, non-transient failure
+  // rather than retrying forever: callers loading something essential
+  // (map-loader.service.ts's loadMap()) forfeit the race instead of
+  // leaving the player stuck on an infinite spinner.
+  private static readonly LOAD_ATTEMPTS = 3;
+  private static readonly LOAD_RETRY_DELAY_MS = 1000;
+
   constructor(
     private readonly shaderLoaderService: ShaderLoaderService,
   ) {
@@ -20,10 +31,29 @@ export class ModelLoaderService {
                   shadowCastStrategy: ShadowStrategy = ShadowStrategy.AS_DEFINED,
                   shadowReceiveStrategy: ShadowStrategy = ShadowStrategy.AS_DEFINED,
   ) {
-    return Promise.all([
+    return this.withRetries(() => Promise.all([
       this.loadGlb(`${path}${filename}.glb`, shadowCastStrategy, shadowReceiveStrategy),
       this.loadMeta(`${path}${filename}.meta`)
-    ]);
+    ]), `${path}${filename}`);
+  }
+
+  // Retries `attempt` as a whole (both the .glb and its .meta sidecar)
+  // rather than trying to retry each half independently — simpler, and a
+  // failure on either one means the pair isn't usable yet anyway.
+  private async withRetries<T>(attempt: () => Promise<T>, label: string): Promise<T> {
+    let lastErr: unknown;
+    for (let i = 1; i <= ModelLoaderService.LOAD_ATTEMPTS; i++) {
+      try {
+        return await attempt();
+      } catch (err) {
+        lastErr = err;
+        console.warn(`duel: failed to load "${label}" (attempt ${i}/${ModelLoaderService.LOAD_ATTEMPTS})`, err);
+        if (i < ModelLoaderService.LOAD_ATTEMPTS) {
+          await new Promise(resolve => setTimeout(resolve, ModelLoaderService.LOAD_RETRY_DELAY_MS));
+        }
+      }
+    }
+    throw lastErr;
   }
 
   private async loadGlb(path: string,
@@ -79,13 +109,17 @@ export class ModelLoaderService {
           }
         });
         resolve(gltf.scene);
-      });
+      }, undefined, (err) => reject(err));
     });
   }
 
 
   private async loadMeta(path: string): Promise<Meta> {
-    const meta: Meta = await fetch(path).then(r => r.json());
+    const response = await fetch(path);
+    if (!response.ok) {
+      throw new Error(`Failed to load "${path}": ${response.status} ${response.statusText}`);
+    }
+    const meta: Meta = await response.json();
     meta.curves.forEach(curve => {
       curve.points = curve.points.map(point => new Vector3(point.x, point.y, point.z));
     });
