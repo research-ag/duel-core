@@ -62,16 +62,18 @@ a game supplies: `S` (game state) and `M` (one player's move).
   `validate`, `resolve` (see Design).
 - `Table<S, M>` — the stable session state for one global board; created
   once per host actor with `create(idleTimeoutNs)`.
-- Seven operations, one per host actor entry point: `join`, `submit`,
-  `rematch`, `leave`, `reset`, `ackEnded`, `status`. Every one that can
-  mutate takes `spec` and the current time (`now : Int`, nanoseconds) as
-  explicit parameters — see Implementation notes.
+- Seven operations: `join`, `submit`, `rematch`, `leave`, `reset`,
+  `ackEnded`, `status`. Every one that can mutate takes `spec` and the
+  current time (`now : Int`, nanoseconds) as explicit parameters — see
+  Implementation notes. Six of them (everything but `status`) are called
+  ONLY from inside `mo:duel-game-core/Ws`'s `ws_message` dispatch — they
+  are not, and must not be, exposed as plain Candid methods on a host
+  actor (see "Real-time push" below for why). `status` is the exception:
+  it stays a plain public `query` too, since it's side-effect-free and
+  carries no race risk.
 - `View<S>` — the per-caller result of `status`: exactly one of `#lobby`,
   `#busy`, `#stagingYou`, `#awaitingRematch`, `#inGame`, `#debrief`,
   `#endedByOther`.
-- `mo:duel-game-core/Session` — an optional mixin that splices five of
-  those seven operations, plus the idle-sweep timer, directly into a host
-  actor (see "Session mixin" below).
 
 ## Usage
 
@@ -104,8 +106,14 @@ public type Spec<S, M> = {
 };
 ```
 
-Then wire a host actor that forwards every call to the engine, supplying
-`Time.now()` and your `Spec`:
+A host actor forwards every call to the engine, supplying `Time.now()`
+and your `Spec` — but only `status` is a plain Candid method. Everything
+that can mutate state (`join`/`submit`/`rematch`/`leave`/`reset`/
+`ackEnded`) is driven exclusively through `mo:duel-game-core/Ws`'s
+`ws_message`, wired alongside `status` in the SAME actor — there is no
+plain Candid method for any of them, and no fallback: see "Real-time
+push" below for why, and for the idle-sweep timer that also belongs in
+this actor. A minimal host actor's non-WS half:
 
 ```motoko
 import TP "mo:duel-game-core";
@@ -117,9 +125,13 @@ persistent actor {
   let table : TP.Table<Rules.State, Rules.Action> =
     TP.create(60_000_000_000); // 60 s idle timeout
 
+  public query func status(sid : Text) : async TP.View<Rules.State> {
+    TP.status(table, Time.now(), sid);
+  };
+
   // Frees an abandoned board on its own — with only 2 players, there's
   // often nobody left to visit the board and trigger the lazy,
-  // visitor-driven eviction `join`/`reset` already do. Timers don't
+  // visitor-driven eviction `TP.join`/`TP.reset` already do. Timers don't
   // survive an upgrade, so restart in `postupgrade` too.
   func startSweeping<system>() {
     ignore Timer.recurringTimer<system>(#seconds(30), func() : async () {
@@ -127,28 +139,14 @@ persistent actor {
     });
   };
   startSweeping<system>();
-  system func postupgrade() { startSweeping<system>() };
 
-  public func join(sid : Text, seat : TP.Seat) : async TP.Res<TP.JoinOk> {
-    TP.join(Rules.spec(), table, Time.now(), sid, seat);
-  };
-  public func submit(sid : Text, a : Rules.Action) : async TP.Res<TP.SubmitOk> {
-    TP.submit(Rules.spec(), table, Time.now(), sid, a);
-  };
-  public func rematch(sid : Text) : async TP.Res<TP.RematchOk> {
-    TP.rematch(Rules.spec(), table, Time.now(), sid);
-  };
-  public func leave(sid : Text) : async TP.Res<()> {
-    TP.leave(table, Time.now(), sid);
-  };
-  public func reset(sid : Text) : async TP.Res<()> {
-    TP.reset(table, Time.now(), sid);
-  };
-  public func ackEnded(sid : Text) : async () {
-    TP.ackEnded(table, sid);
-  };
-  public query func status(sid : Text) : async TP.View<Rules.State> {
-    TP.status(table, Time.now(), sid);
+  // ...wire mo:duel-game-core/Ws here — see "Real-time push" below for
+  // the full four-method forward, which is what actually drives
+  // join/submit/rematch/leave/reset/ackEnded.
+
+  system func postupgrade() {
+    // ...ws.init<system>() too, see "Real-time push" below.
+    startSweeping<system>();
   };
 };
 ```
@@ -161,79 +159,19 @@ From there, generate (or hand-write) the Candid interface for this
 service and pair it with a **GamePlugin** on the frontend — see
 [`../frontend/README.md`](../frontend/README.md).
 
-### Session mixin (optional)
-
-`src/Session.mo` — imported as `mo:duel-game-core/Session` — is a Motoko
-[mixin](https://internetcomputer.org/docs/motoko/fundamentals/actors/mixins)
-that splices five of the seven methods above (`join`, `rematch`, `leave`,
-`reset`, `ackEnded`) plus the idle-sweep timer straight into a host actor,
-so the example above shrinks to:
-
-```motoko
-import TP "mo:duel-game-core";
-import Session "mo:duel-game-core/Session";
-import Rules "YourGameRules";
-import Time "mo:core/Time";
-
-persistent actor {
-  let table : TP.Table<Rules.State, Rules.Action> =
-    TP.create(60_000_000_000); // 60 s idle timeout
-
-  include Session<system>(
-    func(sid : Text, seat : TP.Seat) : TP.Res<TP.JoinOk> =
-      TP.join(Rules.spec(), table, Time.now(), sid, seat),
-    func(sid : Text) : TP.Res<TP.RematchOk> =
-      TP.rematch(Rules.spec(), table, Time.now(), sid),
-    func(sid : Text) : TP.Res<()> = TP.leave(table, Time.now(), sid),
-    func(sid : Text) : TP.Res<()> = TP.reset(table, Time.now(), sid),
-    func(sid : Text) : () = TP.ackEnded(table, sid),
-    func() = TP.sweep(table, Time.now()),
-    30, // sweep every 30 s
-  );
-
-  public func submit(sid : Text, a : Rules.Action) : async TP.Res<TP.SubmitOk> {
-    TP.submit(Rules.spec(), table, Time.now(), sid, a);
-  };
-  public query func status(sid : Text) : async TP.View<Rules.State> {
-    TP.status(table, Time.now(), sid);
-  };
-
-  // Timers don't survive an upgrade — `startSweeping` is a PRIVATE
-  // declaration the mixin splices into this actor's own scope (Motoko
-  // mixin semantics: private members are visible to, just not exported
-  // by, the including actor), so call it by name here.
-  system func postupgrade() { startSweeping<system>() };
-};
-```
-
-`submit`/`status` stay exactly as in the plain example — deliberately,
-not an oversight. Their Candid signatures are game-specific (`submit`
-takes the game's own `M`; `status` returns `View<S>`), and Motoko mixins
-cannot be generic (no `mixin <S, M>(...)`; confirmed against moc 1.11.2 —
-the feature's own notes list type parameters as "not currently
-supported"). `join`/`rematch`/`leave`/`reset`/`ackEnded` are the only five
-operations whose signature never mentions `S` or `M` at all, which is
-what makes this one file usable by every game regardless of its own
-state/move types — see `Session.mo`'s doc header for the full reasoning,
-including why each mixin argument is a closure the host builds inline
-rather than separate `spec`/`table` parameters.
-
-This is a genuine moc 1.11.2 language feature — `--check`/`-c`/`--idl`
-all produce the identical Candid interface as the plain wiring (verified
-against a real host actor) — but `moc -r` (the interpreter `mops test`
-runs) currently crashes on ANY `include`, even Motoko's own trivial
-mixin doc example. That's why there's no interpreter test exercising
-`include` itself; every method it adds is a one-line forward into
-`TP.*` operations already fully covered by `test/Engine.test.mo` and
-`test/Lifecycle.test.mo`.
-
 ### Real-time push
 
 Every game on this engine is driven by `duel-game-core/ws.js` on the
 frontend — a `GatewayWs` that speaks this section's protocol directly
-against your canister's plain `ws_*` Candid methods (see that package's
-README for the frontend half in full; `ws` is required, there's no
-plain-polling mode).
+against your canister's `ws_*` Candid methods, the ONLY way a client can
+mutate game state (see that package's README for the frontend half in
+full; `ws` is required, there's no plain-polling fallback). A direct
+update call bypassing this transport is exactly the race it exists to
+close: two independent update calls have no guaranteed relative
+processing order once both are in flight, so a plain `submit` racing
+this transport's own traffic could resolve out of order against it —
+which is why `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded` are not
+exposed as plain Candid methods at all, only reachable via `ws_message`.
 
 `src/Ws.mo` — imported separately as `mo:duel-game-core/Ws`, never merged
 into the engine itself — is built on
@@ -291,8 +229,11 @@ canister's `ws_message` method's second Candid parameter at runtime) — so
 (`#req { sid; req; reqId }`, where `req` mirrors the engine's six mutating
 operations plus an explicit `#status` resync) AND canister→client pushes
 (`#view { reqId; view }` / `#err { reqId; err }`), not two separate types.
-Every mutating request re-uses the plain engine operations you've already
-wired above — `Ws.mo` reimplements no game logic — and, after each one,
+Every mutating request re-uses `lib.mo`'s own plain engine operations
+(`TP.join`, `TP.submit`, ...) directly — `Ws.mo` reimplements no game
+logic, and these are the ONLY place those six operations are ever called
+from a host actor, since none of them is exposed as a plain Candid
+method — and, after each one,
 pushes a fresh view to whoever needs to see it changed: once a match has
 two fixed seats (`#active`/`#debrief`), that's read directly off
 `table.phase`'s `p1`/`p2` fields, so a connection routinely receives a
@@ -327,7 +268,7 @@ import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 persistent actor {
   let table : TP.Table<Rules.State, Rules.Action> = TP.create(60_000_000_000);
 
-  // ...the 7 plain methods from the example above, unchanged...
+  // ...`status` and the idle-sweep timer from the example above, unchanged...
 
   // `IcWebSocketCdk.IcWebSocket` holds live connections/closures — not a
   // stable type. `transient` rebuilds both fresh on every upgrade; no game
@@ -412,8 +353,8 @@ mops bench
 `bench/engine.bench.mo` measures the engine's own overhead — not any
 game's `resolve` cost — using the same throwaway `Spec`
 (`test/FakeGame.mo`) the test suites use, across `join`+`leave`, a full
-submitted round, and repeated `status` queries (the path a polling
-frontend hammers continuously).
+submitted round, and repeated `status` queries (the one plain Candid
+method a real host actor still exposes directly).
 
 ### Format the code
 
@@ -486,10 +427,11 @@ ad-hoc 2-player game backends:
   Booleans for whether the opponent has moved this round, never the move
   itself — there is no way for the frontend to leak it even by accident.
 - **`src/lib.mo` is the single entry point,** imported as `mo:duel-game-core`
-  (no subpath needed). `src/Session.mo` (`mo:duel-game-core/Session`) and
-  `src/Ws.mo` (`mo:duel-game-core/Ws`) are optional, separately-imported
-  add-ons layered on top — never merged into `lib.mo` (see the root
-  `CLAUDE.md`'s toolchain note on why).
+  (no subpath needed). `src/Ws.mo` (`mo:duel-game-core/Ws`) is a
+  separately-imported, but MANDATORY, module layered on top — never
+  merged into `lib.mo` purely to confine its `ic-websocket-cdk` dependency
+  (see the root `CLAUDE.md`'s toolchain note), not because wiring it is
+  optional.
 - `test/FakeGame.mo` is a deliberately trivial `Spec` used only by the
   test suites and benchmarks to exercise the engine — it is not a real
   game and ships no rendering.

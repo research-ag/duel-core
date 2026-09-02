@@ -16,14 +16,16 @@
 //   2. `status(sid)` (sent as a `#status` request over `ws`) returns a
 //      per-caller View that already encodes which screen to show — see
 //      render.js.
-//   3. There is exactly one transport: everything — every action AND
-//      every refresh — goes over `ws`. `start()` never calls a plain
-//      actor method itself and never runs a poll loop of its own; see
-//      `ws.js`'s own header for why that's still fine on the IC, which
-//      has no native server push (short version: `ws.js`'s `connectWs()`
-//      builds a `ws` that polls internally and hands back a
-//      WebSocket-shaped object, so `start()` doesn't have to know or
-//      care that it isn't a real socket).
+//   3. There is exactly one transport, and no fallback: everything —
+//      every action AND every refresh — goes over `ws`. `start()` never
+//      calls a plain actor method itself (there is no plain mutating
+//      method on the canister to call — see `../backend/src/Ws.mo`'s doc
+//      header) and never runs a poll loop of its own; see `ws.js`'s own
+//      header for why that's still fine on the IC, which has no native
+//      server push (short version: `ws.js`'s `connectWs()` builds a `ws`
+//      that polls internally and hands back a WebSocket-shaped object, so
+//      `start()` doesn't have to know or care that it isn't a real
+//      socket).
 //
 // Usage:
 //
@@ -39,10 +41,11 @@
 // is a plain JS object shaped like `Ws.Msg<State, Action>` — see
 // idl.js) — `start()` takes ownership of the four handlers once passed
 // in. If `ws` also exposes `request(sid, req) => Promise<{view}|{err}>`
-// (PollingWs, the transport `ws.js` builds, always does — see its own
-// doc), `start()` uses it to settle each button's own spinner off THAT
-// call's own response instead of off `onmessage`'s shared push stream
-// — see the "Calls" section below for why that distinction matters.
+// (`GatewayWs`, the transport `ws.js`'s `connectWs()` always builds,
+// does — see its own doc), `start()` uses it to settle each button's own
+// spinner off THAT call's own response instead of off `onmessage`'s
+// shared push stream — see the "Calls" section below for why that
+// distinction matters.
 //
 import { renderView, errText } from "./render.js";
 
@@ -132,11 +135,12 @@ export function start({
   // Calls. Every update marks `inFlight` so a stray click can't double
   // -submit.
   //
-  // `PollingWs` (the only transport this package ships — see ws.js) also
-  // exposes `request(sid, req)`: a Promise of THIS call's own `{view}`/
-  // `{err}`, correlated to this specific submission, as opposed to
-  // `send()`'s fire-and-forget message which races the poller's own
-  // periodic tick (see poller.js's own doc). `call()` prefers `request()`
+  // `GatewayWs` (the transport `ws.js` builds — see that file's header)
+  // also exposes `request(sid, req)`: a Promise of THIS call's own
+  // `{view}`/`{err}`, correlated to this specific submission, as opposed
+  // to `send()`'s fire-and-forget message which races every other push
+  // arriving on the same connection (see `ws/gateway-client.js`'s own
+  // doc). `call()` prefers `request()`
   // when it's there, and settles `inFlight`/the button spinner off ITS
   // resolution — not off `ws.onmessage`, which now only renders whatever
   // view the shared push stream (periodic ticks AND every request's own

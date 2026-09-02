@@ -185,24 +185,19 @@ as trusted as the plain `status()` query already implicitly is), that
 property buys nothing and would cost a real BLS-verification dependency
 to check — a documented trade-off, not an oversight.
 
-**`./ws/poller.js`'s `PollingWs`/`connectPollingWs`** remain available
-as an explicit opt-in fallback — plain HTTP polling of `actor`'s own
-`join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`/`status` methods, no
-WS protocol and no extra dependencies involved at all:
-
-```js
-import { connectPollingWs } from "duel-game-core/ws/poller.js";
-const ws = connectPollingWs({ actor });
-```
-
-Reach for this for a canister that never wires `mo:duel-game-core/Ws`,
-or as a mock-free transport in tests that don't want a real WS
-handshake. `start()` itself doesn't know or care which kind of `ws` it
-got — bring your own WebSocket-like object entirely (a genuine mock for
-tests, or a hand-rolled one talking to a real EXTERNAL Gateway relay
-instead of `GatewayWs`'s self-registered one) if neither built-in choice
-fits; `start()` only needs the four handlers and `send(msg)`, nothing
-about `ws.js`/`GatewayWs`/`PollingWs` specifically.
+**There is no plain-polling fallback.** A canister built on this
+framework has no `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`
+Candid method to poll in the first place — the ONLY way to mutate game
+state is `mo:duel-game-core/Ws`'s `ws_message` (see
+`../backend/src/Ws.mo`'s doc header for why: a direct update call is
+exactly the race a single, ordered WS channel exists to close). Every
+canister built on this package MUST wire `Ws.mo`. `start()` itself
+doesn't know or care which kind of `ws` it got — bring your own
+WebSocket-like object entirely (a genuine mock for tests, or a
+hand-rolled one talking to a real EXTERNAL Gateway relay instead of
+`GatewayWs`'s self-registered one) if `connectWs()`'s `GatewayWs` doesn't
+fit; `start()` only needs the four handlers and `send(msg)`, nothing
+about `ws.js`/`GatewayWs` specifically.
 
 **Overlap control and reconnection.** `GatewayWs` never starts a new
 poll while its own previous one is still pending, and drains a backlog
@@ -255,8 +250,8 @@ once the previous has fully completed — real added per-message latency,
 but what a strict sequence protocol requires.
 
 **Sharing one `ws` with a game's own runtime code, not just the generic
-chrome.** `GatewayWs` extends `EventTarget`, same as a real `WebSocket`
-(and same as `PollingWs`), so more than one part of a page can use the
+chrome.** `GatewayWs` extends `EventTarget`, same as a real `WebSocket`,
+so more than one part of a page can use the
 SAME connection instead of each running an independent one — publish it
 somewhere your other code can reach (e.g. on `window`, the way
 `examples/racing` does) and:
@@ -314,7 +309,7 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 
 | Module                   | Exports                                   |
 | ------------------------ | ------------------------------------------ |
-| `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — the 7 plain methods' types plus the `Ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
+| `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`'s own type plus the `Ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
 | `render.js`              | `renderView(view, plugin)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
 | `app.js`                 | `start({ plugin, ws, ...elIds })`          |
 | `ic-env.js`              | `readIcEnv()`, `deriveHost()` (optional)   |
@@ -322,7 +317,6 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 | `ws/gateway-client.js`   | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds |
 | `ws/gateway-transport.js`| `SelfGatewayTransport` — moves bytes (the embedded-Gateway registration/poll/send/close calls); swap this for a real-external-Gateway transport without touching the other two `ws/gateway-*.js` files |
 | `ws/gateway-protocol.js` | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, and interpreting a decoded envelope; transport-agnostic |
-| `ws/poller.js`           | `PollingWs`, `connectPollingWs({ actor, ...opts })` — the dependency-free plain-polling fallback, opt-in only (see "Real-time push") |
 | `style.css`              | generic layout primitives                  |
 
 See [`../backend/README.md`](../backend/README.md) for the matching

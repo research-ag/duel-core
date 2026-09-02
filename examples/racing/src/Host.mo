@@ -1,33 +1,26 @@
 // Reference host actor, wired exactly as the duel-game-core README shows.
 //
-// Exposes the plain 7-method surface (join/submit/rematch/leave/reset/
-// ackEnded/status) AND the 4 ws_* methods `mo:duel-game-core/Ws` forwards
-// into the SAME `table`/`Rules.spec()`. `frontend/src/duel/duel-app.js`'s
-// `ws` (see duel-game-core/ws.js) talks to the ws_* methods directly —
-// this tab registers itself as its own WS Gateway and polls its own
-// messages, no external relay process involved — for genuine
-// canister-driven push and real close-detection-driven disappearance
-// handling; the frontend's own gameplay loop
+// The ONLY way to mutate game state is `mo:duel-game-core/Ws`'s
+// `ws_message` — there is no plain `join`/`submit`/`rematch`/`leave`/
+// `reset`/`ackEnded` Candid method on this actor at all, and no fallback:
+// `frontend/src/duel/duel-app.js`'s `ws` (see duel-game-core/ws.js) talks
+// to the ws_* methods below directly — this tab registers itself as its
+// own WS Gateway and polls its own messages, no external relay process
+// involved — and the frontend's own gameplay loop
 // (lobby-connection.service.ts) SHARES that exact same connection rather
 // than running a second one — there is only ever one communication
-// channel to this canister. See ../../../backend/README.md's "Real-time
-// push" section for the full design. The plain 7 methods stay exposed
-// too: `mo:duel-game-core/Ws` dispatches to them for every actual
-// mutation (rule 11 — no second code path), and they're a game's
-// fallback surface for `duel-game-core/ws/poller.js`'s dependency-free
-// `PollingWs` if ever needed.
-//
-// Five of those seven (join/rematch/leave/reset/ackEnded) plus the
-// idle-sweep timer come from `mo:duel-game-core/Session` below — see that
-// module's doc header and ../../../backend/README.md's "Session mixin"
-// section for why `submit`/`status` stay hand-written instead (their
-// Candid types are game-specific; Motoko mixins can't be generic).
+// channel to this canister, and it's the only entry point a client has.
+// `status` stays a plain public `query` — side-effect-free, so it carries
+// no race risk, and useful for tooling/tests that don't want a WS
+// handshake. See ../../../backend/README.md's "Real-time push" section
+// for the full design and ../../../backend/src/Ws.mo's doc header for why
+// a direct update call is exactly the race this closes.
 import TP "mo:duel-game-core";
-import Session "mo:duel-game-core/Session";
 import Ws "mo:duel-game-core/Ws";
 import Rules "RacingRules";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 import Time "mo:core/Time";
+import Timer "mo:core/Timer";
 
 persistent actor {
   // Implicitly stable under `persistent actor` (moc 1.x); mutation happens
@@ -35,24 +28,22 @@ persistent actor {
   let table : TP.Table<Rules.State, Rules.Action> =
     TP.create(60_000_000_000); // 60 s idle timeout
 
-  include Session<system>(
-    func(sid : Text, seat : TP.Seat) : TP.Res<TP.JoinOk> =
-      TP.join(Rules.spec(), table, Time.now(), sid, seat),
-    func(sid : Text) : TP.Res<TP.RematchOk> =
-      TP.rematch(Rules.spec(), table, Time.now(), sid),
-    func(sid : Text) : TP.Res<()> = TP.leave(table, Time.now(), sid),
-    func(sid : Text) : TP.Res<()> = TP.reset(table, Time.now(), sid),
-    func(sid : Text) : () = TP.ackEnded(table, sid),
-    func() = TP.sweep(table, Time.now()),
-    30, // sweep every 30 s
-  );
-
-  public func submit(sid : Text, a : Rules.Action) : async TP.Res<TP.SubmitOk> {
-    TP.submit(Rules.spec(), table, Time.now(), sid, a);
-  };
   public query func status(sid : Text) : async TP.View<Rules.State> {
     TP.status(table, Time.now(), sid);
   };
+
+  // Frees an abandoned board on its own — with only 2 players, there's
+  // often nobody left to visit the board and trigger the lazy,
+  // visitor-driven eviction TP.join/TP.reset already do (see
+  // TP.sweep's own doc comment in lib.mo). Timers don't survive an
+  // upgrade, so restart in `postupgrade` too.
+  func startSweeping<system>() {
+    ignore Timer.recurringTimer<system>(
+      #seconds(30),
+      func() : async () { TP.sweep(table, Time.now()) },
+    );
+  };
+  startSweeping<system>();
 
   // ── Real-time push over WebSocket ────────────────────────────────────────
 

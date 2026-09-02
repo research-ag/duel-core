@@ -353,8 +353,8 @@ export class GameplayService {
     // did its job — do nothing further and let the normal flow own it.
     const retryIfStillOwed = () => {
       if (this.stepsCount !== roundFence) return;
-      // The shared poller gives up on a dead connection on its own (see
-      // duel-game-core/ws/poller.js's disconnect doc) — once it has,
+      // The shared `GatewayWs` gives up on a dead connection on its own
+      // (see duel-game-core/ws/gateway-client.js's disconnect doc) — once it has,
       // ws.request() rejects immediately, every time, forever. Retrying
       // anyway would spin a tight loop doing nothing but reject again
       // (submitSkippedMove's forced-skip path resolves instantly, with

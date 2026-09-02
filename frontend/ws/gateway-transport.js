@@ -134,12 +134,14 @@ export class SelfGatewayTransport {
     // gateway-client.js's `isEndOfQueue`-driven catch-up) before
     // snapping back to the real current one. A REAL regression this
     // caused: cars animating backwards then teleporting to the correct
-    // position after a reconnect — the exact symptom
-    // `frontend/ws/poller.js`'s `_fetchView()` sequence-number guard
-    // exists to prevent for its own, different root cause (concurrent
-    // fetches racing each other, not a queue replay) — see that file's
-    // doc. `_nonce` only ever starts at 0 once, in the constructor, and
-    // then only ever advances (see `poll()`), reconnect or not.
+    // position after a reconnect — see `examples/racing/CLAUDE.md`'s
+    // "cars occasionally animated backwards" history for the full story,
+    // including a DIFFERENT bug with the identical symptom (concurrent
+    // fetches racing each other, not a queue replay) fixed earlier by a
+    // sequence-number guard on the old plain-polling transport, before it
+    // was removed in favor of this WS-only design. `_nonce` only ever
+    // starts at 0 once, in the constructor, and then only ever advances
+    // (see `poll()`), reconnect or not.
     const res = await this._actor.ws_open({
       client_nonce: clientNonce,
       gateway_principal: this._principal,

@@ -1,17 +1,24 @@
 // The public, WebSocket-shaped surface for the embedded-gateway
-// transport — this is what `../ws.js` hands back from `connectWs()`.
-// Owns the poll loop, the open/reconnect policy, and request/response
-// correlation; delegates byte-moving to `gateway-transport.js` and
-// message meaning to `gateway-protocol.js` (see both files' own headers
-// for why that split exists — a future real-Gateway-backed transport
-// swaps in under this same class untouched).
+// transport — this is what `../ws.js` hands back from `connectWs()`, and
+// the ONLY transport this package ships (there is no plain-polling
+// fallback — a canister built on this framework has no plain mutating
+// method to poll in the first place, see `../../backend/src/Ws.mo`'s doc
+// header). Owns the poll loop, the open/reconnect policy, and
+// request/response correlation; delegates byte-moving to
+// `gateway-transport.js` and message meaning to `gateway-protocol.js`
+// (see both files' own headers for why that split exists — a future
+// real-Gateway-backed transport swaps in under this same class
+// untouched).
 //
-// Mirrors `poller.js`'s `PollingWs` surface exactly (`onopen`/
-// `onmessage`/`onerror`/`onclose`, `send(msg)`, `request(sid, req)`) so
-// `../app.js` and any game code sharing this `ws` (see
-// `examples/racing/frontend/.../lobby-connection.service.ts`) need no
-// branching over which transport they got — see `poller.js`'s own
-// header for the exact contract being matched.
+// Exposes a standard WebSocket-like surface (`onopen`/`onmessage`/
+// `onerror`/`onclose`, `send(msg)`) PLUS `request(sid, req)` — a Promise
+// of this specific call's own `{view}`/`{err}`, correlated by `reqId`
+// rather than assumed to be whatever arrives next (see `request()`'s own
+// doc below for why: this same connection routinely also carries
+// unsolicited pushes from the OTHER seat acting). `../app.js` and any
+// game code sharing this `ws` (see
+// `examples/racing/frontend/.../lobby-connection.service.ts`) rely on
+// exactly this surface.
 
 import { SelfGatewayTransport } from "./gateway-transport.js";
 import { GatewayProtocol } from "./gateway-protocol.js";
@@ -71,9 +78,9 @@ export class GatewayWs extends EventTarget {
     this.onerror = null;
     this.onclose = null;
 
-    // Start on the next tick — matches PollingWs's own timing (see
-    // poller.js) so a caller that assigns onopen/onmessage/... right
-    // after construction has already done so by the time anything fires.
+    // Start on the next tick, not synchronously — so a caller that
+    // assigns onopen/onmessage/... right after construction (the normal
+    // pattern) has already done so by the time anything fires.
     setTimeout(() => this._tick(), 0);
 
     // Best-effort cooperative goodbye for a normal tab-close/backgrounding
@@ -106,9 +113,13 @@ export class GatewayWs extends EventTarget {
     // Re-entrancy guard: `_pollSoon()` (see below) can be asked to wake
     // the loop up while a tick is already in flight — record the ask
     // instead of starting a SECOND, overlapping `_tick()`, which would
-    // reopen exactly the class of bug this whole design exists to avoid
-    // (two independent fetches delivering out of order — see
-    // poller.js's `_fetchView()` doc for that history).
+    // reopen exactly the class of bug this whole design exists to avoid:
+    // two independent fetches delivering out of order, so a subscriber
+    // briefly sees a STALE view overwrite a fresher one already shown
+    // (see `examples/racing/CLAUDE.md`'s "cars occasionally animated
+    // backwards" history for a real, previously-shipped instance of this
+    // failure mode). This class has exactly one poll loop, so it can't
+    // recur here.
     if (this._closed || this._ticking) {
       this._wantsAnotherTick = true;
       return;
@@ -230,9 +241,8 @@ export class GatewayWs extends EventTarget {
   /// `onMessage` has ALREADY pushed the resulting view into our own
   /// outgoing queue server-side (same update call, before it returns) —
   /// without this, picking it up could lag by nearly a full `intervalMs`
-  /// for no reason, unlike `PollingWs.request()`, which re-fetches
-  /// synchronously right after its own mutating call. That extra lag is
-  /// exactly what let a real bug through: `examples/racing`'s own
+  /// for no reason. That extra lag is exactly what let a real bug
+  /// through: `examples/racing`'s own
   /// animation for the LOCAL player's car is driven by a client-side
   /// PREDICTED trajectory captured at click-time (see
   /// `lobby-connection.service.ts`'s `buildSteps()`), not by this
@@ -244,8 +254,9 @@ export class GatewayWs extends EventTarget {
   /// correct final position once the real values overwrite the
   /// prediction's endpoint). Closing this gap doesn't touch that
   /// game-specific prediction logic at all — it just makes this
-  /// connection catch up to the canister's own state as promptly as
-  /// `PollingWs` used to, shrinking the race window back down.
+  /// connection catch up to the canister's own state right after this
+  /// connection's own mutating call resolves, shrinking the race window
+  /// back down instead of leaving it to the next periodic tick.
   _pollSoon() {
     if (this._closed) return;
     if (this._ticking) {
@@ -319,10 +330,12 @@ export class GatewayWs extends EventTarget {
   }
 
   /// WebSocket-compatible, fire-and-forget send. Accepts exactly the
-  /// shape `app.js` sends: `{ req: { sid, req } }` — see poller.js's own
-  /// doc for the full contract. The eventual result only ever surfaces
-  /// as a `message`/`error` event, same as a real WebSocket — use
-  /// `request()` instead if you need this specific call's own response.
+  /// shape `app.js` sends: `{ req: { sid, req } }`, where `req` mirrors
+  /// `Ws.Request<M>` on the backend (`{join}`/`{submit}`/`{rematch}`/
+  /// `{leave}`/`{reset}`/`{ackEnded}`/`{status}`). The eventual result
+  /// only ever surfaces as a `message`/`error` event, same as a real
+  /// WebSocket — use `request()` instead if you need this specific
+  /// call's own response.
   ///
   /// Awaits `_ensureOpen()` before building the record — `clientKey` is
   /// `null` until the transport's first successful `ws_open`, and this
@@ -358,9 +371,9 @@ export class GatewayWs extends EventTarget {
   }
 
   /// Like `send()`, but resolves with THIS call's own `{view}`/`{err}` —
-  /// see `poller.js`'s `request()` for the contract `app.js` relies on.
-  /// Unlike `PollingWs` (which issues its own dedicated `status()` call
-  /// right after, so correlation to its own response is exact), this
+  /// `app.js`'s `call()` relies on exactly this to settle a button's own
+  /// spinner off ITS OWN response rather than off whatever the shared
+  /// push stream delivers next (see `app.js`'s "Calls" section). This
   /// resolves off the shared push stream: a fresh `reqId` is minted for
   /// this call and `Ws.mo` echoes it back verbatim on the resulting
   /// `#view`/`#err` (see `../idl.js`'s `WsMsg` doc and

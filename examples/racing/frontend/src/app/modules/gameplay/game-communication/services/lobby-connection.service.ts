@@ -65,9 +65,10 @@ function reconstructTrajectory(before: RacingCarState, after: RacingCarState): S
 /// independent poll loop here would race the shared connection's own
 /// fetches with no ordering guarantee between them, which is exactly
 /// what once made cars briefly animate backwards before "teleporting"
-/// to the correct position, back when this ran over `PollingWs` (see
-/// duel-game-core/ws/poller.js's `_fetchView()`
-/// doc for the full story). There's no plain-polling fallback anywhere
+/// to the correct position, back when this ran over a plain-polling
+/// transport (since removed — see `examples/racing/CLAUDE.md`'s
+/// "cars occasionally animated backwards" history for the full story).
+/// There's no plain-polling fallback anywhere
 /// in `duel-game-core` any more — `duel-app.js`'s `ws` always exists, and
 /// this is the only communication channel to the canister, chrome and
 /// race alike.
@@ -141,8 +142,8 @@ export class LobbyConnectionService {
     return getSid();
   }
 
-  /// False once the shared poller has given up (see
-  /// duel-game-core/ws/poller.js's `closed`/disconnect doc) — used by
+  /// False once the shared `GatewayWs` has given up (see
+  /// duel-game-core/ws/gateway-client.js's `closed`/disconnect doc) — used by
   /// gameplay.service.ts's requestAndSubmitMove() to stop retrying a
   /// submit against a connection that's already gone, rather than
   /// spinning a tight retry loop against it (app.js's own chrome already
@@ -184,11 +185,14 @@ export class LobbyConnectionService {
     const trajectory = data.trajectory || new StepTrajectoryModel(0, 0);
     const action: RacingAction = { l: trajectory.l, c: trajectory.c };
     // ws.request() resolves to THIS call's own { view } / { err } (never
-    // racing the shared poller's own tick — see its own doc) and rejects
-    // on a genuine transport failure, same as calling actor.submit()
-    // directly used to — gameplay.service.ts's requestAndSubmitMove()
+    // racing an unsolicited push from the other seat — see
+    // gateway-client.js's own doc) and rejects on a genuine transport
+    // failure. There is no plain actor.submit() to fall back to at all
+    // any more (mutation goes exclusively through ws_message — see the
+    // repo root CLAUDE.md's frontend bullet); gameplay.service.ts's requestAndSubmitMove()
     // only ever checks 'err' in result / the Observable's error channel,
-    // so its retry logic needed no changes.
+    // so its retry logic needed no changes when this moved off the old
+    // plain-polling transport.
     return from(this.ws.request(this.sid, { submit: action }));
   }
 

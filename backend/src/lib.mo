@@ -26,7 +26,18 @@
 ///
 /// ── How a host actor wires it ──────────────────────────────────────────────
 ///
+/// Every mutating operation (`join`/`submit`/`rematch`/`leave`/`reset`/
+/// `ackEnded`) is driven EXCLUSIVELY through `mo:duel-game-core/Ws`'s
+/// `ws_message` — there is no plain Candid method for any of them, and no
+/// fallback: a direct update call is exactly the race a WS-only transport
+/// exists to close (two independent update calls have no guaranteed
+/// relative processing order once both are in flight; see `src/Ws.mo`'s
+/// doc header). Only `status` stays a plain public `query` — it's
+/// side-effect-free, so it carries no such race risk, and it's useful for
+/// tooling/tests that don't want a WS handshake:
+///
 ///   import TP "mo:duel-game-core";
+///   import Ws "mo:duel-game-core/Ws";
 ///   import Rules "YourGameRules"; // any module implementing TP.Spec<S, M>
 ///   import Time "mo:core/Time";
 ///
@@ -34,27 +45,21 @@
 ///     let table : TP.Table<Rules.State, Rules.Action> =   // implicitly stable
 ///       TP.create(60_000_000_000); // 60 s idle timeout
 ///
-///     public func join(sid : Text, seat : TP.Seat) : async TP.Res<TP.JoinOk> {
-///       TP.join(Rules.spec(), table, Time.now(), sid, seat)
+///     public query func status(sid : Text) : async TP.View<Rules.State> {
+///       TP.status(table, Time.now(), sid);
 ///     };
-///     public func submit(sid : Text, a : Rules.Action) : async TP.Res<TP.SubmitOk> {
-///       TP.submit(Rules.spec(), table, Time.now(), sid, a)
-///     };
-///     // …leave / rematch / reset / status the same way.
+///
+///     // ...wire Ws.mo's ws_open/ws_close/ws_message/ws_get_messages (it
+///     // dispatches every request straight into TP.join/TP.submit/...
+///     // above, with Time.now()) and an idle-sweep timer — see
+///     // `src/Ws.mo`'s doc header for the full four-method forward and
+///     // `backend/README.md`'s "Real-time push" section for the worked
+///     // example end to end.
 ///   };
 ///
 /// `Table<S, M>` is a stable type whenever the game's state `S` and move `M`
 /// are stable types. The `Spec` (functions) is passed on every call and never
 /// stored, so the engine survives upgrades with no migration gymnastics.
-///
-/// `mo:duel-game-core/Session` is an optional mixin that splices five of
-/// the seven entry points above (`join`/`rematch`/`leave`/`reset`/
-/// `ackEnded`, plus the idle-sweep timer) straight into a host actor via
-/// `include Session<system>(...)` — `submit`/`status` stay hand-written as
-/// shown above either way, since their Candid types are game-specific and
-/// Motoko mixins can't be generic. See `backend/README.md`'s "Session
-/// mixin" section for the full before/after and `src/Session.mo`'s doc
-/// header for why.
 ///
 /// ── Design guarantees (each maps to a bug class found in the wild) ─────────
 ///

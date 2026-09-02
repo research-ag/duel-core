@@ -118,12 +118,12 @@ TypeScript with no framework:
   happens to deliver next — so `gameplay.service.ts`'s existing
   rejection/retry logic needed no changes. An earlier version of this
   service ran its own independent poll loop even after a shared
-  connection existed to use; back when the shared connection was
-  `PollingWs`, that raced its own concurrent fetches with no ordering
+  connection existed to use; back when the shared connection was a
+  plain-polling transport (since removed), that raced its own concurrent fetches with no ordering
   guarantee between them, which is what made cars briefly animate
   backwards before "teleporting" to the correct position — see
-  `../../../frontend/ws/poller.js`'s `_fetchView()` doc for that
-  history. `GatewayWs` has exactly one poll loop, so that specific
+  the shared connection's own plain-polling `_fetchView()` sequencing
+  (removed along with that transport — see below). `GatewayWs` has exactly one poll loop, so that specific
   cause (two independent fetches resolving out of order) can't recur —
   but the IDENTICAL symptom came back for a different reason after
   `GatewayWs` shipped: `SelfGatewayTransport.open()` used to reset its
@@ -133,11 +133,11 @@ TypeScript with no framework:
   fixed in that file's `open()`. If this symptom shows up again, look
   for "something got reset that should have persisted across a
   reconnect," not necessarily a repeat of either specific cause above.
-  There is no plain-polling fallback anywhere in `duel-game-core` by
-  default (no `?ws=0`, no `app.js`-side poll loop) — `ws` is
-  unconditionally required
-  end to end; `ws/poller.js`'s `PollingWs` remains an explicit opt-in if
-  ever needed instead.
+  There is no plain-polling fallback anywhere in `duel-game-core` at all
+  (no `?ws=0`, no `app.js`-side poll loop, no `ws/poller.js` — removed):
+  `ws` is unconditionally required end to end, and the backend has no
+  plain mutating Candid method to poll in the first place (see
+  `../CLAUDE.md`/`../../../backend/src/Ws.mo`'s doc header).
 - The in-race HUD (speedometer / minimap / position+time panel) is
   `app/modules/gameplay/game-viewport/hud/hud.ts` — one plain class that
   subscribes to `GameStateService`'s subjects directly and pokes the DOM

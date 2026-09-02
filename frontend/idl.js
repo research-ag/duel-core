@@ -18,8 +18,9 @@
 // IDL type it needs (records, nested variants, vecs, ...).
 
 /// Builds every named Candid type this package's service surface uses,
-/// keyed by name — the plain 7 methods' types AND the WS protocol's
-/// types (`mo:duel-game-core/Ws`), including the ones nothing in the
+/// keyed by name — `status`'s own type plus the WS protocol's types
+/// (`mo:duel-game-core/Ws`, the ONLY way to mutate game state — see
+/// `../backend/src/Ws.mo`'s doc header), including the ones nothing in the
 /// declared `IDL.Service` below actually needs
 /// (`WebsocketServiceMessageContent` — the open/ack/keep-alive/close
 /// envelope `Ws.mo`'s CDK dependency sends over the wire, never as a
@@ -44,16 +45,11 @@ export function buildEngineTypes({ IDL, Action, State }) {
     reserved: IDL.Record({ secondsLeft: IDL.Nat }),
     notIdle: IDL.Record({ secondsLeft: IDL.Nat }),
   });
-  const JoinOk = IDL.Variant({ staged: Seat, started: Seat });
-  const SubmitOk = IDL.Variant({
-    waiting: IDL.Null,
-    roundResolved: IDL.Nat,
-    gameEnded: IDL.Record({ verdict: Verdict, turns: IDL.Nat }),
-  });
-  const RematchOk = IDL.Variant({
-    awaitingPartner: IDL.Null,
-    started: IDL.Null,
-  });
+  // No JoinOk/SubmitOk/RematchOk here: those were only ever the result
+  // types of the plain join/submit/rematch Candid methods, which don't
+  // exist any more (mutation goes exclusively through Ws.mo's ws_message
+  // — see this file's header) — `#ok`'s payload never crosses the wire on
+  // its own; only a fresh `View` (below) does, via a `#view` push.
   const View = IDL.Variant({
     lobby: IDL.Record({
       p1Open: IDL.Bool,
@@ -173,7 +169,7 @@ export function buildEngineTypes({ IDL, Action, State }) {
   });
 
   return {
-    Seat, Verdict, End, Err, JoinOk, SubmitOk, RematchOk, View,
+    Seat, Verdict, End, Err, View,
     ClientKey, WsResult, CanisterWsOpenArguments, CanisterWsCloseArguments,
     WebsocketMessage, CanisterWsMessageArguments,
     CanisterWsGetMessagesArguments, CanisterOutputMessage,
@@ -190,32 +186,9 @@ export function makeIdlFactory(buildGameTypes) {
     const t = buildEngineTypes({ IDL, Action, State });
 
     return IDL.Service({
-      join: IDL.Func(
-        [IDL.Text, t.Seat],
-        [IDL.Variant({ ok: t.JoinOk, err: t.Err })],
-        [],
-      ),
-      submit: IDL.Func(
-        [IDL.Text, Action],
-        [IDL.Variant({ ok: t.SubmitOk, err: t.Err })],
-        [],
-      ),
-      rematch: IDL.Func(
-        [IDL.Text],
-        [IDL.Variant({ ok: t.RematchOk, err: t.Err })],
-        [],
-      ),
-      leave: IDL.Func(
-        [IDL.Text],
-        [IDL.Variant({ ok: IDL.Null, err: t.Err })],
-        [],
-      ),
-      reset: IDL.Func(
-        [IDL.Text],
-        [IDL.Variant({ ok: IDL.Null, err: t.Err })],
-        [],
-      ),
-      ackEnded: IDL.Func([IDL.Text], [], []),
+      // No join/submit/rematch/leave/reset/ackEnded here — mutation goes
+      // exclusively through ws_message below (see this file's header and
+      // `../backend/src/Ws.mo`'s doc header for why there's no fallback).
       status: IDL.Func([IDL.Text], [t.View], ["query"]),
       ws_open: IDL.Func([t.CanisterWsOpenArguments], [t.WsResult], []),
       ws_close: IDL.Func([t.CanisterWsCloseArguments], [t.WsResult], []),

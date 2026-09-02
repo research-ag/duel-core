@@ -20,19 +20,23 @@ first to complete the lap wins.
   it.
 - **`src/Host.mo`** — the host actor: forwards every call to the engine
   with `Time.now()` and `Rules.spec()`, wired exactly as
-  `../../backend/README.md`'s example shows. Deploy target. `join`/
-  `rematch`/`leave`/`reset`/`ackEnded` plus the idle-sweep timer come from
-  `include Session<system>(...)` (`mo:duel-game-core/Session`, a Motoko
-  mixin) rather than being hand-written; `submit`/`status` stay
-  hand-written since their Candid types are game-specific (`Rules.Action`/
-  `Rules.State`) and mixins can't be generic — see
-  `../../backend/README.md`'s "Session mixin" section. Also wires
-  `mo:duel-game-core/Ws` side by side with the 7-method surface — this
-  IS what `duel-app.js` talks to (`duel-game-core/ws.js`'s `GatewayWs`,
-  a real `ic-websocket-cdk` client that self-registers this tab as its
-  own Gateway, not client-side polling), for genuine canister-driven
-  push and real close-detection-driven disappearance handling. See
-  `../../backend/README.md`'s "Real-time push" section.
+  `../../backend/README.md`'s example shows. Deploy target. `status` is
+  the only plain Candid method on this actor (a `query`, side-effect-free
+  — see `../../CLAUDE.md`'s architecture rule 8); `join`/`submit`/
+  `rematch`/`leave`/`reset`/`ackEnded` have NO plain Candid method at
+  all — they're reachable exclusively through `mo:duel-game-core/Ws`'s
+  `ws_message`, which is what `duel-app.js` actually talks to
+  (`duel-game-core/ws.js`'s `GatewayWs`, a real `ic-websocket-cdk` client
+  that self-registers this tab as its own Gateway, not client-side
+  polling) — for genuine canister-driven push, real
+  close-detection-driven disappearance handling, AND to close the race a
+  plain update call would otherwise open (two independent update calls
+  have no guaranteed relative processing order once both are in flight —
+  see `../../backend/src/Ws.mo`'s doc header). An idle-sweep timer is
+  wired directly in `Host.mo` alongside `status` and `Ws.mo` — there's no
+  mixin any more; it's three lines of `Timer.recurringTimer<system>`. See
+  `../../backend/README.md`'s "Real-time push" section for the full
+  design.
 - **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
   `Rules.test.mo` are scenario walks (one long session / the headline game
   rules); `Engine.test.mo` and `RulesUnit.test.mo` are per-operation unit
@@ -64,10 +68,10 @@ first to complete the lap wins.
   "Real-time push" section; this game's own code never touches
   `mo:duel-game-core/Ws`'s protocol directly — `duel-game-core/ws/
   gateway-*.js` does, registering this tab as its own WS Gateway).
-  There is no polling fallback anywhere in this stack any more
-  (`duel-game-core/ws/poller.js`'s `PollingWs` remains available as an
-  explicit opt-in if a canister ever needs the dependency-free
-  fallback instead).
+  There is no polling fallback anywhere in this stack any more — the
+  backend has no plain mutating Candid method to poll in the first place
+  (see `../../CLAUDE.md`), so `duel-game-core` ships no plain-polling
+  transport at all.
   `frontend/src/main.ts`'s own gameplay code (really
   `lobby-connection.service.ts`, wired in via `gameplay.service.ts`)
   shares that EXACT connection (`duel-app.js` publishes it on
@@ -77,8 +81,11 @@ first to complete the lap wins.
   independent-poll-loop version of this design once raced a shared
   poller's own concurrent fetches with no ordering guarantee between
   them, which is what made cars briefly animate backwards before
-  "teleporting" to the correct position — see
-  `../../frontend/ws/poller.js`'s `_fetchView()` doc for that history;
+  "teleporting" to the correct position (fixed at the time by tagging
+  each fetch with a sequence number at issuance and only ever
+  broadcasting the highest-numbered one seen so far, on the plain-polling
+  transport that stack used before it was replaced by `GatewayWs` and
+  removed entirely — see the root `CLAUDE.md`'s frontend bullet);
   `GatewayWs` has exactly one poll loop, so that SPECIFIC failure mode
   — two independent fetches resolving out of order — can't recur. A
   DIFFERENT bug produced the identical symptom after

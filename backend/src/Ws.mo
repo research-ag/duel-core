@@ -1,15 +1,28 @@
 /// ═══════════════════════════════════════════════════════════════════════════
-/// duel-game-core/Ws — OPTIONAL real-time push transport, built on the
+/// duel-game-core/Ws — the REQUIRED real-time push transport, built on the
 /// `ic-websocket-cdk` package (a browser <-> canister WebSocket relayed by
 /// an off-chain Gateway, e.g. `wss://gateway.icws.io` — the IC itself has
 /// no native WebSocket support).
+///
+/// Every host actor built on this package MUST wire this module: it's the
+/// only way a client can mutate game state at all (`lib.mo`'s `TP.join`/
+/// `TP.submit`/... are not exposed as plain Candid methods anywhere — see
+/// `lib.mo`'s "How a host actor wires it" section). There is no
+/// dependency-free polling fallback any more — a direct update call
+/// bypassing this module is exactly the race a single, ordered WS channel
+/// exists to close (two independent update calls have no guaranteed
+/// relative processing order once both are in flight, so a plain `submit`
+/// racing this module's own traffic could resolve out of order against
+/// it). `status` is the one exception: it stays a plain public `query`
+/// (side-effect-free, no race risk) for tooling/tests that don't want a WS
+/// handshake.
 ///
 /// This module is layered ON TOP of the pure engine (`lib.mo`), never
 /// merged into it: `lib.mo` stays free of `Time`, actor context, and every
 /// dependency but `core`. `Ws.mo` is the only place in this package that
 /// imports `ic-websocket-cdk` (and, transitively, the legacy `mo:base`
-/// that CDK itself is built on) — a host actor that never imports
-/// `mo:duel-game-core/Ws` never compiles any of that in.
+/// that CDK itself is built on) — kept as a separate module purely to
+/// confine that dependency, not because wiring it is optional.
 ///
 /// ── What it does ────────────────────────────────────────────────────────
 ///
@@ -349,14 +362,15 @@ module {
           // #active into #debrief and #staging into #empty.
           //
           // Caveat: `hub.bySid` only tracks sessions connected over THIS
-          // WS transport — if a table were ever driven by mixed
-          // transports (one seat on this real gateway client, the other
-          // on `frontend/ws/poller.js`'s plain-polling `PollingWs`), this
-          // would wrongly treat a still-active `PollingWs` player as
-          // gone. Not engineered around: a single game deployment uses
-          // one transport for both seats (the frontend build is the same
-          // for every player), so this is a theoretical edge, not a
-          // practical one.
+          // WS transport — if a table were ever driven by two genuinely
+          // different transports (one seat on a real `GatewayWs`, the
+          // other on some hand-rolled non-WS mock never registered in
+          // this `hub`), this would wrongly treat a still-active partner
+          // as gone. Not engineered around: this package ships no other
+          // transport any more (mutation is exclusively via `ws_message`
+          // — see this module's own doc header), and a single game
+          // deployment uses one frontend build for every player, so this
+          // is a theoretical edge, not a practical one.
           switch (table.phase) {
             case (#debrief d) {
               if (d.p1 == s or d.p2 == s) {
