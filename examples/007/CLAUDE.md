@@ -39,7 +39,18 @@ concrete to copy — it is **not** part of either package itself.
   game-specific surface: it implements the `GamePlugin` contract
   (`idlTypes`, `seatLabel`, `renderBoard`, `renderActions`) from
   `../../frontend/README.md`. `app.js` builds the actor and this tab's
-  own `principal`, calls `duel-game-core/ws.js`'s `connectWs({ actor,
+  own `principal` — an Ed25519 identity DERIVED from this tab's sid
+  (`getOrCreateSid()`, from `duel-game-core/app.js`; `seedFromSid()`
+  SHA-256-hashes it into the 32-byte seed `Ed25519KeyIdentity.generate()`
+  wants), not the plain anonymous identity `HttpAgent.create({ host })`
+  defaults to. This game has no login, but `ic-websocket-cdk`'s
+  `ws_open` hard-rejects an anonymous caller outright, so building
+  `agent` with no `identity` at all breaks the WS handshake completely
+  (there's no polling fallback) — see
+  `../../frontend/README.md`'s "Real-time push" section for why, and why
+  deriving from `sid` rather than a fresh keypair per load also keeps
+  the same principal across a plain reload. Then calls
+  `duel-game-core/ws.js`'s `connectWs({ actor,
   principal, gameIdlTypes: plugin.idlTypes })` for the real push
   transport `start()` requires (see `../../frontend/README.md`'s
   "Real-time push" section) — this game's own code never touches

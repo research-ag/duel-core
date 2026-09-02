@@ -11,11 +11,21 @@
 // "duel-game-core/..." specifier resolution without an import map.
 
 import { Actor, HttpAgent } from "https://esm.sh/@dfinity/agent@2.4.1";
+import { Ed25519KeyIdentity } from "https://esm.sh/@dfinity/identity@2.4.1";
 import { makeIdlFactory } from "./node_modules/duel-game-core/idl.js";
-import { start } from "./node_modules/duel-game-core/app.js";
+import { start, getOrCreateSid } from "./node_modules/duel-game-core/app.js";
 import { connectWs } from "./node_modules/duel-game-core/ws.js";
 import { readIcEnv, deriveHost } from "./node_modules/duel-game-core/ic-env.js";
 import { plugin } from "./duel007-plugin.js";
+
+// Deterministically derives a 32-byte Ed25519 seed from this tab's own
+// sid (see getOrCreateSid() below) — SHA-256 of the sid's UTF-8 bytes is
+// exactly 32 bytes, which is what Ed25519KeyIdentity.generate() wants.
+async function seedFromSid(sid) {
+  const bytes = new TextEncoder().encode(sid);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return new Uint8Array(digest);
+}
 
 const env = readIcEnv();
 const canisterId = env["PUBLIC_CANISTER_ID:backend"];
@@ -29,8 +39,27 @@ if (!canisterId) {
 }
 
 const host = deriveHost();
+// A per-tab identity derived from this tab's own sid — NOT anonymous,
+// and NOT a fresh random keypair on every load either. This game has no
+// login (players are told apart by seat/sid, never by principal — see
+// ../../../backend/src/Ws.mo's doc header: the engine's own identity is
+// the client-chosen `sid`, decoupled from IC principal on purpose), so
+// `HttpAgent.create()` with no `identity` would sign every call,
+// including ws_open, as the anonymous principal — and
+// `ic-websocket-cdk`'s `ws_open` hard-rejects an anonymous caller
+// ("Anonymous principal is not allowed"), so the WS handshake, and with
+// it the whole app (there's no polling fallback), never came up. Deriving
+// the identity's seed from `sid` instead of generating it fresh each
+// time means a plain page reload — which `getOrCreateSid()` keeps pinned
+// to the SAME sid via sessionStorage — also keeps the SAME principal; it
+// only changes when the sid does (clicking "play as someone else", a
+// `?sid=` override, or clearing site storage — see `getOrCreateSid()`'s
+// own doc).
+const sid = getOrCreateSid();
+const seed = await seedFromSid(sid);
 const agent = await HttpAgent.create({
   host,
+  identity: Ed25519KeyIdentity.generate(seed),
   shouldFetchRootKey: /localhost|127\.0\.0\.1/.test(host),
 });
 const idlFactory = makeIdlFactory(plugin.idlTypes);

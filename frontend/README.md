@@ -117,6 +117,23 @@ const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
 start({ plugin, ws });
 ```
 
+**`principal` must not be the anonymous principal.** `agent`'s identity
+doesn't need to mean anything — the engine's own identity is the
+client-chosen `sid`, decoupled from any IC principal on purpose (see
+`../backend/src/Ws.mo`'s doc header) — but `ic-websocket-cdk`'s
+`ws_open` hard-rejects an anonymous caller outright ("Anonymous
+principal is not allowed"), so a game with no login step (the common
+case — see both `examples/`) must not build `agent` with
+`HttpAgent.create({ host })` and nothing else, since that defaults to
+the anonymous identity: the WS handshake, and with it the whole app
+(there is no polling fallback by default), never comes up. Deriving a
+per-tab identity's seed from `getOrCreateSid()`'s own `sid` (exported
+from `duel-game-core/app.js`, callable before `start()`) rather than
+generating a fresh keypair on every load also means a plain reload keeps
+the same principal instead of a new throwaway one each time — see
+`examples/racing/frontend/src/duel/duel-app.js` for the worked example
+(`seedFromSid()` + `Ed25519KeyIdentity.generate(seed)`).
+
 `connectWs()` builds a `GatewayWs` (`./ws/gateway-client.js`) that
 speaks `mo:duel-game-core/Ws`'s real `ic-websocket-cdk` protocol
 directly against `actor` — genuine canister-driven push, not client-side
@@ -220,7 +237,7 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 | ------------------------ | ------------------------------------------ |
 | `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — the 7 plain methods' types plus the `Ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
 | `render.js`              | `renderView(view, plugin)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
-| `app.js`                 | `start({ plugin, ws, ...elIds })`          |
+| `app.js`                 | `start({ plugin, ws, ...elIds })`, `getOrCreateSid()` |
 | `ic-env.js`              | `readIcEnv()`, `deriveHost()` (optional)   |
 | `ws.js`                  | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result |
 | `ws/gateway-client.js`   | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds |

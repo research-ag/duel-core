@@ -42,6 +42,21 @@ TypeScript with no framework:
   `control-scene.service.ts`, `world-scene.service.ts`); the camera is
   always the static view — don't add a settings UI or a camera-mode
   switch without being asked.
+- `src/duel/duel-app.js` builds `agent`'s identity from an Ed25519 keypair
+  DERIVED from this tab's own sid (`getOrCreateSid()`, from
+  `duel-game-core/app.js` — see `../../../frontend/README.md`'s
+  "Real-time push" section), not the plain anonymous identity
+  `HttpAgent.create({ host })` defaults to. This game has no login, but
+  `ic-websocket-cdk`'s `ws_open` hard-rejects an anonymous caller
+  outright ("Anonymous principal is not allowed") — with no `identity`
+  passed, the WS handshake (and with it the whole app, since there's no
+  polling fallback) never came up at all; that's the real bug behind a
+  console full of repeating `ws_open: Anonymous principal is not
+  allowed` errors and a lobby that never leaves the loading state.
+  Deriving the seed from `sid` (SHA-256 of its UTF-8 bytes — see
+  `seedFromSid()`) rather than generating a fresh keypair per load also
+  keeps the SAME principal across a plain reload, since `getOrCreateSid()`
+  itself pins `sid` to sessionStorage; it only changes when the sid does.
 - `game-communication/services/lobby-connection.service.ts` shares the
   SAME `GatewayWs` duel-game-core's own chrome uses for push (one
   connection via `window.duelWsReady`, one session id via
