@@ -1,8 +1,0 @@
-<mat-label>{{optionDescriptor?.description}}</mat-label>
-<mat-select (valueChange)="onValueChange($event)"
-  [value]="optionDescriptor ? (lss.watch(optionDescriptor) | async) : null">
-  @for (value of optionDescriptor?.allowedValues; track value) {
-    <mat-option
-    [value]="value.value">{{value.description || value.value}}</mat-option>
-  }
-</mat-select>

@@ -1,3 +1,0 @@
-<mat-label>{{optionDescriptor?.description}}</mat-label>
-<input type="color" [value]="(optionDescriptor ? (lss.watch(optionDescriptor) | async) : null) || '#000000'" (change)="onValueChange($any($event.target).value)">
-
