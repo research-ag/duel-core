@@ -1,4 +1,4 @@
-// Per-operation unit checks for the generic engine. Where LifecycleTest.mo
+// Per-operation unit checks for the generic engine. Where Lifecycle.test.mo
 // walks ONE long session narrative, this suite drives each entry point in
 // isolation on a FRESH table, covering the error variants, the takeover
 // gates and the status views that the narrative never reaches.
@@ -437,7 +437,7 @@ Debug.print("18b. sweep on #active OK");
 // #debrief: untouched before the timeout; after it, freed, and both
 // participants are pre-acked (they already saw their debrief) — same
 // asymmetry an outsider's join/reset already applies to an expired
-// debrief (see lib.mo's doc header, rule 7): unlike a stalled #active
+// debrief (see CLAUDE.md's architecture rule 7): unlike a stalled #active
 // game (18b, fresh #endedByOther — nobody has seen anything yet), a
 // swept debrief goes straight to #lobby, since both players already
 // saw their result.

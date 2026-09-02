@@ -11,7 +11,6 @@
     "./idl.js": "./idl.js",
     "./ic-env.js": "./ic-env.js",
     "./ws.js": "./ws.js",
-    "./ws/poller.js": "./ws/poller.js",
     "./ws/gateway-client.js": "./ws/gateway-client.js",
     "./ws/gateway-transport.js": "./ws/gateway-transport.js",
     "./ws/gateway-protocol.js": "./ws/gateway-protocol.js",

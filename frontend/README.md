@@ -227,11 +227,12 @@ for `onopen`/an `open` event first. This matters for any game-specific
 code sharing the connection (see below) that fires its own request the
 instant it gets hold of `ws`, e.g. `examples/racing`'s
 `lobby-connection.service.ts` sending an immediate `status` right after
-`getDuelWs()` resolves: calling `request()` before the very first tick's
-own `ws_open` had completed used to build the message with a `null`
-`client_key` (not yet assigned), which the canister's own Candid decoder
-rejected with an opaque "Invalid record ... Cannot read properties of
-null" — a real bug, not a hypothetical one.
+`getDuelWs()` resolves: without this coalescing, calling `request()`
+before the very first tick's own `ws_open` has completed would build the
+message with a `null` `client_key` (not yet assigned), which the
+canister's own Candid decoder rejects with an opaque "Invalid record ...
+Cannot read properties of null" — a real failure mode this guards
+against, not a hypothetical one.
 
 **Every outgoing `ws_message` is serialized, never sent concurrently.**
 `ic-websocket-cdk` tracks a strict per-connection expected sequence
@@ -283,16 +284,17 @@ something says otherwise. `GatewayWs` mints a fresh `reqId` per
 `request()` call and `Ws.mo` echoes it back verbatim on that request's
 own `#view`/`#err` (`null` on a push to the non-acting seat — see
 `../backend/README.md`'s "The wire protocol" section); `_handle()`
-matches replies to their own pending `request()` by that id. An earlier
-version of this file matched "the next incoming message" to "the oldest
-still-pending `request()`" instead, and required every caller sharing
-this `ws` to serialize their own calls to stay correct — a real bug an
-opponent's own broadcast could trigger: it could steal the slot meant
-for this connection's own reply, silently hanging that `request()`
-forever (the real reply arrives to an already-empty queue) while
-resolving the wrong caller with someone else's payload. That constraint
-is gone now — `app.js`'s own `refresh()`-on-`onopen` (a `send()`, so it
-carries no `reqId` and is never itself waited on) and something like
+matches replies to their own pending `request()` by that id, rather than
+assuming "the next incoming message" belongs to "the oldest
+still-pending `request()`" — a FIFO scheme like that would require every
+caller sharing this `ws` to serialize their own calls to stay correct,
+and a real bug an opponent's own broadcast could trigger under it: it
+could steal the slot meant for this connection's own reply, silently
+hanging that `request()` forever (the real reply arrives to an
+already-empty queue) while resolving the wrong caller with someone
+else's payload. Matching by id needs no such serialization —
+`app.js`'s own `refresh()`-on-`onopen` (a `send()`, so it carries no
+`reqId` and is never itself waited on) and something like
 `lobby-connection.service.ts`'s own concurrent `request()` calls can
 freely overlap.
 

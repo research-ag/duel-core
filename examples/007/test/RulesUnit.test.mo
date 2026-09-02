@@ -1,9 +1,9 @@
-// Unit checks for the pure 007 rules that RulesTest.mo's scenarios miss:
+// Unit checks for the pure 007 rules that Rules.test.mo's scenarios miss:
 // the p2-as-shooter half of `resolve`, the laser-vs-laser and laser-vs-shot
 // endings, the narration/lastRound bookkeeping, and `validate` driven from
 // synthetic states that normal play cannot reach.
 // Run: moc -r --package core <core/src> --package duel-game-core <backend/src> test/RulesUnit.test.mo
-import R "../Duel007Rules";
+import R "../src/Duel007Rules";
 import TP "mo:duel-game-core"; // Verdict lives in the engine, not the rules
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";

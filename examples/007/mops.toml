@@ -6,7 +6,7 @@ description = "007 duel — reference game built on duel-game-core"
 [dependencies]
 duel-game-core = "../../backend"
 core = "2.6.1"
-# Only needed because example/Host.mo opts into mo:duel-game-core/Ws.
+# Only needed because src/Host.mo opts into mo:duel-game-core/Ws.
 ic-websocket-cdk = "0.4.1"
 
 [toolchain]

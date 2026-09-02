@@ -1,7 +1,7 @@
 // GamePlugin for the 007 duel — the only game-specific piece the client
 // needs. Everything else (lobby, staging, rematch, debrief chrome, session
-// identity, polling) comes from the `duel-game-core` npm package's generic
-// `start()`/`renderView()` — see app.js.
+// identity, real-time push) comes from the `duel-game-core` npm package's
+// generic `start()`/`renderView()` — see app.js.
 //
 // The `Action`/`State` Candid shapes and the LOAD/SHOOT/SHIELD/MIRROR rules
 // they describe must mirror `../Duel007Rules.mo` exactly; `legal()` below

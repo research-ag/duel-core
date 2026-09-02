@@ -131,8 +131,10 @@ persistent actor {
 
   // Frees an abandoned board on its own — with only 2 players, there's
   // often nobody left to visit the board and trigger the lazy,
-  // visitor-driven eviction `TP.join`/`TP.reset` already do. Timers don't
-  // survive an upgrade, so restart in `postupgrade` too.
+  // visitor-driven eviction `TP.join`/`TP.reset` already do. This bare
+  // top-level call reruns automatically on every upgrade too (no
+  // `postupgrade` override needed), so the timer never stays dead after
+  // one.
   func startSweeping<system>() {
     ignore Timer.recurringTimer<system>(#seconds(30), func() : async () {
       TP.sweep(table, Time.now());
@@ -144,11 +146,6 @@ persistent actor {
   // the full `ActorMixin` wiring (all four `ws_*` methods plus this same
   // idle-sweep timer, in one `include`), which is what actually drives
   // join/submit/rematch/leave/reset/ackEnded.
-
-  system func postupgrade() {
-    // ...ws.init<system>() too, see "Real-time push" below.
-    startSweeping<system>();
-  };
 };
 ```
 
@@ -189,13 +186,9 @@ supplies whichever principal it wants registered as its
 `duel-game-core/ws.js`'s `GatewayWs` has each browser tab register
 **itself** as its own Gateway and poll its own messages, exactly as a
 real Gateway process would poll on a client's behalf. No relay process
-to run, no `ic-websocket-js` dependency, no second signing identity (an
-earlier version of this package shipped a self-hosted Gateway Docker
-setup and a separate `ws.js` client for it; both were dissolved once it
-became clear a genuinely separate relay process bought nothing a
-2-player casual game actually needed — see git history around "self-
-hosted gateway websockets"/"dissolved gateway code into client library"
-if you want the full story). That CDK depends on the legacy `mo:base`
+to run, no `ic-websocket-js` dependency, no second signing identity — a
+genuinely separate relay process buys nothing a 2-player casual game
+actually needs. That CDK depends on the legacy `mo:base`
 (this package's own code never does — see the root `CLAUDE.md`'s
 toolchain rule), and its last release (`0.4.1`, Oct 2024) predates this
 repo. Keeping it confined to `Ws.mo` means a host actor that never
@@ -292,7 +285,9 @@ persistent actor {
     // dependency allows (see this section's "Disappearance handling").
     IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
   );
-  ws.init<system>(); // starts the CDK's keep-alive/ack timers
+  ws.init<system>(); // starts the CDK's keep-alive/ack timers — this bare
+  // top-level call (like `wsHub`/`ws` themselves) reruns automatically on
+  // every upgrade too, so no `postupgrade` override is needed to restart it
 
   // Supplies `ws_open`/`ws_close`/`ws_message`/`ws_get_messages` AND the
   // idle-sweep timer in one `include` — no host actor hand-declares any
@@ -307,9 +302,6 @@ persistent actor {
   // exactly as before; `from_candid(msgType) : ?Ws.Msg<Rules.State,
   // Rules.Action>` recovers the identical value if you ever need it too.
   include ActorMixin<system>(ws, func() = TP.sweep(table, Time.now()));
-
-  // IC timers don't survive an upgrade on their own — reschedule them.
-  system func postupgrade() { ws.init<system>() };
 };
 ```
 

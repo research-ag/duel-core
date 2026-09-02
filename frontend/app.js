@@ -145,12 +145,12 @@ export function start({
   // resolution — not off `ws.onmessage`, which now only renders whatever
   // view the shared push stream (periodic ticks AND every request's own
   // fetch alike) delivers next. Settling off the shared stream instead
-  // (an earlier version of this file did) clears the spinner the moment
-  // ANY unrelated periodic tick lands — almost immediately, usually well
-  // before the slow update this button triggered has actually resolved —
-  // and only THEN, once the real response finally arrives, does the
-  // screen jump to the next view: spinner gone, then a dead pause, then
-  // the switch. A caller whose `ws` doesn't implement `request()` (a
+  // clears the spinner the moment ANY unrelated periodic tick lands —
+  // almost immediately, usually well before the slow update this button
+  // triggered has actually resolved — and only THEN, once the real
+  // response finally arrives, does the screen jump to the next view:
+  // spinner gone, then a dead pause, then the switch. A caller whose
+  // `ws` doesn't implement `request()` (a
   // minimal hand-rolled WebSocket, say) falls back to that same
   // send()-and-await-onmessage behavior — the best available without a
   // way to correlate a response to its own request.

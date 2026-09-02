@@ -105,22 +105,23 @@ export class SelfGatewayTransport {
     // number" bug is root-caused. See gateway-protocol.js's matching log.
     console.debug("[duel-ws] ws_open start nonce=%s", clientNonce);
     // `this._clientKey` (and so `isOpen`) must NOT be set until `ws_open`
-    // has actually SUCCEEDED — it used to be set right here, synchronously,
-    // before the `await` below even started the real network call. That
-    // made `isOpen` true the instant an open merely BEGAN, not once it
-    // actually finished: a second caller's `_ensureOpen()` (gateway-
-    // client.js), racing in during that window, saw "already open", skipped
-    // the `_opening` coalescing entirely, and built+sent a message with
-    // whatever `_nextOutgoingSeq` currently held — BEFORE this open's own
-    // `resetSequence()` (also in gateway-client.js) had run. Once this
+    // has actually SUCCEEDED — setting it any earlier, synchronously right
+    // here before the `await` below even starts the real network call,
+    // would make `isOpen` true the instant an open merely BEGAN, not once
+    // it actually finished: a second caller's `_ensureOpen()` (gateway-
+    // client.js), racing in during that window, would see "already open",
+    // skip the `_opening` coalescing entirely, and build+send a message
+    // with whatever `_nextOutgoingSeq` currently held — BEFORE this open's
+    // own `resetSequence()` (also in gateway-client.js) had run. Once this
     // open's `ws_open` call finally resolved and reset the counter back to
-    // 1, the ORIGINAL caller then sent ITS message, also stamped 1 — a real
-    // duplicate sequence number, rejected by the canister as
-    // `IncomingSequenceNumberWrong`. Confirmed live: `_tick()`'s own
-    // `_ensureOpen()` and a game's own connect-time `request()` (e.g.
-    // `lobby-connection.service.ts`'s `init()`) both fire within
-    // milliseconds of a fresh page load, reliably landing in this window
-    // on the very FIRST connection — no reload or second player needed.
+    // 1, the ORIGINAL caller would then send ITS message, also stamped 1 —
+    // a real duplicate sequence number, rejected by the canister as
+    // `IncomingSequenceNumberWrong`. This is a real, easily-hit window,
+    // not a hypothetical one: `_tick()`'s own `_ensureOpen()` and a game's
+    // own connect-time `request()` (e.g. `lobby-connection.service.ts`'s
+    // `init()`) both fire within milliseconds of a fresh page load,
+    // reliably landing in this window on the very FIRST connection — no
+    // reload or second player needed.
     // Deliberately NOT resetting `this._nonce` here. The CDK's outgoing
     // queue is keyed by `gateway_principal` (see `ic-websocket-cdk-mo`'s
     // `State.mo`: `get_gateway_messages_queue`/`push_message_in_gateway_
@@ -137,11 +138,11 @@ export class SelfGatewayTransport {
     // position after a reconnect — see `examples/racing/CLAUDE.md`'s
     // "cars occasionally animated backwards" history for the full story,
     // including a DIFFERENT bug with the identical symptom (concurrent
-    // fetches racing each other, not a queue replay) fixed earlier by a
-    // sequence-number guard on the old plain-polling transport, before it
-    // was removed in favor of this WS-only design. `_nonce` only ever
-    // starts at 0 once, in the constructor, and then only ever advances
-    // (see `poll()`), reconnect or not.
+    // fetches racing each other, not a queue replay) that `gateway-
+    // client.js`'s `_tick()` reentrancy guard (see its own doc) rules out
+    // entirely, since this class has exactly one poll loop. `_nonce` only
+    // ever starts at 0 once, in the constructor, and then only ever
+    // advances (see `poll()`), reconnect or not.
     const res = await this._actor.ws_open({
       client_nonce: clientNonce,
       gateway_principal: this._principal,
@@ -151,7 +152,7 @@ export class SelfGatewayTransport {
       throw new Error(`ws_open: ${res.Err}`);
     }
     // Only NOW does this transport count as open — see this method's own
-    // doc above for why that used to happen too early.
+    // doc above for why marking it open any earlier is unsafe.
     this._clientKey = {
       client_principal: this._principal,
       client_nonce: clientNonce,

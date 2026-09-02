@@ -27,7 +27,13 @@ top.
   risk). `Ws.mo` also drives the disappearance handling a real WS close
   signal makes possible (ending a game a vanished player left mid-round,
   freeing a board both walked away from — see `backend/README.md`'s
-  "Real-time push" section).
+  "Real-time push" section). `backend/src/ActorMixin.mo`
+  (`mo:duel-game-core/ActorMixin`) is a third module, `include`d in the
+  host actor as `include ActorMixin<system>(ws, sweepFunc)`: it supplies
+  the four `ws_*` Candid methods (`ws_open`/`ws_close`/`ws_message`/
+  `ws_get_messages`, forwarding each straight to the `ws` built from
+  `Ws.attach`) plus the idle-sweep timer, so no host actor hand-declares
+  any of the four.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
   client plumbing (session identity, real-time push, the generic
   lobby/staging/rematch/busy/debrief screens, Candid IDL scaffolding).

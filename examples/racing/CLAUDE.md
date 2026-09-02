@@ -57,7 +57,8 @@ first to complete the lap wins.
   discovers — a file named `FooTest.mo` is silently skipped, so keep the
   suffix when adding suites.
 - **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as canister
-  `backend` and `frontend/` as an asset canister.
+  `backend` and `frontend/dist` (esbuild's bundled output — see
+  `frontend/README.md`, NOT `frontend/` itself) as an asset canister.
 - **`frontend/`** — a plain-TypeScript (no framework) Three.js racing
   client, bundled with esbuild (`npm run build`, see `frontend/README.md`).
   The 3D engine (physics, rendering, camera, click-to-drive control) is
@@ -81,30 +82,23 @@ first to complete the lap wins.
   shares that EXACT connection (`duel-app.js` publishes it on
   `window.duelWsReady`, read via `duel-actor.ts`'s `getDuelWs()`) and has
   no polling of its own at all — there is only ever ONE communication
-  channel to the canister, chrome and race alike (an earlier
-  independent-poll-loop version of this design once raced a shared
-  poller's own concurrent fetches with no ordering guarantee between
-  them, which is what made cars briefly animate backwards before
-  "teleporting" to the correct position (fixed at the time by tagging
-  each fetch with a sequence number at issuance and only ever
-  broadcasting the highest-numbered one seen so far, on the plain-polling
-  transport that stack used before it was replaced by `GatewayWs` and
-  removed entirely — see the root `CLAUDE.md`'s frontend bullet);
-  `GatewayWs` has exactly one poll loop, so that SPECIFIC failure mode
-  — two independent fetches resolving out of order — can't recur. A
-  DIFFERENT bug produced the identical symptom after
-  `GatewayWs` shipped, though: `SelfGatewayTransport.open()` used to
-  reset its polling nonce to 0 on every reconnect, and the CDK's
-  outgoing queue is keyed by `gateway_principal` (our own stable
-  identity, unchanged across a reconnect) rather than by `client_key` —
-  so a reconnect replayed the WHOLE queue from the start, re-delivering
-  already-processed `#view` pushes in a fast burst before catching up
-  to the real current one. Fixed by never resetting that nonce after
-  its one-time initialization in the constructor — see
-  `../../frontend/ws/gateway-transport.js`'s `open()` comment. Worth
-  remembering if this symptom ever reappears: it's specifically a
-  "did something reset polling/fetch state it shouldn't have" bug
-  class, not necessarily the same root cause twice.
+  channel to the canister, chrome and race alike — `GatewayWs` runs
+  exactly one poll loop shared by both halves of the app, so two
+  independent fetches can never resolve out of order and race each
+  other. It still has one sharp edge worth knowing before touching it:
+  the CDK's outgoing queue is keyed by `gateway_principal` (this tab's
+  own stable identity, unchanged across a reconnect), not by
+  `client_key`, so that queue persists across a reconnect too —
+  `SelfGatewayTransport`'s polling nonce must therefore only ever be
+  set once, in the constructor, and never reset on a later `open()` (see
+  `../../frontend/ws/gateway-transport.js`'s `open()` comment). Resetting
+  it on reconnect would replay the whole persisted queue from the start,
+  re-delivering already-processed `#view` pushes in a fast burst — visible
+  as a car briefly animating backwards before "teleporting" to the
+  correct position — before catching up to the real current one. If that
+  symptom ever appears, the general bug class to suspect is "something
+  reset polling/fetch state across a reconnect that should have
+  persisted," not necessarily this exact nonce again.
   See `frontend/README.md` and `frontend/CLAUDE.md` for the split in
   detail (including exactly how `lobby-connection.service.ts` uses the
   shared poller's `request()`), gameplay controls, and the headless
@@ -112,7 +106,10 @@ first to complete the lap wins.
 
 ## Toolchain
 
-- moc **1.11.2** (mops toolchain), node/npm for the frontend.
+- moc **1.14.0** (mops toolchain — newer than `../../backend`'s and
+  `examples/007`'s pinned 1.11.2; `src/Host.mo`'s `mixin<system>(...)`
+  wiring for `mo:duel-game-core/ActorMixin` needs it), node/npm for the
+  frontend.
 - Motoko dependencies: `duel-game-core` (path dependency on `../../backend`
   — see `mops.toml`), `core` (mo:core), and `ic-websocket-cdk` (only
   because `src/Host.mo` opts into `mo:duel-game-core/Ws` — see
@@ -122,17 +119,25 @@ first to complete the lap wins.
   license to import it yourself. `duel-game-core` re-exports nothing of
   `core`'s own surface, so `src/Host.mo`'s direct `mo:core/Time` import
   needs `core` listed here too, same as any real game repo would.
-- `frontend/`'s only own npm dependency is `duel-game-core` — `duel-app.js`
-  imports `duel-game-core/ws.js` (see `../../CLAUDE.md`'s toolchain
-  note), which talks to `mo:duel-game-core/Ws`'s real `ic-websocket-cdk`
-  protocol and pulls in `@dfinity/candid`/`cborg` transitively through
-  `duel-game-core`'s own `package.json` — a normal `npm install` here
-  resolves them into `node_modules/` like any other dependency (no
-  import map needed for THIS example's bundled `main.js`, since esbuild
-  resolves `node_modules` normally; `duel-app.js` itself is copied
-  as-is rather than bundled, though, so `src/index.html` still carries
-  the same import map `examples/007` needs — see that file's comment —
-  for `duel-app.js`'s own bare specifiers to resolve in the browser).
+- `frontend/`'s npm dependencies (`frontend/package.json`) split by which
+  half of the app needs them: `duel-game-core` (`file:../../../frontend`)
+  is the one `duel-app.js` itself needs; `@gg-web-engine/core`,
+  `@gg-web-engine/three`, `point-in-polygon`, `rxjs`, and `three` are for
+  the actual 3D race (`main.ts` and everything under
+  `src/app/modules/gameplay/`), esbuild-bundled into `dist/main.js`.
+  `duel-app.js` imports `duel-game-core/ws.js` by its on-disk
+  `./node_modules/duel-game-core/ws.js` path (see `../../CLAUDE.md`'s
+  toolchain note), which talks to `mo:duel-game-core/Ws`'s real
+  `ic-websocket-cdk` protocol and pulls in `@dfinity/candid`/`cborg`
+  transitively through `duel-game-core`'s own `package.json` — a normal
+  `npm install` here resolves them into `node_modules/` like any other
+  dependency (no import map needed for THIS example's bundled `main.js`,
+  since esbuild resolves `node_modules` normally; `duel-app.js` itself is
+  copied as-is rather than bundled, though, so `src/index.html` still
+  carries the same import map `examples/007` needs — see that file's
+  comment — for `duel-game-core/ws/gateway-*.js`'s OWN bare specifiers
+  (`@dfinity/candid`, `@dfinity/principal`, `cborg`) to resolve in the
+  browser once that copied-as-is file pulls them in transitively).
 - **Gotcha:** `frontend/.npmrc` sets `install-links=true` (same reasoning
   as `examples/007`'s — see its `CLAUDE.md`), so `duel-game-core` is
   COPIED into `node_modules/duel-game-core`, not symlinked. A plain `npm
@@ -222,14 +227,16 @@ first. One rule specific to this example:
   0 → 1) without anyone having driven anywhere near an actual lap. Every
   crossing after that first one is a real lap, so finishing `LAPS_TO_WIN`
   real laps takes `LAPS_TO_WIN + 1` raw crossings (see `resolve`'s own
-  comment on this — and the regression it caused when first missed:
-  dropping `LAPS_TO_WIN` from 2 to 1 without this `+1` made the game end
-  on move one). A simultaneous finish (both cross the line the same
-  round) is broken by total distance travelled, not seat order; an exact
-  tie draws. The frontend has its own copy of this whole quirk
-  (`gameplay.service.ts`'s `LAPS_TO_WIN`/`FINISH_LAP_COUNT` constants,
-  used only for a client-side "someone finished" check) — keep both in
-  sync.
+  comment on this) — drop the `+ 1` and the game ends after the very
+  first move instead of after a real lap. A simultaneous finish (both
+  cross the line the same round) is broken by total distance travelled,
+  not seat order; an exact tie draws. The frontend carries TWO
+  independent copies of this whole quirk —
+  `gameplay.service.ts`'s `LAPS_TO_WIN`/`FINISH_LAP_COUNT`
+  constants (a client-side "someone finished" check) and
+  `duel-racing-plugin.js`'s own `LAPS_TO_WIN`/`FINISH_LAP_COUNT` (the
+  generic debrief/HUD's lap display) — keep all three (this module plus
+  both frontend copies) in sync.
 
 ## Motoko skills (read before editing)
 

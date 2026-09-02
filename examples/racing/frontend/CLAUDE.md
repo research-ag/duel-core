@@ -53,10 +53,8 @@ TypeScript with no framework:
   full of repeating `ws_open: Anonymous principal is not allowed` errors
   and a lobby that never leaves the loading state.
   **Do NOT derive that identity's seed from this tab's own `sid`** so it
-  stays the same across a plain reload — an earlier version of this file
-  did exactly that (`getOrCreateSid()` + SHA-256 of the sid), and it
-  actively broke reload instead of helping: `ic-websocket-cdk@0.4.1`'s
-  own `remove_client` cleans up its principal->client_key lookup by
+  stays the same across a plain reload: `ic-websocket-cdk@0.4.1`'s own
+  `remove_client` cleans up its principal->client_key lookup by
   PRINCIPAL alone, not scoped to the specific `client_key` being removed.
   A plain reload gives the OLD page's own `ws_close()` no guarantee of
   completing before the tab is torn down, so if that stale close (or its
@@ -65,18 +63,18 @@ TypeScript with no framework:
   perfectly-live connection's own lookup entry — surfacing as
   `ws_message: Client with principal ... doesn't have an open
   connection` immediately, and "Connection closed — reload to
-  reconnect." once the ack keep-alive can no longer be sent either. Two
-  successive attempts to SELF-HEAL from this (retrying sends,
-  `_invalidateAndRetry()` reopening on a send failure — see
-  `../../../frontend/ws/gateway-client.js`) did NOT fix it in practice;
-  only removing the shared-principal-across-reload property itself
-  (this fresh-per-load identity) did. `sid` itself — the engine's actual
-  player identity — already persists across reload via sessionStorage
-  regardless, completely independent of this principal, so nothing
-  player-visible is lost by not also pinning the WS-layer identity. If
-  "Connection closed" or this exact `ws_message` error ever comes back,
-  check whether something reintroduced a stable-across-reload principal
-  before assuming it's a new bug.
+  reconnect." once the ack keep-alive can no longer be sent either.
+  Retry logic alone can't paper over this — `../../../frontend/ws/
+  gateway-client.js`'s send retries and `_invalidateAndRetry()` reopen on
+  failure, but neither stops a live connection's lookup entry from being
+  erased out from under it in the first place; only NOT sharing a
+  principal across reload (this fresh-per-load identity) does. `sid`
+  itself — the engine's actual player identity — already persists across
+  reload via sessionStorage regardless, completely independent of this
+  principal, so nothing player-visible is lost by not also pinning the
+  WS-layer identity. If "Connection closed" or this exact `ws_message`
+  error ever comes back, check whether something reintroduced a
+  stable-across-reload principal before assuming it's a new bug.
   **esm.sh gotcha:** loading `@dfinity/identity@2.4.1` bare (no `?deps=`)
   breaks with `Uncaught SyntaxError: The requested module
   '/@dfinity/candid?target=es2022' does not provide an export named
@@ -91,17 +89,18 @@ TypeScript with no framework:
   byte-identical esm.sh URLs. Don't drop the `?deps=` query strings.
 - `lobby-connection.service.ts`'s `init()` fires an immediate `status`
   `request()` the moment `getDuelWs()` resolves, ahead of the shared
-  connection's own first poll tick — this is exactly what once surfaced
-  `GatewayWs`'s "call before the handshake finished" race as "duel status
-  request failed" in the console, with the underlying error `Invalid
-  record ... field client_key -> Cannot read properties of null (reading
-  'hasOwnProperty')` (a `null` `client_key`, since `ws_open` hadn't
-  completed yet). Fixed in `../../../frontend/ws/gateway-client.js`
-  itself (`_ensureOpen()` — see `../../../frontend/README.md`'s
-  "Real-time push" section), not here: `send()`/`request()` are now
-  safe to call before the connection is known-open. Don't reintroduce a
-  "wait for onopen first" workaround here if this symptom ever reappears
-  — check whether `_ensureOpen()`'s coalescing itself regressed instead.
+  connection's own first poll tick. This is safe only because
+  `../../../frontend/ws/gateway-client.js`'s `send()`/`request()`
+  themselves coalesce on `_ensureOpen()` and wait for the `ws_open`
+  handshake to actually finish before sending anything (see
+  `../../../frontend/README.md`'s "Real-time push" section) — calling
+  `request()` before the connection is known-open is safe precisely
+  because of that coalescing. Don't add a "wait for onopen first"
+  workaround here: if a call fired this early ever again surfaces as
+  "duel status request failed" in the console with a `null` `client_key`
+  (`Invalid record ... field client_key -> Cannot read properties of
+  null (reading 'hasOwnProperty')`), the bug is that `_ensureOpen()`'s
+  own coalescing regressed, not that this file needs its own open-wait.
 - `game-communication/services/lobby-connection.service.ts` shares the
   SAME `GatewayWs` duel-game-core's own chrome uses for push (one
   connection via `window.duelWsReady`, one session id via
@@ -116,27 +115,27 @@ TypeScript with no framework:
   to THAT call's own `{ view } | { err }` — correlated to this specific
   submission, not whichever view the shared connection's push stream
   happens to deliver next — so `gameplay.service.ts`'s existing
-  rejection/retry logic needed no changes. An earlier version of this
-  service ran its own independent poll loop even after a shared
-  connection existed to use; back when the shared connection was a
-  plain-polling transport (since removed), that raced its own concurrent fetches with no ordering
-  guarantee between them, which is what made cars briefly animate
-  backwards before "teleporting" to the correct position — see
-  the shared connection's own plain-polling `_fetchView()` sequencing
-  (removed along with that transport — see below). `GatewayWs` has exactly one poll loop, so that specific
-  cause (two independent fetches resolving out of order) can't recur —
-  but the IDENTICAL symptom came back for a different reason after
-  `GatewayWs` shipped: `SelfGatewayTransport.open()` used to reset its
-  polling nonce to 0 on every reconnect, replaying the canister's whole
-  (persistent, `gateway_principal`-keyed, NOT `client_key`-keyed)
-  outgoing queue from the start instead of resuming where it left off —
-  fixed in that file's `open()`. If this symptom shows up again, look
-  for "something got reset that should have persisted across a
-  reconnect," not necessarily a repeat of either specific cause above.
-  There is no plain-polling fallback anywhere in `duel-game-core` at all
-  (no `?ws=0`, no `app.js`-side poll loop, no `ws/poller.js` — removed):
-  `ws` is unconditionally required end to end, and the backend has no
-  plain mutating Candid method to poll in the first place (see
+  rejection/retry logic needed no changes. This service must keep having
+  NO poll loop of its own: `GatewayWs` runs exactly one poll loop shared
+  by chrome and race alike, so two independent fetches can never resolve
+  out of order and race each other. One sharp edge is still worth
+  knowing before touching `SelfGatewayTransport` (in
+  `../../../frontend/ws/gateway-transport.js`): its `gateway_principal`
+  is this tab's own stable identity, unchanged across a reconnect, and
+  the CDK's outgoing queue is keyed by that principal (not by
+  `client_key`) — so the queue itself persists across a reconnect too.
+  Its polling nonce must therefore only ever be set once, in the
+  constructor, and never reset in `open()`; resetting it on reconnect
+  would replay the whole persisted queue from the start, re-delivering
+  already-processed `#view` pushes in a fast burst — visible as a car
+  briefly animating backwards before "teleporting" to the correct
+  position — before catching up to the real current one. If this symptom
+  shows up, look for "something got reset that should have persisted
+  across a reconnect."
+  `duel-game-core` ships no plain-polling fallback anywhere — no `?ws=0`
+  flag, no `app.js`-side poll loop, no `ws/poller.js` module: `ws` is
+  unconditionally required end to end, and the backend has no plain
+  mutating Candid method to poll in the first place (see
   `../CLAUDE.md`/`../../../backend/src/Ws.mo`'s doc header).
 - The in-race HUD (speedometer / minimap / position+time panel) is
   `app/modules/gameplay/game-viewport/hud/hud.ts` — one plain class that

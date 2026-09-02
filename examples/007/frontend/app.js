@@ -45,11 +45,11 @@ if (!canisterId) {
 const host = deriveHost();
 // A fresh, throwaway Ed25519 identity generated on EVERY page load —
 // deliberately NOT anonymous, and deliberately NOT derived from/stable
-// across this tab's own sid either (an earlier version of this file
-// derived it from `sid` so it stayed the same across a reload — reverted
-// after that turned out to actively cause "Connection closed — reload
-// to reconnect" / `ws_message: Client with principal ... doesn't have an
-// open connection", see below).
+// across this tab's own sid either: deriving it from `sid` would keep the
+// same principal across a reload, which triggers a real cleanup bug in
+// `ic-websocket-cdk@0.4.1` (see below) that surfaces as "Connection
+// closed — reload to reconnect" / `ws_message: Client with principal
+// ... doesn't have an open connection".
 //
 // This game has no login (players are told apart by seat/sid, never by
 // principal — see ../../../backend/src/Ws.mo's doc header: the engine's

@@ -6,7 +6,7 @@ mops package; `../../frontend`, the npm package). It exists to prove the
 two packages are usable end to end and to give a new game something
 concrete to copy — it is **not** part of either package itself.
 
-- **`Duel007Rules.mo`** — the 007 duel game logic as pure functions. No
+- **`src/Duel007Rules.mo`** — the 007 duel game logic as pure functions. No
   actor, no shared functions, no storage, no Time. Plugs into the engine
   via `spec() : TP.Spec<State, Action>`, where `TP` is
   `mo:duel-game-core` (imported from `../../backend` — see
@@ -164,10 +164,6 @@ The asset-canister recipe must be **v2.3.0 or newer**: v2.1.0 syncs with
 an `assets` step that icp-cli 1.x rejects ("no longer supports the
 `assets` sync step type"). v2.3.0 is the first plugin-based release.
 
-Known-benign warnings: two `M0155` (Nat subtraction may trap) in
-`Duel007Rules.mo` — both subtractions are guarded by an explicit `> 0`
-check the compiler can't see. Don't "fix" them by removing the guards.
-
 ## Architecture rules
 
 This game inherits every rule in `../../CLAUDE.md`'s "Architecture
@@ -176,7 +172,7 @@ time, rules stay pure, `validate` is the only legality gate, etc.) — read
 that file first. Two rules specific to this example:
 
 1. **The engine lives in `../../backend` and is never vendored here.**
-   `Duel007Rules.mo` and `src/Host.mo` import it as
+   `src/Duel007Rules.mo` and `src/Host.mo` import it as
    `mo:duel-game-core`. If you find yourself copy-pasting engine code
    into this directory to fix something, fix it in `../../backend/src/lib.mo`
    instead and re-run `mops install` here.
@@ -189,7 +185,7 @@ that file first. Two rules specific to this example:
    `../../frontend/render.js` (every game) or `duel007-plugin.js` (just
    this one).
 
-## Game-rule notes (Duel007Rules.mo)
+## Game-rule notes (src/Duel007Rules.mo)
 
 - Seats: `#p1` = BOND, `#p2` = SILVA (names used only in narration and in
   the frontend's `SEAT_NAME` map in `duel007-plugin.js` — keep both in
@@ -209,7 +205,7 @@ that file first. Two rules specific to this example:
 
 Local copies of the relevant SKILL.md playbooks live in this repo under
 `../../.agents/skills/` — the same set `../../CLAUDE.md` points to.
-Consult those before editing `Duel007Rules.mo` or `src/Host.mo`.
+Consult those before editing `src/Duel007Rules.mo` or `src/Host.mo`.
 
 ## Conventions
 
@@ -217,5 +213,5 @@ Consult those before editing `Duel007Rules.mo` or `src/Host.mo`.
   `ok`/`expectErr` helpers + `Runtime.trap` on violation. Extend in kind.
   (In mo:core, `trap` lives in `Runtime`; `Debug` only has `print`.)
 - `msg`, not `label`, for text parameters (`label` is a reserved word).
-- Update ALL FOUR test suites when touching `Duel007Rules.mo`'s
+- Update ALL FOUR test suites when touching `src/Duel007Rules.mo`'s
   semantics.

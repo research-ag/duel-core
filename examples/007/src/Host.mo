@@ -31,5 +31,4 @@ persistent actor {
     ws,
     func() = TP.sweep(table, Time.now()),
   );
-
 };

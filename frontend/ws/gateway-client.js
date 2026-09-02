@@ -395,14 +395,15 @@ export class GatewayWs extends EventTarget {
   /// itself failed: an update call reaching the canister at all means
   /// `Ws.mo`'s `onMessage` already ran and already queued this call's
   /// reply, before the call returns anything to us. A real, observed
-  /// sequence, not hypothetical: a user hit Leave, the `ws_message` call
-  /// threw that exact decode error client-side, `call()` in `app.js`
-  /// showed a spurious "Call failed" toast off the immediate rejection
-  /// this used to do here, and the correctly-processed reply (matching
-  /// this same `reqId`) still showed up moments later over the
-  /// reconnected transport — by then orphaned, since the pending entry
-  /// had already been deleted and the promise already rejected. So: on
-  /// a `_serialSend` failure, force the same reconnect
+  /// sequence, not a hypothetical one: a user hit Leave, the `ws_message`
+  /// call threw that exact decode error client-side, and the
+  /// correctly-processed reply (matching this same `reqId`) still showed
+  /// up moments later over the reconnected transport. Rejecting
+  /// immediately off that `_serialSend` failure — the naive choice —
+  /// would have shown `call()` in `app.js` a spurious "Call failed" toast
+  /// right then, with the real reply arriving later to an already-deleted
+  /// pending entry and an already-rejected promise, nowhere to land. So:
+  /// on a `_serialSend` failure, force the same reconnect
   /// `_invalidateAndRetry()` already does for a failed poll/ack, but
   /// leave the pending entry in place — `_handle()`'s "message" case
   /// above still resolves it normally once the (very likely already

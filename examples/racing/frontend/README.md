@@ -28,11 +28,11 @@ npm run build                    # esbuild bundle → dist/
 ```
 
 `dist/` is esbuild's output (bundled `main.js` + copied `index.html` /
-`style.css` / `duel-app.js` / `duel-racing-plugin.js` / `assets/` /
-`node_modules/duel-game-core/`) — this is what `icp.yaml` deploys as the
-`frontend` asset canister. It is not checked in; run `npm run build`
-before `icp deploy`, same as `examples/007/frontend` needs `npm install`
-first.
+`style.css` / `favicon.ico` / `duel-app.js` / `duel-racing-plugin.js` /
+`assets/` / `node_modules/duel-game-core/` — see `build.js`'s copy list)
+— this is what `icp.yaml` deploys as the `frontend` asset canister. It is
+not checked in; run `npm run build` before `icp deploy`, same as
+`examples/007/frontend` needs `npm install` first.
 
 `npm run watch` rebuilds `main.js` on change (`esbuild --watch`); it does
 not re-copy the static files, so re-run `npm run build` if you touch
@@ -53,6 +53,12 @@ API-compatible; this is just npm's strict peer resolution being strict.
   itself (physics, Three.js scene management, asset loading, camera,
   click-to-drive control). Framework-agnostic plain TypeScript classes,
   wired up by hand in `main.ts`.
+- `src/app/modules/gameplay/game-shared/services/game-state.service.ts` —
+  `GameStateService`, the page-lifetime singleton the rest of the
+  gameplay code reads/writes shared per-race state through (car
+  instances, `mySlot`, the `raceTime` clock — see `CLAUDE.md`'s HUD
+  bullet for the "someone has to reset per-race state explicitly"
+  pattern this implies).
 - `src/app/modules/gameplay/game-resources/consts/resources.consts.ts` —
   `ResourcesConsts.RES_PATH`, the one base path every loader (cars/maps/
   proxies/shaders) resolves resource URLs against.

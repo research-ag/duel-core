@@ -74,15 +74,16 @@
 ///     },
 ///     IcWebSocketCdkTypes.WsInitParams(null, null),
 ///   );
-///   ws.init<system>();          // (re)start the CDK's ack timers
+///   ws.init<system>();          // starts the CDK's ack timers — this bare
+///                                // top-level call reruns automatically on
+///                                // every upgrade too (see `../README.md`'s
+///                                // worked example), so no `postupgrade`
+///                                // override is needed to restart it
 ///
 ///   // `ActorMixin` supplies all four `ws_*` Candid methods (open, close,
 ///   // message, get_messages) plus the idle-sweep timer — a host actor
 ///   // never has to hand-declare any of them:
 ///   include ActorMixin<system>(ws, func() = TP.sweep(table, Time.now()));
-///
-///   // IC timers do NOT survive an upgrade on their own — reschedule them:
-///   system func postupgrade() { ws.init<system>() };
 ///
 /// `ws_message`'s second Candid parameter — `ActorMixin`'s own `msgType`
 /// — is a plain `Blob`, not `Ws.Msg<S, M>` itself: the CDK ignores its

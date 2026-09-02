@@ -1,10 +1,10 @@
-// Per-operation unit checks for the generic engine. Where LifecycleTest.mo
+// Per-operation unit checks for the generic engine. Where Lifecycle.test.mo
 // walks ONE long session narrative, this suite drives each entry point in
 // isolation on a FRESH table, covering the error variants, the takeover
 // gates and the status views that the narrative never reaches.
 // Run: moc -r --package core <core/src> --package duel-game-core <backend/src> test/Engine.test.mo
 import TP "mo:duel-game-core";
-import Rules "../Duel007Rules";
+import Rules "../src/Duel007Rules";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
