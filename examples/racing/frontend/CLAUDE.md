@@ -63,10 +63,19 @@ TypeScript with no framework:
   guarantee between them, which is what made cars briefly animate
   backwards before "teleporting" to the correct position — see
   `../../../frontend/ws/poller.js`'s `_fetchView()` doc for that
-  history (`GatewayWs` has no equivalent race to begin with: one poll
-  loop, messages delivered in the canister's own queue order). There is
-  no plain-polling fallback anywhere in `duel-game-core` by default (no
-  `?ws=0`, no `app.js`-side poll loop) — `ws` is unconditionally required
+  history. `GatewayWs` has exactly one poll loop, so that specific
+  cause (two independent fetches resolving out of order) can't recur —
+  but the IDENTICAL symptom came back for a different reason after
+  `GatewayWs` shipped: `SelfGatewayTransport.open()` used to reset its
+  polling nonce to 0 on every reconnect, replaying the canister's whole
+  (persistent, `gateway_principal`-keyed, NOT `client_key`-keyed)
+  outgoing queue from the start instead of resuming where it left off —
+  fixed in that file's `open()`. If this symptom shows up again, look
+  for "something got reset that should have persisted across a
+  reconnect," not necessarily a repeat of either specific cause above.
+  There is no plain-polling fallback anywhere in `duel-game-core` by
+  default (no `?ws=0`, no `app.js`-side poll loop) — `ws` is
+  unconditionally required
   end to end; `ws/poller.js`'s `PollingWs` remains an explicit opt-in if
   ever needed instead.
 - The in-race HUD (speedometer / minimap / position+time panel) is

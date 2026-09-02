@@ -121,6 +121,60 @@ With mops installed, `<path-to-core/src>` is typically
 `.mops/core@<version>/src` (or use `mops toolchain` / `mops test` wiring),
 resolved relative to `backend/`.
 
+### After touching anything under `frontend/`: refresh both examples
+
+`examples/007/frontend` and `examples/racing/frontend` each depend on
+`duel-game-core` as `file:../../../frontend`, with `install-links=true`
+in their `.npmrc` — so it's **copied** into their own
+`node_modules/duel-game-core`, not symlinked (an asset canister with no
+build step needs real files there, not a symlink that may not survive an
+asset-sync step). npm treats a `file:` dependency as unchanged whenever
+its declared `version` and lockfile entry look the same, so a plain `npm
+install` after editing `frontend/` reports "up to date" and silently
+serves stale code — do this instead, every time `frontend/` changes,
+without waiting to be asked:
+
+**If `frontend/package.json`'s `dependencies` did NOT change** (the
+common case — editing `.js`/`.md` files, adding a function): copy
+directly, no npm involved, effectively instant:
+
+```bash
+for ex in examples/007/frontend examples/racing/frontend; do
+  rsync -a --delete --exclude=node_modules --exclude=.gitignore \
+    frontend/ "$ex/node_modules/duel-game-core/"
+done
+```
+
+(`rsync` mirrors exactly what a fresh `install-links=true` copy produces
+— verified byte-identical against a real `npm install`'s own result.)
+This is enough for `node --check`/`node --check ...`/a local `dfx`
+reload; for `examples/racing`, also re-run `npm run build` (fast,
+esbuild only — no network) so `dist/` picks up the change too.
+
+**If `frontend/package.json`'s `dependencies` DID change** (e.g. a new
+package added): the copy above is not enough — the new package itself
+still needs fetching into the example's OWN `node_modules`. Do a full
+reinstall, and delete `package-lock.json` too, not just
+`node_modules/duel-game-core`:
+
+```bash
+cd examples/007/frontend    && rm -rf node_modules package-lock.json && npm install
+cd examples/racing/frontend && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
+```
+
+**Why the lockfile has to go too** (a real bug hit doing exactly this
+for the `@dfinity/candid`/`cborg` addition to `frontend/ws/gateway-*.js`):
+`rm -rf node_modules/duel-game-core && npm install` alone silently
+under-installs. The existing `package-lock.json` has a cached entry for
+`duel-game-core` recorded from a PREVIOUS install with a DIFFERENT
+(often empty) `dependencies` list; npm trusts that cached entry instead
+of re-reading `frontend/package.json`'s current one, so the new
+sub-dependencies never get resolved at all — no error, just missing
+packages. Only a full `node_modules` + lockfile wipe forces npm to
+re-resolve from scratch. Verify it worked: `ls
+node_modules/@dfinity node_modules/cborg` (or whatever the new package
+was) should exist afterward, not just `node_modules/duel-game-core`.
+
 ## Architecture rules (violating these reintroduces shipped bugs)
 
 1. **Spec is passed per call, never stored.** Function values aren't stable

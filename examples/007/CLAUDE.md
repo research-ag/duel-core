@@ -83,11 +83,13 @@ concrete to copy — it is **not** part of either package itself.
   step. `npm install` is the only "build" this frontend needs, exactly
   as `mops install` is for the backend. **Gotcha:** because it's a copy,
   not a symlink, a plain `npm install` after editing `../../../frontend/`
-  reports "up to date" and does NOT refresh the copy — npm only re-copies
-  a local `file:` dependency when it thinks something changed (a version
-  bump, or the target simply not existing yet). To force a refresh after
-  touching the root package, `rm -rf node_modules/duel-game-core && npm
-  install`. `duel-game-core/ws.js` (see `../../../CLAUDE.md`'s toolchain
+  reports "up to date" and does NOT refresh the copy. See
+  `../../../CLAUDE.md`'s "After touching anything under `frontend/`"
+  section for the actual refresh procedure (a fast direct `rsync` copy
+  in the common case; a full `node_modules`+lockfile reinstall only if
+  `frontend/package.json`'s own `dependencies` changed) — do this
+  proactively after any change there, not just when asked to deploy.
+  `duel-game-core/ws.js` (see `../../../CLAUDE.md`'s toolchain
   note) talks to `mo:duel-game-core/Ws`'s real `ic-websocket-cdk`
   protocol, and pulls in `@dfinity/candid`/`cborg` transitively through
   `duel-game-core`'s own `package.json` (a normal `npm install` picks

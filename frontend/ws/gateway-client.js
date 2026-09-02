@@ -32,6 +32,8 @@ export class GatewayWs extends EventTarget {
     this._closed = false;
     this._opened = false; // has the CDK's own #OpenMessage arrived yet?
     this._pollTimer = null;
+    this._ticking = false; // re-entrancy guard for _tick() — see _pollSoon()
+    this._wantsAnotherTick = false;
     this._pending = []; // FIFO of {resolve, reject} for in-flight request()s
     this._erroredSinceSuccess = false;
 
@@ -73,7 +75,17 @@ export class GatewayWs extends EventTarget {
   /// (harmless — the CDK's own `ws_open` already handles superseding a
   /// still-registered client of the same principal).
   async _tick() {
-    if (this._closed) return;
+    // Re-entrancy guard: `_pollSoon()` (see below) can be asked to wake
+    // the loop up while a tick is already in flight — record the ask
+    // instead of starting a SECOND, overlapping `_tick()`, which would
+    // reopen exactly the class of bug this whole design exists to avoid
+    // (two independent fetches delivering out of order — see
+    // poller.js's `_fetchView()` doc for that history).
+    if (this._closed || this._ticking) {
+      this._wantsAnotherTick = true;
+      return;
+    }
+    this._ticking = true;
     let fast = false;
     try {
       if (!this._transport.isOpen) {
@@ -89,9 +101,46 @@ export class GatewayWs extends EventTarget {
       this._reportError(e);
       this._transport.invalidate();
     }
+    this._ticking = false;
+    if (this._wantsAnotherTick) {
+      this._wantsAnotherTick = false;
+      fast = true;
+    }
     if (!this._closed) {
       this._pollTimer = setTimeout(() => this._tick(), fast ? 0 : this._intervalMs);
     }
+  }
+
+  /// Wakes the poll loop up right away instead of leaving it to wait out
+  /// up to `intervalMs` — called right after `send()`/`request()`
+  /// transmits a message. By the time `ws_message` resolves, `Ws.mo`'s
+  /// `onMessage` has ALREADY pushed the resulting view into our own
+  /// outgoing queue server-side (same update call, before it returns) —
+  /// without this, picking it up could lag by nearly a full `intervalMs`
+  /// for no reason, unlike `PollingWs.request()`, which re-fetches
+  /// synchronously right after its own mutating call. That extra lag is
+  /// exactly what let a real bug through: `examples/racing`'s own
+  /// animation for the LOCAL player's car is driven by a client-side
+  /// PREDICTED trajectory captured at click-time (see
+  /// `lobby-connection.service.ts`'s `buildSteps()`), not by this
+  /// connection at all — but that prediction is only as good as the
+  /// on-screen car position IS at click-time, and a click landing before
+  /// this connection had caught up to the PREVIOUS move's own resolved
+  /// server state made the next prediction start from a stale baseline
+  /// (visually: the car animating "backwards" before snapping to the
+  /// correct final position once the real values overwrite the
+  /// prediction's endpoint). Closing this gap doesn't touch that
+  /// game-specific prediction logic at all — it just makes this
+  /// connection catch up to the canister's own state as promptly as
+  /// `PollingWs` used to, shrinking the race window back down.
+  _pollSoon() {
+    if (this._closed) return;
+    if (this._ticking) {
+      this._wantsAnotherTick = true;
+      return;
+    }
+    clearTimeout(this._pollTimer);
+    this._pollTimer = setTimeout(() => this._tick(), 0);
   }
 
   async _handle(envelope) {
@@ -151,7 +200,10 @@ export class GatewayWs extends EventTarget {
     const { sid, req } = envelope;
     this._sid = sid;
     const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req);
-    this._transport.send(record).catch((e) => this._reportError(e));
+    this._transport.send(record).then(
+      () => this._pollSoon(),
+      (e) => this._reportError(e),
+    );
   }
 
   /// Like `send()`, but resolves with THIS call's own `{view}`/`{err}` —
@@ -159,10 +211,12 @@ export class GatewayWs extends EventTarget {
   /// Unlike `PollingWs` (which issues its own dedicated `status()` call
   /// right after, so correlation to its own response is exact), this
   /// resolves off the shared push stream: the oldest still-pending
-  /// `request()` claims the next app-level message that arrives. Exact
-  /// as long as at most one request is in flight at a time, which is the
-  /// contract `app.js`'s own `inFlight` guard (and any game code sharing
-  /// this `ws`) already relies on. Rejects on a genuine transport
+  /// `request()` claims the next app-level message that arrives (also
+  /// calling `_pollSoon()` — see its own doc — so that message is
+  /// fetched right away instead of waiting out the usual poll interval).
+  /// Exact as long as at most one request is in flight at a time, which
+  /// is the contract `app.js`'s own `inFlight` guard (and any game code
+  /// sharing this `ws`) already relies on. Rejects on a genuine transport
   /// failure (the `ws_message` call itself throwing), same as
   /// `PollingWs.request()`.
   request(sid, req) {
@@ -171,7 +225,10 @@ export class GatewayWs extends EventTarget {
     const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req);
     return new Promise((resolve, reject) => {
       this._transport.send(record).then(
-        () => this._pending.push({ resolve, reject }),
+        () => {
+          this._pending.push({ resolve, reject });
+          this._pollSoon();
+        },
         (e) => reject(e),
       );
     });

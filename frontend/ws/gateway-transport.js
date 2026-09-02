@@ -102,7 +102,25 @@ export class SelfGatewayTransport {
       client_principal: this._principal,
       client_nonce: clientNonce,
     };
-    this._nonce = 0n;
+    // Deliberately NOT resetting `this._nonce` here. The CDK's outgoing
+    // queue is keyed by `gateway_principal` (see `ic-websocket-cdk-mo`'s
+    // `State.mo`: `get_gateway_messages_queue`/`push_message_in_gateway_
+    // queue`/`get_outgoing_message_nonce`, all keyed only by that) — NOT
+    // by `client_key`. Since our `gateway_principal` is this tab's own
+    // stable principal, unchanged across a reconnect, the queue itself
+    // persists across one too; resetting the poll cursor back to 0 on
+    // every `open()` made a reconnect re-walk it from the start,
+    // re-delivering already-processed `#view` pushes — stale board
+    // states rendered again (briefly, in a fast burst — see
+    // gateway-client.js's `isEndOfQueue`-driven catch-up) before
+    // snapping back to the real current one. A REAL regression this
+    // caused: cars animating backwards then teleporting to the correct
+    // position after a reconnect — the exact symptom
+    // `frontend/ws/poller.js`'s `_fetchView()` sequence-number guard
+    // exists to prevent for its own, different root cause (concurrent
+    // fetches racing each other, not a queue replay) — see that file's
+    // doc. `_nonce` only ever starts at 0 once, in the constructor, and
+    // then only ever advances (see `poll()`), reconnect or not.
     const res = await this._actor.ws_open({
       client_nonce: clientNonce,
       gateway_principal: this._principal,

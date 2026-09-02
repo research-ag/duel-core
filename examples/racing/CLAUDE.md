@@ -73,9 +73,21 @@ first to complete the lap wins.
   them, which is what made cars briefly animate backwards before
   "teleporting" to the correct position — see
   `../../frontend/ws/poller.js`'s `_fetchView()` doc for that history;
-  `GatewayWs` sidesteps the whole class of bug structurally, since
-  there's exactly one poll loop delivering messages in the canister's
-  own queue order, nothing to race against).
+  `GatewayWs` has exactly one poll loop, so that SPECIFIC failure mode
+  — two independent fetches resolving out of order — can't recur. A
+  DIFFERENT bug produced the identical symptom after
+  `GatewayWs` shipped, though: `SelfGatewayTransport.open()` used to
+  reset its polling nonce to 0 on every reconnect, and the CDK's
+  outgoing queue is keyed by `gateway_principal` (our own stable
+  identity, unchanged across a reconnect) rather than by `client_key` —
+  so a reconnect replayed the WHOLE queue from the start, re-delivering
+  already-processed `#view` pushes in a fast burst before catching up
+  to the real current one. Fixed by never resetting that nonce after
+  its one-time initialization in the constructor — see
+  `../../frontend/ws/gateway-transport.js`'s `open()` comment. Worth
+  remembering if this symptom ever reappears: it's specifically a
+  "did something reset polling/fetch state it shouldn't have" bug
+  class, not necessarily the same root cause twice.
   See `frontend/README.md` and `frontend/CLAUDE.md` for the split in
   detail (including exactly how `lobby-connection.service.ts` uses the
   shared poller's `request()`), gameplay controls, and the headless
@@ -108,8 +120,13 @@ first to complete the lap wins.
   as `examples/007`'s — see its `CLAUDE.md`), so `duel-game-core` is
   COPIED into `node_modules/duel-game-core`, not symlinked. A plain `npm
   install` after editing `../../frontend/` reports nothing to do and does
-  NOT refresh that copy. To force it: `rm -rf node_modules/duel-game-core
-  && npm install --legacy-peer-deps`.
+  NOT refresh that copy. See `../../../CLAUDE.md`'s "After touching
+  anything under `frontend/`" section for the actual refresh procedure
+  (a fast direct `rsync` copy in the common case, then re-run `npm run
+  build`; a full `node_modules`+lockfile reinstall with
+  `--legacy-peer-deps` only if `frontend/package.json`'s own
+  `dependencies` changed) — do this proactively after any change there,
+  not just when asked to deploy.
 
 ## Build & test
 
