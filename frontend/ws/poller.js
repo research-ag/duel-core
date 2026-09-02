@@ -111,6 +111,10 @@ export class PollingWs extends EventTarget {
     // app.js's own onerror handler doesn't dedupe (each call re-shows and
     // re-times the same toast) — see _reportError().
     this._erroredSinceSuccess = false;
+    // Consecutive failures since the last successful round trip — see
+    // _reportError()'s own doc for why onerror only fires once this
+    // reaches 2, not on the first one.
+    this._consecutiveFailures = 0;
     // The periodic timer and each request()'s own post-action status
     // fetch are concurrent, independent actor.status() calls with no
     // ordering guarantee between them — one issued earlier can resolve
@@ -325,12 +329,21 @@ export class PollingWs extends EventTarget {
   _markAlive() {
     this._lastSuccessAt = Date.now();
     this._erroredSinceSuccess = false;
+    this._consecutiveFailures = 0;
   }
 
-  // Fires onerror at most once per bad streak (see _erroredSinceSuccess's
-  // own doc) — a connection actively rejecting fast, not just hanging,
-  // would otherwise spam it on every tick.
+  // Fires onerror only once a SECOND consecutive failure lands with no
+  // success in between (then at most once per bad streak thereafter —
+  // see _erroredSinceSuccess's own doc) — same policy as, and kept in
+  // sync with, gateway-client.js's own _reportError(): a single failed
+  // fetch is routinely just one slow/dropped round trip that the very
+  // next tick recovers from on its own, not an actual outage, so
+  // escalating on the first one alone was a real false-alarm toast for
+  // something already fixed by the time it rendered. A connection that's
+  // genuinely down still gets reported, just one tick later.
   _reportError(e) {
+    this._consecutiveFailures++;
+    if (this._consecutiveFailures < 2) return;
     if (this._erroredSinceSuccess) return;
     this._erroredSinceSuccess = true;
     if (this.onerror) this.onerror({ error: e });

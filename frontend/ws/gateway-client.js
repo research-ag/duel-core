@@ -45,6 +45,10 @@ export class GatewayWs extends EventTarget {
     this._pending = new Map();
     this._nextReqId = 1n; // BigInt, matches the wire's Nat64 — see idl.js's WsMsg
     this._erroredSinceSuccess = false;
+    // Consecutive failures since the last successful round trip — see
+    // _reportError()'s own doc for why onerror only fires once this
+    // reaches 2, not on every single one.
+    this._consecutiveFailures = 0;
     this._opening = null; // in-flight _ensureOpen() promise, if any — see its own doc
     this._sendChain = Promise.resolve(); // serializes every outgoing ws_message — see _serialSend()
 
@@ -439,16 +443,36 @@ export class GatewayWs extends EventTarget {
 
   _markAlive() {
     this._erroredSinceSuccess = false;
+    this._consecutiveFailures = 0;
   }
 
-  // Fires onerror at most once per bad streak — a connection actively
-  // failing fast (not just hanging) would otherwise spam it on every
-  // tick; same dedupe poller.js's own _reportError does.
+  // Fires onerror only once a SECOND consecutive failure lands with no
+  // success in between (and then at most once per bad streak thereafter
+  // — see _erroredSinceSuccess's own doc). A single failed tick is the
+  // COMMON case, not an outage: _tick()'s own catch and
+  // _invalidateAndRetry() (see their own doc) already invalidate and
+  // redo the `ws_open` handshake right away, and that automatic retry
+  // succeeding on its very next attempt is what usually happens — e.g. a
+  // `ws_message` update call that blows past the IC agent's own
+  // certificate-polling budget on a slow/cold-starting canister throws
+  // deep inside `@dfinity/agent`'s own actor wrapper ("Call was returned
+  // undefined..."), this connection invalidates and reopens, and the
+  // next poll already recovers — all within about one tick, confirmed
+  // live. Surfacing THAT lone blip to the caller's onerror (app.js's
+  // `showError()` toast, in the reference examples) as if the connection
+  // were actually broken was a real false alarm, not hypothetical: a
+  // user-visible "WebSocket error" banner for something already fixed by
+  // the time it rendered. Waiting for a second consecutive failure means
+  // a lone blip that self-heals stays silent, while a connection that's
+  // genuinely down still gets reported — just one tick later than
+  // before, which is imperceptible against a real outage.
   _reportError(e) {
     // TEMPORARY diagnostic — remove once the "Expected incoming sequence
     // number" bug is root-caused. Logs every error this connection sees,
-    // even ones deduped from onerror by _erroredSinceSuccess.
+    // even ones that don't (yet, or ever) escalate to onerror below.
     console.debug("[duel-ws] error:", e && e.message ? e.message : e);
+    this._consecutiveFailures++;
+    if (this._consecutiveFailures < 2) return;
     if (this._erroredSinceSuccess) return;
     this._erroredSinceSuccess = true;
     if (this.onerror) this.onerror({ error: e });
