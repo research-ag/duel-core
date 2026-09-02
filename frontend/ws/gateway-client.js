@@ -18,8 +18,20 @@ import { GatewayProtocol } from "./gateway-protocol.js";
 
 const DEFAULT_INTERVAL_MS = 500;
 
+/// How long a `request()` waits for its correlated reply before giving
+/// up for good — see `request()`'s own doc for why this is a backstop,
+/// not the normal path: on a genuine send failure the reply usually
+/// still shows up well before this fires.
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+
 export class GatewayWs extends EventTarget {
-  constructor({ actor, principal, gameIdlTypes, intervalMs = DEFAULT_INTERVAL_MS } = {}) {
+  constructor({
+    actor,
+    principal,
+    gameIdlTypes,
+    intervalMs = DEFAULT_INTERVAL_MS,
+    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  } = {}) {
     super();
     if (!actor) throw new Error("GatewayWs: `actor` is required");
     if (!principal) throw new Error("GatewayWs: `principal` is required");
@@ -28,6 +40,7 @@ export class GatewayWs extends EventTarget {
     this._transport = new SelfGatewayTransport({ actor, principal });
     this._protocol = new GatewayProtocol({ gameIdlTypes });
     this._intervalMs = intervalMs;
+    this._requestTimeoutMs = requestTimeoutMs;
     this._sid = null;
     this._closed = false;
     this._opened = false; // has the CDK's own #OpenMessage arrived yet?
@@ -294,6 +307,7 @@ export class GatewayWs extends EventTarget {
           const p = this._pending.get(action.reqId);
           if (p) {
             this._pending.delete(action.reqId);
+            clearTimeout(p.timer);
             p.resolve(action.payload);
           }
         }
@@ -356,9 +370,31 @@ export class GatewayWs extends EventTarget {
   /// (from this class's own callers, and any OTHER code sharing this same
   /// `ws` — see `lobby-connection.service.ts`) can be genuinely in flight
   /// at once, interleaved with unsolicited pushes from the other seat
-  /// acting, with no risk of one stealing another's reply. Rejects on a
-  /// genuine transport failure (the `ws_message` call itself throwing),
-  /// same as `PollingWs.request()`.
+  /// acting, with no risk of one stealing another's reply.
+  ///
+  /// Does NOT reject just because the `ws_message` update call itself
+  /// throws. That call's own client-side round trip can fail on its own
+  /// — most commonly `@dfinity/agent`'s own actor wrapper throwing "Call
+  /// was returned undefined, but type ..." when a slow/cold-starting
+  /// canister blows past its certificate-polling budget (see
+  /// `_reportError()`'s own doc: "confirmed live", and self-healing
+  /// there within about one tick) — WITHOUT that meaning the request
+  /// itself failed: an update call reaching the canister at all means
+  /// `Ws.mo`'s `onMessage` already ran and already queued this call's
+  /// reply, before the call returns anything to us. A real, observed
+  /// sequence, not hypothetical: a user hit Leave, the `ws_message` call
+  /// threw that exact decode error client-side, `call()` in `app.js`
+  /// showed a spurious "Call failed" toast off the immediate rejection
+  /// this used to do here, and the correctly-processed reply (matching
+  /// this same `reqId`) still showed up moments later over the
+  /// reconnected transport — by then orphaned, since the pending entry
+  /// had already been deleted and the promise already rejected. So: on
+  /// a `_serialSend` failure, force the same reconnect
+  /// `_invalidateAndRetry()` already does for a failed poll/ack, but
+  /// leave the pending entry in place — `_handle()`'s "message" case
+  /// above still resolves it normally once the (very likely already
+  /// queued) reply is observed. The timeout below is only the backstop
+  /// for a request that genuinely never reached the canister at all.
   ///
   /// Awaits `_ensureOpen()` first — see `send()`'s own doc for why.
   request(sid, req) {
@@ -386,13 +422,23 @@ export class GatewayWs extends EventTarget {
           // not hypothetical: this is what made "take seat" visually
           // complete while `app.js`'s `inFlight` stayed stuck, silently
           // swallowing every subsequent button click (including Leave).
-          this._pending.set(reqId, { resolve, reject });
+          const timer = setTimeout(() => {
+            if (this._pending.delete(reqId)) {
+              reject(new Error("GatewayWs: request timed out waiting for a reply"));
+            }
+          }, this._requestTimeoutMs);
+          this._pending.set(reqId, { resolve, reject, timer });
           this._serialSend(record).then(
             () => this._pollSoon(),
             (e) => {
-              this._pending.delete(reqId);
+              // Do NOT delete `_pending` or reject here — see this
+              // method's own doc above. The reply this call is waiting
+              // for very likely already exists server-side; force a
+              // reconnect so the poll loop keeps making progress toward
+              // observing it, and let the timeout above be the only
+              // backstop.
+              console.debug("[duel-ws] request seq send failed, awaiting late reply:", e && e.message ? e.message : e);
               this._invalidateAndRetry();
-              reject(e);
             },
           );
         });
@@ -428,6 +474,7 @@ export class GatewayWs extends EventTarget {
     }
     // Reject anything still waiting rather than leaving it hanging.
     for (const p of this._pending.values()) {
+      clearTimeout(p.timer);
       p.reject(new Error("GatewayWs: closed"));
     }
     this._pending.clear();

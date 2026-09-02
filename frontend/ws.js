@@ -1,6 +1,5 @@
-// The real-time push transport — the only one `start()` supports; there
-// is no plain-polling mode any more. `connectWs()` builds a `GatewayWs`
-// (`./ws/gateway-client.js`): a client that speaks `mo:duel-game-core/Ws`'s
+// The real-time push transport — the only one `start()` supports; `connectWs()`
+// builds a `GatewayWs` (`./ws/gateway-client.js`): a client that speaks `mo:duel-game-core/Ws`'s
 // real `ic-websocket-cdk` protocol directly, self-registering each tab
 // as its own Gateway (see `./ws/gateway-transport.js`'s header for why
 // that's a legitimate use of the protocol, not a hack) — genuine
@@ -34,13 +33,16 @@ import { GatewayWs } from "./ws/gateway-client.js";
 /// wired to `actor`/`principal`/`gameIdlTypes`. See this file's header
 /// for what it actually does and why.
 ///
-/// Options (all required except `intervalMs`):
-///   actor        - the game's actor, already built with an agent/identity
-///   principal    - that same identity's own Principal
-///   gameIdlTypes - the `buildGameTypes` function passed to `makeIdlFactory`
-///   intervalMs   - how often to poll `ws_get_messages`, in ms (default 500)
-export function connectWs({ actor, principal, gameIdlTypes, intervalMs } = {}) {
-  return new GatewayWs({ actor, principal, gameIdlTypes, intervalMs });
+/// Options (all required except `intervalMs`/`requestTimeoutMs`):
+///   actor            - the game's actor, already built with an agent/identity
+///   principal        - that same identity's own Principal
+///   gameIdlTypes     - the `buildGameTypes` function passed to `makeIdlFactory`
+///   intervalMs       - how often to poll `ws_get_messages`, in ms (default 500)
+///   requestTimeoutMs - how long `request()` waits for its correlated
+///                      reply before giving up, in ms (default 15000) —
+///                      see `./ws/gateway-client.js`'s `request()` doc
+export function connectWs({ actor, principal, gameIdlTypes, intervalMs, requestTimeoutMs } = {}) {
+  return new GatewayWs({ actor, principal, gameIdlTypes, intervalMs, requestTimeoutMs });
 }
 
 export { GatewayWs };
