@@ -183,17 +183,61 @@ module {
     var byPrincipal = Map.empty<Principal.Principal, TP.SessionId>();
   };
 
-  func remember(hub : Hub, sid : TP.SessionId, p : Principal.Principal) {
+  /// Binds `sid` to `p`, replacing whichever principal it was bound to
+  /// before (if any) — a session reconnecting under a NEW principal (a
+  /// page reload: `sid` survives in sessionStorage, but every one of this
+  /// package's reference frontends deliberately mints a FRESH principal
+  /// on every load — see `examples/racing/frontend/src/duel/duel-app.js`'s
+  /// own doc on why, a real `ic-websocket-cdk@0.4.1` bookkeeping quirk).
+  /// Cleans up the OLD principal's own `byPrincipal` entry right here,
+  /// not just `bySid`'s — see `forget`'s own doc for the bug leaving it
+  /// dangling produces. Exposed (not just called internally) so it's
+  /// unit-testable against `Hub`'s two maps directly, without needing a
+  /// full `IcWebSocketCdk` actor.
+  public func remember(hub : Hub, sid : TP.SessionId, p : Principal.Principal) {
+    switch (Map.get(hub.bySid, Text.compare, sid)) {
+      case (?oldP) {
+        if (Principal.notEqual(oldP, p)) {
+          Map.remove(hub.byPrincipal, Principal.compare, oldP);
+        };
+      };
+      case null {};
+    };
     Map.add(hub.bySid, Text.compare, sid, p);
     Map.add(hub.byPrincipal, Principal.compare, p, sid);
   };
 
-  func forget(hub : Hub, p : Principal.Principal) {
+  /// Un-binds `p`, but only clears `bySid[sid]` if `p` is STILL that
+  /// session's current principal — never a stale one. Without this
+  /// guard, a belated close for an OLD, already-superseded connection
+  /// (see `remember`'s own doc: a reload's own `ws_close`, fired from
+  /// `pagehide`, has no guarantee of completing before the tab tears
+  /// down, so it can arrive well after the SAME session has already
+  /// reconnected under a fresh principal) would erase the CURRENT, live
+  /// registration out from under a session that never actually left —
+  /// `onClose`'s caller would then find `sid` still resolvable from the
+  /// stale principal, run `disconnectSession` on it, and silently abort
+  /// a game two still-connected players were mid-round on, crediting the
+  /// reconnected (not gone) player as the one who walked away. A real,
+  /// observed bug, not hypothetical: this is the analogous problem to
+  /// the `ic-websocket-cdk` quirk `remember`'s own doc references,
+  /// except one layer up, in this module's OWN `Hub` — a fresh principal
+  /// per page load sidesteps the CDK's version of it but does nothing
+  /// for this one, since `Hub` deliberately keeps tracking the SAME
+  /// `sid` across that reload.
+  public func forget(hub : Hub, p : Principal.Principal) {
     switch (Map.get(hub.byPrincipal, Principal.compare, p)) {
       case null {};
       case (?sid) {
         Map.remove(hub.byPrincipal, Principal.compare, p);
-        Map.remove(hub.bySid, Text.compare, sid);
+        switch (Map.get(hub.bySid, Text.compare, sid)) {
+          case (?curP) {
+            if (Principal.equal(curP, p)) {
+              Map.remove(hub.bySid, Text.compare, sid);
+            };
+          };
+          case null {};
+        };
       };
     };
   };

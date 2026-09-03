@@ -47,7 +47,12 @@ export class GatewayWs extends EventTarget implements DuelWs {
   private _requestTimeoutMs: number;
   private _sid: string | null;
   private _closed: boolean;
-  private _opened: boolean; // has the CDK's own #OpenMessage arrived yet?
+  // Whether the CDK's own #OpenMessage has arrived at least once — kept
+  // only as a piece of connection-state bookkeeping now (see the doc on
+  // `_handle()`'s "open" case for why `onopen` itself no longer gates on
+  // it: a self-healed RECONNECT sends a brand new #OpenMessage too, and
+  // `onopen` fires again for it on purpose).
+  private _opened: boolean;
   private _pollTimer: ReturnType<typeof setTimeout> | null;
   private _ticking: boolean; // re-entrancy guard for _tick() — see _pollSoon()
   private _wantsAnotherTick: boolean;
@@ -61,6 +66,13 @@ export class GatewayWs extends EventTarget implements DuelWs {
   // caller forever while resolving with someone else's payload.
   private _pending: Map<bigint, PendingRequest>;
   private _nextReqId: bigint; // BigInt, matches the wire's Nat64 — see idl.js's WsMsg
+  // App messages a `send()`/`request()` built but never got a confirmed
+  // transmission for — see `_queueResend()`'s own doc. Flushed the moment
+  // this connection is next confirmed open (the "open" case in
+  // `_handle()`), since a message queued here was, by construction, never
+  // actually seen by `Ws.mo`'s `onMessage` (see that method's own doc for
+  // why that's a DIFFERENT case from a reply merely arriving late).
+  private _resendQueue: Array<{ sid: string; req: WsRequest; reqId: bigint | null }>;
   private _erroredSinceSuccess: boolean;
   // Consecutive failures since the last successful round trip — see
   // _reportError()'s own doc for why onerror only fires once this
@@ -105,6 +117,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
     this._wantsAnotherTick = false;
     this._pending = new Map();
     this._nextReqId = 1n;
+    this._resendQueue = [];
     this._erroredSinceSuccess = false;
     this._consecutiveFailures = 0;
     this._opening = null;
@@ -273,6 +286,56 @@ export class GatewayWs extends EventTarget implements DuelWs {
     this._pollSoon();
   }
 
+  /// Remembers one app message (`send()`'s fire-and-forget push or
+  /// `request()`'s own correlated call) that never got a confirmed
+  /// transmission — the send itself failed, or the connection couldn't
+  /// even be (re)opened at all in order to attempt it. Distinct from
+  /// waiting for a "late reply" (see `request()`'s own extensive doc on
+  /// that): THIS failure mode means the message never reached `Ws.mo`'s
+  /// `onMessage` in the first place — most commonly `ws_message`'s own
+  /// "Client ... doesn't have an open connection" (this transport's
+  /// `clientKey` looked locally valid but the canister had already
+  /// forgotten the registration — a keep-alive eviction, a canister
+  /// upgrade wiping `Ws.mo`'s transient state, or the
+  /// `remove_client`-by-principal quirk `_invalidateAndRetry()`'s own doc
+  /// describes) — so no reply is EVER coming for it, and simply waiting
+  /// silently drops the action (a real, observed bug: a "Return to lobby"
+  /// / `ackEnded` click that appeared to do nothing at all). Queued
+  /// entries are resent from scratch — a fresh `clientKey` and outgoing
+  /// sequence number, since both are stale after a reconnect — the next
+  /// time this connection is confirmed open again (see `_handle()`'s
+  /// "open" case's own doc). Safe to retry: every mutating request this
+  /// package sends (`join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`)
+  /// is already gated by the engine's own idempotent/legality checks (see
+  /// `../../backend/src/lib.mo`'s architecture rule 4), so a resend that
+  /// turns out to race an original attempt that secretly DID land just
+  /// comes back as a harmless `#err` instead of a corrupting duplicate.
+  private _queueResend(sid: string, req: WsRequest, reqId: bigint | null): void {
+    this._resendQueue.push({ sid, req, reqId });
+  }
+
+  /// Resends everything `_queueResend()` collected, called once this
+  /// connection is confirmed freshly open again (see `_handle()`'s "open"
+  /// case). Drains the queue up front so a resend that itself fails
+  /// re-queues into a clean array rather than fighting over the one
+  /// `_flushResendQueue()` is currently iterating.
+  private _flushResendQueue(): void {
+    if (this._closed || !this._resendQueue.length) return;
+    const queued = this._resendQueue;
+    this._resendQueue = [];
+    for (const { sid, req, reqId } of queued) {
+      const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req, reqId);
+      this._serialSend(record).then(
+        () => this._pollSoon(),
+        (e) => {
+          console.debug("[duel-ws] resend after reconnect failed, will retry on the next one:", e && e.message ? e.message : e);
+          this._queueResend(sid, req, reqId);
+          this._invalidateAndRetry();
+        },
+      );
+    }
+  }
+
   /// Wakes the poll loop up right away instead of leaving it to wait out
   /// up to `intervalMs` — called right after `send()`/`request()`
   /// transmits a message. By the time `ws_message` resolves, `Ws.mo`'s
@@ -314,10 +377,30 @@ export class GatewayWs extends EventTarget implements DuelWs {
     console.debug("[duel-ws] handle kind=%s reqId=%s", action.kind, "reqId" in action ? action.reqId : undefined);
     switch (action.kind) {
       case "open": {
-        if (this._opened) break;
+        // Fires on EVERY confirmed (re)open, not just the first — a
+        // self-healed reconnect (any failed poll/send invalidates the
+        // transport and redoes the `ws_open` handshake from scratch, see
+        // `_tick()`'s own doc) gets a brand new #OpenMessage from the CDK
+        // exactly like the very first connection did, and needs to be
+        // told apart from steady-state operation the same way: this is
+        // the ONLY hook a caller has (`app.js`'s `ws.onopen = () =>
+        // refresh()`) to resync its own view after a gap in the
+        // connection — without re-firing here, a caller that only ever
+        // resyncs on `onopen` never learns a reconnect happened at all,
+        // and can be left showing a stale view (e.g. a still-connected
+        // tab that missed the push for a game the idle-sweep timer froze
+        // out from under it — see `../../backend/src/ActorMixin.mo`'s
+        // `sweepFunc`, which has no WS/push awareness of its own) until
+        // its OWN next mutating action, whose `#err` reply doesn't
+        // re-render anything either. A previous version of this method
+        // fired `onopen` only once ever (guarded by `_opened`), on the
+        // mistaken assumption that a caller shouldn't have to care that
+        // this class silently reconnects underneath it — real gap, not
+        // hypothetical.
         this._opened = true;
         if (this.onopen) this.onopen();
         this.dispatchEvent(new Event("open"));
+        this._flushResendQueue();
         break;
       }
       case "ack": {
@@ -399,12 +482,17 @@ export class GatewayWs extends EventTarget implements DuelWs {
           () => this._pollSoon(),
           (e) => {
             this._reportError(e);
+            // The message never reached `Ws.mo`'s `onMessage` — see
+            // `_queueResend()`'s own doc — so it needs an actual resend
+            // once reconnected, not just a reconnect on its own.
+            this._queueResend(sid, req, null);
             this._invalidateAndRetry();
           },
         );
       },
       (e) => {
         this._reportError(e);
+        this._queueResend(sid, req, null);
         this._invalidateAndRetry();
       },
     );
@@ -450,58 +538,69 @@ export class GatewayWs extends EventTarget implements DuelWs {
   /// queued) reply is observed. The timeout below is only the backstop
   /// for a request that genuinely never reached the canister at all.
   ///
-  /// Awaits `_ensureOpen()` first — see `send()`'s own doc for why.
+  /// Registers the pending entry BEFORE attempting to (re)open/send —
+  /// see the comment inside the executor for why registering late misses
+  /// a real race, and `_queueResend()`'s own doc for why a failed attempt
+  /// gets RESENT (not just waited on) once the connection is confirmed
+  /// open again, rather than rejecting immediately or hoping a reply
+  /// shows up for a message that was never actually processed.
   request(sid: string, req: WsRequest): Promise<WsPayload> {
     if (this._closed) return Promise.reject(new Error("GatewayWs: closed"));
     this._sid = sid;
     const reqId = this._nextReqId++;
-    return this._ensureOpen().then(
-      () => {
-        const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req, reqId);
-        return new Promise<WsPayload>((resolve, reject) => {
-          // Register BEFORE dispatching the send, not after it resolves.
-          // The reply gets enqueued into the canister's outgoing queue
-          // the instant THIS SAME `ws_message` update call is processed
-          // server-side — but `_tick()`'s own independent poll loop
-          // (`ws_get_messages`, a query call) can observe and consume
-          // that reply before OUR client-side `await` on the update call
-          // itself resolves (a query round-trip can genuinely outrace an
-          // update call's own certified-response polling). Setting
-          // `_pending` only once `_serialSend` resolved missed exactly
-          // that window: `_handle()`'s "message" case ran with nothing
-          // registered yet, `_deliver()` still fired (so the UI updated
-          // normally), but the reqId was never claimed — and since that
-          // one-time reply had already come and gone, `request()`'s own
-          // promise then hung forever with no way to ever resolve. Real,
-          // not hypothetical: this is what made "take seat" visually
-          // complete while `app.js`'s `inFlight` stayed stuck, silently
-          // swallowing every subsequent button click (including Leave).
-          const timer = setTimeout(() => {
-            if (this._pending.delete(reqId)) {
-              reject(new Error("GatewayWs: request timed out waiting for a reply"));
-            }
-          }, this._requestTimeoutMs);
-          this._pending.set(reqId, { resolve, reject, timer });
+    return new Promise<WsPayload>((resolve, reject) => {
+      // Register BEFORE dispatching the send, not after it resolves.
+      // The reply gets enqueued into the canister's outgoing queue
+      // the instant THIS SAME `ws_message` update call is processed
+      // server-side — but `_tick()`'s own independent poll loop
+      // (`ws_get_messages`, a query call) can observe and consume
+      // that reply before OUR client-side `await` on the update call
+      // itself resolves (a query round-trip can genuinely outrace an
+      // update call's own certified-response polling). Setting
+      // `_pending` only once `_serialSend` resolved missed exactly
+      // that window: `_handle()`'s "message" case ran with nothing
+      // registered yet, `_deliver()` still fired (so the UI updated
+      // normally), but the reqId was never claimed — and since that
+      // one-time reply had already come and gone, `request()`'s own
+      // promise then hung forever with no way to ever resolve. Real,
+      // not hypothetical: this is what made "take seat" visually
+      // complete while `app.js`'s `inFlight` stayed stuck, silently
+      // swallowing every subsequent button click (including Leave).
+      const timer = setTimeout(() => {
+        if (this._pending.delete(reqId)) {
+          reject(new Error("GatewayWs: request timed out waiting for a reply"));
+        }
+      }, this._requestTimeoutMs);
+      this._pending.set(reqId, { resolve, reject, timer });
+
+      this._ensureOpen().then(
+        () => {
+          const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req, reqId);
           this._serialSend(record).then(
             () => this._pollSoon(),
             (e) => {
-              // Do NOT delete `_pending` or reject here — see this
-              // method's own doc above. The reply this call is waiting
-              // for very likely already exists server-side; force a
-              // reconnect so the poll loop keeps making progress toward
-              // observing it, and let the timeout above be the only
-              // backstop.
-              console.debug("[duel-ws] request seq send failed, awaiting late reply:", e && e.message ? e.message : e);
+              // Do NOT delete `_pending` or reject here. Unlike a plain
+              // late-arriving-reply race, this specific failure (the
+              // `ws_message` call itself erroring, e.g. "doesn't have an
+              // open connection") means the message never reached
+              // `Ws.mo`'s `onMessage` at all — so queue it for an actual
+              // resend once reconnected (see `_queueResend()`'s own doc)
+              // instead of just waiting for a reply that can now never
+              // come; let the timeout above be the final backstop if
+              // reconnecting keeps failing.
+              console.debug("[duel-ws] request seq send failed, will resend once reconnected:", e && e.message ? e.message : e);
+              this._queueResend(sid, req, reqId);
               this._invalidateAndRetry();
             },
           );
-        });
-      },
-      (e) => {
-        this._invalidateAndRetry();
-        throw e;
-      },
-    );
+        },
+        (e) => {
+          console.debug("[duel-ws] request could not (re)open the connection, will resend once reconnected:", e && e.message ? e.message : e);
+          this._queueResend(sid, req, reqId);
+          this._invalidateAndRetry();
+        },
+      );
+    });
   }
 
   /// True once closed (see `close()`) — a way to check without needing
@@ -532,6 +631,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
       p.reject(new Error("GatewayWs: closed"));
     }
     this._pending.clear();
+    this._resendQueue = [];
     if (this.onclose) this.onclose();
     this.dispatchEvent(new Event("close"));
   }
