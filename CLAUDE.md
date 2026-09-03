@@ -139,6 +139,15 @@ resolved relative to `backend/`.
 
 ### After touching anything under `frontend/`: refresh both examples
 
+`frontend/` is a TypeScript package — its source lives in `frontend/src/`
+(and `frontend/test/`), but what it actually SHIPS is `frontend/dist/`
+(compiled `.js` + `.d.ts`, gitignored, produced by `npm run build`
+— see `frontend/package.json`'s `build` script). **Always run `npm run
+build` inside `frontend/` first**, before anything below — neither the
+fast copy nor a full reinstall picks up a source edit that was never
+compiled; `frontend/dist/` is stale (or missing entirely, on a fresh
+clone) until you do.
+
 `examples/007/frontend` and `examples/racing/frontend` each depend on
 `duel-game-core` as `file:../../../frontend`, with `install-links=true`
 in their `.npmrc` — so it's **copied** into their own
@@ -151,32 +160,51 @@ serves stale code — do this instead, every time `frontend/` changes,
 without waiting to be asked:
 
 **If `frontend/package.json`'s `dependencies` did NOT change** (the
-common case — editing `.js`/`.md` files, adding a function): copy
-directly, no npm involved, effectively instant:
+common case — editing a `.ts` file, adding a function): build, then copy
+directly, no further npm involved, effectively instant:
 
 ```bash
+cd frontend && npm run build && cd ..
 for ex in examples/007/frontend examples/racing/frontend; do
-  rsync -a --delete --exclude=node_modules --exclude=.gitignore \
-    frontend/ "$ex/node_modules/duel-game-core/"
+  target="$ex/node_modules/duel-game-core"
+  rsync -a --delete frontend/dist/ "$target/dist/"
+  cp frontend/package.json frontend/style.css frontend/README.md "$target/"
 done
 ```
 
-(`rsync` mirrors exactly what a fresh `install-links=true` copy produces
-— verified byte-identical against a real `npm install`'s own result.)
-This is enough for `node --check`/`node --check ...`/a local `dfx`
-reload; for `examples/racing`, also re-run `npm run build` (fast,
-esbuild only — no network) so `dist/` picks up the change too.
+(This mirrors exactly `frontend/package.json`'s own `files` field — the
+same set a real `install-links=true` copy or `npm pack` would produce —
+so it never leaks `frontend/src/`/`frontend/test/` source into a
+deployed asset canister.) This is enough for `node --check`/a local
+`dfx` reload; for `examples/racing`, also re-run `npm run build` there
+too (fast, esbuild only — no network) so ITS OWN `dist/` picks up the
+change.
 
 **If `frontend/package.json`'s `dependencies` DID change** (e.g. a new
 package added): the copy above is not enough — the new package itself
 still needs fetching into the example's OWN `node_modules`. Do a full
-reinstall, and delete `package-lock.json` too, not just
-`node_modules/duel-game-core`:
+reinstall (after building — see above), and delete `package-lock.json`
+too, not just `node_modules/duel-game-core`:
 
 ```bash
+cd frontend && npm run build && cd ..
 cd examples/007/frontend    && rm -rf node_modules package-lock.json && npm install
 cd examples/racing/frontend && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
 ```
+
+`frontend/package.json` also declares a `prepare` script (`npm run
+build`) — npm normally runs a `file:` dependency's `prepare` script the
+same way it does a git dependency's, which would make this automatic.
+**Don't rely on that here**: both examples' `allow-scripts` gate (see
+their own `package.json`'s `allowScripts` / npm's `allow-scripts`
+tooling) blocks `duel-game-core`'s `prepare` from actually running on
+install — confirmed live: `npm install` in either example completes with
+only a warning (`1 package has install scripts not yet covered by
+allowScripts`), `dist/` is silently NOT (re)built, and the copy step
+happily copies whatever was already sitting in `frontend/dist/` from
+before, stale or not. The explicit `npm run build` above is the one step
+actually doing the work — run it every time, don't assume `npm install`
+alone did it.
 
 **Why the lockfile has to go too** (a real bug hit doing exactly this
 for the `@dfinity/candid`/`cborg` addition to `frontend/ws/gateway-*.js`):

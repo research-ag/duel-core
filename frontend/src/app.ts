@@ -46,12 +46,13 @@
 // spinner off THAT call's own response instead of off `onmessage`'s
 // shared push stream — see the "Calls" section below for why that
 // distinction matters.
-//
+
 import { renderView, errText } from "./render.js";
+import type { DuelWs, GamePlugin, Seat, SeatTag, WsPayload, WsRequest } from "./types.js";
 
-const $ = (id) => document.getElementById(id);
+const $ = (id: string): HTMLElement | null => document.getElementById(id);
 
-function randomSid() {
+function randomSid(): string {
   const b = new Uint8Array(8);
   crypto.getRandomValues(b);
   return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
@@ -62,7 +63,7 @@ function randomSid() {
 /// view as last time (the common case: nothing happened between ticks).
 /// Not `JSON.stringify(a) === JSON.stringify(b)`: Motoko `Nat`/`Int`
 /// fields decode to JS `bigint`, which `JSON.stringify` throws on.
-function deepEqual(a, b) {
+function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== "object" || typeof b !== "object") return false;
   if (a === null || b === null) return false;
@@ -70,8 +71,19 @@ function deepEqual(a, b) {
   const bKeys = Object.keys(b);
   if (aKeys.length !== bKeys.length) return false;
   return aKeys.every(
-    (k) => Object.hasOwn(b, k) && deepEqual(a[k], b[k]),
+    (k) =>
+      Object.hasOwn(b, k) &&
+      deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
   );
+}
+
+export interface StartOptions<S = unknown> {
+  plugin: GamePlugin<S>;
+  ws: DuelWs<S>;
+  sidElId?: string;
+  newSidBtnId?: string;
+  screenElId?: string;
+  errorElId?: string;
 }
 
 /// Boots the generic session/click wiring against `ws`, using `plugin`
@@ -83,16 +95,27 @@ function deepEqual(a, b) {
 ///   screenElId   - id of the element `renderView` output is written into (default "screen")
 ///   errorElId    - id of the element transient errors are shown in (default "error")
 ///   ws           - WebSocket-like transport (see the file header)
-export function start({
+export function start<S>({
   plugin,
   ws,
   sidElId = "sid",
   newSidBtnId = "new-sid",
   screenElId = "screen",
   errorElId = "error",
-} = {}) {
+}: StartOptions<S>): void {
   if (!plugin) throw new Error("start(): `plugin` is required");
   if (!ws) throw new Error("start(): `ws` is required");
+
+  // Declared up front (not down by the click listener, where the
+  // original JS had it) so every closure below — including
+  // beginButtonLoading/endButtonLoading, defined before the click
+  // listener — can see it as definitely non-null; TS can't carry a
+  // narrowing forward into a closure declared before the narrowing
+  // itself. Purely a declaration-order change, not a behavioral one:
+  // every one of these closures still only ever runs after start()'s own
+  // synchronous body has finished.
+  const screenEl = $(screenElId);
+  if (!screenEl) throw new Error(`start(): no element with id "${screenElId}"`);
 
   // ---------------------------------------------------------------------
   // Session identity. sessionStorage is per-tab, so tab #2 is player #2.
@@ -103,7 +126,7 @@ export function start({
   if (urlSid) sessionStorage.setItem("sid", urlSid);
   if (!sessionStorage.getItem("sid")) sessionStorage.setItem("sid", randomSid());
 
-  let sid = sessionStorage.getItem("sid");
+  let sid = sessionStorage.getItem("sid") as string;
   const sidEl = $(sidElId);
   if (sidEl) sidEl.textContent = sid;
   const newSidBtn = $(newSidBtnId);
@@ -120,9 +143,9 @@ export function start({
   // Errors.
   // ---------------------------------------------------------------------
 
-  let errorTimer;
+  let errorTimer: ReturnType<typeof setTimeout>;
 
-  function showError(msg) {
+  function showError(msg: string): void {
     const el = $(errorElId);
     if (!el) return;
     el.textContent = msg;
@@ -159,18 +182,18 @@ export function start({
   let inFlight = false;
   const canCorrelate = typeof ws.request === "function";
 
-  function sendWs(req) {
+  function sendWs(req: WsRequest): void {
     try {
       ws.send({ req: { sid, req } });
     } catch (e) {
       inFlight = false;
       document.body.classList.remove("working");
       endButtonLoading();
-      showError(`Send failed: ${e.message ?? e}`);
+      showError(`Send failed: ${(e as Error).message ?? e}`);
     }
   }
 
-  function settleCall(payload) {
+  function settleCall(payload: WsPayload<S>): void {
     inFlight = false;
     document.body.classList.remove("working");
     endButtonLoading();
@@ -178,12 +201,12 @@ export function start({
     else renderIfChanged(payload.view);
   }
 
-  function call(req) {
+  function call(req: WsRequest): void {
     if (inFlight) return;
     inFlight = true;
     document.body.classList.add("working");
     if (canCorrelate) {
-      ws.request(sid, req).then(settleCall, (e) => {
+      ws.request!(sid, req).then(settleCall, (e: Error) => {
         inFlight = false;
         document.body.classList.remove("working");
         endButtonLoading();
@@ -194,8 +217,8 @@ export function start({
     }
   }
 
-  const doJoin = (seat) => call({ join: { [seat]: null } });
-  const doSubmit = (action) => call({ submit: action });
+  const doJoin = (seat: SeatTag) => call({ join: { [seat]: null } as Seat });
+  const doSubmit = (action: unknown) => call({ submit: action });
   const doRematch = () => call({ rematch: null });
   const doLeave = () => call({ leave: null });
   const doReset = () => call({ reset: null });
@@ -217,18 +240,23 @@ export function start({
   // response actually changed the view.
   // ---------------------------------------------------------------------
 
-  let loadingSnapshot = null;
+  let loadingSnapshot: Array<[HTMLButtonElement, boolean]> | null = null;
 
-  function beginButtonLoading(activeBtn) {
+  // Arrow-function consts, not `function` declarations — a hoisted
+  // function declaration's body is, as far as TS's control flow analysis
+  // is concerned, reachable from anywhere in this scope (including
+  // before the `screenEl` null-guard above), so it can't carry that
+  // guard's narrowing in; an expression positioned after the guard can.
+  const beginButtonLoading = (activeBtn: HTMLButtonElement): void => {
     loadingSnapshot = [...screenEl.querySelectorAll("button")].map((btn) => [
       btn,
       btn.disabled,
     ]);
     for (const [btn] of loadingSnapshot) btn.disabled = true;
     activeBtn.classList.add("duel-loading");
-  }
+  };
 
-  function endButtonLoading() {
+  const endButtonLoading = (): void => {
     if (!loadingSnapshot) return;
     for (const [btn, wasDisabled] of loadingSnapshot) {
       if (!btn.isConnected) continue;
@@ -236,7 +264,7 @@ export function start({
       btn.classList.remove("duel-loading");
     }
     loadingSnapshot = null;
-  }
+  };
 
   // ---------------------------------------------------------------------
   // Confirmation modal, for any button marked `data-confirm="..."` (e.g.
@@ -260,25 +288,26 @@ export function start({
       </div>
     </div>`;
   document.body.appendChild(confirmOverlay);
-  const confirmMsgEl = confirmOverlay.querySelector(".duel-confirm-msg");
+  const confirmMsgEl = confirmOverlay.querySelector(".duel-confirm-msg") as HTMLElement;
 
-  let pendingConfirmed = null;
+  let pendingConfirmed: (() => void) | null = null;
 
-  function showConfirm(msg, onConfirmed) {
+  function showConfirm(msg: string, onConfirmed: () => void): void {
     confirmMsgEl.textContent = msg;
     pendingConfirmed = onConfirmed;
     confirmOverlay.hidden = false;
   }
 
-  function hideConfirm() {
+  function hideConfirm(): void {
     confirmOverlay.hidden = true;
     pendingConfirmed = null;
   }
 
   confirmOverlay.addEventListener("click", (ev) => {
-    if (ev.target === confirmOverlay || "confirmNo" in ev.target.dataset) {
+    const target = ev.target as HTMLElement;
+    if (target === confirmOverlay || "confirmNo" in target.dataset) {
       hideConfirm();
-    } else if ("confirmYes" in ev.target.dataset) {
+    } else if ("confirmYes" in target.dataset) {
       const fn = pendingConfirmed;
       hideConfirm();
       if (fn) fn();
@@ -286,13 +315,13 @@ export function start({
   });
 
   // One delegated listener, so re-rendering never leaks handlers.
-  const screenEl = $(screenElId);
   screenEl.addEventListener("click", (ev) => {
-    const b = ev.target.closest("button");
+    const target = ev.target as HTMLElement;
+    const b = target.closest("button") as HTMLButtonElement | null;
     if (!b || b.disabled) return;
     const dispatch = () => {
       beginButtonLoading(b);
-      if (b.dataset.join) doJoin(b.dataset.join);
+      if (b.dataset.join) doJoin(b.dataset.join as SeatTag);
       else if (b.dataset.act) doSubmit(JSON.parse(b.dataset.act));
       else if ("rematch" in b.dataset) doRematch();
       else if ("leave" in b.dataset) doLeave();
@@ -311,7 +340,7 @@ export function start({
   // pending user intent to guard.
   // ---------------------------------------------------------------------
 
-  function refresh() {
+  function refresh(): void {
     if (inFlight) return;
     sendWs({ status: null });
   }
@@ -324,13 +353,13 @@ export function start({
   // isn't considered `:hover` until the next mouse move, so redrawing on
   // every tick made hover states visibly blink on a ~500ms cycle. See
   // deepEqual()'s own doc for why this isn't a JSON.stringify comparison.
-  let lastView;
+  let lastView: unknown;
 
-  function renderIfChanged(view) {
+  const renderIfChanged = (view: unknown): void => {
     if (deepEqual(view, lastView)) return;
     lastView = view;
-    screenEl.innerHTML = renderView(view, plugin);
-  }
+    screenEl.innerHTML = renderView(view as Parameters<typeof renderView<S>>[0], plugin);
+  };
 
   screenEl.innerHTML = `<p class="duel-connecting">Connecting…</p>`;
   ws.onopen = () => refresh();

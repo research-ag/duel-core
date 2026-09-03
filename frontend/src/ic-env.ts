@@ -6,10 +6,10 @@
 /// Reads the `ic_env` cookie the asset canister sets, e.g.
 /// `PUBLIC_CANISTER_ID:backend=<id>&ic_root_key=<hex>&...`, and returns
 /// it decoded as a plain object.
-export function readIcEnv() {
+export function readIcEnv(): Record<string, string> {
   const m = document.cookie.match(/(?:^|;\s*)ic_env=([^;]+)/);
   if (!m) return {};
-  const out = {};
+  const out: Record<string, string> = {};
   for (const part of decodeURIComponent(m[1]).split("&")) {
     const eq = part.indexOf("=");
     if (eq > 0) out[part.slice(0, eq)] = part.slice(eq + 1);
@@ -20,7 +20,7 @@ export function readIcEnv() {
 /// Derives the right `HttpAgent` host for the page's current location:
 /// localhost during local development, the parent domain on icp0.io /
 /// ic0.app, or the public gateway otherwise.
-export function deriveHost() {
+export function deriveHost(): string {
   const { protocol, hostname, port } = window.location;
   if (hostname.endsWith("localhost")) {
     return `${protocol}//localhost${port ? ":" + port : ""}`;

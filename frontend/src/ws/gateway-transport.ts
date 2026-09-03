@@ -37,7 +37,8 @@
 // `../README.md`'s "Real-time push" section.
 
 import { decode as cborDecode } from "cborg";
-import { Principal } from "@dfinity/principal";
+import { Principal } from "@icp-sdk/core/principal";
+import type { DecodedEnvelope, WebsocketMessageRecord } from "./gateway-protocol.js";
 
 /// CBOR maps decode to plain JS objects (`useMaps: false`) so the rest
 /// of this file never has to special-case `Map` — the fixed shape
@@ -49,41 +50,85 @@ const CBOR_OPTS = { useMaps: false };
 /// `ic-websocket-cdk-mo`'s `State.mo`'s `format_message_for_gateway_key`.
 const NONCE_SUFFIX = /_(\d+)$/;
 
-function decodeEnvelope(contentBytes) {
-  const raw = cborDecode(contentBytes, CBOR_OPTS);
+export interface TransportClientKey {
+  client_principal: Principal;
+  client_nonce: bigint;
+}
+
+interface RawEnvelope {
+  client_key: { client_principal: ArrayLike<number>; client_nonce: unknown };
+  sequence_num: unknown;
+  timestamp: unknown;
+  is_service_message: unknown;
+  content: ArrayLike<number>;
+}
+
+function decodeEnvelope(contentBytes: Uint8Array): DecodedEnvelope {
+  const raw = cborDecode(contentBytes, CBOR_OPTS) as RawEnvelope;
   return {
     clientKey: {
       client_principal: Principal.fromUint8Array(
         new Uint8Array(raw.client_key.client_principal),
       ),
-      client_nonce: BigInt(raw.client_key.client_nonce),
+      client_nonce: BigInt(raw.client_key.client_nonce as never),
     },
-    sequenceNum: BigInt(raw.sequence_num),
-    timestamp: BigInt(raw.timestamp),
+    sequenceNum: BigInt(raw.sequence_num as never),
+    timestamp: BigInt(raw.timestamp as never),
     isServiceMessage: Boolean(raw.is_service_message),
     content: new Uint8Array(raw.content),
   };
+}
+
+/// The subset of an IC actor this transport calls — the four `ws_*`
+/// Candid methods `mo:duel-game-core/ActorMixin` supplies on any host
+/// actor built on this framework (see `../idl.js`'s `makeIdlFactory`).
+export interface WsActor {
+  ws_open(args: {
+    client_nonce: bigint;
+    gateway_principal: Principal;
+  }): Promise<{ Ok: null } | { Err: string }>;
+  ws_close(args: {
+    client_key: TransportClientKey;
+  }): Promise<{ Ok: null } | { Err: string }>;
+  ws_message(
+    args: { msg: WebsocketMessageRecord },
+    msgType: [Uint8Array] | [],
+  ): Promise<{ Ok: null } | { Err: string }>;
+  ws_get_messages(args: { nonce: bigint }): Promise<
+    | {
+        Ok: {
+          messages: Array<{ key: string; content: Uint8Array }>;
+          is_end_of_queue: boolean;
+        };
+      }
+    | { Err: string }
+  >;
 }
 
 /// One instance per connection attempt — `principal`'s tab registers as
 /// its own `gateway_principal` on `open()`, then `poll()` walks its own
 /// outgoing queue exactly as a real Gateway's polling loop would.
 export class SelfGatewayTransport {
-  constructor({ actor, principal }) {
+  private _actor: WsActor;
+  private _principal: Principal;
+  private _nonce: bigint;
+  private _clientKey: TransportClientKey | null;
+
+  constructor({ actor, principal }: { actor: WsActor; principal: Principal }) {
     this._actor = actor;
     this._principal = principal;
     this._nonce = 0n;
     this._clientKey = null; // set by open()
   }
 
-  get clientKey() {
+  get clientKey(): TransportClientKey | null {
     return this._clientKey;
   }
 
   /// False right after construction or after `invalidate()` — the
   /// caller (`gateway-client.js`) uses this to decide whether a tick
   /// needs to redo the `ws_open` handshake before polling.
-  get isOpen() {
+  get isOpen(): boolean {
     return this._clientKey !== null;
   }
 
@@ -93,14 +138,14 @@ export class SelfGatewayTransport {
   /// open — presumptively an upgrade wiped `Ws.mo`'s transient state;
   /// see `Host.mo`'s own comment on that) and just needs to force the
   /// next `open()` to redo the handshake from scratch.
-  invalidate() {
+  invalidate(): void {
     // TEMPORARY diagnostic — remove once the "Expected incoming sequence
     // number" bug is root-caused.
     console.debug("[duel-ws] invalidate() clientKey nonce was=%s", this._clientKey?.client_nonce);
     this._clientKey = null;
   }
 
-  async open(clientNonce) {
+  async open(clientNonce: bigint): Promise<void> {
     // TEMPORARY diagnostic — remove once the "Expected incoming sequence
     // number" bug is root-caused. See gateway-protocol.js's matching log.
     console.debug("[duel-ws] ws_open start nonce=%s", clientNonce);
@@ -166,7 +211,7 @@ export class SelfGatewayTransport {
   /// backed transport wouldn't need at all (a relay pushes messages as
   /// they arrive; there is no "nonce" to track client-side), which is
   /// exactly why it lives here and not in `gateway-protocol.js`.
-  async poll() {
+  async poll(): Promise<{ envelopes: DecodedEnvelope[]; isEndOfQueue: boolean }> {
     const res = await this._actor.ws_get_messages({ nonce: this._nonce });
     if ("Err" in res) throw new Error(`ws_get_messages: ${res.Err}`);
     const { messages, is_end_of_queue } = res.Ok;
@@ -200,12 +245,12 @@ export class SelfGatewayTransport {
   /// bytes are already sitting right here) and means `from_candid` on
   /// the backend can recover the original `Ws.Msg` from it directly,
   /// without a live canister to poll `content` off of.
-  async send(record) {
+  async send(record: WebsocketMessageRecord): Promise<void> {
     const res = await this._actor.ws_message({ msg: record }, [record.content]);
     if ("Err" in res) throw new Error(`ws_message: ${res.Err}`);
   }
 
-  async close() {
+  async close(): Promise<void> {
     if (!this._clientKey) return;
     // Best-effort: a teardown call racing an already-dead connection
     // (network gone, tab closing) failing silently is fine — the CDK's

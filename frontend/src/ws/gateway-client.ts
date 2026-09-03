@@ -20,8 +20,11 @@
 // `examples/racing/frontend/.../lobby-connection.service.ts`) rely on
 // exactly this surface.
 
-import { SelfGatewayTransport } from "./gateway-transport.js";
+import type { Principal } from "@icp-sdk/core/principal";
+import { SelfGatewayTransport, type WsActor } from "./gateway-transport.js";
 import { GatewayProtocol } from "./gateway-protocol.js";
+import type { BuildGameTypes } from "../idl.js";
+import type { DuelWs, WsPayload, WsRequest } from "../types.js";
 
 const DEFAULT_INTERVAL_MS = 500;
 
@@ -31,14 +34,60 @@ const DEFAULT_INTERVAL_MS = 500;
 /// still shows up well before this fires.
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
 
-export class GatewayWs extends EventTarget {
+interface PendingRequest {
+  resolve: (payload: WsPayload) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+export class GatewayWs extends EventTarget implements DuelWs {
+  private _transport: SelfGatewayTransport;
+  private _protocol: GatewayProtocol;
+  private _intervalMs: number;
+  private _requestTimeoutMs: number;
+  private _sid: string | null;
+  private _closed: boolean;
+  private _opened: boolean; // has the CDK's own #OpenMessage arrived yet?
+  private _pollTimer: ReturnType<typeof setTimeout> | null;
+  private _ticking: boolean; // re-entrancy guard for _tick() — see _pollSoon()
+  private _wantsAnotherTick: boolean;
+  // In-flight request()s, keyed by the reqId THIS call made up — see
+  // request()'s own doc and Ws.mo's "The wire protocol" section for why
+  // this can no longer be a plain FIFO: a `#view`/`#err` this connection
+  // receives is routinely NOT a reply to anything of ours at all (the
+  // OTHER seat acting pushes here too — see Ws.mo's pushRelevant), so
+  // matching "the next message" to "the oldest pending request" let an
+  // unrelated broadcast steal a real reply's slot, hanging the actual
+  // caller forever while resolving with someone else's payload.
+  private _pending: Map<bigint, PendingRequest>;
+  private _nextReqId: bigint; // BigInt, matches the wire's Nat64 — see idl.js's WsMsg
+  private _erroredSinceSuccess: boolean;
+  // Consecutive failures since the last successful round trip — see
+  // _reportError()'s own doc for why onerror only fires once this
+  // reaches 2, not on every single one.
+  private _consecutiveFailures: number;
+  private _opening: Promise<void> | null; // in-flight _ensureOpen() promise, if any — see its own doc
+  private _sendChain: Promise<void>; // serializes every outgoing ws_message — see _serialSend()
+  private _onHide?: () => void;
+
+  onopen: (() => void) | null;
+  onmessage: ((ev: { data: WsPayload }) => void) | null;
+  onerror: ((ev: { error?: Error }) => void) | null;
+  onclose: (() => void) | null;
+
   constructor({
     actor,
     principal,
     gameIdlTypes,
     intervalMs = DEFAULT_INTERVAL_MS,
     requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
-  } = {}) {
+  }: {
+    actor: WsActor;
+    principal: Principal;
+    gameIdlTypes: BuildGameTypes;
+    intervalMs?: number;
+    requestTimeoutMs?: number;
+  }) {
     super();
     if (!actor) throw new Error("GatewayWs: `actor` is required");
     if (!principal) throw new Error("GatewayWs: `principal` is required");
@@ -50,27 +99,16 @@ export class GatewayWs extends EventTarget {
     this._requestTimeoutMs = requestTimeoutMs;
     this._sid = null;
     this._closed = false;
-    this._opened = false; // has the CDK's own #OpenMessage arrived yet?
+    this._opened = false;
     this._pollTimer = null;
-    this._ticking = false; // re-entrancy guard for _tick() — see _pollSoon()
+    this._ticking = false;
     this._wantsAnotherTick = false;
-    // In-flight request()s, keyed by the reqId THIS call made up — see
-    // request()'s own doc and Ws.mo's "The wire protocol" section for why
-    // this can no longer be a plain FIFO: a `#view`/`#err` this connection
-    // receives is routinely NOT a reply to anything of ours at all (the
-    // OTHER seat acting pushes here too — see Ws.mo's pushRelevant), so
-    // matching "the next message" to "the oldest pending request" let an
-    // unrelated broadcast steal a real reply's slot, hanging the actual
-    // caller forever while resolving with someone else's payload.
     this._pending = new Map();
-    this._nextReqId = 1n; // BigInt, matches the wire's Nat64 — see idl.js's WsMsg
+    this._nextReqId = 1n;
     this._erroredSinceSuccess = false;
-    // Consecutive failures since the last successful round trip — see
-    // _reportError()'s own doc for why onerror only fires once this
-    // reaches 2, not on every single one.
     this._consecutiveFailures = 0;
-    this._opening = null; // in-flight _ensureOpen() promise, if any — see its own doc
-    this._sendChain = Promise.resolve(); // serializes every outgoing ws_message — see _serialSend()
+    this._opening = null;
+    this._sendChain = Promise.resolve();
 
     // Assignable by the caller, same as a real WebSocket.
     this.onopen = null;
@@ -109,7 +147,7 @@ export class GatewayWs extends EventTarget {
   /// redundant `ws_open` on the rare blip that didn't actually need one
   /// (harmless — the CDK's own `ws_open` already handles superseding a
   /// still-registered client of the same principal).
-  async _tick() {
+  private async _tick(): Promise<void> {
     // Re-entrancy guard: `_pollSoon()` (see below) can be asked to wake
     // the loop up while a tick is already in flight — record the ask
     // instead of starting a SECOND, overlapping `_tick()`, which would
@@ -133,7 +171,7 @@ export class GatewayWs extends EventTarget {
       for (const envelope of envelopes) await this._handle(envelope);
       fast = !isEndOfQueue; // more waiting right now — don't wait a full tick
     } catch (e) {
-      this._reportError(e);
+      this._reportError(e as Error);
       this._transport.invalidate();
     }
     this._ticking = false;
@@ -158,7 +196,7 @@ export class GatewayWs extends EventTarget {
   /// null" — a real bug this coalescing exists to close, not a
   /// hypothetical one. Safe to call whether or not opening is already
   /// under way: every caller awaits the SAME promise.
-  _ensureOpen() {
+  private _ensureOpen(): Promise<void> {
     if (this._transport.isOpen) return Promise.resolve();
     if (!this._opening) {
       const clientNonce = BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
@@ -193,7 +231,7 @@ export class GatewayWs extends EventTarget {
   /// requires. A failed send doesn't break the chain for whatever comes
   /// after it (`.catch(() => {})`); the failure itself still propagates
   /// to THIS call's own caller via the returned promise.
-  _serialSend(record) {
+  private _serialSend(record: Parameters<SelfGatewayTransport["send"]>[0]): Promise<void> {
     const result = this._sendChain.then(() => this._transport.send(record));
     this._sendChain = result.catch(() => {});
     return result;
@@ -230,7 +268,7 @@ export class GatewayWs extends EventTarget {
   /// resolve the issue in practice when the identity was still
   /// sid-derived, which is why that approach was reverted rather than
   /// kept and relied on this to paper over it.
-  _invalidateAndRetry() {
+  private _invalidateAndRetry(): void {
     this._transport.invalidate();
     this._pollSoon();
   }
@@ -257,21 +295,23 @@ export class GatewayWs extends EventTarget {
   /// connection catch up to the canister's own state right after this
   /// connection's own mutating call resolves, shrinking the race window
   /// back down instead of leaving it to the next periodic tick.
-  _pollSoon() {
+  private _pollSoon(): void {
     if (this._closed) return;
     if (this._ticking) {
       this._wantsAnotherTick = true;
       return;
     }
-    clearTimeout(this._pollTimer);
+    if (this._pollTimer != null) clearTimeout(this._pollTimer);
     this._pollTimer = setTimeout(() => this._tick(), 0);
   }
 
-  async _handle(envelope) {
+  private async _handle(
+    envelope: Parameters<GatewayProtocol["interpret"]>[0],
+  ): Promise<void> {
     const action = this._protocol.interpret(envelope);
     // TEMPORARY diagnostic — remove once the "other seat's push never
     // arrives" bug is root-caused.
-    console.debug("[duel-ws] handle kind=%s reqId=%s", action.kind, action.reqId);
+    console.debug("[duel-ws] handle kind=%s reqId=%s", action.kind, "reqId" in action ? action.reqId : undefined);
     switch (action.kind) {
       case "open": {
         if (this._opened) break;
@@ -292,7 +332,7 @@ export class GatewayWs extends EventTarget {
           );
           await this._serialSend(reply);
         } catch (e) {
-          this._reportError(e);
+          this._reportError(e as Error);
           this._invalidateAndRetry();
         }
         break;
@@ -342,7 +382,7 @@ export class GatewayWs extends EventTarget {
   /// can be called before that's happened (e.g. right after construction,
   /// ahead of the very first scheduled `_tick()` — see `_ensureOpen()`'s
   /// own doc for the bug that produced).
-  send(msg) {
+  send(msg: { req?: { sid: string; req: WsRequest } }): void {
     if (this._closed) return;
     const envelope = msg?.req;
     if (!envelope) return;
@@ -387,8 +427,8 @@ export class GatewayWs extends EventTarget {
   ///
   /// Does NOT reject just because the `ws_message` update call itself
   /// throws. That call's own client-side round trip can fail on its own
-  /// — most commonly `@dfinity/agent`'s own actor wrapper throwing "Call
-  /// was returned undefined, but type ..." when a slow/cold-starting
+  /// — most commonly `@icp-sdk/core/agent`'s own actor wrapper throwing
+  /// "Call was returned undefined, but type ..." when a slow/cold-starting
   /// canister blows past its certificate-polling budget (see
   /// `_reportError()`'s own doc: "confirmed live", and self-healing
   /// there within about one tick) — WITHOUT that meaning the request
@@ -411,14 +451,14 @@ export class GatewayWs extends EventTarget {
   /// for a request that genuinely never reached the canister at all.
   ///
   /// Awaits `_ensureOpen()` first — see `send()`'s own doc for why.
-  request(sid, req) {
+  request(sid: string, req: WsRequest): Promise<WsPayload> {
     if (this._closed) return Promise.reject(new Error("GatewayWs: closed"));
     this._sid = sid;
     const reqId = this._nextReqId++;
     return this._ensureOpen().then(
       () => {
         const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req, reqId);
-        return new Promise((resolve, reject) => {
+        return new Promise<WsPayload>((resolve, reject) => {
           // Register BEFORE dispatching the send, not after it resolves.
           // The reply gets enqueued into the canister's outgoing queue
           // the instant THIS SAME `ws_message` update call is processed
@@ -466,20 +506,20 @@ export class GatewayWs extends EventTarget {
 
   /// True once closed (see `close()`) — a way to check without needing
   /// to have caught the `close` event at the moment it fired.
-  get closed() {
+  get closed(): boolean {
     return this._closed;
   }
 
-  close() {
+  close(): void {
     if (this._closed) return;
     this._transport.close(); // best-effort cooperative goodbye
     this._teardown();
   }
 
-  _teardown() {
+  private _teardown(): void {
     if (this._closed) return;
     this._closed = true;
-    clearTimeout(this._pollTimer);
+    if (this._pollTimer != null) clearTimeout(this._pollTimer);
     if (typeof document !== "undefined" && this._onHide) {
       document.removeEventListener("visibilitychange", this._onHide);
       if (typeof removeEventListener === "function") {
@@ -496,13 +536,13 @@ export class GatewayWs extends EventTarget {
     this.dispatchEvent(new Event("close"));
   }
 
-  _deliver(data) {
+  private _deliver(data: WsPayload): void {
     if (this._closed) return;
     if (this.onmessage) this.onmessage({ data });
     this.dispatchEvent(new MessageEvent("message", { data }));
   }
 
-  _markAlive() {
+  private _markAlive(): void {
     this._erroredSinceSuccess = false;
     this._consecutiveFailures = 0;
   }
@@ -516,18 +556,19 @@ export class GatewayWs extends EventTarget {
   // succeeding on its very next attempt is what usually happens — e.g. a
   // `ws_message` update call that blows past the IC agent's own
   // certificate-polling budget on a slow/cold-starting canister throws
-  // deep inside `@dfinity/agent`'s own actor wrapper ("Call was returned
-  // undefined..."), this connection invalidates and reopens, and the
-  // next poll already recovers — all within about one tick, confirmed
-  // live. Surfacing THAT lone blip to the caller's onerror (app.js's
-  // `showError()` toast, in the reference examples) as if the connection
-  // were actually broken was a real false alarm, not hypothetical: a
-  // user-visible "WebSocket error" banner for something already fixed by
-  // the time it rendered. Waiting for a second consecutive failure means
-  // a lone blip that self-heals stays silent, while a connection that's
-  // genuinely down still gets reported — just one tick later than
-  // before, which is imperceptible against a real outage.
-  _reportError(e) {
+  // deep inside `@icp-sdk/core/agent`'s own actor wrapper ("Call was
+  // returned undefined..."), this connection invalidates and reopens,
+  // and the next poll already recovers — all within about one tick,
+  // confirmed live. Surfacing THAT lone blip to the caller's onerror
+  // (app.js's `showError()` toast, in the reference examples) as if the
+  // connection were actually broken was a real false alarm, not
+  // hypothetical: a user-visible "WebSocket error" banner for something
+  // already fixed by the time it rendered. Waiting for a second
+  // consecutive failure means a lone blip that self-heals stays silent,
+  // while a connection that's genuinely down still gets reported — just
+  // one tick later than before, which is imperceptible against a real
+  // outage.
+  private _reportError(e: Error): void {
     // TEMPORARY diagnostic — remove once the "Expected incoming sequence
     // number" bug is root-caused. Logs every error this connection sees,
     // even ones that don't (yet, or ever) escalate to onerror below.

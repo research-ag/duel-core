@@ -26,7 +26,10 @@
 // the message content blob, which embeds the game's own `Action`/`State`
 // types.
 
+import type { Principal } from "@icp-sdk/core/principal";
 import { GatewayWs } from "./ws/gateway-client.js";
+import type { WsActor } from "./ws/gateway-transport.js";
+import type { BuildGameTypes } from "./idl.js";
 
 /// Builds a ready-to-use `ws` for `app.js`'s `start()` — a `GatewayWs`
 /// wired to `actor`/`principal`/`gameIdlTypes`. See this file's header
@@ -40,7 +43,19 @@ import { GatewayWs } from "./ws/gateway-client.js";
 ///   requestTimeoutMs - how long `request()` waits for its correlated
 ///                      reply before giving up, in ms (default 15000) —
 ///                      see `./ws/gateway-client.js`'s `request()` doc
-export function connectWs({ actor, principal, gameIdlTypes, intervalMs, requestTimeoutMs } = {}) {
+export function connectWs({
+  actor,
+  principal,
+  gameIdlTypes,
+  intervalMs,
+  requestTimeoutMs,
+}: {
+  actor: WsActor;
+  principal: Principal;
+  gameIdlTypes: BuildGameTypes;
+  intervalMs?: number;
+  requestTimeoutMs?: number;
+}): GatewayWs {
   return new GatewayWs({ actor, principal, gameIdlTypes, intervalMs, requestTimeoutMs });
 }
 

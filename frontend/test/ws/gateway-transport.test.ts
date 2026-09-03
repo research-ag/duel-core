@@ -1,0 +1,167 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { Principal } from "@icp-sdk/core/principal";
+import { SelfGatewayTransport, type WsActor } from "../../src/ws/gateway-transport.js";
+import { GatewayProtocol } from "../../src/ws/gateway-protocol.js";
+
+function sampleGameTypes({ IDL: I }: { IDL: any }) {
+  return { Action: I.Variant({ pass: I.Null }), State: I.Record({ hp: I.Nat }) };
+}
+
+const principal = Principal.anonymous();
+
+/// A minimal in-memory fake of the four ws_* canister methods, enough to
+/// drive SelfGatewayTransport's own logic without a real IC agent.
+function makeFakeActor(overrides: Partial<WsActor> = {}): WsActor {
+  return {
+    ws_open: async () => ({ Ok: null }),
+    ws_close: async () => ({ Ok: null }),
+    ws_message: async () => ({ Ok: null }),
+    ws_get_messages: async () => ({ Ok: { messages: [], is_end_of_queue: true } }),
+    ...overrides,
+  } as WsActor;
+}
+
+test("isOpen/clientKey: false/null before open(), true/set after", async () => {
+  const t = new SelfGatewayTransport({ actor: makeFakeActor(), principal });
+  assert.equal(t.isOpen, false);
+  assert.equal(t.clientKey, null);
+  await t.open(123n);
+  assert.equal(t.isOpen, true);
+  assert.deepEqual(t.clientKey, { client_principal: principal, client_nonce: 123n });
+});
+
+test("open() throws and stays closed when ws_open returns Err", async () => {
+  const t = new SelfGatewayTransport({
+    actor: makeFakeActor({ ws_open: async () => ({ Err: "nope" }) }),
+    principal,
+  });
+  await assert.rejects(() => t.open(1n), /ws_open: nope/);
+  assert.equal(t.isOpen, false);
+});
+
+test("invalidate() clears clientKey/isOpen without calling ws_close", async () => {
+  let closeCalled = false;
+  const t = new SelfGatewayTransport({
+    actor: makeFakeActor({ ws_close: async () => { closeCalled = true; return { Ok: null }; } }),
+    principal,
+  });
+  await t.open(1n);
+  t.invalidate();
+  assert.equal(t.isOpen, false);
+  assert.equal(closeCalled, false);
+});
+
+test("close() calls ws_close with the current clientKey, then no-ops once clientKey is null", async () => {
+  let seenKey: unknown;
+  const t = new SelfGatewayTransport({
+    actor: makeFakeActor({
+      ws_close: async (args) => { seenKey = args.client_key; return { Ok: null }; },
+    }),
+    principal,
+  });
+  await t.open(9n);
+  await t.close();
+  assert.deepEqual(seenKey, { client_principal: principal, client_nonce: 9n });
+});
+
+test("close() before any open() is a silent no-op", async () => {
+  let called = false;
+  const t = new SelfGatewayTransport({
+    actor: makeFakeActor({ ws_close: async () => { called = true; return { Ok: null }; } }),
+    principal,
+  });
+  await t.close();
+  assert.equal(called, false);
+});
+
+test("close() swallows a failing ws_close (best-effort goodbye)", async () => {
+  const t = new SelfGatewayTransport({
+    actor: makeFakeActor({ ws_close: async () => { throw new Error("network gone"); } }),
+    principal,
+  });
+  await t.open(1n);
+  await assert.doesNotReject(() => t.close());
+});
+
+test("send() rejects with the canister's Err text on failure", async () => {
+  const t = new SelfGatewayTransport({
+    actor: makeFakeActor({ ws_message: async () => ({ Err: "sequence mismatch" }) }),
+    principal,
+  });
+  const protocol = new GatewayProtocol({ gameIdlTypes: sampleGameTypes });
+  const record = protocol.buildAppMessage(null, "sid", { status: null }, null);
+  await assert.rejects(() => t.send(record), /ws_message: sequence mismatch/);
+});
+
+test("poll() decodes each message's CBOR envelope and advances past the highest key nonce", async () => {
+  const protocol = new GatewayProtocol({ gameIdlTypes: sampleGameTypes });
+  // A real, decodable envelope, so poll()'s own decodeEnvelope (CBOR)
+  // round-trips correctly, keyed with the CDK's own "..._{nonce}" suffix
+  // convention (see gateway-transport.ts's NONCE_SUFFIX).
+  const { encode: cborEncode } = await import("cborg");
+  const built = protocol.buildAppMessage(
+    { client_principal: principal, client_nonce: 1n },
+    "sid",
+    { status: null },
+    null,
+  );
+  const content = cborEncode({
+    client_key: { client_principal: principal.toUint8Array(), client_nonce: built.client_key!.client_nonce },
+    sequence_num: built.sequence_num,
+    timestamp: built.timestamp,
+    is_service_message: built.is_service_message,
+    content: built.content,
+  });
+
+  const t = new SelfGatewayTransport({
+    actor: makeFakeActor({
+      ws_get_messages: async ({ nonce }) => {
+        assert.equal(nonce, 0n); // first poll starts at the transport's own initial nonce
+        return {
+          Ok: {
+            messages: [{ key: "gateway_key_0000000000000000042", content: new Uint8Array(content) }],
+            is_end_of_queue: false,
+          },
+        };
+      },
+    }),
+    principal,
+  });
+
+  const { envelopes, isEndOfQueue } = await t.poll();
+  assert.equal(envelopes.length, 1);
+  assert.equal(isEndOfQueue, false);
+  assert.equal(envelopes[0]!.sequenceNum, built.sequence_num);
+  assert.deepEqual(envelopes[0]!.content, built.content);
+
+  // The next poll should start past the just-observed nonce (42 + 1).
+  const t2Actor = makeFakeActor({
+    ws_get_messages: async ({ nonce }) => {
+      assert.equal(nonce, 0n);
+      return {
+        Ok: {
+          messages: [{ key: "gateway_key_0000000000000000042", content: new Uint8Array(content) }],
+          is_end_of_queue: true,
+        },
+      };
+    },
+  });
+  const t2 = new SelfGatewayTransport({ actor: t2Actor, principal });
+  await t2.poll();
+  let secondPollNonce: bigint | null = null;
+  t2Actor.ws_get_messages = async ({ nonce }) => {
+    secondPollNonce = nonce;
+    return { Ok: { messages: [], is_end_of_queue: true } };
+  };
+  await t2.poll();
+  assert.equal(secondPollNonce, 43n);
+});
+
+test("poll() throws the canister's Err text on failure", async () => {
+  const t = new SelfGatewayTransport({
+    actor: makeFakeActor({ ws_get_messages: async () => ({ Err: "boom" }) }),
+    principal,
+  });
+  await assert.rejects(() => t.poll(), /ws_get_messages: boom/);
+});

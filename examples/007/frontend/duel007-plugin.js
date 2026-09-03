@@ -8,7 +8,7 @@
 // is a cosmetic echo of that module's `validate` (CLAUDE.md architecture
 // rule 4 — the server is the only real legality gate).
 
-import { actionAttr, esc } from "./node_modules/duel-game-core/render.js";
+import { actionAttr, esc } from "./node_modules/duel-game-core/dist/render.js";
 
 const SHIELD_CAPACITY = 3n;
 const START_MIRRORS = 3n;

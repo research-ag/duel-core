@@ -13,8 +13,14 @@
 // Uses @dfinity/agent loaded from esm.sh — no build step required for
 // THIS file; `duel-game-core` itself is fetched once via `npm install`
 // (see package.json / .npmrc) since it has no CDN distribution, and is
-// imported below by its plain on-disk path — the browser has no bare
-// "duel-game-core/..." specifier resolution without an import map. This
+// imported below by its plain on-disk path, under `dist/` — that's
+// where duel-game-core's own compiled output lands (its source is
+// TypeScript now; see ../../../../CLAUDE.md's "After touching anything
+// under frontend/" section — `npm run build` there has to run BEFORE
+// this example's own `npm install`, since this repo's `allow-scripts`
+// gate blocks duel-game-core's own `prepare` script from doing it
+// automatically) — the browser has no bare "duel-game-core/..."
+// specifier resolution without an import map. This
 // file is copied byte-for-byte into the build output (see build.js's
 // cpSync list), same as `duel-racing-plugin.js`.
 
@@ -33,10 +39,10 @@
 // @dfinity/candid changes shape.
 import { Actor, HttpAgent } from 'https://esm.sh/@dfinity/agent@2.4.1?deps=@dfinity/candid@2.4.1,@dfinity/principal@2.4.1';
 import { Ed25519KeyIdentity } from 'https://esm.sh/@dfinity/identity@2.4.1?deps=@dfinity/agent@2.4.1,@dfinity/candid@2.4.1,@dfinity/principal@2.4.1';
-import { makeIdlFactory } from './node_modules/duel-game-core/idl.js';
-import { start } from './node_modules/duel-game-core/app.js';
-import { connectWs } from './node_modules/duel-game-core/ws.js';
-import { readIcEnv, deriveHost } from './node_modules/duel-game-core/ic-env.js';
+import { makeIdlFactory } from './node_modules/duel-game-core/dist/idl.js';
+import { start } from './node_modules/duel-game-core/dist/app.js';
+import { connectWs } from './node_modules/duel-game-core/dist/ws.js';
+import { readIcEnv, deriveHost } from './node_modules/duel-game-core/dist/ic-env.js';
 import { plugin } from './duel-racing-plugin.js';
 
 // `window.duelActorReady` / `window.__resolveDuelActor` are set up by an

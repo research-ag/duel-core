@@ -5,7 +5,7 @@
 // Usage:
 //
 //   import { makeIdlFactory } from "duel-game-core/idl.js";
-//   import { Actor, HttpAgent } from "@dfinity/agent";
+//   import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 //
 //   const idlFactory = makeIdlFactory(({ IDL }) => ({
 //     Action: IDL.Variant({ /* your move shape */ }),
@@ -15,7 +15,42 @@
 //
 // `buildGameTypes` receives the same `{ IDL }` the Candid tooling passes
 // to an `idlFactory`, so it can build `Action`/`State` out of any other
-// IDL type it needs (records, nested variants, vecs, ...).
+// IDL type it needs (records, nested variants, vecs, ...). This module
+// never imports an IDL implementation itself — `IDL` always arrives as a
+// parameter from the caller's own Candid tooling, so it works against
+// either `@icp-sdk/core/candid` or (for a caller not yet migrated off
+// it) `@dfinity/candid`, whichever built the `idlFactory` in the first
+// place.
+
+import type { IDL as IDLNS } from "@icp-sdk/core/candid";
+
+export type BuildGameTypes = (args: { IDL: typeof IDLNS }) => {
+  Action: IDLNS.Type;
+  State: IDLNS.Type;
+};
+
+/// Every named Candid type this package's service surface uses, keyed by
+/// name — see the return type below for the full list.
+export interface EngineTypes {
+  Seat: IDLNS.Type;
+  Verdict: IDLNS.Type;
+  End: IDLNS.Type;
+  Err: IDLNS.Type;
+  View: IDLNS.Type;
+  ClientKey: IDLNS.Type;
+  WsResult: IDLNS.Type;
+  CanisterWsOpenArguments: IDLNS.Type;
+  CanisterWsCloseArguments: IDLNS.Type;
+  WebsocketMessage: IDLNS.Type;
+  CanisterWsMessageArguments: IDLNS.Type;
+  CanisterWsGetMessagesArguments: IDLNS.Type;
+  CanisterOutputMessage: IDLNS.Type;
+  CanisterOutputCertifiedMessages: IDLNS.Type;
+  CanisterWsGetMessagesResult: IDLNS.Type;
+  WebsocketServiceMessageContent: IDLNS.Type;
+  WsRequest: IDLNS.Type;
+  WsMsg: IDLNS.Type;
+}
 
 /// Builds every named Candid type this package's service surface uses,
 /// keyed by name — `status`'s own type plus the WS protocol's types
@@ -28,7 +63,15 @@
 /// `makeIdlFactory`) so `ws/gateway-protocol.js` can `IDL.encode`/
 /// `IDL.decode` against the EXACT same type descriptions — one
 /// definition, so the two can't drift apart.
-export function buildEngineTypes({ IDL, Action, State }) {
+export function buildEngineTypes({
+  IDL,
+  Action,
+  State,
+}: {
+  IDL: typeof IDLNS;
+  Action: IDLNS.Type;
+  State: IDLNS.Type;
+}): EngineTypes {
   const Seat = IDL.Variant({ p1: IDL.Null, p2: IDL.Null });
   const Verdict = IDL.Variant({
     p1Wins: IDL.Null,
@@ -180,8 +223,8 @@ export function buildEngineTypes({ IDL, Action, State }) {
 
 /// Wraps a game's `{ Action, State }` Candid types in the fixed
 /// TwoPlayer service shape and returns a ready-to-use `idlFactory`.
-export function makeIdlFactory(buildGameTypes) {
-  return ({ IDL }) => {
+export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
+  return ({ IDL }: { IDL: typeof IDLNS }) => {
     const { Action, State } = buildGameTypes({ IDL });
     const t = buildEngineTypes({ IDL, Action, State });
 

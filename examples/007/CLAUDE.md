@@ -72,7 +72,7 @@ concrete to copy — it is **not** part of either package itself.
   `mo:duel-game-core/Ws`'s protocol directly (`duel-game-core/ws/
   gateway-*.js` does, registering this tab as its own WS Gateway) or
   imports any third-party library itself; `index.html`'s import map
-  resolves `duel-game-core`'s own `@dfinity/candid`/`cborg` dependencies
+  resolves `duel-game-core`'s own `@icp-sdk/core/candid`/`cborg` dependencies
   (bare specifiers a raw browser can't resolve on its own — see that
   file's comment) — and calls `start({ plugin, ws })` — every screen
   that's the same for every game (lobby, staging, rematch, busy
@@ -106,21 +106,31 @@ concrete to copy — it is **not** part of either package itself.
   instead of the default symlink — this is a static asset canister with
   no build step, so whatever lands in `node_modules/` is what gets
   served, byte for byte, and a symlink may not survive an asset-sync
-  step. `npm install` is the only "build" this frontend needs, exactly
-  as `mops install` is for the backend. **Gotcha:** because it's a copy,
-  not a symlink, a plain `npm install` after editing `../../../frontend/`
-  reports "up to date" and does NOT refresh the copy. See
-  `../../../CLAUDE.md`'s "After touching anything under `frontend/`"
-  section for the actual refresh procedure (a fast direct `rsync` copy
-  in the common case; a full `node_modules`+lockfile reinstall only if
-  `frontend/package.json`'s own `dependencies` changed) — do this
-  proactively after any change there, not just when asked to deploy.
-  `duel-game-core/ws.js` (see `../../../CLAUDE.md`'s toolchain
-  note) talks to `mo:duel-game-core/Ws`'s real `ic-websocket-cdk`
-  protocol, and pulls in `@dfinity/candid`/`cborg` transitively through
+  step. `npm install` is the only "build" this frontend ITSELF needs,
+  exactly as `mops install` is for the backend — but `duel-game-core`
+  is TypeScript now and ships from its own `dist/` (gitignored,
+  build-generated): `../../../frontend` must have been built
+  (`npm run build` there) BEFORE this `npm install` runs, or the copy
+  lands with no compiled `.js` in it at all. **Gotcha:** because it's a
+  copy, not a symlink, a plain `npm install` after editing
+  `../../../frontend/` reports "up to date" and does NOT refresh the
+  copy. See `../../../CLAUDE.md`'s "After touching anything under
+  `frontend/`" section for the actual refresh procedure (build, then a
+  fast direct `rsync` copy in the common case; a full
+  `node_modules`+lockfile reinstall only if `frontend/package.json`'s
+  own `dependencies` changed) — do this proactively after any change
+  there, not just when asked to deploy. `app.js` imports
+  `duel-game-core`'s own modules by their on-disk path under
+  `node_modules/duel-game-core/dist/...` (not a bare `duel-game-core/
+  ws.js`-style specifier — the browser has no such resolution without
+  an import map, and this repo doesn't give it one for that). What DOES
+  need `index.html`'s import map: `duel-game-core/ws.js` (see
+  `../../../CLAUDE.md`'s toolchain note) talks to
+  `mo:duel-game-core/Ws`'s real `ic-websocket-cdk` protocol, and pulls
+  in `@icp-sdk/core/candid`/`cborg` transitively through
   `duel-game-core`'s own `package.json` (a normal `npm install` picks
-  them up — nothing to add here) — resolved in the browser via
-  `index.html`'s import map, since bare specifiers deep inside a COPIED
+  them up — nothing to add here) — resolved in the browser via THAT
+  import map, since bare specifiers deep inside a COPIED
   `node_modules/duel-game-core` file have no other way to resolve.
 
 ## Build & test
@@ -141,8 +151,11 @@ mops test Rules            # ...so this matches Rules AND RulesUnit
 ```
 
 ```bash
-# Frontend: fetch the local duel-game-core npm package, then sanity-check
-# every JS module parses (no DOM needed to import):
+# Frontend: build duel-game-core first (its dist/ is what npm install
+# actually copies — see this file's own note above), fetch the local
+# duel-game-core npm package, then sanity-check every JS module parses
+# (no DOM needed to import):
+(cd ../../frontend && npm run build)
 cd frontend
 npm install
 node --check app.js duel007-plugin.js

@@ -8,8 +8,13 @@ identity and real-time push, so a new game only has to supply a small
 **GamePlugin**: the two Candid types, seat labels, and how to draw the
 board and action buttons.
 
-No build step is required — every file is plain ESM, dependency-free
-except for what you pass in yourself (see below).
+Written in TypeScript, published pre-compiled: `npm install` in this
+package builds `dist/` (`npm run build`, plain `tsc`) and everything a
+consumer imports — `duel-game-core/app.js` etc. — resolves there, with
+`.d.ts` types alongside. No build step is required of the CONSUMER: the
+files you get from `node_modules/duel-game-core` are plain, already-
+compiled ESM `.js`, dependency-free except for what you pass in yourself
+and the narrow, documented `ws/gateway-*.js` exception (see below).
 
 ```
 npm install duel-game-core
@@ -61,13 +66,14 @@ messages, verdict banner, rematch/leave/forfeit buttons) is handled by
 
 ## Wiring it up
 
-You build the `actor` — this package doesn't import `@dfinity/agent` or
-hardcode a CDN, so you're free to load it however you like (esm.sh, a
-bundled dependency, a mock for tests) — and a `ws` over it (see "Real-time
-push" below; `start()` requires one, there is no plain-polling mode):
+You build the `actor` — this package doesn't import `@icp-sdk/core/agent`
+(the successor to the deprecated `@dfinity/agent`) or hardcode a CDN, so
+you're free to load it however you like (esm.sh, a bundled dependency, a
+mock for tests) — and a `ws` over it (see "Real-time push" below;
+`start()` requires one, there is no plain-polling mode):
 
 ```js
-import { Actor, HttpAgent } from "@dfinity/agent"; // however you prefer to load it
+import { Actor, HttpAgent } from "@icp-sdk/core/agent"; // however you prefer to load it
 import { makeIdlFactory } from "duel-game-core/idl.js";
 import { start } from "duel-game-core/app.js";
 import { connectWs } from "duel-game-core/ws.js";
@@ -172,8 +178,9 @@ faster since `GatewayWs` proactively calls `ws_close` itself on
 `pagehide`/backgrounding).
 
 **Dependencies and the trade-off that buys.** This is the one place in
-this package that pulls in real npm dependencies — `@dfinity/candid`
-(Candid encode/decode of the message content blob) and `cborg`
+this package that pulls in real npm dependencies — `@icp-sdk/core/candid`
+(Candid encode/decode of the message content blob; the maintained
+successor to the deprecated `@dfinity/candid`) and `cborg`
 (CBOR-decoding `ws_get_messages`' envelope) — confined to
 `./ws/gateway-*.js`, the same narrow, documented exception
 `ic-websocket-cdk` gets on the backend (see the root `CLAUDE.md`'s rule

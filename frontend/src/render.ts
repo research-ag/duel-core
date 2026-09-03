@@ -16,10 +16,28 @@
 // DOM, no network, no globals. That's what makes it testable outside a
 // browser, and pluggable with any move/state shape a game defines.
 
-export const tag = (v) => Object.keys(v)[0];
-export const val = (v) => Object.values(v)[0];
+import type {
+  AwaitingRematchView,
+  BusyView,
+  DebriefView,
+  EngineErr,
+  GamePlugin,
+  InGameView,
+  LobbyView,
+  SeatTag,
+  StagingYouView,
+  View,
+} from "./types.js";
 
-export function esc(s) {
+export function tag(v: object): string {
+  return Object.keys(v)[0];
+}
+
+export function val(v: object): unknown {
+  return Object.values(v as Record<string, unknown>)[0];
+}
+
+export function esc(s: unknown): string {
   return String(s).replace(
     /[&<>"']/g,
     (c) =>
@@ -29,15 +47,15 @@ export function esc(s) {
         ">": "&gt;",
         '"': "&quot;",
         "'": "&#39;",
-      })[c],
+      })[c] as string,
   );
 }
 
 /// Encodes an arbitrary move value into a `data-act` attribute the
-/// framework's click delegation (see app.js) knows how to decode back
+/// framework's click delegation (see app.ts) knows how to decode back
 /// into the exact value to submit — so a game's `Action` can be any
 /// Candid shape, not just a bare nullary variant.
-export function actionAttr(actionValue) {
+export function actionAttr(actionValue: unknown): string {
   return `data-act='${esc(JSON.stringify(actionValue))}'`;
 }
 
@@ -45,7 +63,7 @@ export function actionAttr(actionValue) {
 /// cases here — these describe TwoPlayer's own rejections, never a
 /// game's `illegalMove` reason (which the engine already returns as
 /// free text from the game's own `validate`).
-export function errText(e) {
+export function errText(e: EngineErr): string {
   const t = tag(e);
   const v = val(e);
   switch (t) {
@@ -56,20 +74,20 @@ export function errText(e) {
     case "alreadySubmitted":
       return "You have already moved this round.";
     case "illegalMove":
-      return v;
+      return v as string;
     case "wrongPhase":
-      return v;
+      return v as string;
     case "reserved":
-      return `That seat is held for a rematch — ${v.secondsLeft}s left.`;
+      return `That seat is held for a rematch — ${(v as { secondsLeft: bigint }).secondsLeft}s left.`;
     case "notIdle":
-      return `The board is in use — ${v.secondsLeft}s until it can be taken over.`;
+      return `The board is in use — ${(v as { secondsLeft: bigint }).secondsLeft}s until it can be taken over.`;
     default:
       return t;
   }
 }
 
-function renderLobby(v, plugin) {
-  const seatBtn = (seat, open) => `
+function renderLobby(v: LobbyView, plugin: GamePlugin): string {
+  const seatBtn = (seat: SeatTag, open: boolean) => `
     <button class="seat" data-join="${seat}" ${open ? "" : "disabled"}>
       <span class="seat-label">${esc(plugin.seatLabel(seat))}</span>
       <span class="muted">${open ? "seat open" : "taken"}</span>
@@ -87,7 +105,7 @@ function renderLobby(v, plugin) {
     }`;
 }
 
-function renderBusy(v) {
+function renderBusy(v: BusyView): string {
   return `
     <h2>Board in use</h2>
     <p>Another game is under way.</p>
@@ -104,7 +122,7 @@ function renderBusy(v) {
 // normal, short wait doesn't carry a running countdown the whole time.
 const RECLAIM_WARNING_SECS = 15n;
 
-function renderReclaimWarning(secondsUntilReclaimable) {
+function renderReclaimWarning(secondsUntilReclaimable: bigint): string {
   if (secondsUntilReclaimable > RECLAIM_WARNING_SECS) return "";
   const when =
     secondsUntilReclaimable === 0n
@@ -114,8 +132,8 @@ function renderReclaimWarning(secondsUntilReclaimable) {
     someone else ${when} if the page stays idle.</p>`;
 }
 
-function renderStagingYou(v, plugin) {
-  const seat = tag(v.seat);
+function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string {
+  const seat = tag(v.seat) as SeatTag;
   return `
     <h2>Waiting for an opponent</h2>
     <p>You hold <strong class="seat-label">${esc(plugin.seatLabel(seat))}</strong>.</p>
@@ -130,8 +148,8 @@ function renderStagingYou(v, plugin) {
     <p><button data-leave class="ghost">Leave</button></p>`;
 }
 
-function renderAwaitingRematch(v, plugin) {
-  const seat = tag(v.openSeat);
+function renderAwaitingRematch(v: AwaitingRematchView, plugin: GamePlugin): string {
+  const seat = tag(v.openSeat) as SeatTag;
   return `
     <h2>Rematch offered</h2>
     <p>
@@ -142,16 +160,16 @@ function renderAwaitingRematch(v, plugin) {
     <p class="muted">Ignore it and the seat opens to anyone after a while.</p>`;
 }
 
-// The Forfeit button carries `data-confirm="..."` — app.js's click
+// The Forfeit button carries `data-confirm="..."` — app.ts's click
 // delegation shows a confirmation modal before dispatching any button
 // with that attribute, so a mid-game misclick can't hand the round to
 // the opponent unintentionally. The staging/debrief `data-leave` buttons
 // below (renderStagingYou/renderDebrief) deliberately don't carry it —
 // leaving before a game starts or after it's already over isn't
 // destructive the same way.
-function renderInGame(v, plugin) {
-  const mySeat = tag(v.seat);
-  const oppSeat = mySeat === "p1" ? "p2" : "p1";
+function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
+  const mySeat = tag(v.seat) as SeatTag;
+  const oppSeat: SeatTag = mySeat === "p1" ? "p2" : "p1";
 
   return `
     <div class="turnbar">
@@ -169,13 +187,13 @@ function renderInGame(v, plugin) {
     <p><button data-leave data-confirm="Forfeit this game? Your opponent will win." class="ghost">Forfeit</button></p>`;
 }
 
-function renderDebrief(v, plugin) {
-  const mySeat = tag(v.seat);
-  const oppSeat = mySeat === "p1" ? "p2" : "p1";
-  let title;
-  let cls;
+function renderDebrief<S>(v: DebriefView<S>, plugin: GamePlugin<S>): string {
+  const mySeat = tag(v.seat) as SeatTag;
+  const oppSeat: SeatTag = mySeat === "p1" ? "p2" : "p1";
+  let title: string;
+  let cls: string;
   if (tag(v.end) === "finished") {
-    const verdict = tag(val(v.end));
+    const verdict = tag(val(v.end) as object);
     if (verdict === "draw") {
       title = "It's a draw";
       cls = "draw";
@@ -188,7 +206,7 @@ function renderDebrief(v, plugin) {
     }
   } else {
     title =
-      tag(val(v.end)) === mySeat
+      tag(val(v.end) as object) === mySeat
         ? "You walked away"
         : "Your opponent walked away";
     cls = "draw";
@@ -204,7 +222,7 @@ function renderDebrief(v, plugin) {
     </p>`;
 }
 
-function renderEndedByOther() {
+function renderEndedByOther(): string {
   return `
     <h2>Your game was ended</h2>
     <p>The board went idle and someone else claimed it. Your game is gone.</p>
@@ -213,22 +231,22 @@ function renderEndedByOther() {
 
 /// View -> HTML. One branch per engine phase; `inGame`/`debrief` delegate
 /// the board/action markup to `plugin`.
-export function renderView(view, plugin) {
-  const t = tag(view);
-  const v = val(view);
+export function renderView<S>(view: View<S>, plugin: GamePlugin<S>): string {
+  const t = tag(view as object);
+  const v = val(view as object);
   switch (t) {
     case "lobby":
-      return renderLobby(v, plugin);
+      return renderLobby(v as LobbyView, plugin);
     case "busy":
-      return renderBusy(v);
+      return renderBusy(v as BusyView);
     case "stagingYou":
-      return renderStagingYou(v, plugin);
+      return renderStagingYou(v as StagingYouView, plugin);
     case "awaitingRematch":
-      return renderAwaitingRematch(v, plugin);
+      return renderAwaitingRematch(v as AwaitingRematchView, plugin);
     case "inGame":
-      return renderInGame(v, plugin);
+      return renderInGame(v as InGameView<S>, plugin);
     case "debrief":
-      return renderDebrief(v, plugin);
+      return renderDebrief(v as DebriefView<S>, plugin);
     case "endedByOther":
       return renderEndedByOther();
     default:

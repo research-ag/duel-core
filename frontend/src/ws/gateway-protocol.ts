@@ -13,24 +13,63 @@
 // only ever writes/reads it via Motoko's `to_candid`/`from_candid` — see
 // `../idl.js`'s `buildEngineTypes` doc header) — everything below is
 // this package's own from-scratch implementation of that same encoding,
-// using `@dfinity/candid`'s `IDL.encode`/`IDL.decode` against the EXACT
-// type descriptions `../idl.js` already declares for the canister's
-// service, so the two sides can't drift apart.
+// using `@icp-sdk/core/candid`'s `IDL.encode`/`IDL.decode` against the
+// EXACT type descriptions `../idl.js` already declares for the
+// canister's service, so the two sides can't drift apart.
 //
 // The CDK's own sequencing rule (`ic-websocket-cdk-mo`'s `Constants.mo`,
 // `INITIAL_CLIENT_SEQUENCE_NUM = 1`): a client's outgoing sequence number
 // is incremented BEFORE each send, so the first message a client ever
 // sends carries `sequence_num = 1`, not `0`.
 
-import { IDL } from "@dfinity/candid";
-import { buildEngineTypes } from "../idl.js";
+import { IDL } from "@icp-sdk/core/candid";
+import { buildEngineTypes, type BuildGameTypes, type EngineTypes } from "../idl.js";
+import type { EngineErr, View, WsRequest } from "../types.js";
+
+export interface ClientKey {
+  client_principal: unknown;
+  client_nonce: bigint;
+}
+
+/// The outer `WebsocketMessage` Candid record — what a transport's
+/// `send()` actually transmits; see `gateway-transport.js`.
+export interface WebsocketMessageRecord {
+  client_key: ClientKey | null;
+  sequence_num: bigint;
+  timestamp: bigint;
+  is_service_message: boolean;
+  content: Uint8Array;
+}
+
+/// A decoded incoming envelope — see `gateway-transport.js`'s `poll()`.
+export interface DecodedEnvelope {
+  clientKey: ClientKey;
+  sequenceNum: bigint;
+  timestamp: bigint;
+  isServiceMessage: boolean;
+  content: Uint8Array;
+}
+
+export type ProtocolAction =
+  | { kind: "open" }
+  | { kind: "ack"; lastIncomingSequenceNum: bigint }
+  | { kind: "close"; reason: string }
+  | {
+      kind: "message";
+      payload: { view: View } | { err: EngineErr };
+      reqId: bigint | null;
+    }
+  | { kind: "unknown" };
 
 /// Builds the encode/decode/interpret surface for one game's message
 /// shape. `gameIdlTypes` is the SAME `buildGameTypes` function passed to
 /// `makeIdlFactory` elsewhere (see `../idl.js`) — it supplies `Action`/
 /// `State`, the only two types the engine doesn't already fix.
 export class GatewayProtocol {
-  constructor({ gameIdlTypes }) {
+  private _types: EngineTypes;
+  private _nextOutgoingSeq: bigint;
+
+  constructor({ gameIdlTypes }: { gameIdlTypes: BuildGameTypes }) {
     const { Action, State } = gameIdlTypes({ IDL });
     this._types = buildEngineTypes({ IDL, Action, State });
     this._nextOutgoingSeq = 1n;
@@ -41,21 +80,21 @@ export class GatewayProtocol {
   /// bookkeeping over at 1 for that new identity — this must be called
   /// alongside every reopen or the canister rejects our first message
   /// post-reconnect as a sequence mismatch.
-  resetSequence() {
+  resetSequence(): void {
     this._nextOutgoingSeq = 1n;
   }
 
   /// Candid-encodes `value` against `type`, returning a `Uint8Array` —
-  /// `IDL.encode` hands back an `ArrayBuffer` in some `@dfinity/candid`
+  /// `IDL.encode` hands back an `ArrayBuffer` in some `@icp-sdk/core`
   /// versions, a `Uint8Array` in others; normalize once here so nothing
   /// downstream has to care which.
-  _encode(type, value) {
+  private _encode(type: IDL.Type, value: unknown): Uint8Array {
     const buf = IDL.encode([type], [value]);
     return buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   }
 
-  _decode(type, bytes) {
-    return IDL.decode([type], bytes)[0];
+  private _decode<T>(type: IDL.Type, bytes: Uint8Array): T {
+    return IDL.decode([type], bytes)[0] as T;
   }
 
   /// Builds the outer `WebsocketMessage` record for an application
@@ -64,7 +103,12 @@ export class GatewayProtocol {
   /// `null` for a fire-and-forget caller with nothing to correlate) is
   /// echoed back verbatim on this request's own `#view`/`#err` reply —
   /// see `../idl.js`'s `WsMsg` doc for why that round-trip exists.
-  buildAppMessage(clientKey, sid, req, reqId) {
+  buildAppMessage(
+    clientKey: ClientKey | null,
+    sid: string,
+    req: WsRequest,
+    reqId: bigint | null,
+  ): WebsocketMessageRecord {
     const content = this._encode(this._types.WsMsg, {
       req: { sid, req, reqId: reqId == null ? [] : [reqId] },
     });
@@ -75,14 +119,21 @@ export class GatewayProtocol {
   /// keep-alive reply — sent in response to every `#AckMessage` the
   /// canister's periodic timer pushes (see `../../backend/src/Ws.mo`'s
   /// doc header on the resulting disappearance-detection floor).
-  buildKeepAliveReply(clientKey, lastIncomingSequenceNum) {
+  buildKeepAliveReply(
+    clientKey: ClientKey | null,
+    lastIncomingSequenceNum: bigint,
+  ): WebsocketMessageRecord {
     const content = this._encode(this._types.WebsocketServiceMessageContent, {
       KeepAliveMessage: { last_incoming_sequence_num: lastIncomingSequenceNum },
     });
     return this._envelope(clientKey, content, true);
   }
 
-  _envelope(clientKey, content, isServiceMessage) {
+  private _envelope(
+    clientKey: ClientKey | null,
+    content: Uint8Array,
+    isServiceMessage: boolean,
+  ): WebsocketMessageRecord {
     const sequence_num = this._nextOutgoingSeq;
     this._nextOutgoingSeq += 1n;
     // TEMPORARY diagnostic — remove once the "Expected incoming sequence
@@ -123,10 +174,10 @@ export class GatewayProtocol {
   /// Never throws: a decode failure is exactly as actionable as any
   /// other unrecognized frame, so it folds into `{kind: "unknown"}`
   /// rather than needing its own try/catch at every call site.
-  interpret(envelope) {
+  interpret(envelope: DecodedEnvelope): ProtocolAction {
     try {
       if (envelope.isServiceMessage) {
-        const svc = this._decode(
+        const svc = this._decode<Record<string, unknown>>(
           this._types.WebsocketServiceMessageContent,
           envelope.content,
         );
@@ -134,22 +185,30 @@ export class GatewayProtocol {
         if ("AckMessage" in svc) {
           return {
             kind: "ack",
-            lastIncomingSequenceNum: svc.AckMessage.last_incoming_sequence_num,
+            lastIncomingSequenceNum: (
+              svc.AckMessage as { last_incoming_sequence_num: bigint }
+            ).last_incoming_sequence_num,
           };
         }
         if ("CloseMessage" in svc) {
-          return { kind: "close", reason: Object.keys(svc.CloseMessage.reason)[0] };
+          const reason = (svc.CloseMessage as { reason: object }).reason;
+          return { kind: "close", reason: Object.keys(reason)[0] };
         }
         return { kind: "unknown" }; // KeepAliveMessage: canister never sends this
       }
-      const msg = this._decode(this._types.WsMsg, envelope.content);
+      const msg = this._decode<Record<string, unknown>>(
+        this._types.WsMsg,
+        envelope.content,
+      );
       if ("view" in msg) {
-        const reqId = msg.view.reqId.length ? msg.view.reqId[0] : null;
-        return { kind: "message", payload: { view: msg.view.view }, reqId };
+        const v = msg.view as { reqId: [bigint] | []; view: View };
+        const reqId = v.reqId.length ? v.reqId[0] : null;
+        return { kind: "message", payload: { view: v.view }, reqId };
       }
       if ("err" in msg) {
-        const reqId = msg.err.reqId.length ? msg.err.reqId[0] : null;
-        return { kind: "message", payload: { err: msg.err.err }, reqId };
+        const e = msg.err as { reqId: [bigint] | []; err: EngineErr };
+        const reqId = e.reqId.length ? e.reqId[0] : null;
+        return { kind: "message", payload: { err: e.err }, reqId };
       }
       return { kind: "unknown" }; // a stray #req echoed back — nothing to do with it
     } catch {
