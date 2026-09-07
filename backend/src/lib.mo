@@ -11,15 +11,33 @@
 ///     (`end = #aborted seat`) instead of the game silently vanishing
 ///   • during the debrief, either previous player can request a REMATCH;
 ///     two simultaneous rematch requests converge race-free (see below)
+///   • `leave` from a debrief dismisses it for YOU specifically — your own
+///     `status`/`join`/`rematch` stop treating you as a participant of it
+///     immediately, even though the underlying phase legitimately stays
+///     #debrief until your partner also leaves (or it expires), so their
+///     own rematch option isn't cut short by your exit
 ///   • after `idleTimeoutNs` of inactivity, third parties may take over:
 ///     claim a squatted staging seat, reset a dead game, or start fresh
-///     over an expired debrief
+///     over an expired debrief — or a host may call `sweep` on its own
+///     periodic timer to free an abandoned board even with no visitor
+///     around to trigger that lazily
 ///   • every session gets one truthful `status` view — including the
 ///     proactive #endedByOther notice when a game was ripped away
 ///
 /// ── How a host actor wires it ──────────────────────────────────────────────
 ///
+/// Every mutating operation (`join`/`submit`/`rematch`/`leave`/`reset`/
+/// `ackEnded`) is driven EXCLUSIVELY through `mo:duel-game-core/Ws`'s
+/// `ws_message` — there is no plain Candid method for any of them, and no
+/// fallback: a direct update call is exactly the race a WS-only transport
+/// exists to close (two independent update calls have no guaranteed
+/// relative processing order once both are in flight; see `src/Ws.mo`'s
+/// doc header). Only `status` stays a plain public `query` — it's
+/// side-effect-free, so it carries no such race risk, and it's useful for
+/// tooling/tests that don't want a WS handshake:
+///
 ///   import TP "mo:duel-game-core";
+///   import Ws "mo:duel-game-core/Ws";
 ///   import Rules "YourGameRules"; // any module implementing TP.Spec<S, M>
 ///   import Time "mo:core/Time";
 ///
@@ -27,13 +45,16 @@
 ///     let table : TP.Table<Rules.State, Rules.Action> =   // implicitly stable
 ///       TP.create(60_000_000_000); // 60 s idle timeout
 ///
-///     public func join(sid : Text, seat : TP.Seat) : async TP.Res<TP.JoinOk> {
-///       TP.join(Rules.spec(), table, Time.now(), sid, seat)
+///     public query func status(sid : Text) : async TP.View<Rules.State> {
+///       TP.status(table, Time.now(), sid);
 ///     };
-///     public func submit(sid : Text, a : Rules.Action) : async TP.Res<TP.SubmitOk> {
-///       TP.submit(Rules.spec(), table, Time.now(), sid, a)
-///     };
-///     // …leave / rematch / reset / status the same way.
+///
+///     // ...wire Ws.mo's ws_open/ws_close/ws_message/ws_get_messages (it
+///     // dispatches every request straight into TP.join/TP.submit/...
+///     // above, with Time.now()) and an idle-sweep timer — see
+///     // `src/Ws.mo`'s doc header for the full four-method forward and
+///     // `backend/README.md`'s "Real-time push" section for the worked
+///     // example end to end.
 ///   };
 ///
 /// `Table<S, M>` is a stable type whenever the game's state `S` and move `M`
@@ -56,6 +77,13 @@
 ///   4. NO SILENT ENDINGS. Aborting yields a shared #aborted debrief; an idle
 ///      takeover records the evicted players so `status` shows them
 ///      #endedByOther until they acknowledge (`ackEnded` / any re-entry).
+///   5. LEAVE MEANS LEFT. `status`/`join`/`rematch` all treat a session that
+///      already acked its own debrief (via `leave`) as no longer a
+///      participant of it, even while the phase itself lingers in #debrief
+///      for the still-deciding partner. Without this, "Return to lobby"
+///      kept showing that same player the identical #debrief screen (with
+///      live Rematch/Leave buttons) until the partner ALSO left — visually
+///      indistinguishable from the button doing nothing at all.
 ///
 /// Alternating-turn games: this engine is simultaneous-reveal. Model strictly
 /// alternating games with a pass-move convention — include a #pass move, have
@@ -150,7 +178,10 @@ module {
     idleTimeoutNs : Int;
     var phase : Phase<S, M>;
     var seq : Nat;                    // match counter (a new staging = new match)
-    var lastEnded : ?Ended;
+    // One entry per game that vanished without both players seeing a
+    // debrief, still missing at least one ack — see `noteEnded`'s own doc
+    // for why this must stay a list, not a single slot.
+    var lastEnded : [Ended];
     var debriefAcked : [SessionId];   // who has dismissed the CURRENT debrief
   };
 
@@ -158,7 +189,7 @@ module {
     idleTimeoutNs;
     var phase = #empty;
     var seq = 0;
-    var lastEnded = null;
+    var lastEnded = [];
     var debriefAcked = [];
   };
 
@@ -194,7 +225,11 @@ module {
   public type View<S> = {
     #lobby : { p1Open : Bool; p2Open : Bool; resetAvailable : Bool };
     #busy : { secondsUntilTakeover : Nat };
-    #stagingYou : { seat : Seat; reservedForPartner : Bool };
+    #stagingYou : {
+      seat : Seat;
+      reservedForPartner : Bool;
+      secondsUntilReclaimable : Nat;
+    };
     #awaitingRematch : { openSeat : Seat };
     #inGame : {
       seat : Seat;
@@ -237,17 +272,42 @@ module {
     if (d.p1 == session) { ?#p1 } else if (d.p2 == session) { ?#p2 } else { null };
   };
 
+  /// Like `seatInDebrief`, but a session that already acknowledged THIS
+  /// debrief (via `leave` — see its own doc) no longer counts as a
+  /// participant, even though the table's `phase` can still legitimately
+  /// be `#debrief` (it lingers until the OTHER participant also leaves,
+  /// or it expires, so a still-deciding partner keeps their rematch
+  /// option open). Used by every debrief-phase operation EXCEPT `leave`
+  /// itself (which must stay callable, idempotently, to ack in the first
+  /// place — see `push`'s dedup). Without this, a session that clicked
+  /// "leave" kept seeing the exact same `#debrief` view from `status`
+  /// until the partner also left, with no sign their own click had done
+  /// anything — indistinguishable from the button not working at all.
+  func activeDebriefSeat<S, M>(t : Table<S, M>, d : Debrief<S>, session : SessionId) : ?Seat {
+    if (member(t.debriefAcked, session)) { null } else { seatInDebrief(d, session) };
+  };
+
   /// A game vanished without a debrief for these players — remember them so
-  /// `status` can show #endedByOther until they acknowledge.
+  /// `status` can show #endedByOther until they acknowledge. Appends rather
+  /// than replacing: this table's board is free again (`#empty`) the
+  /// instant this runs, so an entirely different pair can join, play, and
+  /// EVEN THIS SAME WAY vanish again before the first pair ever comes back
+  /// to ack — a single `?Ended` slot would silently drop the earlier
+  /// pair's notice the moment the second one landed. Skips recording an
+  /// entry that's already fully acked (the pre-acked-debrief-takeover
+  /// case) — nothing downstream ever needs one.
   func noteEnded<S, M>(t : Table<S, M>, p1 : SessionId, p2 : SessionId, acked : [SessionId]) {
-    t.lastEnded := ?{ p1; p2; acked };
+    if (member(acked, p1) and member(acked, p2)) return;
+    t.lastEnded := t.lastEnded.concat([{ p1; p2; acked }]);
   };
 
   func unackedEnded<S, M>(t : Table<S, M>, session : SessionId) : Bool {
-    switch (t.lastEnded) {
-      case (?e) (e.p1 == session or e.p2 == session) and not member(e.acked, session);
-      case null false;
+    for (e in t.lastEnded.values()) {
+      if ((e.p1 == session or e.p2 == session) and not member(e.acked, session)) {
+        return true;
+      };
     };
+    false;
   };
 
   func stage<S, M>(t : Table<S, M>, now : Int, session : SessionId, seat : Seat, reservedFor : ?SessionId) {
@@ -334,10 +394,14 @@ module {
       };
 
       case (#debrief d) {
-        switch (seatInDebrief(d, session)) {
+        switch (activeDebriefSeat(t, d, session)) {
           case (?_) {
             // veteran: joining from the debrief = starting a rematch staging,
-            // with a free choice of seat; the partner gets the reservation
+            // with a free choice of seat; the partner gets the reservation.
+            // (A session that already acked THIS debrief via `leave` falls
+            // through to `case null` below instead — having said "I'm
+            // done here", clicking a lobby seat shouldn't quietly turn
+            // into a rematch with the old partner.)
             let partner = if (d.p1 == session) d.p2 else d.p1;
             stage(t, now, session, seat, ?partner);
             #ok(#staged(seat));
@@ -365,7 +429,12 @@ module {
     switch (t.phase) {
 
       case (#debrief d) {
-        switch (seatInDebrief(d, session)) {
+        // A session that already acked THIS debrief via `leave` is
+        // treated as no longer a participant (see activeDebriefSeat's
+        // doc) — #notSeated below, same as any other outsider, rather
+        // than silently reviving a rematch with the old partner after
+        // they said they were done.
+        switch (activeDebriefSeat(t, d, session)) {
           case (?mySeat) {
             let partner = if (d.p1 == session) d.p2 else d.p1;
             stage(t, now, session, mySeat, ?partner);
@@ -537,16 +606,50 @@ module {
     };
   };
 
-  /// Acknowledge an #endedByOther notice (host wires this to "return to base").
-  public func ackEnded<S, M>(t : Table<S, M>, session : SessionId) {
-    switch (t.lastEnded) {
-      case (?e) {
-        if (e.p1 == session or e.p2 == session) {
-          t.lastEnded := ?{ p1 = e.p1; p2 = e.p2; acked = push(e.acked, session) };
+  /// Frees an idle board with no visitor required to trigger it — the same
+  /// eviction rule `join`/`reset` already apply to an outsider, just
+  /// callable with no session at all. Meant to be driven by a host's own
+  /// periodic timer (see README's wiring example): in a 2-player casual
+  /// game there is often nobody left to poll an abandoned board and
+  /// trigger the lazy, visitor-driven eviction those two functions do, so
+  /// without this a board both players walked away from just sits
+  /// occupied forever instead of freeing itself.
+  public func sweep<S, M>(t : Table<S, M>, now : Int) {
+    switch (t.phase) {
+      case (#empty) {};
+      case (#staging st) {
+        if (expired(t, st.since, now)) { t.phase := #empty };
+      };
+      case (#active g) {
+        if (expired(t, g.lastActivity, now)) {
+          noteEnded(t, g.p1, g.p2, []);
+          t.phase := #empty;
         };
       };
-      case null {};
+      case (#debrief d) {
+        if (expired(t, d.since, now)) {
+          noteEnded(t, d.p1, d.p2, [d.p1, d.p2]); // they already saw it
+          t.phase := #empty;
+        };
+      };
     };
+  };
+
+  /// Acknowledge an #endedByOther notice (host wires this to "return to
+  /// base"). Only ever touches THIS session's own entry (if any) — a
+  /// board can carry more than one still-pending notice at once, see
+  /// `noteEnded`'s own doc — and drops that entry for good once every
+  /// participant it names has acked it.
+  public func ackEnded<S, M>(t : Table<S, M>, session : SessionId) {
+    t.lastEnded := t.lastEnded.filterMap(
+      func(e) {
+        if (e.p1 != session and e.p2 != session) { return ?e };
+        let acked = push(e.acked, session);
+        if (member(acked, e.p1) and member(acked, e.p2)) { null } else {
+          ?{ p1 = e.p1; p2 = e.p2; acked };
+        };
+      }
+    );
   };
 
   /// The one truthful, per-caller status view. Pure — safe as a query.
@@ -561,7 +664,18 @@ module {
 
       case (#staging st) {
         if (st.session == session) {
-          #stagingYou { seat = st.seat; reservedForPartner = isSome(st.reservedFor) };
+          // This branch never checks `expired(t, st.since, now)` — the
+          // seat stays #stagingYou for its own occupant no matter how
+          // idle it's gone (only a THIRD PARTY's `join` actually evicts
+          // it, below). `secondsUntilReclaimable` is how that occupant
+          // learns they're on a clock at all — without it, a host's UI
+          // has nothing to warn "waiting for an opponent" with, and the
+          // seat can vanish out from under them with no notice.
+          #stagingYou {
+            seat = st.seat;
+            reservedForPartner = isSome(st.reservedFor);
+            secondsUntilReclaimable = secsLeft(t, st.since, now);
+          };
         } else if (st.reservedFor == ?session) {
           #awaitingRematch { openSeat = otherSeat(st.seat) };
         } else if (unackedEnded(t, session)) {
@@ -603,7 +717,13 @@ module {
       };
 
       case (#debrief d) {
-        switch (seatInDebrief(d, session)) {
+        // activeDebriefSeat (not plain seatInDebrief): once THIS session
+        // has acked its own debrief (see `leave`), it falls through to
+        // `case null` below exactly like a non-participant — otherwise
+        // "Return to lobby" kept showing the SAME #debrief view (nothing
+        // about d.p1/d.p2 membership changed) until the partner also
+        // left, giving no sign the click had done anything.
+        switch (activeDebriefSeat(t, d, session)) {
           case (?mySeat) {
             #debrief { seat = mySeat; end = d.end; turns = d.turns; finalGame = d.finalGame };
           };

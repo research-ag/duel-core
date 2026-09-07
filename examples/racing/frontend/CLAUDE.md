@@ -42,12 +42,101 @@ TypeScript with no framework:
   `control-scene.service.ts`, `world-scene.service.ts`); the camera is
   always the static view — don't add a settings UI or a camera-mode
   switch without being asked.
-- `game-communication/services/lobby-connection.service.ts` polls the
-  same canister `status` query duel-game-core's own chrome polls (sharing
-  one actor via `window.duelActorReady`, and one session id via
-  `sessionStorage`), and turns it into the `{ slot, step }[]` event shape
-  (`nextStep`, `emitNextStep`, `lobbyData`, ...) `gameplay.service.ts`
-  expects.
+- `src/duel/duel-app.js` builds `agent`'s identity from a FRESH Ed25519
+  keypair generated on every page load (`Ed25519KeyIdentity.generate()`,
+  no seed), not the plain anonymous identity `HttpAgent.create({ host })`
+  defaults to. This game has no login, but `ic-websocket-cdk`'s
+  `ws_open` hard-rejects an anonymous caller outright ("Anonymous
+  principal is not allowed") — with no `identity` passed, the WS
+  handshake (and with it the whole app, since there's no polling
+  fallback) never came up at all; that's the real bug behind a console
+  full of repeating `ws_open: Anonymous principal is not allowed` errors
+  and a lobby that never leaves the loading state.
+  **Do NOT derive that identity's seed from this tab's own `sid`** so it
+  stays the same across a plain reload: `ic-websocket-cdk@0.4.1`'s own
+  `remove_client` cleans up its principal->client_key lookup by
+  PRINCIPAL alone, not scoped to the specific `client_key` being removed.
+  A plain reload gives the OLD page's own `ws_close()` no guarantee of
+  completing before the tab is torn down, so if that stale close (or its
+  eventual keep-alive-timeout eviction) lands AFTER the NEW page has
+  re-registered under the SAME principal, it silently erases the NEW,
+  perfectly-live connection's own lookup entry — surfacing as
+  `ws_message: Client with principal ... doesn't have an open
+  connection` immediately, and "Connection closed — reload to
+  reconnect." once the ack keep-alive can no longer be sent either.
+  Retry logic alone can't paper over this — `../../../frontend/ws/
+  gateway-client.js`'s send retries and `_invalidateAndRetry()` reopen on
+  failure, but neither stops a live connection's lookup entry from being
+  erased out from under it in the first place; only NOT sharing a
+  principal across reload (this fresh-per-load identity) does. `sid`
+  itself — the engine's actual player identity — already persists across
+  reload via sessionStorage regardless, completely independent of this
+  principal, so nothing player-visible is lost by not also pinning the
+  WS-layer identity. If "Connection closed" or this exact `ws_message`
+  error ever comes back, check whether something reintroduced a
+  stable-across-reload principal before assuming it's a new bug.
+  **esm.sh gotcha:** loading `@dfinity/identity@2.4.1` bare (no `?deps=`)
+  breaks with `Uncaught SyntaxError: The requested module
+  '/@dfinity/candid?target=es2022' does not provide an export named
+  'bufFromBufLike'` — that package's own `delegation.ts` imports
+  `@dfinity/candid` with NO version constraint at all (unlike
+  `@dfinity/agent@2.4.1`, which pins `^2.4.1`), so esm.sh resolves it to
+  whatever's currently tagged "latest," which has since renamed/dropped
+  that export. Fixed by pinning both esm.sh imports to the exact same
+  dependency versions via `?deps=@dfinity/candid@2.4.1,...` (see
+  `duel-app.js`'s import lines) — confirmed this makes both modules'
+  `@dfinity/candid`/`@dfinity/principal` imports resolve to
+  byte-identical esm.sh URLs. Don't drop the `?deps=` query strings.
+- `lobby-connection.service.ts`'s `init()` fires an immediate `status`
+  `request()` the moment `getDuelWs()` resolves, ahead of the shared
+  connection's own first poll tick. This is safe only because
+  `../../../frontend/ws/gateway-client.js`'s `send()`/`request()`
+  themselves coalesce on `_ensureOpen()` and wait for the `ws_open`
+  handshake to actually finish before sending anything (see
+  `../../../frontend/README.md`'s "Real-time push" section) — calling
+  `request()` before the connection is known-open is safe precisely
+  because of that coalescing. Don't add a "wait for onopen first"
+  workaround here: if a call fired this early ever again surfaces as
+  "duel status request failed" in the console with a `null` `client_key`
+  (`Invalid record ... field client_key -> Cannot read properties of
+  null (reading 'hasOwnProperty')`), the bug is that `_ensureOpen()`'s
+  own coalescing regressed, not that this file needs its own open-wait.
+- `game-communication/services/lobby-connection.service.ts` shares the
+  SAME `GatewayWs` duel-game-core's own chrome uses for push (one
+  connection via `window.duelWsReady`, one session id via
+  `sessionStorage` — see `duel-actor.ts`), and turns whatever view it
+  delivers into the `{ slot, step }[]` event shape (`nextStep`,
+  `emitNextStep`, `lobbyData`, ...) `gameplay.service.ts` expects. It has
+  **no polling of its own**: `init()` subscribes to the connection's
+  `message` event (`GatewayWs` extends `EventTarget`, so this doesn't
+  steal duel-app.js's own `ws.onmessage` — see
+  `../../../frontend/ws/gateway-client.js`), and `emitNextStep()`
+  submits a move via `request(sid, req)` (not `send()`), which resolves
+  to THAT call's own `{ view } | { err }` — correlated to this specific
+  submission, not whichever view the shared connection's push stream
+  happens to deliver next — so `gameplay.service.ts`'s existing
+  rejection/retry logic needed no changes. This service must keep having
+  NO poll loop of its own: `GatewayWs` runs exactly one poll loop shared
+  by chrome and race alike, so two independent fetches can never resolve
+  out of order and race each other. One sharp edge is still worth
+  knowing before touching `SelfGatewayTransport` (in
+  `../../../frontend/ws/gateway-transport.js`): its `gateway_principal`
+  is this tab's own stable identity, unchanged across a reconnect, and
+  the CDK's outgoing queue is keyed by that principal (not by
+  `client_key`) — so the queue itself persists across a reconnect too.
+  Its polling nonce must therefore only ever be set once, in the
+  constructor, and never reset in `open()`; resetting it on reconnect
+  would replay the whole persisted queue from the start, re-delivering
+  already-processed `#view` pushes in a fast burst — visible as a car
+  briefly animating backwards before "teleporting" to the correct
+  position — before catching up to the real current one. If this symptom
+  shows up, look for "something got reset that should have persisted
+  across a reconnect."
+  `duel-game-core` ships no plain-polling fallback anywhere — no `?ws=0`
+  flag, no `app.js`-side poll loop, no `ws/poller.js` module: `ws` is
+  unconditionally required end to end, and the backend has no plain
+  mutating Candid method to poll in the first place (see
+  `../CLAUDE.md`/`../../../backend/src/Ws.mo`'s doc header).
 - The in-race HUD (speedometer / minimap / position+time panel) is
   `app/modules/gameplay/game-viewport/hud/hud.ts` — one plain class that
   subscribes to `GameStateService`'s subjects directly and pokes the DOM

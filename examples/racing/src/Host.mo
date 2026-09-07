@@ -1,33 +1,36 @@
-// Reference host actor, wired exactly as the duel-game-core README shows.
-import TP "mo:duel-game-core";
-import Rules "RacingRules";
 import Time "mo:core/Time";
 
-persistent actor {
-  // Implicitly stable under `persistent actor` (moc 1.x); mutation happens
-  // through the record's inner `var` fields, so `let` suffices.
-  let table : TP.Table<Rules.State, Rules.Action> =
-    TP.create(60_000_000_000); // 60 s idle timeout
+import TP "mo:duel-game-core";
+import Ws "mo:duel-game-core/Ws";
+import ActorMixin "mo:duel-game-core/ActorMixin";
+import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
-  public func join(sid : Text, seat : TP.Seat) : async TP.Res<TP.JoinOk> {
-    TP.join(Rules.spec(), table, Time.now(), sid, seat);
-  };
-  public func submit(sid : Text, a : Rules.Action) : async TP.Res<TP.SubmitOk> {
-    TP.submit(Rules.spec(), table, Time.now(), sid, a);
-  };
-  public func rematch(sid : Text) : async TP.Res<TP.RematchOk> {
-    TP.rematch(Rules.spec(), table, Time.now(), sid);
-  };
-  public func leave(sid : Text) : async TP.Res<()> {
-    TP.leave(table, Time.now(), sid);
-  };
-  public func reset(sid : Text) : async TP.Res<()> {
-    TP.reset(table, Time.now(), sid);
-  };
-  public func ackEnded(sid : Text) : async () {
-    TP.ackEnded(table, sid);
-  };
+import Rules "RacingRules";
+
+persistent actor {
+
+  let table : TP.Table<Rules.State, Rules.Action> = TP.create(60_000_000_000); // 60 s idle timeout
+
   public query func status(sid : Text) : async TP.View<Rules.State> {
     TP.status(table, Time.now(), sid);
   };
+
+  transient let wsHub : Ws.Hub = Ws.createHub();
+  transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
+    Rules.spec(),
+    table,
+    wsHub,
+    {
+      encode = func(m : Ws.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
+      decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
+    },
+    IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
+  );
+  attached.ws.init<system>();
+
+  // `attached.sweep` (not a bare `TP.sweep(table, Time.now())`) pushes a
+  // fresh view to every session the idle sweep just evicted — see
+  // `Ws.Attached`'s own doc.
+  include ActorMixin<system>(attached.ws, attached.sweep);
+
 };

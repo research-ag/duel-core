@@ -6,7 +6,7 @@ import CarPositioningModel from '../../gameplay/models/gameplay/world/car-positi
 import LobbyRuntimeDataModel from '../../gameplay/models/gameplay/lobby/lobby-runtime-data.model';
 import PlayerModel from '../../gameplay/models/gameplay/entities/player.model';
 import { CarData } from '../../../api/interfaces/car.interfaces';
-import { getDuelActor, getSid } from '../utils/duel-actor';
+import { getDuelWs, getSid } from '../utils/duel-actor';
 import { RacingAction, RacingCarState, RacingState } from '../interfaces/racing-state.interfaces';
 import { GameStateService } from '../../game-shared/services/game-state.service';
 import { CinematicUtils } from '../../../../../utils/cinematic.utils';
@@ -26,8 +26,6 @@ const CAR: CarData = {
   brakingForce: 35000,
   mass: 1350,
 };
-
-const POLL_MS = 1000;
 
 function toPositioning(car: RacingCarState): CarPositioningModel {
   return new CarPositioningModel(new Vector2(car.position[0], car.position[1]), car.rotation, car.speed);
@@ -57,10 +55,23 @@ function reconstructTrajectory(before: RacingCarState, after: RacingCarState): S
 /// there is no lobby URL/slot/car selection here — duel-game-core's own
 /// screens (index.html's #screen, driven by duel-app.js) already handle
 /// choosing a seat and waiting for an opponent. This service's only job
-/// is to notice (by polling the same `status` query the chrome polls)
-/// when a game is under way, and translate it into the
+/// is to notice (by sharing duel-app.js's own push connection — see
+/// getDuelWs()) when a game is under way, and translate it into the
 /// `{ slot, step }[]` event shape gameplay.service.ts already expects —
-/// so nothing downstream of here needed to change.
+/// so nothing downstream of here needed to change. This service has NO
+/// polling of its own: `onMessage()` just reacts to whatever view the
+/// shared `GatewayWs` delivers next (canister push, plus immediately
+/// after every submitted move — see emitNextStep()) — a second,
+/// independent poll loop here would race the shared connection's own
+/// fetches with no ordering guarantee between them, which is exactly
+/// what once made cars briefly animate backwards before "teleporting"
+/// to the correct position, back when this ran over a plain-polling
+/// transport (since removed — see `examples/racing/CLAUDE.md`'s
+/// "cars occasionally animated backwards" history for the full story).
+/// There's no plain-polling fallback anywhere
+/// in `duel-game-core` any more — `duel-app.js`'s `ws` always exists, and
+/// this is the only communication channel to the canister, chrome and
+/// race alike.
 export class LobbyConnectionService {
 
   // `isFinal: true` exactly once per race — see the #debrief handling in
@@ -74,24 +85,32 @@ export class LobbyConnectionService {
   // debrief screen already shows the result.
   public finish: Observable<number> = new Observable<number>();
   public lobbyData: BehaviorSubject<LobbyRuntimeDataModel | null> = new BehaviorSubject<LobbyRuntimeDataModel | null>(null);
-  // Fires once per race — the very first one, and again on every rematch
-  // (detected as a not-in-game -> in-game transition, since a rematch
-  // always passes back through #debrief/#awaitingRematch first). This is
-  // the ONLY reliable "start of a new race" signal: the canister's own
-  // per-race counters (RacingState.step, the engine's own `turn`) both
-  // reset to 0 for a rematch same as for the first game, so they can't
-  // distinguish "new race" from "impossible step regression" on their own.
-  // gameplay.service.ts subscribes to this to reset its own per-race
-  // state — see its resetForNewRace().
-  public raceStarted: Subject<void> = new Subject();
+  // Fires once per race THIS SERVICE INSTANCE has seen — the very first
+  // one (whether that's a genuinely fresh race or a page reload landing
+  // back in one already under way), and again on every rematch (detected
+  // as a not-in-game -> in-game transition, since a rematch always passes
+  // back through #debrief/#awaitingRematch first). This is the ONLY
+  // reliable "start of a new race, from this service's point of view"
+  // signal: the canister's own per-race counters (RacingState.step, the
+  // engine's own `turn`) both reset to 0 for a rematch same as for the
+  // first game, so they can't distinguish "new race" from "impossible
+  // step regression" on their own. `resumedAtStep` is the round the
+  // canister was ACTUALLY at when this fired — 0 for a genuinely fresh
+  // race, but nonzero when reconnecting mid-race (a reload) — so
+  // gameplay.service.ts's startRace() can seed its own step/clock
+  // counters correctly instead of always assuming a 0-start.
+  // `youAlreadySubmitted` is the canister's own View.youSubmitted at that
+  // same moment — true when reconnecting mid-round with my own move
+  // already locked in — so startRace() can sync car positions/HUD
+  // without ALSO asking for (and submitting) a second move for a round
+  // I've already committed to. See onStatus()'s own comment on both.
+  public raceStarted: Subject<{ resumedAtStep: number, youAlreadySubmitted: boolean }> = new Subject();
 
-  private actor: any;
-  private sid: string = '';
+  private ws: any; // shared GatewayWs — see duel-game-core/ws/gateway-client.js
   private mySlot: number = -1;
   private wasInGame: boolean = false;
   private prevGame: RacingState | null = null;
   private pendingMine: StepDataModel | null = null;
-  private pollTimer: ReturnType<typeof setTimeout> | undefined;
   // True from the moment the game-ending step is delivered as a final
   // nextStep (see onStatus()'s #debrief handling) until gameplay.service.ts
   // calls finishRace() once it's actually done animating it - keeps
@@ -106,15 +125,43 @@ export class LobbyConnectionService {
     return true;
   }
 
-  /// Starts polling and returns `raceStarted` — subscribe to it for "a
-  /// race is under way" events, fired once per race (see its own doc).
-  public connectToLobby(): Observable<void> {
+  // Read LIVE on every use, never cached: sessionStorage's "sid" key is
+  // written by duel-app.js's own start() (see its own comments), a
+  // SEPARATE script from this one — caching a single early read here
+  // raced that write and could permanently capture "" (getSid()'s
+  // not-set fallback) for the rest of the session, since nothing ever
+  // re-read it afterward. That's exactly what produced "You are not
+  // seated in this game." on a session's first submitted move: an empty
+  // sid isn't seated in anything, and every subsequent move kept reusing
+  // the same wrong, cached value. By the time a player can actually
+  // submit a move, they've already joined through duel-app.js's own UI,
+  // which only exists once its start() has already run and written the
+  // real sid — so a live read here is always safe AND simpler than
+  // reasoning about which of two separately-loaded scripts runs first.
+  private get sid(): string {
+    return getSid();
+  }
+
+  /// False once the shared `GatewayWs` has given up (see
+  /// duel-game-core/ws/gateway-client.js's `closed`/disconnect doc) — used by
+  /// gameplay.service.ts's requestAndSubmitMove() to stop retrying a
+  /// submit against a connection that's already gone, rather than
+  /// spinning a tight retry loop against it (app.js's own chrome already
+  /// shows "Connection closed — reload to reconnect" once this happens).
+  public get isConnected(): boolean {
+    return !!this.ws && !this.ws.closed;
+  }
+
+  /// Subscribes to the shared push poller and returns `raceStarted` —
+  /// subscribe to it for "a race is under way" events, fired once per
+  /// race (see its own doc).
+  public connectToLobby(): Observable<{ resumedAtStep: number, youAlreadySubmitted: boolean }> {
     this.init().then();
     return this.raceStarted.asObservable();
   }
 
   public disconnectFromLobby(): void {
-    clearTimeout(this.pollTimer);
+    if (this.ws) this.ws.removeEventListener('message', this.onMessage);
   }
 
   emitLoadingStateChanged(isLoading: boolean): Observable<any> {
@@ -137,27 +184,81 @@ export class LobbyConnectionService {
     this.pendingMine = data;
     const trajectory = data.trajectory || new StepTrajectoryModel(0, 0);
     const action: RacingAction = { l: trajectory.l, c: trajectory.c };
-    return from(this.actor.submit(this.sid, action));
+    // ws.request() resolves to THIS call's own { view } / { err } (never
+    // racing an unsolicited push from the other seat — see
+    // gateway-client.js's own doc) and rejects on a genuine transport
+    // failure. There is no plain actor.submit() to fall back to at all
+    // any more (mutation goes exclusively through ws_message — see the
+    // repo root CLAUDE.md's frontend bullet); gameplay.service.ts's requestAndSubmitMove()
+    // only ever checks 'err' in result / the Observable's error channel,
+    // so its retry logic needed no changes when this moved off the old
+    // plain-polling transport.
+    return from(this.ws.request(this.sid, { submit: action }));
   }
 
   emitFinished(stepsCount?: number): Observable<any> {
     return of(null);
   }
 
-  private async init(): Promise<void> {
-    this.actor = await getDuelActor();
-    this.sid = getSid();
-    this.poll();
+  /// Submits a `leave` over the same shared connection/session id
+  /// emitNextStep() uses — exactly what clicking duel-game-core's own
+  /// "Forfeit" button does (see ../../../../../../../frontend/render.js's
+  /// renderInGame/doLeave), just triggered from app code instead of a
+  /// click. Used by gameplay.service.ts's init() when the track fails to
+  /// load even after retries: rather than leaving this tab stuck forever
+  /// on a loading screen the opponent can't see past either, bail out of
+  /// the race the same way a human clicking Forfeit would (see
+  /// ../../../../../../CLAUDE.md's architecture rule 7 — `leave` from an
+  /// active game produces a shared `#aborted` debrief for both seats, it
+  /// never leaves a game silently hanging). Swallows its own failure:
+  /// this is already the last resort, and if `leave` itself doesn't land
+  /// duel-game-core's own chrome will surface the underlying connection
+  /// problem on its own (e.g. "Connection closed — reload to
+  /// reconnect.").
+  public async forfeit(): Promise<void> {
+    if (!this.ws) return;
+    try {
+      await this.ws.request(this.sid, { leave: null });
+    } catch (err) {
+      console.error('duel: auto-forfeit request failed', err);
+    }
   }
 
-  private poll(): void {
-    this.actor.status(this.sid)
-      .then((view: any) => this.onStatus(view))
-      .catch((e: unknown) => console.error('duel status poll failed', e))
-      .finally(() => {
-        this.pollTimer = setTimeout(() => this.poll(), POLL_MS);
-      });
+  private async init(): Promise<void> {
+    this.ws = await getDuelWs();
+    this.ws.addEventListener('message', this.onMessage);
+    // Kick off an immediate status fetch instead of waiting for the
+    // shared poller's first tick — mirrors app.js's own
+    // ws.onopen -> refresh(). Its result arrives through onMessage,
+    // same as every other view; nothing to do with the return value.
+    // refreshStatus() already catches/logs its own failure.
+    this.refreshStatus();
   }
+
+  /// Fires a fresh `#status` request over the shared connection —
+  /// callers that need the authoritative view before acting (e.g.
+  /// gameplay.service.ts's requestAndSubmitMove() retry path, checking
+  /// whether a round already resolved before blindly resubmitting) can
+  /// await this first. The resulting view still only ever arrives through
+  /// the normal onMessage/nextStep channel like any other push, not
+  /// through this method's own return value — awaiting it only guarantees
+  /// the request has round-tripped, not that a subscriber has reacted to
+  /// it yet.
+  public async refreshStatus(): Promise<void> {
+    if (!this.ws) return;
+    try {
+      await this.ws.request(this.sid, { status: null });
+    } catch (e: unknown) {
+      console.error('duel status refresh failed', e);
+    }
+  }
+
+  // Bound as a class field (not a method) so it's a stable reference for
+  // addEventListener/removeEventListener across the service's lifetime.
+  private onMessage = (ev: MessageEvent): void => {
+    const data = ev.data;
+    if (data && 'view' in data) this.onStatus(data.view);
+  };
 
   private onStatus(view: any): void {
     const inGameNow = 'inGame' in view;
@@ -165,25 +266,47 @@ export class LobbyConnectionService {
       document.body.classList.add('in-race');
       const v = view.inGame;
       const slot = 'p1' in v.seat ? 0 : 1;
+      const game: RacingState = v.game;
       const isNewRace = !this.wasInGame;
       this.wasInGame = true;
       this.mySlot = slot;
       this.gameStateService.mySlot.next(slot);
       if (isNewRace) {
-        // Drop any bookkeeping from whatever race preceded this one — a
-        // rematch's fresh State always starts back at `step == 0`, so
-        // comparing it against a stale `prevGame` from the last race would
-        // reconstruct a bogus giant "step" connecting the two races (see
-        // buildSteps). Re-pushing lobbyData also makes GameStateService
-        // hand out brand new Car instances (its cars$ is derived from
-        // lobbyData — see game-state.service.ts), clearing any stale
-        // position/speed left over from the last race.
+        // Fires for a genuinely fresh race (including a rematch) AND for
+        // a page reload landing back in an ALREADY-in-progress race —
+        // this service is constructed fresh either way, so `wasInGame`
+        // starts false in both cases and can't tell them apart on its
+        // own. Drop any bookkeeping from whatever race preceded this one
+        // in THIS service instance's lifetime — a rematch's fresh State
+        // always starts back at `step == 0`, so comparing it against a
+        // stale `prevGame` from the last race would reconstruct a bogus
+        // giant "step" connecting the two races (see buildSteps).
+        // Re-pushing lobbyData also makes GameStateService hand out
+        // brand new Car instances (its cars$ is derived from lobbyData —
+        // see game-state.service.ts), clearing any stale position/speed
+        // left over from the last race. `game.step` is passed through so
+        // gameplay.service.ts's startRace() can seed its own local
+        // step/clock counters from the TRUE current round instead of
+        // always assuming a fresh 0-start — otherwise a reload mid-race
+        // would permanently desync the HUD's elapsed-time clock from the
+        // canister's actual round count for the rest of that race (it'd
+        // count from 0 instead of from wherever the race actually was).
+        // `v.youSubmitted` is ALSO passed through, for the same reason:
+        // if this reconnect lands mid-round with my own move already
+        // locked in server-side (I submitted, then reloaded before the
+        // opponent moved), gameplay.service.ts must NOT ask for another
+        // one — see startRace()'s own doc on why that used to show a
+        // stale, wrong selection arc alongside the chrome's correct
+        // "Move locked in" message, and corrupt the eventual animation
+        // with a bogus, rejected resubmission.
         this.prevGame = null;
         this.pendingMine = null;
         this.lobbyData.next(this.buildLobbyRuntimeData());
-        this.raceStarted.next();
+        this.raceStarted.next({
+          resumedAtStep: Number(game.step),
+          youAlreadySubmitted: v.youSubmitted,
+        });
       }
-      const game: RacingState = v.game;
       if (this.prevGame && Number(game.step) !== Number(this.prevGame.step)) {
         this.nextStep.next({ steps: this.buildSteps(this.prevGame, game), isFinal: false });
         this.pendingMine = null;

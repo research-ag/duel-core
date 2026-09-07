@@ -2,7 +2,7 @@
 // generic engine with the 007 rules plugged in.
 // Run: moc -r --package core <core/src> --package duel-game-core <backend/src> test/Lifecycle.test.mo
 import TP "mo:duel-game-core";
-import Rules "../Duel007Rules";
+import Rules "../src/Duel007Rules";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 

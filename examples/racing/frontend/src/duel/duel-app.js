@@ -1,33 +1,56 @@
-// Bootstrap for the racing duel client. Builds the actor, then hands off
-// to duel-game-core's generic session/poll/render wiring for everything
-// that's the same for every game on this engine (lobby, staging, rematch,
-// debrief, session identity, polling) — see index.html's #screen. It also
-// publishes that same actor on `window.duelActorReady` so the app's own
-// esbuild bundle loaded alongside this page (see main.ts) can drive the
-// actual 3D race against the identical session, without building a
-// second one — see
-// ../app/modules/gameplay/game-communication/utils/duel-actor.ts.
+// Bootstrap for the racing duel client. Builds the actor and a
+// push-shaped `ws` over it, then hands off to duel-game-core's generic
+// session/render wiring for everything that's the same for every game on
+// this engine (lobby, staging, rematch, debrief) — see index.html's
+// #screen. It also publishes that same actor AND `ws` on
+// `window.duelActorReady`/`duelWsReady` so the app's own esbuild bundle
+// loaded alongside this page (see main.ts) can drive the actual 3D race
+// against the identical session and the SAME poller, without building
+// either a second actor or a second poll loop — see
+// ../app/modules/gameplay/game-communication/utils/duel-actor.ts and
+// game-communication/services/lobby-connection.service.ts.
 //
 // Uses @dfinity/agent loaded from esm.sh — no build step required for
 // THIS file; `duel-game-core` itself is fetched once via `npm install`
 // (see package.json / .npmrc) since it has no CDN distribution, and is
-// imported below by its plain on-disk path — the browser has no bare
-// "duel-game-core/..." specifier resolution without an import map. This
+// imported below by its plain on-disk path, under `dist/` — that's
+// where duel-game-core's own compiled output lands (its source is
+// TypeScript now; see ../../../../CLAUDE.md's "After touching anything
+// under frontend/" section — `npm run build` there has to run BEFORE
+// this example's own `npm install`, since this repo's `allow-scripts`
+// gate blocks duel-game-core's own `prepare` script from doing it
+// automatically) — the browser has no bare "duel-game-core/..."
+// specifier resolution without an import map. This
 // file is copied byte-for-byte into the build output (see build.js's
 // cpSync list), same as `duel-racing-plugin.js`.
 
-import { Actor, HttpAgent } from 'https://esm.sh/@dfinity/agent@2.4.1';
-import { makeIdlFactory } from './node_modules/duel-game-core/idl.js';
-import { start } from './node_modules/duel-game-core/app.js';
-import { readIcEnv, deriveHost } from './node_modules/duel-game-core/ic-env.js';
+// Both imports pin the SAME exact @dfinity/candid and @dfinity/principal
+// versions via esm.sh's `?deps=` — @dfinity/identity@2.4.1 itself
+// imports @dfinity/candid with NO version constraint at all, so left
+// unpinned, esm.sh resolves it to whatever's currently tagged "latest"
+// instead of the 2.4.1 line @dfinity/agent@2.4.1 was built against. That
+// mismatch is real, not hypothetical: it surfaced as `Uncaught
+// SyntaxError: The requested module '/@dfinity/candid?target=es2022'
+// does not provide an export named 'bufFromBufLike'` (a since-renamed/
+// removed export) the first time this shipped without the pin. `?deps=`
+// forces both esm.sh module graphs to resolve to byte-identical URLs for
+// the shared dependencies (verified: same hash-suffixed path either
+// way) — remove it and this breaks again the next time "latest"
+// @dfinity/candid changes shape.
+import { Actor, HttpAgent } from 'https://esm.sh/@dfinity/agent@2.4.1?deps=@dfinity/candid@2.4.1,@dfinity/principal@2.4.1';
+import { Ed25519KeyIdentity } from 'https://esm.sh/@dfinity/identity@2.4.1?deps=@dfinity/agent@2.4.1,@dfinity/candid@2.4.1,@dfinity/principal@2.4.1';
+import { makeIdlFactory } from './node_modules/duel-game-core/dist/idl.js';
+import { start } from './node_modules/duel-game-core/dist/app.js';
+import { connectWs } from './node_modules/duel-game-core/dist/ws.js';
+import { readIcEnv, deriveHost } from './node_modules/duel-game-core/dist/ic-env.js';
 import { plugin } from './duel-racing-plugin.js';
 
 // `window.duelActorReady` / `window.__resolveDuelActor` are set up by an
 // INLINE (non-module) script in index.html's <head>, so the Promise exists
 // before any deferred module script runs — the app's own bundle can then
 // safely `await` it no matter which of the two loads/executes first.
-if (!window.__resolveDuelActor) {
-  throw new Error("window.__resolveDuelActor is missing — check index.html's inline bootstrap script");
+if (!window.__resolveDuelActor || !window.__resolveDuelWs) {
+  throw new Error("window.__resolveDuelActor/__resolveDuelWs is missing — check index.html's inline bootstrap script");
 }
 
 const env = readIcEnv();
@@ -42,12 +65,71 @@ if (!canisterId) {
 }
 
 const host = deriveHost();
+// A fresh, throwaway Ed25519 identity generated on EVERY page load —
+// deliberately NOT anonymous, and deliberately NOT derived from/stable
+// across this tab's own sid either (an earlier version of this file
+// derived it from `sid` so it stayed the same across a reload — reverted
+// after that turned out to actively cause "Connection closed — reload
+// to reconnect" / `ws_message: Client with principal ... doesn't have an
+// open connection", see below).
+//
+// This game has no login (see ../../CLAUDE.md: no auth, players are
+// told apart by seat/sid, never by principal — the engine's own identity
+// is the client-chosen `sid`, decoupled from IC principal on purpose,
+// see ../../../../backend/src/Ws.mo's doc header), so
+// `HttpAgent.create()` with no `identity` would sign every call,
+// including ws_open, as the anonymous principal — and
+// `ic-websocket-cdk`'s `ws_open` hard-rejects an anonymous caller
+// ("Anonymous principal is not allowed"), so the WS handshake, and with
+// it the whole app (there's no polling fallback), never came up. Any
+// real, non-anonymous identity fixes that; a FRESH one every load is the
+// right choice specifically BECAUSE of a real bug in
+// `ic-websocket-cdk@0.4.1`'s own bookkeeping: `remove_client` (in its
+// `State.mo`) deletes its principal->client_key lookup by PRINCIPAL
+// ALONE, not scoped to the exact client_key being removed. A plain page
+// reload gives the OLD page's own `ws_close()` (fired from
+// `pagehide`/`visibilitychange`, see
+// `../../../../../frontend/ws/gateway-client.js`) no guarantee of
+// completing before the tab is torn down — so if that stale close (or
+// its eventual keep-alive-timeout eviction) is still pending when the
+// NEW page's `ws_open` registers, and BOTH share the same principal
+// (which a sid-derived identity guarantees across a reload), the stale
+// close can land AFTER and silently erase the NEW, perfectly-live
+// connection's own lookup entry. A fresh random principal every load
+// means no two registrations ever share a principal in the first place,
+// so this whole class of collision can't happen — the engine's own
+// player identity (`sid`) already persists across reload regardless,
+// completely independent of this principal, so nothing player-visible
+// is lost by NOT also pinning the WS-layer principal.
 const agent = await HttpAgent.create({
   host,
+  identity: Ed25519KeyIdentity.generate(),
   shouldFetchRootKey: /localhost|127\.0\.0\.1/.test(host),
 });
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
 window.__resolveDuelActor(actor);
-start({ actor, plugin });
+
+// A real push transport for the generic lobby/staging/rematch/debrief
+// chrome below — see ../../../../../frontend/README.md's "Real-time
+// push" section. connectWs() builds a GatewayWs that speaks
+// mo:duel-game-core/Ws's ic-websocket-cdk protocol directly,
+// self-registering this tab as its own Gateway (see
+// ../../../../../frontend/ws/gateway-transport.js) — genuine canister
+// push, and a genuine server-side signal if this tab goes quiet.
+// `principal` is the same identity `agent`/`actor` already sign calls
+// with; `gameIdlTypes` supplies this game's own Action/State Candid
+// shape (needed to decode the message content blob). `app.js`'s start()
+// sends every action and refresh over this — there is no
+// plain-actor-call/polling code path any more, `ws` is required.
+//
+// Published on window.duelWsReady (same pattern as the actor above) so
+// lobby-connection.service.ts shares this EXACT client for the actual
+// race instead of running a second independent one — `GatewayWs`
+// extends EventTarget for exactly this, see its own header.
+const principal = await agent.getPrincipal();
+const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
+window.__resolveDuelWs(ws);
+
+start({ plugin, ws });

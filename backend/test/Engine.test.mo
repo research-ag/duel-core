@@ -1,4 +1,4 @@
-// Per-operation unit checks for the generic engine. Where LifecycleTest.mo
+// Per-operation unit checks for the generic engine. Where Lifecycle.test.mo
 // walks ONE long session narrative, this suite drives each entry point in
 // isolation on a FRESH table, covering the error variants, the takeover
 // gates and the status views that the narrative never reaches.
@@ -69,6 +69,11 @@ switch (TP.status(t, SOON, "a")) {
   case (#stagingYou v) {
     assert v.seat == #p2;
     assert not v.reservedForPartner;
+    // Switching seats re-stamps `since = now` (see lib.mo's join, the
+    // seat-switch branch) — so even though the ORIGINAL join was at T0,
+    // the clock restarted at SOON when "a" switched to p2, and checking
+    // at that same instant sees the full 60s, not 59.
+    assert v.secondsUntilReclaimable == 60;
   };
   case (_) Runtime.trap("a should still be staging");
 };
@@ -80,6 +85,15 @@ ignore ok(TP.join(spec, t, T0, "a", #p1), "a stages");
 switch (TP.join(spec, t, SOON, "b", #p1)) {
   case (#err(#seatTaken)) {};
   case (_) Runtime.trap("a fresh seat must not be stealable");
+};
+// Once expired but before anyone actually evicts it, "a" still sees their
+// OWN #stagingYou (status()'s own-occupant branch never checks expiry) —
+// secondsUntilReclaimable clamps to 0 rather than going negative, which is
+// what a host's UI uses to switch from a quiet wait into an active warning
+// (see frontend/render.js's renderReclaimWarning).
+switch (TP.status(t, LATER, "a")) {
+  case (#stagingYou v) { assert v.secondsUntilReclaimable == 0 };
+  case (_) Runtime.trap("a should still see their own staging until evicted");
 };
 switch (ok(TP.join(spec, t, LATER, "b", #p1), "b evicts the squatter")) {
   case (#staged(#p1)) {};
@@ -126,7 +140,12 @@ switch (ok(TP.join(spec, t, T0, "a", #p2), "a rematches on p2")) {
   case (_) Runtime.trap("a veteran may pick a different seat");
 };
 switch (TP.status(t, T0, "a")) {
-  case (#stagingYou v) { assert v.seat == #p2; assert v.reservedForPartner };
+  case (#stagingYou v) {
+    assert v.seat == #p2;
+    assert v.reservedForPartner;
+    // staged and checked at the same instant — the full timeout is left.
+    assert v.secondsUntilReclaimable == 60;
+  };
   case (_) Runtime.trap("a's rematch staging should reserve b's seat");
 };
 switch (ok(TP.join(spec, t, T0, "b", #p1), "b takes the swapped seat")) {
@@ -212,6 +231,21 @@ switch (TP.status(t, T0, "b")) {
   case (#debrief _) {};
   case (_) Runtime.trap("b has not dismissed yet");
 };
+// a's OWN status must stop showing the debrief it just dismissed — the
+// board itself legitimately stays #debrief (b might still want a
+// rematch), but a is no longer a participant of it as far as a's own
+// view is concerned. Before this, a kept seeing the exact same #debrief
+// screen — with live Rematch/Leave buttons — until b also left, giving
+// no sign the click had done anything ("Return to lobby" not working).
+switch (TP.status(t, T0, "a")) {
+  case (#busy _) {};
+  case (_) Runtime.trap("a should stop seeing its own dismissed debrief");
+};
+// ...and every OTHER debrief-phase operation treats a the same way, not
+// just status — a stale rematch/join click can't silently revive a match
+// with the old partner after a already said it was done.
+expectErr(TP.rematch(spec, t, T0, "a"), "a can't rematch a debrief it already left");
+expectErr(TP.join(spec, t, T0, "a", #p1), "a can't rejoin a debrief it already left (still gated by the timeout)");
 ok(TP.leave(t, T0, "a"), "a dismisses twice");
 switch (TP.status(t, T0, "b")) {
   case (#debrief _) {};
@@ -309,6 +343,43 @@ switch (TP.status(t, LATER, "b")) {
 TP.ackEnded(fresh(), "a"); // no game ever ended — must not trap
 Debug.print("14. ackEnded scoping OK");
 
+// ── 14b. lastEnded holds independent notices — a second vanished game on
+//         the same (now-free) board must not erase an earlier, still-
+//         unacked one. Regression for a real bug: `lastEnded` used to be a
+//         single slot, so noting the SECOND game silently dropped the
+//         first pair's #endedByOther notice if they hadn't acked yet ──────
+t := gameOf(T0);
+ok(TP.reset(t, LATER, "zz"), "outsider clears a's/b's dead game");
+let SECOND_START = LATER + 1_000_000_000;      // board is free; a new pair joins
+ignore ok(TP.join(spec, t, SECOND_START, "c", #p1), "c joins the freed board");
+ignore ok(TP.join(spec, t, SECOND_START, "d", #p2), "d joins");
+let SECOND_IDLE = SECOND_START + TIMEOUT + 1_000_000_000; // c/d's own game goes idle
+ok(TP.reset(t, SECOND_IDLE, "zz2"), "outsider clears c's/d's dead game too");
+switch (TP.status(t, SECOND_IDLE, "a")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("a's earlier notice must survive a second vanished game on the same board");
+};
+switch (TP.status(t, SECOND_IDLE, "c")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("c must see its own, independent notice");
+};
+TP.ackEnded(t, "a");
+switch (TP.status(t, SECOND_IDLE, "a")) {
+  case (#endedByOther) Runtime.trap("a's ack did not clear a's own notice");
+  case (_) {};
+};
+switch (TP.status(t, SECOND_IDLE, "c")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("a's ack must not clear c's unrelated notice");
+};
+TP.ackEnded(t, "c");
+TP.ackEnded(t, "d");
+switch (TP.status(t, SECOND_IDLE, "c")) {
+  case (#endedByOther) Runtime.trap("c's/d's notice should be gone once both acked");
+  case (_) {};
+};
+Debug.print("14b. lastEnded keeps independent per-game notices OK");
+
 // ── 15. The reserved rematch partner may accept via `join`, not just
 //        `rematch` — both acceptance paths must work (CLAUDE.md rule 6) ───
 t := debriefOf(T0);
@@ -351,5 +422,81 @@ switch (TP.status(t, T0, "b")) {
   case (_) Runtime.trap("both acked via reset — board should be free");
 };
 Debug.print("17. debrief reset delegates to leave-semantics OK");
+
+// ── 18. sweep: frees an idle board with no visitor, on every phase ─────────
+// #empty: a no-op.
+t := fresh();
+TP.sweep(t, T0);
+switch (TP.status(t, T0, "zz")) {
+  case (#lobby _) {};
+  case (_) Runtime.trap("sweeping an empty board must stay a no-op");
+};
+
+// #staging: untouched before the timeout, freed after.
+t := fresh();
+ignore ok(TP.join(spec, t, T0, "a", #p1), "a stages");
+TP.sweep(t, SOON);
+switch (TP.status(t, SOON, "a")) {
+  case (#stagingYou _) {};
+  case (_) Runtime.trap("a fresh staging must survive a sweep");
+};
+TP.sweep(t, LATER);
+switch (TP.status(t, LATER, "a")) {
+  case (#lobby l) { assert l.p1Open; assert l.p2Open };
+  case (_) Runtime.trap("an idle staging must be swept away");
+};
+Debug.print("18a. sweep on #staging OK");
+
+// #active: untouched before the timeout; after it, freed with
+// #endedByOther for BOTH former players — nobody needs to visit the
+// board to learn their game is over, unlike outsider takeover.
+t := gameOf(T0);
+TP.sweep(t, SOON);
+switch (TP.status(t, SOON, "a")) {
+  case (#inGame _) {};
+  case (_) Runtime.trap("a live game must survive a sweep");
+};
+TP.sweep(t, LATER);
+switch (TP.status(t, LATER, "a")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("a stalled game must be swept into #endedByOther for a");
+};
+switch (TP.status(t, LATER, "b")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("...and for b too, with no visitor required");
+};
+switch (TP.status(t, LATER, "zz")) {
+  case (#lobby l) { assert l.p1Open; assert l.p2Open };
+  case (_) Runtime.trap("an outsider should see the board free after a sweep");
+};
+Debug.print("18b. sweep on #active OK");
+
+// #debrief: untouched before the timeout; after it, freed, and both
+// participants are pre-acked (they already saw their debrief) — same
+// asymmetry an outsider's join/reset already applies to an expired
+// debrief (see CLAUDE.md's architecture rule 7): unlike a stalled #active
+// game (18b, fresh #endedByOther — nobody has seen anything yet), a
+// swept debrief goes straight to #lobby, since both players already
+// saw their result.
+t := debriefOf(T0);
+TP.sweep(t, SOON);
+switch (TP.status(t, SOON, "a")) {
+  case (#debrief _) {};
+  case (_) Runtime.trap("a fresh debrief must survive a sweep");
+};
+TP.sweep(t, LATER);
+switch (TP.status(t, LATER, "a")) {
+  case (#lobby _) {};
+  case (_) Runtime.trap("a swept, already-seen debrief should go straight to #lobby");
+};
+switch (TP.status(t, LATER, "b")) {
+  case (#lobby _) {};
+  case (_) Runtime.trap("...and for b too, with no visitor required");
+};
+switch (ok(TP.join(spec, t, LATER, "a", #p1), "a re-joins after the sweep")) {
+  case (#staged(#p1)) {};
+  case (_) Runtime.trap("a should be a fresh outsider, not still #notSeated-gated");
+};
+Debug.print("18c. sweep on #debrief OK");
 
 Debug.print("ALL ENGINE CHECKS PASSED");

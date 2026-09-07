@@ -79,9 +79,13 @@ export class GameStateService {
   // is a page-lifetime singleton, never recreated between races, so
   // stepsElapsed must be reset explicitly here — a rematch that skipped
   // this call would carry the previous race's clock straight into the new
-  // one.
-  public resetRaceClock(): void {
-    this.stepsElapsed = -1;
+  // one. `resumedAtStep` is the canister's true current round (0 for a
+  // genuinely fresh race, nonzero when a page reload reconnects mid-race)
+  // — seeding from it instead of always -1 keeps `raceTime`/the HUD clock
+  // showing the ACTUAL elapsed race time on a reload rather than counting
+  // up from 0 and staying permanently behind for the rest of that race.
+  public resetRaceClock(resumedAtStep: number = 0): void {
+    this.stepsElapsed = resumedAtStep - 1;
     this._lastStepStartTimestamp = 0;
   }
 
