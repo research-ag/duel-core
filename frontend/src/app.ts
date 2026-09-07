@@ -48,7 +48,7 @@
 // distinction matters.
 
 import { renderView, errText, tag } from "./render.js";
-import type { DuelWs, GamePlugin, Seat, SeatTag, WsPayload, WsRequest } from "./types.js";
+import type { DuelWs, EngineErr, GamePlugin, Seat, SeatTag, WsPayload, WsRequest } from "./types.js";
 
 const $ = (id: string): HTMLElement | null => document.getElementById(id);
 
@@ -226,7 +226,31 @@ export function start<S>({
   let inFlight = false;
   const canCorrelate = typeof ws.request === "function";
 
+  // Set at the top of every `call()` dispatch (both the correlated and
+  // fallback paths) so the fallback's `ws.onmessage` error branch — which,
+  // unlike `settleCall`, has no Promise result to close over — can still
+  // tell which request a pushed error answers. Never consulted outside an
+  // error branch, so a later unrelated push (which never errors) can't
+  // make it stale in a way that matters.
+  let lastReq: WsRequest | null = null;
+
+  // `join<S, M>` in lib.mo has exactly one `#wrongPhase` case: the sid
+  // making the call already holds a seat in the ACTIVE game (see its own
+  // doc). That only happens when this tab's view is stale — most often a
+  // fresh load/reconnect that renders a lobby before realizing this sid
+  // is already seated elsewhere. A plain refresh always resolves it (see
+  // this repo's README/CLAUDE.md), so treat it the same way here instead
+  // of surfacing an error the user can't act on: re-send `status` and let
+  // the real view (`inGame`) replace the stale one. Every OTHER
+  // `#wrongPhase` in lib.mo comes from `rematch`/`submit`, never `join`,
+  // so gating on "the request that failed was a join" is exact — no need
+  // to match the message text, which could change independently.
+  function isStaleJoin(req: WsRequest | null, err: EngineErr): boolean {
+    return req !== null && "join" in req && "wrongPhase" in err;
+  }
+
   function sendWs(req: WsRequest): void {
+    lastReq = req;
     try {
       ws.send({ req: { sid, req } });
     } catch (e) {
@@ -237,11 +261,23 @@ export function start<S>({
     }
   }
 
-  function settleCall(payload: WsPayload<S>): void {
+  function settleCall(req: WsRequest, payload: WsPayload<S>): void {
     inFlight = false;
     document.body.classList.remove("working");
     endButtonLoading();
     if ("err" in payload) {
+      if (isStaleJoin(req, payload.err)) {
+        // Resync silently instead of surfacing an error the user can't
+        // act on — see isStaleJoin's own doc. `ws.onmessage` below runs
+        // its own copy of this same check, since a `DuelWs` implementing
+        // `request()` is never guaranteed to ALSO deliver this same
+        // payload there (`GatewayWs` happens to, but nothing requires
+        // it) — so this can't assume that path already fired. Both
+        // copies firing for one call (as they will, for `GatewayWs`) just
+        // means two harmless, redundant `status` refreshes.
+        refresh();
+        return;
+      }
       showError(errText(payload.err));
       // A failed call never seats this sid — undo the eager disable a
       // `join` dispatch below applied speculatively (renderIfChanged,
@@ -258,14 +294,18 @@ export function start<S>({
   function call(req: WsRequest): void {
     if (inFlight) return;
     inFlight = true;
+    lastReq = req;
     document.body.classList.add("working");
     if (canCorrelate) {
-      ws.request!(sid, req).then(settleCall, (e: Error) => {
-        inFlight = false;
-        document.body.classList.remove("working");
-        endButtonLoading();
-        showError(`Call failed: ${e.message ?? e}`);
-      });
+      ws.request!(sid, req).then(
+        (payload) => settleCall(req, payload),
+        (e: Error) => {
+          inFlight = false;
+          document.body.classList.remove("working");
+          endButtonLoading();
+          showError(`Call failed: ${e.message ?? e}`);
+        },
+      );
     } else {
       sendWs(req);
     }
@@ -510,19 +550,39 @@ export function start<S>({
   screenEl.innerHTML = `<p class="duel-connecting">Connecting…</p>`;
   ws.onopen = () => refresh();
   ws.onmessage = (ev) => {
+    const msg = ev.data;
+    // A stale join (see isStaleJoin's own doc) is resynced right here too,
+    // for every transport alike, using `lastReq` — the last DISPATCHED
+    // request, since (unlike settleCall) this handler has no Promise
+    // result of its own to read the request back off. For a correlating
+    // transport this may fire alongside settleCall's own copy of the same
+    // check (see its doc for why neither assumes the other ran) — both
+    // resync silently, so at worst that's a second harmless `status`
+    // round-trip, never a doubled error.
+    const staleJoin = "err" in msg && isStaleJoin(lastReq, msg.err);
+
     // When `call()` can correlate its own response (see above), it
     // already settled `inFlight`/the spinner off THAT response — doing
     // it again here, off whichever message the shared push stream
     // happens to deliver next, is exactly the premature-clear this was
     // built to avoid. The fallback transport has no such signal of its
-    // own, so this remains its only one.
-    if (!canCorrelate) {
+    // own, so this remains its only one — except a stale join, which
+    // needs its own spinner cleared before `refresh()` below (that call
+    // is a no-op while `inFlight` is still true).
+    if (!canCorrelate || staleJoin) {
       inFlight = false;
       document.body.classList.remove("working");
       endButtonLoading();
     }
-    const msg = ev.data;
     if ("err" in msg) {
+      if (staleJoin) {
+        // This sid already holds a seat in the running game — refresh
+        // silently instead of surfacing an error the user can't act on;
+        // the real view (`inGame`) replaces whatever stale view led to
+        // the join attempt.
+        refresh();
+        return;
+      }
       showError(errText(msg.err));
       // Same resync as settleCall's err branch above, for the fallback
       // transport's own error path (a rejected join here never reaches

@@ -437,6 +437,76 @@ test("the new-sid button stays disabled through an unrelated push arriving mid-j
   assert.equal(els["new-sid"].disabled, true);
 });
 
+test("a join rejected as wrongPhase (stale view — already seated) resyncs silently instead of showing an error", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
+  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p1");
+  assert.ok(p1Btn, "expected a rendered p1 seat button");
+  click(els.screen, p1Btn!);
+
+  // The engine's own join<S, M> only ever returns #wrongPhase for this
+  // one reason — see isStaleJoin's own doc in app.ts.
+  ws.requests[0]!.resolve({ err: { wrongPhase: "you are already in the running game" } });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(els.error.textContent, "", "must not surface an error the user can't act on");
+  assert.equal(ws.sent.length, 1, "resyncs by re-sending #status, not by ws.request()");
+  assert.deepEqual(ws.sent[0]!.req, { status: null });
+});
+
+test("a join rejected as wrongPhase resyncs even without ws.request (fallback transport)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup({ withRequest: false });
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
+  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p1");
+  assert.ok(p1Btn, "expected a rendered p1 seat button");
+  click(els.screen, p1Btn!);
+  assert.deepEqual(ws.sent[0]!.req, { join: { p1: null } });
+
+  ws.onmessage!({ data: { err: { wrongPhase: "you are already in the running game" } } });
+
+  assert.equal(els.error.textContent, "", "must not surface an error the user can't act on");
+  assert.equal(ws.sent.length, 2, "resyncs by re-sending #status");
+  assert.deepEqual(ws.sent[1]!.req, { status: null });
+});
+
+test("a wrongPhase rejection from a NON-join request still shows the error banner (regression guard)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({
+    data: {
+      view: {
+        debrief: {
+          seat: { p1: null },
+          end: { finished: { p1Wins: null } },
+          turns: 3n,
+          finalGame: { n: 7 },
+        },
+      },
+    },
+  });
+  const rematchBtn = els.screen.querySelectorAll("button").find((b) => "rematch" in b.dataset);
+  assert.ok(rematchBtn, "expected a rendered rematch button");
+  click(els.screen, rematchBtn!);
+
+  // e.g. lib.mo's rematch<S, M> #err(#wrongPhase("your game is already
+  // running")) — a real rejection, not a stale-join resync candidate.
+  ws.requests[0]!.resolve({ err: { wrongPhase: "your game is already running" } });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(els.error.hidden, false);
+  assert.equal(els.error.textContent, "your game is already running");
+});
+
 test("fallback transport (no ws.request): settles inFlight off the shared onmessage stream", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup({ withRequest: false });
