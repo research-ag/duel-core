@@ -230,4 +230,55 @@ do {
   Debug.print("10. a genuine departure with no reconnect still matches its own generation OK");
 };
 
+// ── 11. `finishClose`'s own generation prune, modeled directly: once a
+//       genuine departure (test 10's scenario) has run its course — the
+//       deferred re-check still matches `seenGen` — the sid's
+//       `generation` entry is removed outright, not left to accumulate
+//       forever. `generationOf` reading 0 afterward (its "never
+//       remembered" default) confirms the entry is actually gone, not
+//       just reset in place.
+// ────────────────────────────────────────────────────────────────────
+do {
+  let hub = Ws.createHub();
+  Ws.remember(hub, "sid-1", PA);
+  let seenGen = Ws.generationOf(hub, "sid-1");
+  Ws.forget(hub, PA); // the close; nobody reconnects
+  // ... `finishClose` would run its disconnect/push work here, then
+  // re-check before pruning:
+  if (Ws.generationOf(hub, "sid-1") == seenGen) {
+    Map.remove(hub.generation, Text.compare, "sid-1");
+  };
+  if (Ws.generationOf(hub, "sid-1") != 0) {
+    Runtime.trap("11: a genuine, un-superseded departure must prune its generation entry back to 0");
+  };
+  Debug.print("11. finishClose's generation prune removes a genuinely-departed sid's entry OK");
+};
+
+// ── 12. The inverse of 11: a reconnect landing AFTER `finishClose`'s
+//       initial check passed but BEFORE its own deferred re-check runs
+//       (i.e. during the `await`s in between) must stop the prune —
+//       removing the entry here would silently reset a STILL-BUMPED
+//       counter back to 0, letting some later, already-superseded
+//       close wrongly match it again.
+// ────────────────────────────────────────────────────────────────────
+do {
+  let hub = Ws.createHub();
+  Ws.remember(hub, "sid-1", PA);
+  let seenGen = Ws.generationOf(hub, "sid-1");
+  Ws.forget(hub, PA); // the close — initial check (elsewhere) would pass
+  // A reconnect lands mid-`finishClose`, in the window opened up by its
+  // own `await`s:
+  Ws.remember(hub, "sid-1", PA);
+  // The re-check right before pruning must now see a mismatch and skip
+  // the removal entirely.
+  if (Ws.generationOf(hub, "sid-1") == seenGen) {
+    Map.remove(hub.generation, Text.compare, "sid-1");
+  };
+  if (Ws.generationOf(hub, "sid-1") == 0) {
+    Runtime.trap("12: a reconnect racing in during finishClose's own awaits must survive the prune, not get reset to 0");
+  };
+  expectSid(hub, "sid-1", ?PA, "12b: the reconnected session must still resolve");
+  Debug.print("12. a reconnect racing finishClose's own prune keeps its bumped generation OK");
+};
+
 Debug.print("ALL HUB CHECKS PASSED");

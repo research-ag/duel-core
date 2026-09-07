@@ -190,6 +190,10 @@ module {
     // reconnect apart from a genuine departure, because nothing about
     // EITHER map actually changes across it; this counter is the extra
     // signal `Ws.mo`'s deferred-close check needs — see its own doc.
+    // Pruned (unlike a plain idle counter would be) once `finishClose`
+    // confirms a genuine, un-superseded departure — see its own doc —
+    // so this map doesn't grow by one entry per distinct sid for the
+    // life of the canister.
     var generation : Map.Map<TP.SessionId, Nat>;
   };
 
@@ -276,12 +280,14 @@ module {
   /// straight into it). `sweep` is the idle-sweep hook `ActorMixin` wires
   /// to its own recurring timer — it runs the engine's own `TP.sweep`
   /// AND, unlike a bare `TP.sweep(table, Time.now())` would, pushes a
-  /// fresh view to every session it just evicted from a #staging/#active/
-  /// #debrief phase that sweep just collapsed to #empty. Without going
-  /// through here, that eviction is invisible to `hub`/`pushRelevant`
-  /// entirely (`ActorMixin.mo`'s timer has no access to either), so a
-  /// still-connected tab whose game the sweep just ended would keep
-  /// showing a stale view until it happened to send a request of its own.
+  /// fresh view to every connected session in `hub` when that sweep just
+  /// collapsed a #staging/#active/#debrief phase to #empty. Without
+  /// going through here, that eviction is invisible to `hub`/
+  /// `pushRelevant` entirely (`ActorMixin.mo`'s timer has no access to
+  /// either), so a still-connected tab — whether one of the evicted
+  /// participants or just a lobby tab watching this table for an
+  /// opponent — would keep showing a stale view until it happened to
+  /// send a request of its own.
   public type Attached = {
     ws : IcWebSocketCdk.IcWebSocket;
     sweep : (Int) -> async ();
@@ -443,7 +449,19 @@ module {
     /// `Hub.generation` as of the ORIGINAL close event; if a reconnect's
     /// first `#req` bumped it since (`remember()` ran again for `s`),
     /// this close turned out to be stale after all — back off entirely
-    /// rather than abort a game a still-connected player never left.
+    /// rather than abort a game a still-connected player never left. On
+    /// a genuine departure, also prunes `s`'s own `hub.generation` entry
+    /// once every `await` below has had its chance to be raced by a
+    /// reconnect (re-checked against `seenGen` again right before the
+    /// prune, not just at entry) — `bySid`/`byPrincipal` already get
+    /// cleaned up this way via `forget`, but `generation` otherwise never
+    /// shrinks, growing by one entry per distinct sid for the life of
+    /// the canister. The re-check matters: a reconnect landing in the
+    /// window opened up by any of these `await`s would have bumped the
+    /// generation again, and pruning the entry out from under that
+    /// bumped counter would silently reset it to 0 — a LATER stale close
+    /// for the connection that reconnect superseded could then wrongly
+    /// match again.
     func finishClose(s : TP.SessionId, seenGen : Nat) : async () {
       if (generationOf(hub, s) != seenGen) return; // reconnected since — false alarm
       let now = Time.now();
@@ -482,6 +500,11 @@ module {
         case (_) {};
       };
       await pushRelevant(now, s, null);
+      // Safe to prune only if nothing bumped the generation again while
+      // the awaits above ran — see this function's own doc.
+      if (generationOf(hub, s) == seenGen) {
+        Map.remove(hub.generation, Text.compare, s);
+      };
     };
 
     /// Fires when the CDK detects a connection is gone — either the
@@ -531,27 +554,28 @@ module {
 
     let handlers = IcWebSocketCdkTypes.WsHandlers(null, ?onMessage, ?onClose);
 
-    /// See `Attached`'s own doc. Captures who occupied the phase BEFORE
-    /// running `TP.sweep`, then — only if that phase actually collapsed to
-    /// #empty, i.e. this round's sweep really did evict someone — pushes
-    /// each of them a fresh (now #lobby/#endedByOther) view, the same way
-    /// `pushRelevant` already does for every other mutation.
+    /// See `Attached`'s own doc. Only if `TP.sweep` actually evicted
+    /// someone (the phase collapsed to #empty — checked both before AND
+    /// after, so a table already #empty going in is recognized as "this
+    /// sweep did nothing") does this push a fresh (now #lobby/
+    /// #endedByOther) view — to EVERY currently connected session in
+    /// `hub`, not just the sweep's own former p1/p2/staging occupant.
+    /// This mirrors `pushRelevant`'s own #empty/#staging fallback branch
+    /// exactly, and for the same reason: `hub.bySid` is the only place
+    /// that knows about a tab sitting in the lobby watching this table
+    /// for an opponent (or waiting for the seat to free up), and such a
+    /// tab is never one of the former participants a narrower,
+    /// participants-only push would reach — without this, it wouldn't
+    /// learn the table just freed up until it happened to send a
+    /// request of its own.
     func sweepAndPush(now : Int) : async () {
-      let before = table.phase;
+      let wasEmpty = switch (table.phase) { case (#empty) true; case (_) false };
       TP.sweep(table, now);
+      if (wasEmpty) return; // already empty going in — this sweep did nothing
       let becameEmpty = switch (table.phase) { case (#empty) true; case (_) false };
       if (not becameEmpty) return; // nothing timed out this round
-      switch (before) {
-        case (#staging st) { await pushView(now, st.session, null) };
-        case (#active g) {
-          await pushView(now, g.p1, null);
-          await pushView(now, g.p2, null);
-        };
-        case (#debrief d) {
-          await pushView(now, d.p1, null);
-          await pushView(now, d.p2, null);
-        };
-        case (#empty) {}; // already empty going in — this sweep did nothing
+      for (sid in Map.keys(hub.bySid)) {
+        await pushView(now, sid, null);
       };
     };
 
