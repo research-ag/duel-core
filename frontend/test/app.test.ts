@@ -253,6 +253,48 @@ test("the new-sid button rotates sid and re-sends #status", async () => {
   assert.equal(ws.sent[0]!.sid, els.sid.textContent);
 });
 
+test("the new-sid button is disabled while the sid holds a seat, and ignores clicks then", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  const seated = [
+    { stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n } },
+    { inGame: { seat: { p1: null }, game: { n: 0 }, turn: 0n, youSubmitted: false, oppSubmitted: false } },
+    {
+      debrief: {
+        seat: { p1: null },
+        end: { finished: { p1Wins: null } },
+        turns: 1n,
+        finalGame: { n: 0 },
+      },
+    },
+  ];
+  for (const view of seated) {
+    ws.onmessage!({ data: { view } });
+    assert.equal(els["new-sid"].disabled, true, Object.keys(view)[0]);
+  }
+
+  const before = els.sid.textContent;
+  els["new-sid"].dispatch("click", {});
+  assert.equal(els.sid.textContent, before);
+  assert.equal(ws.sent.length, 0);
+
+  const unseated = [
+    { lobby: { p1Open: true, p2Open: true, resetAvailable: false } },
+    { busy: { secondsUntilTakeover: 5n } },
+    { awaitingRematch: { openSeat: { p1: null } } },
+    { endedByOther: null },
+  ];
+  for (const view of unseated) {
+    ws.onmessage!({ data: { view } });
+    assert.equal(els["new-sid"].disabled, false, Object.keys(view)[0]);
+  }
+
+  els["new-sid"].dispatch("click", {});
+  assert.notEqual(els.sid.textContent, before);
+});
+
 test("fallback transport (no ws.request): settles inFlight off the shared onmessage stream", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup({ withRequest: false });

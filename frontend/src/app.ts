@@ -47,7 +47,7 @@
 // shared push stream — see the "Calls" section below for why that
 // distinction matters.
 
-import { renderView, errText } from "./render.js";
+import { renderView, errText, tag } from "./render.js";
 import type { DuelWs, GamePlugin, Seat, SeatTag, WsPayload, WsRequest } from "./types.js";
 
 const $ = (id: string): HTMLElement | null => document.getElementById(id);
@@ -91,7 +91,8 @@ export interface StartOptions<S = unknown> {
 ///
 /// Options (all optional except `plugin`/`ws`):
 ///   sidElId      - id of the element that displays the session id (default "sid")
-///   newSidBtnId  - id of a "play as someone else" button (default "new-sid")
+///   newSidBtnId  - id of a "play as someone else" button (default "new-sid");
+///                  auto-disabled while the current sid holds a seat
 ///   screenElId   - id of the element `renderView` output is written into (default "screen")
 ///   errorElId    - id of the element transient errors are shown in (default "error")
 ///   ws           - WebSocket-like transport (see the file header)
@@ -129,15 +130,26 @@ export function start<S>({
   let sid = sessionStorage.getItem("sid") as string;
   const sidEl = $(sidElId);
   if (sidEl) sidEl.textContent = sid;
-  const newSidBtn = $(newSidBtnId);
+  const newSidBtn = $(newSidBtnId) as HTMLButtonElement | null;
   if (newSidBtn) {
     newSidBtn.addEventListener("click", () => {
+      if (newSidBtn.disabled) return;
       sid = randomSid();
       sessionStorage.setItem("sid", sid);
       if (sidEl) sidEl.textContent = sid;
       refresh();
     });
   }
+
+  // A view tag counts as "seated" when this sid still holds a seat the
+  // engine knows about — swapping to a fresh random sid here would abandon
+  // that seat rather than free it (there's no implicit `leave` on the way
+  // out), leaving the OLD sid's seat/game/debrief stuck until idle takeover
+  // eventually reclaims it. `lobby`/`busy`/`endedByOther` are all sid-less
+  // (nothing of yours to abandon) and `awaitingRematch` is an invitation
+  // onto a seat you don't hold yet, not a seat of your own — so only these
+  // three keep the button disabled.
+  const SEATED_VIEW_TAGS = new Set(["stagingYou", "inGame", "debrief"]);
 
   // ---------------------------------------------------------------------
   // Errors.
@@ -356,6 +368,7 @@ export function start<S>({
   let lastView: unknown;
 
   const renderIfChanged = (view: unknown): void => {
+    if (newSidBtn) newSidBtn.disabled = SEATED_VIEW_TAGS.has(tag(view as object));
     if (deepEqual(view, lastView)) return;
     lastView = view;
     screenEl.innerHTML = renderView(view as Parameters<typeof renderView<S>>[0], plugin);

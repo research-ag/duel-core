@@ -101,7 +101,10 @@ shown here with their defaults):
 
 - `sid` — filled with the current session id (per-tab identity; a second
   browser tab is automatically the second player).
-- `new-sid` — optional button to start a fresh session id.
+- `new-sid` — optional button to start a fresh session id. Disabled
+  automatically while the current sid still holds a seat (`stagingYou`/
+  `inGame`/`debrief`) — swapping identities there would abandon that seat
+  instead of freeing it, leaving it stuck until idle takeover reclaims it.
 - `screen` — where `renderView`'s output is written; also where clicks
   are delegated from, so re-rendering never leaks event listeners.
 - `error` — where a transient rejection (`errText`) is shown.
