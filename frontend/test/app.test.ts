@@ -340,6 +340,63 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
   assert.notEqual(els.sid.textContent, before);
 });
 
+test("the new-sid button disables the instant a seat request is dispatched, not only once it resolves (regression: click new-sid mid-join soft-locks the seat)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  // Lobby: both seats open, sid not seated — new-sid starts out enabled.
+  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
+  assert.equal(els["new-sid"].disabled, false);
+
+  const before = els.sid.textContent;
+  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p1");
+  assert.ok(p1Btn, "expected a rendered p1 seat button");
+
+  // Click "take seat" — the join is now in flight, still under the OLD
+  // sid, but nothing has confirmed the seat yet.
+  click(els.screen, p1Btn!);
+  assert.equal(ws.requests.length, 1);
+
+  // new-sid must already be disabled — waiting for the join's own
+  // response (which only flips SEATED_VIEW_TAGS on) would leave a window
+  // where clicking it rotates sid out from under the still-in-flight
+  // join, stranding the seat on a sid the page no longer tracks.
+  assert.equal(els["new-sid"].disabled, true);
+  els["new-sid"].dispatch("click", {});
+  assert.equal(els.sid.textContent, before, "sid must not rotate while the seat request is in flight");
+
+  // The join succeeds; the confirmed seat keeps new-sid disabled as usual.
+  ws.requests[0]!.resolve({
+    view: { stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 999n } },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(els["new-sid"].disabled, true);
+});
+
+test("the new-sid button re-enables after a rejected seat request", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
+  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p1");
+  assert.ok(p1Btn, "expected a rendered p1 seat button");
+
+  click(els.screen, p1Btn!);
+  assert.equal(els["new-sid"].disabled, true, "eagerly disabled the moment the join went out");
+
+  // Someone else took the seat first — the join comes back rejected. The
+  // view never changed (still not seated), so renderIfChanged's own
+  // resync (off the *new* view) never runs; the error path must resync
+  // new-sid off the last-known view itself.
+  ws.requests[0]!.resolve({ err: { seatTaken: null } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(els["new-sid"].disabled, false, "must not stay stuck disabled after a failed join");
+});
+
 test("fallback transport (no ws.request): settles inFlight off the shared onmessage stream", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup({ withRequest: false });

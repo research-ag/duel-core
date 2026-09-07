@@ -151,6 +151,18 @@ export function start<S>({
   // three keep the button disabled.
   const SEATED_VIEW_TAGS = new Set(["stagingYou", "inGame", "debrief"]);
 
+  // Recomputes newSidBtn's disabled state off `lastView` (declared below —
+  // fine, since every call to this happens from an event handler running
+  // well after start()'s synchronous body, `lastView`'s declaration
+  // included, has run). Used to resync after a call that DIDN'T produce a
+  // new view (an error), since the click listener below disables the
+  // button speculatively the moment a `join` is dispatched, before the
+  // engine has actually confirmed the seat.
+  const syncNewSidBtn = (): void => {
+    if (!newSidBtn || lastView === undefined) return;
+    newSidBtn.disabled = SEATED_VIEW_TAGS.has(tag(lastView as object));
+  };
+
   // ---------------------------------------------------------------------
   // Errors.
   // ---------------------------------------------------------------------
@@ -209,8 +221,18 @@ export function start<S>({
     inFlight = false;
     document.body.classList.remove("working");
     endButtonLoading();
-    if ("err" in payload) showError(errText(payload.err));
-    else renderIfChanged(payload.view);
+    if ("err" in payload) {
+      showError(errText(payload.err));
+      // A failed call never seats this sid — undo the eager disable a
+      // `join` dispatch below applied speculatively (renderIfChanged,
+      // which would normally resync this, only runs on the success
+      // branch: an unchanged view — the common shape of a rejected join,
+      // e.g. `seatTaken` — never reaches it, since it's built to skip a
+      // redundant redraw off `deepEqual`, not to recompute this button).
+      syncNewSidBtn();
+    } else {
+      renderIfChanged(payload.view);
+    }
   }
 
   function call(req: WsRequest): void {
@@ -404,8 +426,18 @@ export function start<S>({
     if (!b || b.disabled) return;
     const dispatch = () => {
       beginButtonLoading(b);
-      if (b.dataset.join) doJoin(b.dataset.join as SeatTag);
-      else if (b.dataset.act) doSubmit(JSON.parse(b.dataset.act));
+      if (b.dataset.join) {
+        // Disable new-sid the moment a seat request goes out, not only
+        // once the engine confirms it (renderIfChanged's own check, which
+        // only runs on that later response) — sid is a plain module-scope
+        // var, and swapping it out from under a join already in flight
+        // (this join still resolves under the OLD sid, but the page now
+        // displays and acts under the new one) would seat the OLD sid on
+        // a seat the player can no longer reach: a soft lock, since
+        // there's no way back to a sid the UI stopped tracking.
+        if (newSidBtn) newSidBtn.disabled = true;
+        doJoin(b.dataset.join as SeatTag);
+      } else if (b.dataset.act) doSubmit(JSON.parse(b.dataset.act));
       else if ("rematch" in b.dataset) doRematch();
       else if ("leave" in b.dataset) doLeave();
       else if ("reset" in b.dataset) doReset();
@@ -466,8 +498,15 @@ export function start<S>({
       endButtonLoading();
     }
     const msg = ev.data;
-    if ("err" in msg) showError(errText(msg.err));
-    else renderIfChanged(msg.view);
+    if ("err" in msg) {
+      showError(errText(msg.err));
+      // Same resync as settleCall's err branch above, for the fallback
+      // transport's own error path (a rejected join here never reaches
+      // renderIfChanged either).
+      syncNewSidBtn();
+    } else {
+      renderIfChanged(msg.view);
+    }
   };
   ws.onerror = (ev) => showError(`WebSocket error: ${ev?.error?.message ?? ev}`);
   ws.onclose = () => showError("Connection closed — reload to reconnect.");
