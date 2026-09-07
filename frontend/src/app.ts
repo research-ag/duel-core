@@ -151,6 +151,21 @@ export function start<S>({
   // three keep the button disabled.
   const SEATED_VIEW_TAGS = new Set(["stagingYou", "inGame", "debrief"]);
 
+  // True while THIS sid's own join is in flight (`pendingButtonKey` —
+  // declared below, see the forward-reference note on `syncNewSidBtn` —
+  // is this tab's single source of truth for "which of my own clicks is
+  // still waiting on a response"; only one call can be in flight at a
+  // time, so there's no ambiguity). Guards new-sid against being
+  // re-enabled by an UNRELATED push arriving mid-flight: `ws.onmessage`
+  // runs `renderIfChanged` for every view the shared push stream
+  // delivers, including periodic ticks for other players' moves, not
+  // just this call's own eventual response (see `call()`'s own doc) — a
+  // rival's join landing first still shows a `lobby` (unseated) view to
+  // THIS sid, which would otherwise read as "safe to swap identity" and
+  // re-enable the button while this sid's own join is still pending.
+  const joinPending = (): boolean =>
+    pendingButtonKey !== null && pendingButtonKey.startsWith("join:");
+
   // Recomputes newSidBtn's disabled state off `lastView` (declared below —
   // fine, since every call to this happens from an event handler running
   // well after start()'s synchronous body, `lastView`'s declaration
@@ -159,7 +174,12 @@ export function start<S>({
   // button speculatively the moment a `join` is dispatched, before the
   // engine has actually confirmed the seat.
   const syncNewSidBtn = (): void => {
-    if (!newSidBtn || lastView === undefined) return;
+    if (!newSidBtn) return;
+    if (joinPending()) {
+      newSidBtn.disabled = true;
+      return;
+    }
+    if (lastView === undefined) return;
     newSidBtn.disabled = SEATED_VIEW_TAGS.has(tag(lastView as object));
   };
 
@@ -471,7 +491,11 @@ export function start<S>({
   let lastView: unknown;
 
   const renderIfChanged = (view: unknown): void => {
-    if (newSidBtn) newSidBtn.disabled = SEATED_VIEW_TAGS.has(tag(view as object));
+    // `joinPending()` first: an unrelated push (someone else's move, e.g.)
+    // can land mid-flight showing THIS sid still unseated — that must not
+    // re-enable new-sid while this sid's own join is still outstanding
+    // (see joinPending's own doc).
+    if (newSidBtn) newSidBtn.disabled = joinPending() || SEATED_VIEW_TAGS.has(tag(view as object));
     if (deepEqual(view, lastView)) return;
     lastView = view;
     screenEl.innerHTML = renderView(view as Parameters<typeof renderView<S>>[0], plugin);

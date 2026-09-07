@@ -397,6 +397,46 @@ test("the new-sid button re-enables after a rejected seat request", async () => 
   assert.equal(els["new-sid"].disabled, false, "must not stay stuck disabled after a failed join");
 });
 
+test("the new-sid button stays disabled through an unrelated push arriving mid-join (regression: rival's join landing first briefly re-enables new-sid)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  // Lobby: both seats open.
+  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
+
+  // This player (B) clicks "take seat 2" — their own join is now in
+  // flight, correlated via ws.request().
+  const p2Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p2");
+  assert.ok(p2Btn, "expected a rendered p2 seat button");
+  click(els.screen, p2Btn!);
+  assert.equal(ws.requests.length, 1);
+  assert.equal(els["new-sid"].disabled, true, "eagerly disabled the moment B's own join went out");
+
+  // Before B's own join resolves, an UNRELATED push tick lands — player
+  // A's own join succeeded first, seating p1. This still renders as
+  // "lobby" (unseated) from B's own point of view, since B isn't seated
+  // yet either. The old bug: renderIfChanged recomputed new-sid's
+  // disabled state off THIS view alone and re-enabled it, opening the
+  // exact window where clicking "new" strands B's still-in-flight join
+  // under a sid B is about to abandon.
+  ws.onmessage!({ data: { view: { lobby: { p1Open: false, p2Open: true, resetAvailable: false } } } });
+  assert.equal(
+    els["new-sid"].disabled,
+    true,
+    "must stay disabled — B's own join is still pending, regardless of what an unrelated push shows",
+  );
+
+  // B's own join finally resolves — new-sid stays disabled as usual, now
+  // because the confirmed view itself is seated.
+  ws.requests[0]!.resolve({
+    view: { stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n } },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(els["new-sid"].disabled, true);
+});
+
 test("fallback transport (no ws.request): settles inFlight off the shared onmessage stream", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup({ withRequest: false });
