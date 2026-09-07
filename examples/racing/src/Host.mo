@@ -16,7 +16,7 @@ persistent actor {
   };
 
   transient let wsHub : Ws.Hub = Ws.createHub();
-  transient let ws = Ws.attach<Rules.State, Rules.Action>(
+  transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
     Rules.spec(),
     table,
     wsHub,
@@ -26,11 +26,11 @@ persistent actor {
     },
     IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
   );
-  ws.init<system>();
+  attached.ws.init<system>();
 
-  include ActorMixin<system>(
-    ws,
-    func() = TP.sweep(table, Time.now()),
-  );
+  // `attached.sweep` (not a bare `TP.sweep(table, Time.now())`) pushes a
+  // fresh view to every session the idle sweep just evicted — see
+  // `Ws.Attached`'s own doc.
+  include ActorMixin<system>(attached.ws, attached.sweep);
 
 };

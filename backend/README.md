@@ -266,11 +266,11 @@ persistent actor {
   // ...`status` from the example above, unchanged...
 
   // `IcWebSocketCdk.IcWebSocket` holds live connections/closures — not a
-  // stable type. `transient` rebuilds both fresh on every upgrade; no game
+  // stable type. `transient` rebuilds it fresh on every upgrade; no game
   // state is lost, since `table` is untouched by any of this and browser
   // clients reconnect on their own.
   transient let wsHub : Ws.Hub = Ws.createHub();
-  transient let ws = Ws.attach<Rules.State, Rules.Action>(
+  transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
     Rules.spec(), table, wsHub,
     // Built here, where S/M are concrete — sidesteps any question of
     // whether to_candid/from_candid specialize inside a function still
@@ -285,23 +285,28 @@ persistent actor {
     // dependency allows (see this section's "Disappearance handling").
     IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
   );
-  ws.init<system>(); // starts the CDK's keep-alive/ack timers — this bare
-  // top-level call (like `wsHub`/`ws` themselves) reruns automatically on
-  // every upgrade too, so no `postupgrade` override is needed to restart it
+  attached.ws.init<system>(); // starts the CDK's keep-alive/ack timers —
+  // this bare top-level call (like `wsHub`/`attached` themselves) reruns
+  // automatically on every upgrade too, so no `postupgrade` override is
+  // needed to restart it
 
   // Supplies `ws_open`/`ws_close`/`ws_message`/`ws_get_messages` AND the
   // idle-sweep timer in one `include` — no host actor hand-declares any
-  // of the four. `ws_message`'s second Candid parameter (`ActorMixin`'s
-  // own `msgType`) is a plain `Blob`, not `Ws.Msg<Rules.State,
-  // Rules.Action>` — the mixin only ever holds the already-built `ws`,
-  // with no `S`/`M` in scope to name a game-specific type with, and the
-  // CDK ignores this parameter's VALUE regardless of its declared type
-  // (it exists solely to shape the canister's `.did`, for tooling that
-  // introspects it). The real message driving this call always arrives
-  // through `args`'s own `content` field, decoded via `codec.decode`
-  // exactly as before; `from_candid(msgType) : ?Ws.Msg<Rules.State,
-  // Rules.Action>` recovers the identical value if you ever need it too.
-  include ActorMixin<system>(ws, func() = TP.sweep(table, Time.now()));
+  // of the four. Wiring `attached.sweep` (not a bare
+  // `TP.sweep(table, Time.now())`) is what makes a still-connected tab
+  // whose game the sweep just ended get a fresh push instead of silently
+  // keeping a stale view — see `Ws.Attached`'s own doc. `ws_message`'s
+  // second Candid parameter (`ActorMixin`'s own `msgType`) is a plain
+  // `Blob`, not `Ws.Msg<Rules.State, Rules.Action>` — the mixin only ever
+  // holds the already-built `ws`, with no `S`/`M` in scope to name a
+  // game-specific type with, and the CDK ignores this parameter's VALUE
+  // regardless of its declared type (it exists solely to shape the
+  // canister's `.did`, for tooling that introspects it). The real message
+  // driving this call always arrives through `args`'s own `content`
+  // field, decoded via `codec.decode` exactly as before;
+  // `from_candid(msgType) : ?Ws.Msg<Rules.State, Rules.Action>` recovers
+  // the identical value if you ever need it too.
+  include ActorMixin<system>(attached.ws, attached.sweep);
 };
 ```
 

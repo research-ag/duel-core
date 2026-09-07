@@ -45,11 +45,21 @@ top.
   method to poll in the first place. `frontend/ws.js`'s `connectWs()`
   builds a `GatewayWs` (`frontend/ws/gateway-*.js`) that speaks
   `backend/src/Ws.mo`'s real `ic-websocket-cdk` protocol directly: each
-  browser tab registers itself as its own Gateway (the CDK allows this —
-  no pre-registered Gateway principal required) and polls its own
-  messages, so there's still no external relay *process* to run, just a
-  real WS handshake and genuine canister-driven push instead of
-  client-side polling wearing a push-shaped interface.
+  browser tab self-registers as its own Gateway via plain Candid
+  `ws_open`/`ws_message`/`ws_close` calls (the CDK allows this — no
+  pre-registered Gateway principal required), then a timer drives
+  `ws_get_messages` — a genuine round-trip poll, not a browser<->canister
+  WebSocket (the IC has none), exactly what a real, separate Gateway
+  process would also be doing on the client's behalf. `GatewayWs` still
+  exposes a WebSocket-SHAPED surface (`onopen`/`onmessage`/`onclose`) to
+  its own caller, and the CDK's own sequence-numbered envelopes plus
+  keep-alive/close semantics are real, canister-driven state, not a
+  client-side illusion — but the transport underneath that surface is
+  Candid calls on an interval, so there's no external relay *process* to
+  run, and no genuine browser WebSocket either. A real Gateway-backed
+  transport (swapped in under the same `GatewayWs` surface, see
+  `frontend/README.md`'s transport-split table) is what a deployment
+  actually wanting browser WebSocket semantics needs.
 - **`backend/test/*.test.mo`** — interpreter-run suites for the engine.
   `Lifecycle.test.mo` walks one long session narrative; `Engine.test.mo`
   drives each entry point in isolation, covering the error variants,
@@ -92,15 +102,19 @@ is a whole workflow with its own hard-won lessons: see the
 - `bench-helper` is a dev-dependency, used only by `backend/bench/`.
   Benchmarking requires `[toolchain] pocket-ic` and `wasm-opt` pinned in
   `mops.toml` (already done) — `mops bench` fails outright without them.
-- The frontend package has no npm dependencies at all, full stop —
-  `app.js`'s `start()` takes an already-constructed IC `actor` (and a
-  WebSocket-like `ws`, required) from its caller (see
-  `frontend/README.md`), so it never hardcodes an agent-loading strategy.
-  `frontend/ws.js` builds that `ws` FOR the caller — a `GatewayWs`
-  speaking `backend/src/Ws.mo`'s real `ic-websocket-cdk` protocol, no
-  external relay library, no Gateway URL, nothing to load from a CDN.
-  Don't let a real npm dependency creep into this package anywhere — see
-  rule 10.
+- `app.js`, `render.js`, `idl.js`, and `ic-env.js` — everything but
+  `frontend/ws/gateway-*.js` — have no npm dependencies at all, full
+  stop: `app.js`'s `start()` takes an already-constructed IC `actor`
+  (and a WebSocket-like `ws`, required) from its caller (see
+  `frontend/README.md`), so it never hardcodes an agent-loading
+  strategy. `frontend/ws.js` builds that `ws` FOR the caller — a
+  `GatewayWs` speaking `backend/src/Ws.mo`'s real `ic-websocket-cdk`
+  protocol, no external relay library, no Gateway URL, nothing to load
+  from a CDN — but `gateway-*.js` itself is the one documented, narrow
+  exception: it depends on `@icp-sdk/core` (Candid encode/decode) and
+  `cborg` (CBOR-decoding `ws_get_messages`' certified envelope) — see
+  rule 10. Don't let a real npm dependency creep into ANY OTHER file in
+  this package.
 
 ## Build & test
 
@@ -128,9 +142,13 @@ mops bench
 ```
 
 ```bash
-# Frontend (from the repo root): syntax/sanity check — no build step, no
-# DOM needed to import:
-node --check frontend/app.js frontend/render.js frontend/idl.js frontend/ic-env.js frontend/ws.js frontend/ws/gateway-client.js frontend/ws/gateway-transport.js frontend/ws/gateway-protocol.js
+# Frontend (from the repo root): `frontend/` is TypeScript — build first
+# (see "After touching anything under frontend/" below), THEN
+# syntax/sanity-check the compiled dist/ output the package actually
+# ships; there is no bare frontend/app.js etc. any more to check
+# directly, and no DOM needed to import the compiled output either:
+(cd frontend && npm run build)
+node --check frontend/dist/app.js frontend/dist/render.js frontend/dist/idl.js frontend/dist/ic-env.js frontend/dist/ws.js frontend/dist/ws/gateway-client.js frontend/dist/ws/gateway-transport.js frontend/dist/ws/gateway-protocol.js
 ```
 
 With mops installed, `<path-to-core/src>` is typically
@@ -256,11 +274,11 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
 10. **The frontend never assumes an agent-loading strategy.** `app.js`'s
     `start()` takes an already-built `actor` (and an already-built `ws`,
     required — there is no plain-polling fallback any more); it doesn't
-    import `@dfinity/agent` or hardcode a CDN, and never will — that rule
-    is absolute, not just "no dependencies yet". Dependencies are a
+    import `@icp-sdk/core/agent` or hardcode a CDN, and never will — that
+    rule is absolute, not just "no dependencies yet". Dependencies are a
     narrower, deliberate exception: `frontend/ws/gateway-*.js` (the real
     `mo:duel-game-core/Ws` client `frontend/ws.js`'s `connectWs()`
-    always builds) depends on `@dfinity/candid` (Candid encode/decode of
+    always builds) depends on `@icp-sdk/core` (Candid encode/decode of
     the message content blob) and `cborg` (CBOR-decoding
     `ws_get_messages`' certified envelope) — confined there for the same
     reason `ic-websocket-cdk` is confined to `backend/src/Ws.mo`: every

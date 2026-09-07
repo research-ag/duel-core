@@ -231,8 +231,26 @@ export class LobbyConnectionService {
     // shared poller's first tick — mirrors app.js's own
     // ws.onopen -> refresh(). Its result arrives through onMessage,
     // same as every other view; nothing to do with the return value.
-    this.ws.request(this.sid, { status: null })
-      .catch((e: unknown) => console.error('duel status request failed', e));
+    // refreshStatus() already catches/logs its own failure.
+    this.refreshStatus();
+  }
+
+  /// Fires a fresh `#status` request over the shared connection —
+  /// callers that need the authoritative view before acting (e.g.
+  /// gameplay.service.ts's requestAndSubmitMove() retry path, checking
+  /// whether a round already resolved before blindly resubmitting) can
+  /// await this first. The resulting view still only ever arrives through
+  /// the normal onMessage/nextStep channel like any other push, not
+  /// through this method's own return value — awaiting it only guarantees
+  /// the request has round-tripped, not that a subscriber has reacted to
+  /// it yet.
+  public async refreshStatus(): Promise<void> {
+    if (!this.ws) return;
+    try {
+      await this.ws.request(this.sid, { status: null });
+    } catch (e: unknown) {
+      console.error('duel status refresh failed', e);
+    }
   }
 
   // Bound as a class field (not a method) so it's a stable reference for

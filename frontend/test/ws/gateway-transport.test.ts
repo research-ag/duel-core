@@ -54,15 +54,25 @@ test("invalidate() clears clientKey/isOpen without calling ws_close", async () =
 
 test("close() calls ws_close with the current clientKey, then no-ops once clientKey is null", async () => {
   let seenKey: unknown;
+  let closeCalls = 0;
   const t = new SelfGatewayTransport({
     actor: makeFakeActor({
-      ws_close: async (args) => { seenKey = args.client_key; return { Ok: null }; },
+      ws_close: async (args) => { seenKey = args.client_key; closeCalls++; return { Ok: null }; },
     }),
     principal,
   });
   await t.open(9n);
   await t.close();
   assert.deepEqual(seenKey, { client_principal: principal, client_nonce: 9n });
+  assert.equal(closeCalls, 1);
+  // isOpen/clientKey must go false/null right away — not stay stale
+  // until some later reopen — and a second close() must see that and
+  // skip sending a redundant ws_close for a registration already said
+  // goodbye to.
+  assert.equal(t.isOpen, false);
+  assert.equal(t.clientKey, null);
+  await t.close();
+  assert.equal(closeCalls, 1);
 });
 
 test("close() before any open() is a silent no-op", async () => {

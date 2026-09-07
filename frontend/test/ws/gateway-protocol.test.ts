@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { IDL } from "@icp-sdk/core/candid";
 import { Principal } from "@icp-sdk/core/principal";
 import { GatewayProtocol } from "../../src/ws/gateway-protocol.js";
+import { buildEngineTypes } from "../../src/idl.js";
 
 function sampleGameTypes({ IDL: I }: { IDL: typeof IDL }) {
   return {
@@ -38,9 +39,14 @@ test("buildKeepAliveReply is marked is_service_message and carries the reflected
   const p = new GatewayProtocol({ gameIdlTypes: sampleGameTypes });
   const reply = p.buildKeepAliveReply(clientKey, 42n);
   assert.equal(reply.is_service_message, true);
+  const { WebsocketServiceMessageContent } = buildEngineTypes({ IDL, ...sampleGameTypes({ IDL }) });
+  const decoded = IDL.decode([WebsocketServiceMessageContent], reply.content)[0] as {
+    KeepAliveMessage: { last_incoming_sequence_num: bigint };
+  };
+  assert.equal(decoded.KeepAliveMessage.last_incoming_sequence_num, 42n);
 });
 
-test("interpret: round-trips a buildAppMessage's own content back into a #message action", () => {
+test("interpret: a #req frame (a client->canister request, never a reply to anything) decodes to 'unknown'", () => {
   const p = new GatewayProtocol({ gameIdlTypes: sampleGameTypes });
   const msg = p.buildAppMessage(clientKey, "sid-1", { submit: { pass: null } }, 5n);
   // interpret() takes a *decoded* envelope — plug the built record's

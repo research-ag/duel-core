@@ -54,11 +54,17 @@ hud.mount(hudContainer);
 
 // Fires once for the very first race (including a page reload landing
 // back in a race already under way) and again on every rematch (see
-// LobbyConnectionService.raceStarted's doc). Scene/map setup only ever
-// runs once (sceneInitialized guard); every emission — including the
-// first — resets and (re)starts the actual race via startRace(), passing
-// through `resumedAtStep` (seeds the HUD clock/step counter from the
-// TRUE current round instead of restarting them from 0) and
+// LobbyConnectionService.raceStarted's doc). `sceneInitialized` here
+// guards this WHOLE callback's one-time work, but gameplayService.init()
+// itself only actually runs its 3D scene setup once ever too, via its
+// OWN internal `sceneReady` guard — a failed init() (loadMap() throwing)
+// leaves `sceneInitialized` false below so the retry keeps calling
+// init() again, but init()'s scene setup isn't idempotent (each
+// subscribes scene-lifecycle observables), so it must not repeat: only
+// the map load itself retries. Every raceStarted emission — including
+// the first — resets and (re)starts the actual race via startRace(),
+// passing through `resumedAtStep` (seeds the HUD clock/step counter from
+// the TRUE current round instead of restarting them from 0) and
 // `youAlreadySubmitted` (skips asking for a second move when reconnecting
 // mid-round with one already locked in server-side).
 let sceneInitialized = false;
@@ -70,8 +76,10 @@ lobbyConnectionService.connectToLobby().subscribe(async ({ resumedAtStep, youAlr
       // gameplayService.init() already forfeited this race (see its own
       // doc — most likely the track failed to load even after retries).
       // `sceneInitialized` stays false so the next raceStarted (a
-      // rematch, or anyone re-joining this table) tries loading again
-      // from scratch instead of getting permanently stuck.
+      // rematch, or anyone re-joining this table) retries init() — which
+      // (see this block's own doc above) only re-attempts loadMap(),
+      // not the scene setup that already succeeded, instead of getting
+      // permanently stuck.
       console.error('duel: race init failed, not starting', err);
       return;
     }

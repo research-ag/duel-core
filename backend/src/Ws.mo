@@ -64,7 +64,7 @@
 ///   import ActorMixin "mo:duel-game-core/ActorMixin";
 ///
 ///   let hub : Ws.Hub = Ws.createHub();
-///   let ws = Ws.attach<Rules.State, Rules.Action>(
+///   let attached = Ws.attach<system, Rules.State, Rules.Action>(
 ///     Rules.spec(),
 ///     table,
 ///     hub,
@@ -74,7 +74,7 @@
 ///     },
 ///     IcWebSocketCdkTypes.WsInitParams(null, null),
 ///   );
-///   ws.init<system>();          // starts the CDK's ack timers — this bare
+///   attached.ws.init<system>();  // starts the CDK's ack timers — this bare
 ///                                // top-level call reruns automatically on
 ///                                // every upgrade too (see `../README.md`'s
 ///                                // worked example), so no `postupgrade`
@@ -82,8 +82,12 @@
 ///
 ///   // `ActorMixin` supplies all four `ws_*` Candid methods (open, close,
 ///   // message, get_messages) plus the idle-sweep timer — a host actor
-///   // never has to hand-declare any of them:
-///   include ActorMixin<system>(ws, func() = TP.sweep(table, Time.now()));
+///   // never has to hand-declare any of them. Wiring `attached.sweep`
+///   // (not a bare `TP.sweep(table, Time.now())`) is what makes a
+///   // still-connected tab whose game the sweep just ended get a fresh
+///   // push instead of silently keeping a stale view — see `Attached`'s
+///   // own doc below.
+///   include ActorMixin<system>(attached.ws, attached.sweep);
 ///
 /// `ws_message`'s second Candid parameter — `ActorMixin`'s own `msgType`
 /// — is a plain `Blob`, not `Ws.Msg<S, M>` itself: the CDK ignores its
@@ -107,6 +111,7 @@ import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
+import Timer "mo:core/Timer";
 import IcWebSocketCdk "mo:ic-websocket-cdk";
 import IcWebSocketCdkState "mo:ic-websocket-cdk/State";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
@@ -176,11 +181,31 @@ module {
   public type Hub = {
     var bySid : Map.Map<TP.SessionId, Principal.Principal>;
     var byPrincipal : Map.Map<Principal.Principal, TP.SessionId>;
+    // Bumped by every `remember()` call for a given sid — including an
+    // otherwise-idempotent re-registration under the SAME principal (a
+    // same-tab reconnect: `SelfGatewayTransport` reuses one fixed
+    // principal for its whole lifetime, only the `client_key` nonce
+    // changes across a reopen — see `gateway-transport.ts`'s `open()`).
+    // `bySid`/`byPrincipal` alone can't tell a stale close for such a
+    // reconnect apart from a genuine departure, because nothing about
+    // EITHER map actually changes across it; this counter is the extra
+    // signal `Ws.mo`'s deferred-close check needs — see its own doc.
+    var generation : Map.Map<TP.SessionId, Nat>;
   };
 
   public func createHub() : Hub = {
     var bySid = Map.empty<TP.SessionId, Principal.Principal>();
     var byPrincipal = Map.empty<Principal.Principal, TP.SessionId>();
+    var generation = Map.empty<TP.SessionId, Nat>();
+  };
+
+  /// This sid's current generation counter (0 if never remembered at
+  /// all) — see `Hub.generation`'s own doc.
+  public func generationOf(hub : Hub, sid : TP.SessionId) : Nat {
+    switch (Map.get(hub.generation, Text.compare, sid)) {
+      case (?g) g;
+      case null 0;
+    };
   };
 
   /// Binds `sid` to `p`, replacing whichever principal it was bound to
@@ -193,7 +218,8 @@ module {
   /// not just `bySid`'s — see `forget`'s own doc for the bug leaving it
   /// dangling produces. Exposed (not just called internally) so it's
   /// unit-testable against `Hub`'s two maps directly, without needing a
-  /// full `IcWebSocketCdk` actor.
+  /// full `IcWebSocketCdk` actor. Always bumps `generation`, even when
+  /// `p` is unchanged from before — see `Hub.generation`'s own doc.
   public func remember(hub : Hub, sid : TP.SessionId, p : Principal.Principal) {
     switch (Map.get(hub.bySid, Text.compare, sid)) {
       case (?oldP) {
@@ -205,6 +231,7 @@ module {
     };
     Map.add(hub.bySid, Text.compare, sid, p);
     Map.add(hub.byPrincipal, Principal.compare, p, sid);
+    Map.add(hub.generation, Text.compare, sid, generationOf(hub, sid) + 1);
   };
 
   /// Un-binds `p`, but only clears `bySid[sid]` if `p` is STILL that
@@ -244,19 +271,50 @@ module {
 
   // ────────────────────────── wiring ───────────────────────────────────────
 
+  /// What `attach` hands back to a host actor. `ws` is the raw CDK object
+  /// (`ws.init<system>()`, and `ActorMixin`'s four `ws_*` methods forward
+  /// straight into it). `sweep` is the idle-sweep hook `ActorMixin` wires
+  /// to its own recurring timer — it runs the engine's own `TP.sweep`
+  /// AND, unlike a bare `TP.sweep(table, Time.now())` would, pushes a
+  /// fresh view to every session it just evicted from a #staging/#active/
+  /// #debrief phase that sweep just collapsed to #empty. Without going
+  /// through here, that eviction is invisible to `hub`/`pushRelevant`
+  /// entirely (`ActorMixin.mo`'s timer has no access to either), so a
+  /// still-connected tab whose game the sweep just ended would keep
+  /// showing a stale view until it happened to send a request of its own.
+  public type Attached = {
+    ws : IcWebSocketCdk.IcWebSocket;
+    sweep : (Int) -> async ();
+  };
+
+  /// How long `onClose` waits before actually treating a closed
+  /// connection as a genuine departure — see `onClose`'s own doc for the
+  /// race this closes. Comfortably longer than one client poll tick
+  /// (`DEFAULT_INTERVAL_MS` in `frontend/ws/gateway-client.ts`, 500ms) so
+  /// a same-tab reconnect's first `#req` has landed well before this
+  /// fires, while staying short next to the CDK's own ~60-120s
+  /// keep-alive-timeout detection floor — this grace period is layered
+  /// UNDER that floor for the cooperative-close path, not instead of it.
+  let CLOSE_GRACE : Time.Duration = #seconds(3);
+
   /// Builds a ready-to-forward `IcWebSocketCdk.IcWebSocket` bound to one
   /// game's `Spec`/`Table`: every inbound `#req` is dispatched to the
   /// matching engine operation, and every connected participant of the
   /// affected match gets a fresh `#view` push. A host actor forwards its
-  /// four `ws_*` Candid methods straight into the returned instance — see
-  /// this module's doc header for the exact one-liners.
-  public func attach<S, M>(
+  /// four `ws_*` Candid methods straight into the returned `ws` — see
+  /// this module's doc header for the exact one-liners — and wires the
+  /// returned `sweep` to `ActorMixin`'s own idle-sweep timer instead of
+  /// calling `TP.sweep` directly (see `Attached`'s own doc for why).
+  /// Needs the `<system>` capability (like `ActorMixin`'s own
+  /// `mixin<system>`) because `onClose` below schedules a deferred check
+  /// via `Timer.setTimer<system>` — see its own doc.
+  public func attach<system, S, M>(
     spec : TP.Spec<S, M>,
     table : TP.Table<S, M>,
     hub : Hub,
     codec : Codec<S, M>,
     wsParams : IcWebSocketCdkTypes.WsInitParams,
-  ) : IcWebSocketCdk.IcWebSocket {
+  ) : Attached {
     let wsState = IcWebSocketCdkState.IcWebSocketState(wsParams);
 
     func pushTo(sid : TP.SessionId, msg : Msg<S, M>) : async () {
@@ -380,18 +438,81 @@ module {
       ignore TP.leave(table, now, sid);
     };
 
+    /// The actual disconnect work `onClose` defers behind `CLOSE_GRACE` —
+    /// see that function's own doc for why. `seenGen` is this sid's
+    /// `Hub.generation` as of the ORIGINAL close event; if a reconnect's
+    /// first `#req` bumped it since (`remember()` ran again for `s`),
+    /// this close turned out to be stale after all — back off entirely
+    /// rather than abort a game a still-connected player never left.
+    func finishClose(s : TP.SessionId, seenGen : Nat) : async () {
+      if (generationOf(hub, s) != seenGen) return; // reconnected since — false alarm
+      let now = Time.now();
+      await disconnectSession(now, s);
+      // Both gone: free the board now instead of leaving it occupied
+      // until the idle timeout notices. Only reachable via #debrief
+      // here, since disconnectSession() above already collapsed
+      // #active into #debrief and #staging into #empty.
+      //
+      // Caveat: `hub.bySid` only tracks sessions connected over THIS
+      // WS transport — if a table were ever driven by two genuinely
+      // different transports (one seat on a real `GatewayWs`, the
+      // other on some hand-rolled non-WS mock never registered in
+      // this `hub`), this would wrongly treat a still-active partner
+      // as gone. Not engineered around: this package ships no other
+      // transport any more (mutation is exclusively via `ws_message`
+      // — see this module's own doc header), and a single game
+      // deployment uses one frontend build for every player, so this
+      // is a theoretical edge, not a practical one. A partner found
+      // disconnected here is NOT itself re-checked against its own
+      // generation/grace period — by this point `s`'s own close has
+      // already survived one full `CLOSE_GRACE`, so compounding a
+      // second deferral on top for the partner is not worth the extra
+      // latency it would add to freeing a genuinely doubly-abandoned
+      // board.
+      switch (table.phase) {
+        case (#debrief d) {
+          if (d.p1 == s or d.p2 == s) {
+            let partner = if (d.p1 == s) d.p2 else d.p1;
+            switch (Map.get(hub.bySid, Text.compare, partner)) {
+              case null { await disconnectSession(now, partner) };
+              case (?_) {}; // partner is still connected — nothing to do
+            };
+          };
+        };
+        case (_) {};
+      };
+      await pushRelevant(now, s, null);
+    };
+
     /// Fires when the CDK detects a connection is gone — either the
     /// client's own `ws_close` (a cooperative goodbye) or the CDK's
     /// internal keep-alive timeout (an involuntary disappearance: crash,
     /// force-quit, network drop — see this module's doc header and
     /// `../README.md`'s real-time-push section for the ~60-120s detection
-    /// floor that timeout imposes). Either way this is the one place a
-    /// disappearing player can be told apart from one who's merely gone
-    /// quiet mid-thought, so both `disconnectSession(s)` (ends/acks
-    /// THEIR game instead of leaving a still-present opponent staring at
-    /// a move that's never coming) and the "is the partner ALSO gone"
-    /// check below (frees the board instead of it sitting occupied with
-    /// nobody left to poll it) live here rather than in `lib.mo`.
+    /// floor that timeout imposes). Either way this is normally the one
+    /// place a disappearing player can be told apart from one who's
+    /// merely gone quiet mid-thought — EXCEPT for one race
+    /// `OnCloseCallbackArgs` can't resolve on its own: it carries only
+    /// `client_principal`, never which CONNECTION (client_key) closed,
+    /// and `SelfGatewayTransport` reuses ONE fixed principal across a
+    /// same-tab reconnect (only the client_key nonce changes on reopen —
+    /// see `Hub.generation`'s own doc). A stale close for the OLD
+    /// connection can therefore arrive AFTER a NEW one has already opened
+    /// under that SAME principal but BEFORE that new connection's first
+    /// `#req` re-registers it (`remember()` only ever runs from
+    /// `onMessage` — there is no `onOpen` handler wired here, so `Hub`
+    /// learns nothing at `ws_open` time itself). This is genuinely racy,
+    /// not a bug in a single call's own ordering: the old close and the
+    /// new connection's first message are two INDEPENDENTLY dispatched
+    /// canister calls with no guaranteed relative processing order.
+    /// Treating a stale close as a real departure immediately silently
+    /// aborted a game two still-connected players were mid-round on. Not
+    /// solvable by tightening `forget`'s own guard alone (tried first):
+    /// that guard compares principals, and a same-tab reconnect's
+    /// principal never changes, so it can't tell the two cases apart
+    /// either. The actual fix — `finishClose`, above — defers the real
+    /// disconnect by `CLOSE_GRACE` and re-checks this sid's `generation`
+    /// once that elapses.
     func onClose(args : IcWebSocketCdkTypes.OnCloseCallbackArgs) : async () {
       let p = args.client_principal;
       let sid = Map.get(hub.byPrincipal, Principal.compare, p);
@@ -399,41 +520,41 @@ module {
       switch (sid) {
         case null {}; // this principal was never registered to a sid — nothing to do
         case (?s) {
-          let now = Time.now();
-          await disconnectSession(now, s);
-          // Both gone: free the board now instead of leaving it occupied
-          // until the idle timeout notices. Only reachable via #debrief
-          // here, since disconnectSession() above already collapsed
-          // #active into #debrief and #staging into #empty.
-          //
-          // Caveat: `hub.bySid` only tracks sessions connected over THIS
-          // WS transport — if a table were ever driven by two genuinely
-          // different transports (one seat on a real `GatewayWs`, the
-          // other on some hand-rolled non-WS mock never registered in
-          // this `hub`), this would wrongly treat a still-active partner
-          // as gone. Not engineered around: this package ships no other
-          // transport any more (mutation is exclusively via `ws_message`
-          // — see this module's own doc header), and a single game
-          // deployment uses one frontend build for every player, so this
-          // is a theoretical edge, not a practical one.
-          switch (table.phase) {
-            case (#debrief d) {
-              if (d.p1 == s or d.p2 == s) {
-                let partner = if (d.p1 == s) d.p2 else d.p1;
-                switch (Map.get(hub.bySid, Text.compare, partner)) {
-                  case null { await disconnectSession(now, partner) };
-                  case (?_) {}; // partner is still connected — nothing to do
-                };
-              };
-            };
-            case (_) {};
-          };
-          await pushRelevant(now, s, null);
+          let seenGen = generationOf(hub, s);
+          ignore Timer.setTimer<system>(
+            CLOSE_GRACE,
+            func() : async () { await finishClose(s, seenGen) },
+          );
         };
       };
     };
 
     let handlers = IcWebSocketCdkTypes.WsHandlers(null, ?onMessage, ?onClose);
-    IcWebSocketCdk.IcWebSocket(wsState, wsParams, handlers);
+
+    /// See `Attached`'s own doc. Captures who occupied the phase BEFORE
+    /// running `TP.sweep`, then — only if that phase actually collapsed to
+    /// #empty, i.e. this round's sweep really did evict someone — pushes
+    /// each of them a fresh (now #lobby/#endedByOther) view, the same way
+    /// `pushRelevant` already does for every other mutation.
+    func sweepAndPush(now : Int) : async () {
+      let before = table.phase;
+      TP.sweep(table, now);
+      let becameEmpty = switch (table.phase) { case (#empty) true; case (_) false };
+      if (not becameEmpty) return; // nothing timed out this round
+      switch (before) {
+        case (#staging st) { await pushView(now, st.session, null) };
+        case (#active g) {
+          await pushView(now, g.p1, null);
+          await pushView(now, g.p2, null);
+        };
+        case (#debrief d) {
+          await pushView(now, d.p1, null);
+          await pushView(now, d.p2, null);
+        };
+        case (#empty) {}; // already empty going in — this sweep did nothing
+      };
+    };
+
+    { ws = IcWebSocketCdk.IcWebSocket(wsState, wsParams, handlers); sweep = sweepAndPush };
   };
 };

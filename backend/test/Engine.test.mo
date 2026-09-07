@@ -343,6 +343,43 @@ switch (TP.status(t, LATER, "b")) {
 TP.ackEnded(fresh(), "a"); // no game ever ended — must not trap
 Debug.print("14. ackEnded scoping OK");
 
+// ── 14b. lastEnded holds independent notices — a second vanished game on
+//         the same (now-free) board must not erase an earlier, still-
+//         unacked one. Regression for a real bug: `lastEnded` used to be a
+//         single slot, so noting the SECOND game silently dropped the
+//         first pair's #endedByOther notice if they hadn't acked yet ──────
+t := gameOf(T0);
+ok(TP.reset(t, LATER, "zz"), "outsider clears a's/b's dead game");
+let SECOND_START = LATER + 1_000_000_000;      // board is free; a new pair joins
+ignore ok(TP.join(spec, t, SECOND_START, "c", #p1), "c joins the freed board");
+ignore ok(TP.join(spec, t, SECOND_START, "d", #p2), "d joins");
+let SECOND_IDLE = SECOND_START + TIMEOUT + 1_000_000_000; // c/d's own game goes idle
+ok(TP.reset(t, SECOND_IDLE, "zz2"), "outsider clears c's/d's dead game too");
+switch (TP.status(t, SECOND_IDLE, "a")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("a's earlier notice must survive a second vanished game on the same board");
+};
+switch (TP.status(t, SECOND_IDLE, "c")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("c must see its own, independent notice");
+};
+TP.ackEnded(t, "a");
+switch (TP.status(t, SECOND_IDLE, "a")) {
+  case (#endedByOther) Runtime.trap("a's ack did not clear a's own notice");
+  case (_) {};
+};
+switch (TP.status(t, SECOND_IDLE, "c")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("a's ack must not clear c's unrelated notice");
+};
+TP.ackEnded(t, "c");
+TP.ackEnded(t, "d");
+switch (TP.status(t, SECOND_IDLE, "c")) {
+  case (#endedByOther) Runtime.trap("c's/d's notice should be gone once both acked");
+  case (_) {};
+};
+Debug.print("14b. lastEnded keeps independent per-game notices OK");
+
 // ── 15. The reserved rematch partner may accept via `join`, not just
 //        `rematch` — both acceptance paths must work (CLAUDE.md rule 6) ───
 t := debriefOf(T0);

@@ -252,12 +252,19 @@ export class SelfGatewayTransport {
 
   async close(): Promise<void> {
     if (!this._clientKey) return;
+    const clientKey = this._clientKey;
+    // Clear synchronously, before the `await` below — `isOpen` must go
+    // false the instant a close is underway, not once the network call
+    // eventually settles, and a second, concurrent/repeated close() must
+    // see it already gone and no-op instead of sending a redundant
+    // `ws_close` for a registration we've already said goodbye to.
+    this._clientKey = null;
     // Best-effort: a teardown call racing an already-dead connection
     // (network gone, tab closing) failing silently is fine — the CDK's
     // own keep-alive timeout is the backstop either way (see
     // `../../backend/src/Ws.mo`'s doc header).
     try {
-      await this._actor.ws_close({ client_key: this._clientKey });
+      await this._actor.ws_close({ client_key: clientKey });
     } catch {
       // already gone; nothing to do
     }

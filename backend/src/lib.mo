@@ -178,7 +178,10 @@ module {
     idleTimeoutNs : Int;
     var phase : Phase<S, M>;
     var seq : Nat;                    // match counter (a new staging = new match)
-    var lastEnded : ?Ended;
+    // One entry per game that vanished without both players seeing a
+    // debrief, still missing at least one ack — see `noteEnded`'s own doc
+    // for why this must stay a list, not a single slot.
+    var lastEnded : [Ended];
     var debriefAcked : [SessionId];   // who has dismissed the CURRENT debrief
   };
 
@@ -186,7 +189,7 @@ module {
     idleTimeoutNs;
     var phase = #empty;
     var seq = 0;
-    var lastEnded = null;
+    var lastEnded = [];
     var debriefAcked = [];
   };
 
@@ -285,16 +288,26 @@ module {
   };
 
   /// A game vanished without a debrief for these players — remember them so
-  /// `status` can show #endedByOther until they acknowledge.
+  /// `status` can show #endedByOther until they acknowledge. Appends rather
+  /// than replacing: this table's board is free again (`#empty`) the
+  /// instant this runs, so an entirely different pair can join, play, and
+  /// EVEN THIS SAME WAY vanish again before the first pair ever comes back
+  /// to ack — a single `?Ended` slot would silently drop the earlier
+  /// pair's notice the moment the second one landed. Skips recording an
+  /// entry that's already fully acked (the pre-acked-debrief-takeover
+  /// case) — nothing downstream ever needs one.
   func noteEnded<S, M>(t : Table<S, M>, p1 : SessionId, p2 : SessionId, acked : [SessionId]) {
-    t.lastEnded := ?{ p1; p2; acked };
+    if (member(acked, p1) and member(acked, p2)) return;
+    t.lastEnded := t.lastEnded.concat([{ p1; p2; acked }]);
   };
 
   func unackedEnded<S, M>(t : Table<S, M>, session : SessionId) : Bool {
-    switch (t.lastEnded) {
-      case (?e) (e.p1 == session or e.p2 == session) and not member(e.acked, session);
-      case null false;
+    for (e in t.lastEnded.values()) {
+      if ((e.p1 == session or e.p2 == session) and not member(e.acked, session)) {
+        return true;
+      };
     };
+    false;
   };
 
   func stage<S, M>(t : Table<S, M>, now : Int, session : SessionId, seat : Seat, reservedFor : ?SessionId) {
@@ -622,16 +635,21 @@ module {
     };
   };
 
-  /// Acknowledge an #endedByOther notice (host wires this to "return to base").
+  /// Acknowledge an #endedByOther notice (host wires this to "return to
+  /// base"). Only ever touches THIS session's own entry (if any) — a
+  /// board can carry more than one still-pending notice at once, see
+  /// `noteEnded`'s own doc — and drops that entry for good once every
+  /// participant it names has acked it.
   public func ackEnded<S, M>(t : Table<S, M>, session : SessionId) {
-    switch (t.lastEnded) {
-      case (?e) {
-        if (e.p1 == session or e.p2 == session) {
-          t.lastEnded := ?{ p1 = e.p1; p2 = e.p2; acked = push(e.acked, session) };
+    t.lastEnded := t.lastEnded.filterMap(
+      func(e) {
+        if (e.p1 != session and e.p2 != session) { return ?e };
+        let acked = push(e.acked, session);
+        if (member(acked, e.p1) and member(acked, e.p2)) { null } else {
+          ?{ p1 = e.p1; p2 = e.p2; acked };
         };
-      };
-      case null {};
-    };
+      }
+    );
   };
 
   /// The one truthful, per-caller status view. Pure — safe as a query.

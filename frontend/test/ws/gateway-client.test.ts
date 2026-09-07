@@ -106,6 +106,40 @@ test("request(): resolves with its own correlated reply, unaffected by an interl
   );
 });
 
+test("request(): a reply of #alreadySubmitted is reconciled into a fresh status view instead of surfaced as an error", async (t) => {
+  // Simulates the outcome of _queueResend() retrying a submit whose
+  // original attempt actually landed server-side: the resent copy comes
+  // back #alreadySubmitted, which must NOT be handed to the caller
+  // verbatim (see _isDuplicateSubmitError's own doc) — this test only
+  // exercises the reconciliation itself, not the resend plumbing that
+  // produces it in practice.
+  const canister = new FakeCanister();
+  const freshView: View = {
+    inGame: { seat: { p1: null }, game: { hp: 3n }, turn: 2n, youSubmitted: true, oppSubmitted: false },
+  };
+  canister.respond = (req) => {
+    if (req && typeof req === "object" && "submit" in (req as object)) {
+      return { err: { alreadySubmitted: null } };
+    }
+    return { view: freshView }; // the follow-up #status this reconciles into
+  };
+  const ws = makeWs(t, canister);
+  await waitFor(() => canister.opened);
+
+  const result = await ws.request!("player-1", { submit: { pass: null } });
+  assert.deepEqual(result, { view: freshView });
+});
+
+test("request(): a genuinely fresh #err (not #alreadySubmitted) is still surfaced as-is", async (t) => {
+  const canister = new FakeCanister();
+  canister.respond = () => ({ err: { seatTaken: null } });
+  const ws = makeWs(t, canister);
+  await waitFor(() => canister.opened);
+
+  const result = await ws.request!("player-1", { join: { p1: null } });
+  assert.deepEqual(result, { err: { seatTaken: null } });
+});
+
 test("request(): rejects on timeout when no reply ever arrives", async (t) => {
   const canister = new FakeCanister();
   // respond() throwing means ws_message still returns Ok (the canister

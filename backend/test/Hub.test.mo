@@ -158,4 +158,76 @@ do {
   Debug.print("7. two reconnects in a row keep only the latest principal live OK");
 };
 
+// ── 8. generation(): starts at 0 for an unknown sid, and bumps on EVERY
+//      remember() call for a sid — even an idempotent one under the SAME
+//      principal (a same-tab reconnect: `SelfGatewayTransport` reuses one
+//      fixed principal for its whole lifetime, only the client_key nonce
+//      changes on reopen — see `Ws.mo`'s `Hub.generation` doc). This is
+//      the extra signal `onClose`'s deferred-close check needs, since
+//      `bySid`/`byPrincipal` alone don't change at all across such a
+//      reconnect (tests 9/10 below exercise the actual race).
+// ────────────────────────────────────────────────────────────────────
+do {
+  let hub = Ws.createHub();
+  if (Ws.generationOf(hub, "sid-1") != 0) Runtime.trap("8a: unknown sid must start at generation 0");
+  Ws.remember(hub, "sid-1", PA);
+  if (Ws.generationOf(hub, "sid-1") != 1) Runtime.trap("8b: first remember() must bump to 1");
+  Ws.remember(hub, "sid-1", PA); // idempotent re-remember, SAME principal
+  if (Ws.generationOf(hub, "sid-1") != 2) Runtime.trap("8c: even an idempotent re-remember must bump generation");
+  Ws.remember(hub, "sid-1", PB); // a genuine reconnect under a NEW principal
+  if (Ws.generationOf(hub, "sid-1") != 3) Runtime.trap("8d: a principal change must also bump generation");
+  Debug.print("8. generationOf() bumps on every remember(), idempotent or not OK");
+};
+
+// ── 9. The actual race `Ws.mo`'s `onClose`/`finishClose` defer against:
+//      old ws_close, new ws_open, new connection's first #req — IN THAT
+//      ORDER. `onClose` captures `generationOf(hub, sid)` the moment the
+//      stale close is first processed (BEFORE the reconnect's own first
+//      #req has landed, since the close arrives first in this ordering);
+//      `finishClose` re-checks it after the deferred grace period. This
+//      models both halves directly against `Hub`, without a real
+//      `IcWebSocketCdk`/`Timer` — a same-tab reconnect keeps the SAME
+//      principal (unlike tests 2/3/7's page-reload scenarios), so
+//      `forget()`'s own curP==p guard does NOT protect this case on its
+//      own — the generation check is what must catch it instead.
+// ────────────────────────────────────────────────────────────────────
+do {
+  let hub = Ws.createHub();
+  Ws.remember(hub, "sid-1", PA); // the original, still-active connection
+  // onClose fires for the OLD (about-to-be-superseded) connection's
+  // belated close — captures the generation as of right now, BEFORE the
+  // reconnect's own first #req has arrived.
+  let seenGen = Ws.generationOf(hub, "sid-1");
+  Ws.forget(hub, PA); // the stale ws_close itself — same principal throughout
+  // ...then the reconnect's ws_open (Hub learns nothing from ws_open
+  // itself — there is no onOpen handler wired) followed by its first
+  // #req, which is what actually re-registers it:
+  Ws.remember(hub, "sid-1", PA);
+  // By the time onClose's deferred check (finishClose) finally runs, the
+  // generation has moved — the disconnect must be skipped; the game a
+  // still-connected player never left must survive.
+  if (Ws.generationOf(hub, "sid-1") == seenGen) {
+    Runtime.trap("9: a reconnect's own #req must bump the generation past what onClose saw, or the stale close would wrongly abort a still-live session");
+  };
+  // And the live registration itself must still be intact.
+  expectSid(hub, "sid-1", ?PA, "9b: the reconnected session must still resolve");
+  Debug.print("9. old-close/new-open/new-#req race: the generation check catches the stale close OK");
+};
+
+// ── 10. The inverse of 9: a GENUINE departure (no reconnect ever
+//       follows) must NOT be swallowed by this same mechanism — the
+//       generation onClose captured must still match once the deferred
+//       check runs, so `finishClose` still proceeds with the disconnect.
+// ────────────────────────────────────────────────────────────────────
+do {
+  let hub = Ws.createHub();
+  Ws.remember(hub, "sid-1", PA);
+  let seenGen = Ws.generationOf(hub, "sid-1");
+  Ws.forget(hub, PA); // the close, and this time nobody ever reconnects
+  if (Ws.generationOf(hub, "sid-1") != seenGen) {
+    Runtime.trap("10: with no reconnect, the generation must still match — a genuine departure must still be detected");
+  };
+  Debug.print("10. a genuine departure with no reconnect still matches its own generation OK");
+};
+
 Debug.print("ALL HUB CHECKS PASSED");

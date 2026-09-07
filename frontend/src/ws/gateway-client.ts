@@ -134,18 +134,22 @@ export class GatewayWs extends EventTarget implements DuelWs {
     // pattern) has already done so by the time anything fires.
     setTimeout(() => this._tick(), 0);
 
-    // Best-effort cooperative goodbye for a normal tab-close/backgrounding
-    // — the CDK's own keep-alive timeout is the backstop for everything
-    // this can't catch (crash, force-quit, network drop — see
+    // Best-effort cooperative goodbye for an actual tab-close/navigation-
+    // away — the CDK's own keep-alive timeout is the backstop for
+    // everything this can't catch (crash, force-quit, network drop — see
     // ../../backend/src/Ws.mo's doc header on that detection floor).
-    if (typeof document !== "undefined") {
-      this._onHide = () => {
-        if (document.visibilityState === "hidden") this._transport.close();
-      };
-      document.addEventListener("visibilitychange", this._onHide);
-      if (typeof addEventListener === "function") {
-        addEventListener("pagehide", this._onHide);
-      }
+    // Deliberately `pagehide` only, NOT `visibilitychange`: a closed `ws`
+    // drives an implicit server-side `TP.leave` the instant it fires (see
+    // `Ws.mo`'s `onClose`), which immediately aborts a live game into a
+    // shared debrief — `visibilitychange` fires on plain backgrounding
+    // (switching tabs, minimizing, an OS-level app switch on mobile),
+    // something a player does constantly mid-match with every intention
+    // of coming right back; wiring that to a real close was a genuine bug
+    // that ended an active match the instant either player merely
+    // glanced at another tab.
+    if (typeof addEventListener === "function") {
+      this._onHide = () => this._transport.close();
+      addEventListener("pagehide", this._onHide);
     }
   }
 
@@ -336,6 +340,41 @@ export class GatewayWs extends EventTarget implements DuelWs {
     }
   }
 
+  /// True for an `#err` that can ONLY mean "this exact mutation already
+  /// landed", never a fresh, first-attempt failure. `#alreadySubmitted`
+  /// is the one `EngineErr` this unambiguous: `_queueResend()` retries a
+  /// mutation whose own `ws_message` call failed client-side with no way
+  /// to tell whether the message actually reached `Ws.mo`'s `onMessage`
+  /// first (see that method's own doc) — when it turns out it did, the
+  /// RESENT copy comes back rejected with exactly this error, even
+  /// though the original click already succeeded. Every other
+  /// `EngineErr` variant is ambiguous (a genuinely fresh
+  /// #seatTaken/#notIdle/etc. is just as plausible as a stale resend), so
+  /// only this one is worth reconciling rather than surfacing as-is.
+  private _isDuplicateSubmitError(payload: WsPayload): boolean {
+    return "err" in payload && "alreadySubmitted" in payload.err;
+  }
+
+  /// A resent mutation's own reply came back `#alreadySubmitted` — see
+  /// `_isDuplicateSubmitError`'s own doc for why that means the ORIGINAL
+  /// attempt already succeeded server-side. Handing the caller that raw
+  /// error would make today's click look like it failed when it didn't
+  /// (the exact "spurious Call failed toast" class of bug `request()`'s
+  /// own doc already guards against for a different race), so fetch a
+  /// fresh `#status` view instead and settle the caller's pending promise
+  /// with THAT, same as if the original attempt's own reply had simply
+  /// arrived a little late.
+  private _resolveAfterReconcile(p: PendingRequest): void {
+    if (this._sid == null) {
+      p.resolve({ err: { alreadySubmitted: null } });
+      return;
+    }
+    this.request(this._sid, { status: null }).then(
+      (fresh) => p.resolve(fresh),
+      (e) => p.reject(e as Error),
+    );
+  }
+
   /// Wakes the poll loop up right away instead of leaving it to wait out
   /// up to `intervalMs` — called right after `send()`/`request()`
   /// transmits a message. By the time `ws_message` resolves, `Ws.mo`'s
@@ -442,7 +481,11 @@ export class GatewayWs extends EventTarget implements DuelWs {
           if (p) {
             this._pending.delete(action.reqId);
             clearTimeout(p.timer);
-            p.resolve(action.payload);
+            if (this._isDuplicateSubmitError(action.payload)) {
+              this._resolveAfterReconcile(p);
+            } else {
+              p.resolve(action.payload);
+            }
           }
         }
         break;
@@ -619,11 +662,8 @@ export class GatewayWs extends EventTarget implements DuelWs {
     if (this._closed) return;
     this._closed = true;
     if (this._pollTimer != null) clearTimeout(this._pollTimer);
-    if (typeof document !== "undefined" && this._onHide) {
-      document.removeEventListener("visibilitychange", this._onHide);
-      if (typeof removeEventListener === "function") {
-        removeEventListener("pagehide", this._onHide);
-      }
+    if (this._onHide && typeof removeEventListener === "function") {
+      removeEventListener("pagehide", this._onHide);
     }
     // Reject anything still waiting rather than leaving it hanging.
     for (const p of this._pending.values()) {

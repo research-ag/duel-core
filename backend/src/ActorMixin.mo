@@ -8,7 +8,17 @@ import TP ".";
 
 mixin<system>(
   ws : IcWebSocketCdk.IcWebSocket,
-  sweepFunc : () -> (),
+  // `(Int) -> async ()`, not `() -> ()`: the idle-sweep hook a host actor
+  // wires here is expected to be `Ws.Attached.sweep` (see that module's
+  // own doc), which pushes a fresh view to every session it just evicted
+  // — a bare, synchronous `TP.sweep(table, Time.now())` would silently
+  // leave a still-connected tab showing a stale view with no way to be
+  // told its game just ended by the idle sweep instead of a live push.
+  // This mixin supplies `now` itself (via `Time.now()` below), the same
+  // exception to "the engine owns time" that `Ws.mo` already documents
+  // for itself: it plays the host's own role, same as any host actor
+  // wiring a plain `Time.now()` into a call would.
+  sweepFunc : (Int) -> async (),
 ) {
 
   public shared ({ caller }) func ws_open(
@@ -39,7 +49,7 @@ mixin<system>(
   func startSweeping<system>() {
     ignore Timer.recurringTimer<system>(
       #seconds(30),
-      func() : async () { sweepFunc(); },
+      func() : async () { await sweepFunc(Time.now()); },
     );
   };
   startSweeping<system>();

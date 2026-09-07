@@ -63,6 +63,28 @@ export class GameplayService {
   private lastRequestedMoveWasSkip: boolean = false;
   private lastCarPositionsOnRoadSpline: Map<number, { calculatedAt: number, speed: number, pos: CarPositionOnRoadSplineModel, progress: CarLapProgressModel, lap: number }> = new Map<number, { calculatedAt: number; speed: number; pos: CarPositionOnRoadSplineModel; progress: CarLapProgressModel; lap: number }>();
   private raceResults: any;
+  // How many times requestAndSubmitMove()'s own retry has re-fired for the
+  // CURRENT round (roundFence) without a real round advance in between —
+  // reset to 0 every time startNewIteration() kicks off a genuinely NEW
+  // round. See retryIfStillOwed()'s own doc: without a cap, a PERSISTENT
+  // rejection (not a transient blip) during a forced-skip step — which has
+  // no player click to naturally pace it — would retry in an unbounded
+  // tight loop, hammering the canister forever instead of ever giving up.
+  private moveRetryCount: number = 0;
+  private static readonly MAX_MOVE_RETRIES = 5;
+  private static readonly MOVE_RETRY_BASE_BACKOFF_MS = 500;
+  // Guards ONLY the scene setup inside init(), separately from
+  // `main.ts`'s own `sceneInitialized` (which guards the WHOLE of
+  // init()): when init()'s own loadMap() call fails, main.ts
+  // deliberately leaves its flag false so the NEXT raceStarted retries
+  // by calling init() again — but worldSceneService.init()/
+  // controlSceneService.init() are NOT idempotent (each subscribes
+  // scene-lifecycle observables — see their own init()), so re-running
+  // them on that retry duplicated canvases/subscriptions instead of just
+  // retrying the one step that actually failed. Once scene setup has
+  // genuinely succeeded, every later init() call — retry or not — skips
+  // straight to (re)trying loadMap() alone. See init()'s own doc.
+  private sceneReady: boolean = false;
 
   constructor(
     private readonly gameStateService: GameStateService,
@@ -84,7 +106,10 @@ export class GameplayService {
   // reused for every race (rematch or not) — see resetForNewRace() for
   // what actually needs to reset between races.
   async init(): Promise<void> {
-    await Promise.all([this.worldSceneService.init(), this.controlSceneService.init()]);
+    if (!this.sceneReady) {
+      await Promise.all([this.worldSceneService.init(), this.controlSceneService.init()]);
+      this.sceneReady = true;
+    }
     //TODO: get map name from lobby item
     try {
       this.mapData = await this.mapLoaderService.loadMap();
@@ -278,6 +303,10 @@ export class GameplayService {
     // anymore; the next resolved step will update it again from truth.
     const skippedMovesRemaining: number = this.gameStateService.skippedMovesRemaining.getValue();
     this.lastRequestedMoveWasSkip = skippedMovesRemaining > 0;
+    // A genuinely NEW round starting — reset the retry budget so a run of
+    // rejections on a PAST round can't eat into this one's (see
+    // moveRetryCount's own doc).
+    this.moveRetryCount = 0;
     this.requestAndSubmitMove(myCar, minDistance, maxDistance, maxSteeringCurvature, this.lastRequestedMoveWasSkip)
       .then();
   }
@@ -377,7 +406,33 @@ export class GameplayService {
       // shows "Connection closed — reload to reconnect" once this
       // happens, so there's nothing productive left to do here.
       if (!this.lobbyConnectionService.isConnected) return;
-      this.requestAndSubmitMove(myCar, minDistance, maxDistance, maxSteeringCurvature, isSkipped).then();
+      // Cap + back off: a forced skip has no player click to naturally
+      // pace retries, so a PERSISTENT (not transient) rejection would
+      // otherwise spin this in an unbounded tight loop hammering the
+      // canister forever (moveRetryCount's own doc). Give up automatic
+      // retry past MAX_MOVE_RETRIES rather than that — the normal
+      // nextStep-driven flow still owns recovery if the round ever does
+      // resolve through some other path.
+      this.moveRetryCount++;
+      if (this.moveRetryCount > GameplayService.MAX_MOVE_RETRIES) {
+        console.error(`duel: move rejected ${this.moveRetryCount - 1}x in a row for round ${roundFence} — giving up automatic retry`);
+        return;
+      }
+      const backoffMs = GameplayService.MOVE_RETRY_BASE_BACKOFF_MS * this.moveRetryCount;
+      setTimeout(() => {
+        if (this.stepsCount !== roundFence) return; // moved on while we waited
+        // Refresh the authoritative view before resubmitting — if the
+        // ORIGINAL attempt actually landed (see this function's own doc:
+        // an err/thrown failure here is ambiguous), the round may already
+        // have resolved through the normal channel while this backoff
+        // elapsed, advancing stepsCount out from under roundFence on its
+        // own; re-checking once more after the refresh's own round trip
+        // catches that race too, not just the one right above.
+        this.lobbyConnectionService.refreshStatus().finally(() => {
+          if (this.stepsCount !== roundFence) return;
+          this.requestAndSubmitMove(myCar, minDistance, maxDistance, maxSteeringCurvature, isSkipped).then();
+        });
+      }, backoffMs);
     };
     this.lobbyConnectionService.emitNextStep(stepData)
       .subscribe({

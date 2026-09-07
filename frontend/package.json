@@ -26,6 +26,9 @@
   "sideEffects": [
     "*.css"
   ],
+  "engines": {
+    "node": ">=21.0.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepare": "npm run build",
