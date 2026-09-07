@@ -172,20 +172,22 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* Shown on the specific button that dispatched an update call (see
- * app.js's beginButtonLoading()) for as long as it's in flight — IC
- * update calls are slow enough (hundreds of ms to a few seconds) that a
- * click with no feedback at all reads as broken. The label stays in the
- * DOM (just hidden via `color`/`visibility`, not removed) so the button
- * doesn't reflow/resize while spinning, and so it reappears instantly —
- * with no re-render — if `beginButtonLoading`'s snapshot ever needs to
- * restore it (the "server replied but the view didn't change" case; see
- * app.js). `:disabled`'s 0.35 opacity above would otherwise dim this
- * same button (JS disables it too, to block a second click); this rule
- * wins by coming after it, same specificity, and pins opacity back to 1.
- * The spinner's own `color` is set explicitly rather than inherited,
- * since the button's own text color is hidden via `color: transparent`
- * right below and `currentColor` would otherwise resolve to that. */
+/* Shown on whichever button matches the in-flight call's content key
+ * (see app.js's applyLoadingState()/buttonKey()) for as long as it's in
+ * flight — IC update calls are slow enough (hundreds of ms to a few
+ * seconds) that a click with no feedback at all reads as broken. Applied
+ * fresh after every render, not just at click time, so a screen redrawn
+ * mid-flight by an unrelated push (e.g. the other seat being taken)
+ * still finds and marks the equivalent button instead of silently
+ * losing the spinner on the brand new DOM node that redraw created. The
+ * label stays in the DOM (just hidden via `color`/`visibility`, not
+ * removed) so the button doesn't reflow/resize while spinning.
+ * `:disabled`'s 0.35 opacity above would otherwise dim this same button
+ * (JS disables it too, to block a second click); this rule wins by
+ * coming after it, same specificity, and pins opacity back to 1. The
+ * spinner's own `color` is set explicitly rather than inherited, since
+ * the button's own text color is hidden via `color: transparent` right
+ * below and `currentColor` would otherwise resolve to that. */
 button.duel-loading {
   position: relative;
   opacity: 1;

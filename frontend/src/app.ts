@@ -242,40 +242,111 @@ export function start<S>({
   // that clicking, say, a seat button with zero visual feedback until
   // the whole screen suddenly changes reads as broken/unresponsive.
   //
-  // Snapshots every button's disabled state before disabling them all
-  // (not just the clicked one — a slow update in flight means every
-  // other action is also illegal right now) and marks the clicked one
-  // `.duel-loading`. Restoring is a no-op for any button `refresh()`'s
-  // eventual re-render already threw away (`renderView` replaces
-  // `screenEl.innerHTML` wholesale — see below), so it's safe to call
-  // this unconditionally once a response arrives, whether or not that
-  // response actually changed the view.
+  // This used to snapshot the clicked BUTTON NODE itself plus every
+  // sibling's disabled state, then restore/no-op off that same snapshot
+  // once the call settled. That broke as soon as anything ELSE caused a
+  // re-render while the call was still in flight — e.g. two players
+  // clicking their own seat at once: A's join lands first, its `#status`
+  // push tick reaches B's tab, and `renderIfChanged` below replaces
+  // `screenEl.innerHTML` wholesale to show seat 1 now taken. That
+  // recreates B's own "take seat 2" button as a brand new DOM node with
+  // no `.duel-loading`/`disabled` on it — B's spinner vanishes and the
+  // button looks clickable again, even though B's own join call hasn't
+  // resolved yet (the cursor, driven by `body.working` below and
+  // unaffected by innerHTML replacement, correctly stays busy the whole
+  // time — that mismatch, spinner gone but cursor still "waiting", is
+  // exactly what made this read as broken rather than just cosmetic).
+  //
+  // Fix: track WHICH ACTION is pending by a content key (what the button
+  // *does*, from its own `dataset` — not which node happened to render
+  // it), and reapply the loading/disabled look after EVERY render, not
+  // just at click time. A re-render mid-flight then finds the equivalent
+  // button fresh and keeps it spinning; the call's own eventual
+  // settlement (`endButtonLoading`) clears the key and the very next
+  // render — whether that's this call's own response or, having already
+  // landed, an unrelated one already in flight — draws buttons with
+  // their ordinary server-driven disabled state again.
   // ---------------------------------------------------------------------
 
-  let loadingSnapshot: Array<[HTMLButtonElement, boolean]> | null = null;
+  function buttonKey(b: HTMLButtonElement): string {
+    if (b.dataset.join) return `join:${b.dataset.join}`;
+    if (b.dataset.act) return `act:${b.dataset.act}`;
+    if ("rematch" in b.dataset) return "rematch";
+    if ("leave" in b.dataset) return "leave";
+    if ("reset" in b.dataset) return "reset";
+    if ("ack" in b.dataset) return "ack";
+    return "";
+  }
+
+  let pendingButtonKey: string | null = null;
+
+  // Applied at click time AND after every subsequent render while a call
+  // is in flight (see renderIfChanged below) — never relies on a
+  // particular render having happened only once. Each button's ordinary,
+  // server-driven disabled state (baked into the markup render.js just
+  // produced — e.g. a seat already taken) is stashed on first sight into
+  // `dataset.naturalDisabled` so it survives being forced to `true` here
+  // and can be restored exactly once `pendingButtonKey` clears, without
+  // needing a fresh render to happen at that exact moment.
+  const applyLoadingState = (): void => {
+    for (const btn of screenEl.querySelectorAll("button")) {
+      const el = btn as HTMLButtonElement;
+      if (el.dataset.naturalDisabled === undefined) {
+        el.dataset.naturalDisabled = el.disabled ? "1" : "0";
+      }
+      if (pendingButtonKey) {
+        el.disabled = true;
+        el.classList.toggle("duel-loading", buttonKey(el) === pendingButtonKey);
+      } else {
+        el.disabled = el.dataset.naturalDisabled === "1";
+        el.classList.remove("duel-loading");
+      }
+    }
+  };
 
   // Arrow-function consts, not `function` declarations — a hoisted
   // function declaration's body is, as far as TS's control flow analysis
   // is concerned, reachable from anywhere in this scope (including
   // before the `screenEl` null-guard above), so it can't carry that
   // guard's narrowing in; an expression positioned after the guard can.
+  //
+  // Marks `activeBtn` itself directly, in addition to going through
+  // `applyLoadingState()` — belt-and-suspenders, not redundancy: this is
+  // the exact node the click landed on, so marking it needs no query at
+  // all and lands synchronously no matter how minimal a `screenEl` a
+  // caller hands in (see e.g. the app.test.ts fake DOM, whose
+  // `querySelectorAll` is a stub that never parses `innerHTML` — real
+  // browsers get both paths, this one alone is what a caller like that
+  // gets). `applyLoadingState()` is still what makes this survive an
+  // unrelated re-render mid-flight, since by then `activeBtn` itself may
+  // already be an orphaned node nobody will look at again.
+  let directBtn: HTMLButtonElement | null = null;
+
   const beginButtonLoading = (activeBtn: HTMLButtonElement): void => {
-    loadingSnapshot = [...screenEl.querySelectorAll("button")].map((btn) => [
-      btn,
-      btn.disabled,
-    ]);
-    for (const [btn] of loadingSnapshot) btn.disabled = true;
+    pendingButtonKey = buttonKey(activeBtn);
+    directBtn = activeBtn;
+    if (activeBtn.dataset.naturalDisabled === undefined) {
+      activeBtn.dataset.naturalDisabled = activeBtn.disabled ? "1" : "0";
+    }
+    activeBtn.disabled = true;
     activeBtn.classList.add("duel-loading");
+    applyLoadingState();
   };
 
   const endButtonLoading = (): void => {
-    if (!loadingSnapshot) return;
-    for (const [btn, wasDisabled] of loadingSnapshot) {
-      if (!btn.isConnected) continue;
-      btn.disabled = wasDisabled;
-      btn.classList.remove("duel-loading");
+    pendingButtonKey = null;
+    // Symmetric undo of beginButtonLoading's own direct marking — a
+    // no-op in a real DOM (applyLoadingState()'s querySelectorAll pass
+    // just did the same thing) but the only restoration a caller with a
+    // minimal `screenEl` (no working querySelectorAll) actually gets.
+    // Skipped if the node was already thrown away by an intervening
+    // re-render — nothing left to restore it TO.
+    if (directBtn?.isConnected) {
+      directBtn.disabled = directBtn.dataset.naturalDisabled === "1";
+      directBtn.classList.remove("duel-loading");
     }
-    loadingSnapshot = null;
+    directBtn = null;
+    applyLoadingState();
   };
 
   // ---------------------------------------------------------------------
@@ -372,6 +443,12 @@ export function start<S>({
     if (deepEqual(view, lastView)) return;
     lastView = view;
     screenEl.innerHTML = renderView(view as Parameters<typeof renderView<S>>[0], plugin);
+    // Freshly created buttons start out with whatever disabled state
+    // render.js baked into the markup — reapply any still-pending
+    // button's loading/disabled override on top (see applyLoadingState's
+    // own doc for why this redraw can happen mid-flight, for an action
+    // unrelated to the one this page is still waiting on).
+    applyLoadingState();
   };
 
   screenEl.innerHTML = `<p class="duel-connecting">Connecting…</p>`;

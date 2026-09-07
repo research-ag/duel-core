@@ -170,6 +170,51 @@ test("clicking a seat button calls ws.request with the join request and shows/cl
   assert.equal(doc.body.classList.contains("working"), false);
 });
 
+test("a button's spinner survives an unrelated re-render that arrives before its own call settles (regression: two players taking seats at once)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, doc, ws } = setup();
+  start({ plugin, ws });
+
+  // Initial lobby: both seats open.
+  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
+
+  const p2Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p2");
+  assert.ok(p2Btn, "expected a rendered p2 seat button");
+
+  // Player B clicks "take seat 2".
+  click(els.screen, p2Btn!);
+  assert.equal(ws.requests.length, 1);
+  assert.deepEqual(ws.requests[0]!.req, { join: { p2: null } });
+  assert.ok(p2Btn!.classList.contains("duel-loading"));
+
+  // Before B's own join resolves, an unrelated push tick lands — e.g.
+  // player A's own join, seating p1 — and redraws the whole screen.
+  // This is exactly the bug report's sequence: B's join is still in
+  // flight when this arrives.
+  ws.onmessage!({ data: { view: { lobby: { p1Open: false, p2Open: true, resetAvailable: false } } } });
+
+  // The old p2Btn node is gone (the screen was redrawn); the freshly
+  // rendered one occupying its slot must still show as busy — not
+  // silently enabled again just because it's a new node.
+  const freshP2Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p2");
+  assert.ok(freshP2Btn, "expected a freshly rendered p2 seat button");
+  assert.notEqual(freshP2Btn, p2Btn, "sanity: the re-render actually replaced the node");
+  assert.equal(freshP2Btn!.disabled, true, "still-pending seat button must stay disabled");
+  assert.ok(
+    freshP2Btn!.classList.contains("duel-loading"),
+    "still-pending seat button must keep its spinner",
+  );
+  assert.ok(doc.body.classList.contains("working"), "cursor should still read busy too");
+
+  // B's own join finally resolves.
+  ws.requests[0]!.resolve({
+    view: { stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n } },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(doc.body.classList.contains("working"), false);
+});
+
 test("a submit action button round-trips its data-act JSON verbatim", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();

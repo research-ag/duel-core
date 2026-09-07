@@ -3,15 +3,50 @@
 // implementation. It only implements the exact surface app.ts touches:
 // getElementById/createElement, addEventListener/dispatch,
 // classList.add/remove, dataset, and innerHTML/textContent as plain
-// string properties (no HTML parsing — screenEl.innerHTML is written by
-// renderIfChanged() but never read back as structured markup by app.ts
-// itself, only assigned and occasionally re-read as a plain string).
+// string properties.
 //
 // Pulling in a real DOM implementation (e.g. jsdom) as a devDependency
 // was considered and rejected: this package's whole ethos (see the root
 // CLAUDE.md's rule 10) is staying dependency-free everywhere it can, and
 // the actual DOM surface app.ts needs is small enough that a real
 // implementation would mostly sit unused.
+//
+// One narrow exception: assigning `innerHTML` DOES parse out `<button
+// ...>` tags into real child FakeElements (see `parseButtons` below),
+// just enough that `querySelectorAll("button")` — the one selector
+// app.ts's applyLoadingState() ever asks for — can answer honestly. This
+// exists specifically so a test can reproduce a re-render REPLACING a
+// button mid-flight (an unrelated push tick redrawing the screen while
+// this tab's own call is still pending) and assert on the freshly
+// created node, the way a real browser's own querySelectorAll would
+// hand back a new node too — not just on the exact object a test built
+// by hand with makeButton(). It is still not a general HTML parser: only
+// `<button>` tags and their attributes are recognized, and only
+// `class`/`disabled`/`data-*` are read off them.
+
+const BUTTON_TAG_RE = /<button\b([^>]*)>/gi;
+const ATTR_RE = /([\w-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'))?/g;
+
+function parseButtons(html: string): FakeElement[] {
+  const buttons: FakeElement[] = [];
+  BUTTON_TAG_RE.lastIndex = 0;
+  let tagMatch: RegExpExecArray | null;
+  while ((tagMatch = BUTTON_TAG_RE.exec(html))) {
+    const el = new FakeElement();
+    el.tagName = "button";
+    ATTR_RE.lastIndex = 0;
+    let attrMatch: RegExpExecArray | null;
+    while ((attrMatch = ATTR_RE.exec(tagMatch[1]))) {
+      const [, name, dq, sq] = attrMatch;
+      const value = dq ?? sq ?? "";
+      if (name === "disabled") el.disabled = true;
+      else if (name === "class") el.className = value;
+      else if (name.startsWith("data-")) el.dataset[name.slice(5)] = value;
+    }
+    buttons.push(el);
+  }
+  return buttons;
+}
 
 export class FakeClassList {
   private set = new Set<string>();
@@ -24,6 +59,11 @@ export class FakeClassList {
   contains(name: string): boolean {
     return this.set.has(name);
   }
+  toggle(name: string, force?: boolean): void {
+    const on = force ?? !this.set.has(name);
+    if (on) this.set.add(name);
+    else this.set.delete(name);
+  }
 }
 
 type Listener = (ev: unknown) => void;
@@ -34,12 +74,25 @@ export class FakeElement {
   hidden = false;
   textContent = "";
   className = "";
-  innerHTML = "";
+  tagName = "div";
   isConnected = true;
   classList = new FakeClassList();
   children: FakeElement[] = [];
   listeners: Record<string, Listener[]> = {};
   private _sub: FakeElement | null = null;
+  private _innerHTML = "";
+
+  get innerHTML(): string {
+    return this._innerHTML;
+  }
+
+  /// Replaces `children` with freshly parsed `<button>` stand-ins (see
+  /// parseButtons() above) — same as a real browser discarding and
+  /// recreating every descendant node on an innerHTML assignment.
+  set innerHTML(html: string) {
+    this._innerHTML = html;
+    this.children = parseButtons(html);
+  }
 
   addEventListener(type: string, fn: Listener): void {
     (this.listeners[type] ??= []).push(fn);
@@ -68,12 +121,13 @@ export class FakeElement {
     return (this._sub ??= new FakeElement());
   }
 
-  /// Always empty — app.ts only uses this to snapshot buttons already
-  /// rendered into `innerHTML`, which this stub never parses. Callers
-  /// that need button state instead construct a synthetic click event
-  /// with a fake `target`/`closest()` — see makeButton() below.
-  querySelectorAll(_sel: string): FakeElement[] {
-    return [];
+  /// Only "button" is recognized (the one selector app.ts ever passes to
+  /// applyLoadingState()) — answered from the children the last
+  /// `innerHTML` assignment parsed out (see parseButtons() above). Any
+  /// other selector returns empty, same as before this existed.
+  querySelectorAll(sel: string): FakeElement[] {
+    if (sel !== "button") return [];
+    return this.children.filter((c) => c.tagName === "button");
   }
 
   closest(_sel: string): FakeElement {
@@ -86,6 +140,7 @@ export class FakeElement {
 /// click-delegation handler to read it as the event's `target`.
 export function makeButton(dataset: Record<string, string>): FakeElement {
   const b = new FakeElement();
+  b.tagName = "button";
   b.dataset = dataset;
   return b;
 }
