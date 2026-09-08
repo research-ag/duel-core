@@ -1,6 +1,6 @@
 /// IC WebSocket CDK Motoko Library
 
-import Principal "mo:base/Principal";
+import Principal "mo:core/Principal";
 
 import State "State";
 import Types "Types";

@@ -188,12 +188,19 @@ supplies whichever principal it wants registered as its
 real Gateway process would poll on a client's behalf. No relay process
 to run, no `ic-websocket-js` dependency, no second signing identity — a
 genuinely separate relay process buys nothing a 2-player casual game
-actually needs. That CDK depends on the legacy `mo:base`
-(this package's own code never does — see the root `CLAUDE.md`'s
-toolchain rule), and its last release (`0.4.1`, Oct 2024) predates this
-repo. Keeping it confined to `Ws.mo` means a host actor that never
-imports `mo:duel-game-core/Ws` never compiles any of that in; `src/lib.mo`
-stays exactly as pure as the architecture rules require.
+actually needs. That CDK's last upstream release (`0.4.1`, Oct 2024)
+predates this repo, so it's vendored here at
+`backend/src/ic-websocket-cdk/src` rather than pulled from the mops
+registry — which also let it be migrated in place from `mo:base` to
+`mo:core` (this package's own code never uses `mo:base` — see the root
+`CLAUDE.md`'s toolchain rule), so it no longer carries that legacy
+dependency itself. It does still depend on the third-party
+`ic-certification` mops package for its Merkle certification tree, and
+that package's own code still uses `mo:base` internally — genuinely
+outside this repo's control, unlike the vendored CDK. Keeping the CDK
+confined to `Ws.mo` means a host actor that never imports
+`mo:duel-game-core/Ws` never compiles any of that in; `src/lib.mo` stays
+exactly as pure as the architecture rules require.
 
 **Disappearance handling.** Real WS close detection is exactly what
 makes it possible for the backend to tell a genuinely vanished player

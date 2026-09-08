@@ -92,13 +92,17 @@ is a whole workflow with its own hard-won lessons: see the
 - `src/lib.mo` (the engine) has exactly one Motoko dependency: `core`
   (mo:core, the current Motoko standard library). Never import `mo:base`
   in it — that's the legacy library. `src/Ws.mo` is the sole exception:
-  it additionally depends on `ic-websocket-cdk` (which is itself built on
-  `mo:base` — outside this repo's control) — confined there so `lib.mo`
-  itself stays exactly as pure as the architecture rules require, NOT
-  because wiring `Ws.mo` is optional (every host actor built on this
-  package must wire it — see the `backend/` bullet above). Any FUTURE
-  module added here still needs the same "why is this not in lib.mo"
-  scrutiny before it grows a new dependency.
+  it additionally depends on `ic-websocket-cdk` (vendored in this repo at
+  `backend/src/ic-websocket-cdk/src`, migrated to `mo:core` throughout —
+  it has no `mo:base` import left) — confined there so `lib.mo` itself
+  stays exactly as pure as the architecture rules require, NOT because
+  wiring `Ws.mo` is optional (every host actor built on this package
+  must wire it — see the `backend/` bullet above). `ic-websocket-cdk` in
+  turn depends on the third-party `ic-certification` mops package for
+  its Merkle certification tree, which still uses `mo:base` internally
+  — genuinely outside this repo's control, unlike `ic-websocket-cdk`
+  itself. Any FUTURE module added here still needs the same "why is
+  this not in lib.mo" scrutiny before it grows a new dependency.
 - `bench-helper` is a dev-dependency, used only by `backend/bench/`.
   Benchmarking requires `[toolchain] pocket-ic` and `wasm-opt` pinned in
   `mops.toml` (already done) — `mops bench` fails outright without them.

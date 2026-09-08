@@ -1,7 +1,7 @@
-import Timer "mo:base/Timer";
-import Nat64 "mo:base/Nat64";
-import Array "mo:base/Array";
-import TrieSet "mo:base/TrieSet";
+import Timer "mo:core/Timer";
+import Nat64 "mo:core/Nat64";
+import Map "mo:core/Map";
+import Set "mo:core/Set";
 
 import Constants "Constants";
 import Types "Types";
@@ -119,9 +119,12 @@ module {
   func check_keep_alive_timer_callback(ws_state : State.IcWebSocketState, handlers : Types.WsHandlers) : async* () {
     ws_state.remove_empty_expired_gateways();
 
-    for (client_key in Array.vals(TrieSet.toArray(ws_state.CLIENTS_WAITING_FOR_KEEP_ALIVE))) {
+    // Snapshot to an array first: the loop body removes entries from
+    // CLIENTS_WAITING_FOR_KEEP_ALIVE via remove_client, and mutating a Set
+    // while iterating its live view is unsafe.
+    for (client_key in ws_state.CLIENTS_WAITING_FOR_KEEP_ALIVE.values()) {
       // get the last keep alive timestamp for the client and check if it has exceeded the timeout
-      switch (ws_state.REGISTERED_CLIENTS.get(client_key)) {
+      switch (ws_state.REGISTERED_CLIENTS.get(Types.compareClientKey, client_key)) {
         case (?client_metadata) {
           let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
 

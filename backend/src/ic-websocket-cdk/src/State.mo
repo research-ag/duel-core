@@ -1,17 +1,17 @@
-import HashMap "mo:base/HashMap";
-import TrieSet "mo:base/TrieSet";
-import Timer "mo:base/Timer";
-import List "mo:base/List";
-import Iter "mo:base/Iter";
-import Principal "mo:base/Principal";
-import Prelude "mo:base/Prelude";
-import Option "mo:base/Option";
-import Nat64 "mo:base/Nat64";
-import Text "mo:base/Text";
-import Blob "mo:base/Blob";
-import CertifiedData "mo:base/CertifiedData";
-import Buffer "mo:base/Buffer";
-import Nat8 "mo:base/Nat8";
+import Map "mo:core/Map";
+import Set "mo:core/Set";
+import Timer "mo:core/Timer";
+import MutableList "mo:core/List";
+import List "mo:core/pure/List";
+import Nat "mo:core/Nat";
+import Array "mo:core/Array";
+import Iter "mo:core/Iter";
+import Principal "mo:core/Principal";
+import Runtime "mo:core/Runtime";
+import Option "mo:core/Option";
+import Nat64 "mo:core/Nat64";
+import Text "mo:core/Text";
+import CertifiedData "mo:core/CertifiedData";
 import CertTree "mo:ic-certification/CertTree";
 import Sha256 "mo:sha2/Sha256";
 
@@ -47,22 +47,22 @@ module {
   public class IcWebSocketState(init_params : WsInitParams) = self {
     //// STATE ////
     /// Maps the client's key to the client metadata.
-    public var REGISTERED_CLIENTS = HashMap.HashMap<ClientKey, RegisteredClient>(0, Types.areClientKeysEqual, Types.hashClientKey);
+    public var REGISTERED_CLIENTS = Map.empty<ClientKey, RegisteredClient>();
     /// Maps the client's principal to the current client key.
-    var CURRENT_CLIENT_KEY_MAP = HashMap.HashMap<ClientPrincipal, ClientKey>(0, Principal.equal, Principal.hash);
+    var CURRENT_CLIENT_KEY_MAP = Map.empty<ClientPrincipal, ClientKey>();
     /// Keeps track of all the clients for which we're waiting for a keep alive message.
-    public var CLIENTS_WAITING_FOR_KEEP_ALIVE : TrieSet.Set<ClientKey> = TrieSet.empty();
+    public var CLIENTS_WAITING_FOR_KEEP_ALIVE : Set.Set<ClientKey> = Set.empty();
     /// Maps the client's public key to the sequence number to use for the next outgoing message (to that client).
-    var OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP = HashMap.HashMap<ClientKey, Nat64>(0, Types.areClientKeysEqual, Types.hashClientKey);
+    var OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP = Map.empty<ClientKey, Nat64>();
     /// Maps the client's public key to the expected sequence number of the next incoming message (from that client).
-    var INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP = HashMap.HashMap<ClientKey, Nat64>(0, Types.areClientKeysEqual, Types.hashClientKey);
+    var INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP = Map.empty<ClientKey, Nat64>();
     /// Keeps track of the Merkle tree used for certified queries.
     var CERT_TREE_STORE : CertTree.Store = CertTree.newStore();
     var CERT_TREE = CertTree.Ops(CERT_TREE_STORE);
     /// Keeps track of the principals of the WS Gateways that poll the canister.
-    var REGISTERED_GATEWAYS = HashMap.HashMap<GatewayPrincipal, RegisteredGateway>(0, Principal.equal, Principal.hash);
+    var REGISTERED_GATEWAYS = Map.empty<GatewayPrincipal, RegisteredGateway>();
     /// Keeps track of the gateways that must be removed from the list of registered gateways in the next ack interval
-    var GATEWAYS_TO_REMOVE = HashMap.HashMap<GatewayPrincipal, Types.TimestampNs>(0, Principal.equal, Principal.hash);
+    var GATEWAYS_TO_REMOVE = Map.empty<GatewayPrincipal, Types.TimestampNs>();
     /// The acknowledgement active timer.
     public var ACK_TIMER : ?Timer.TimerId = null;
     /// The keep alive active timer.
@@ -72,34 +72,36 @@ module {
     /// Resets all state to the initial state.
     public func reset_internal_state(handlers : WsHandlers) : async* () {
       // for each client, call the on_close handler before clearing the map
+      // (snapshot the keys first: remove_client mutates REGISTERED_CLIENTS,
+      // and removing entries while iterating its live view is unsafe)
       for (client_key in REGISTERED_CLIENTS.keys()) {
         await* remove_client(client_key, ?handlers, null);
       };
 
       // make sure all the maps are cleared
-      CURRENT_CLIENT_KEY_MAP := HashMap.HashMap<ClientPrincipal, ClientKey>(0, Principal.equal, Principal.hash);
-      CLIENTS_WAITING_FOR_KEEP_ALIVE := TrieSet.empty<ClientKey>();
-      OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP := HashMap.HashMap<ClientKey, Nat64>(0, Types.areClientKeysEqual, Types.hashClientKey);
-      INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP := HashMap.HashMap<ClientKey, Nat64>(0, Types.areClientKeysEqual, Types.hashClientKey);
+      CURRENT_CLIENT_KEY_MAP := Map.empty<ClientPrincipal, ClientKey>();
+      CLIENTS_WAITING_FOR_KEEP_ALIVE := Set.empty<ClientKey>();
+      OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP := Map.empty<ClientKey, Nat64>();
+      INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP := Map.empty<ClientKey, Nat64>();
       CERT_TREE_STORE := CertTree.newStore();
       CERT_TREE := CertTree.Ops(CERT_TREE_STORE);
-      REGISTERED_GATEWAYS := HashMap.HashMap<GatewayPrincipal, RegisteredGateway>(0, Principal.equal, Principal.hash);
-      GATEWAYS_TO_REMOVE := HashMap.HashMap<GatewayPrincipal, Types.TimestampNs>(0, Principal.equal, Principal.hash);
+      REGISTERED_GATEWAYS := Map.empty<GatewayPrincipal, RegisteredGateway>();
+      GATEWAYS_TO_REMOVE := Map.empty<GatewayPrincipal, Types.TimestampNs>();
     };
 
     /// Increments the clients connected count for the given gateway.
     /// If the gateway is not registered, a new entry is created with a clients connected count of 1.
     func increment_gateway_clients_count(gateway_principal : GatewayPrincipal) {
-      ignore GATEWAYS_TO_REMOVE.remove(gateway_principal);
+      GATEWAYS_TO_REMOVE.remove(Principal.compare, gateway_principal);
 
-      switch (REGISTERED_GATEWAYS.get(gateway_principal)) {
+      switch (REGISTERED_GATEWAYS.get(Principal.compare, gateway_principal)) {
         case (?registered_gateway) {
           registered_gateway.increment_clients_count();
         };
         case (null) {
           let new_gw = Types.RegisteredGateway();
           new_gw.increment_clients_count();
-          REGISTERED_GATEWAYS.put(gateway_principal, new_gw);
+          REGISTERED_GATEWAYS.add(Principal.compare, gateway_principal, new_gw);
         };
       };
     };
@@ -109,12 +111,12 @@ module {
     /// If the gateway has no more clients connected, it is added to the [GATEWAYS_TO_REMOVE] map,
     /// in order to remove it in the next keep alive check.
     func decrement_gateway_clients_count(gateway_principal : GatewayPrincipal) {
-      switch (REGISTERED_GATEWAYS.get(gateway_principal)) {
+      switch (REGISTERED_GATEWAYS.get(Principal.compare, gateway_principal)) {
         case (?registered_gateway) {
           let clients_count = registered_gateway.decrement_clients_count();
 
           if (clients_count == 0) {
-            GATEWAYS_TO_REMOVE.put(gateway_principal, Utils.get_current_time());
+            GATEWAYS_TO_REMOVE.add(Principal.compare, gateway_principal, Utils.get_current_time());
           };
         };
         case (null) {
@@ -129,11 +131,9 @@ module {
       let ack_interval_ms = init_params.send_ack_interval_ms;
       let time = Utils.get_current_time();
 
-      let gateway_principals_to_remove : Buffer.Buffer<GatewayPrincipal> = Buffer.Buffer(GATEWAYS_TO_REMOVE.size());
-      GATEWAYS_TO_REMOVE := HashMap.mapFilter(
-        GATEWAYS_TO_REMOVE,
-        Principal.equal,
-        Principal.hash,
+      let gateway_principals_to_remove = MutableList.empty<GatewayPrincipal>();
+      GATEWAYS_TO_REMOVE := GATEWAYS_TO_REMOVE.filterMap(
+        Principal.compare,
         func(gp : GatewayPrincipal, added_at : Types.TimestampNs) : ?Types.TimestampNs {
           if (time - added_at > (ack_interval_ms * 1_000_000)) {
             gateway_principals_to_remove.add(gp);
@@ -144,10 +144,10 @@ module {
         },
       );
 
-      for (gateway_principal in gateway_principals_to_remove.vals()) {
+      for (gateway_principal in gateway_principals_to_remove.values()) {
         switch (
           Option.map(
-            REGISTERED_GATEWAYS.remove(gateway_principal),
+            REGISTERED_GATEWAYS.take(Principal.compare, gateway_principal),
             func(g : RegisteredGateway) : List.List<Text> {
               List.map(g.messages_queue, func(m : CanisterOutputMessage) : Text { m.key });
             },
@@ -164,7 +164,7 @@ module {
     };
 
     func get_registered_gateway(gateway_principal : GatewayPrincipal) : Result<RegisteredGateway, Text> {
-      switch (REGISTERED_GATEWAYS.get(gateway_principal)) {
+      switch (REGISTERED_GATEWAYS.get(Principal.compare, gateway_principal)) {
         case (?registered_gateway) { #Ok(registered_gateway) };
         case (null) {
           #Err(Errors.to_string(#GatewayNotRegistered({ gateway_principal })));
@@ -206,12 +206,12 @@ module {
     };
 
     func insert_client(client_key : ClientKey, new_client : RegisteredClient) {
-      CURRENT_CLIENT_KEY_MAP.put(client_key.client_principal, client_key);
-      REGISTERED_CLIENTS.put(client_key, new_client);
+      CURRENT_CLIENT_KEY_MAP.add(Principal.compare, client_key.client_principal, client_key);
+      REGISTERED_CLIENTS.add(Types.compareClientKey, client_key, new_client);
     };
 
     func get_registered_client(client_key : ClientKey) : Result<RegisteredClient, Text> {
-      switch (REGISTERED_CLIENTS.get(client_key)) {
+      switch (REGISTERED_CLIENTS.get(Types.compareClientKey, client_key)) {
         case (?registered_client) { #Ok(registered_client) };
         case (null) {
           #Err(Errors.to_string(#ClientKeyNotConnected({ client_key })));
@@ -220,7 +220,7 @@ module {
     };
 
     public func get_client_key_from_principal(client_principal : ClientPrincipal) : Result<ClientKey, Text> {
-      switch (CURRENT_CLIENT_KEY_MAP.get(client_principal)) {
+      switch (CURRENT_CLIENT_KEY_MAP.get(Principal.compare, client_principal)) {
         case (?client_key) #Ok(client_key);
         case (null) #Err(Errors.to_string(#ClientPrincipalNotConnected({ client_principal })));
       };
@@ -247,15 +247,15 @@ module {
     };
 
     public func add_client_to_wait_for_keep_alive(client_key : ClientKey) {
-      CLIENTS_WAITING_FOR_KEEP_ALIVE := TrieSet.put<ClientKey>(CLIENTS_WAITING_FOR_KEEP_ALIVE, client_key, Types.hashClientKey(client_key), Types.areClientKeysEqual);
+      CLIENTS_WAITING_FOR_KEEP_ALIVE.add(Types.compareClientKey, client_key);
     };
 
     func init_outgoing_message_to_client_num(client_key : ClientKey) {
-      OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.put(client_key, Constants.INITIAL_CANISTER_SEQUENCE_NUM);
+      OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.add(Types.compareClientKey, client_key, Constants.INITIAL_CANISTER_SEQUENCE_NUM);
     };
 
     public func get_outgoing_message_to_client_num(client_key : ClientKey) : Result<Nat64, Text> {
-      switch (OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.get(client_key)) {
+      switch (OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.get(Types.compareClientKey, client_key)) {
         case (?num) #Ok(num);
         case (null) #Err(Errors.to_string(#OutgoingMessageToClientNumNotInitialized({ client_key })));
       };
@@ -264,7 +264,7 @@ module {
     public func increment_outgoing_message_to_client_num(client_key : ClientKey) : Result<(), Text> {
       switch (get_outgoing_message_to_client_num(client_key)) {
         case (#Ok(num)) {
-          OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.put(client_key, num + 1);
+          OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.add(Types.compareClientKey, client_key, num + 1);
           #Ok;
         };
         case (#Err(error)) #Err(error);
@@ -272,11 +272,11 @@ module {
     };
 
     func init_expected_incoming_message_from_client_num(client_key : ClientKey) {
-      INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.put(client_key, Constants.INITIAL_CLIENT_SEQUENCE_NUM);
+      INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.add(Types.compareClientKey, client_key, Constants.INITIAL_CLIENT_SEQUENCE_NUM);
     };
 
     public func get_expected_incoming_message_from_client_num(client_key : ClientKey) : Result<Nat64, Text> {
-      switch (INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.get(client_key)) {
+      switch (INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.get(Types.compareClientKey, client_key)) {
         case (?num) #Ok(num);
         case (null) #Err(Errors.to_string(#ExpectedIncomingMessageToClientNumNotInitialized({ client_key })));
       };
@@ -285,7 +285,7 @@ module {
     public func increment_expected_incoming_message_from_client_num(client_key : ClientKey) : Result<(), Text> {
       switch (get_expected_incoming_message_from_client_num(client_key)) {
         case (#Ok(num)) {
-          INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.put(client_key, num + 1);
+          INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.add(Types.compareClientKey, client_key, num + 1);
           #Ok;
         };
         case (#Err(error)) #Err(error);
@@ -320,12 +320,12 @@ module {
         };
       };
 
-      CLIENTS_WAITING_FOR_KEEP_ALIVE := TrieSet.delete(CLIENTS_WAITING_FOR_KEEP_ALIVE, client_key, Types.hashClientKey(client_key), Types.areClientKeysEqual);
-      CURRENT_CLIENT_KEY_MAP.delete(client_key.client_principal);
-      OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.delete(client_key);
-      INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.delete(client_key);
+      CLIENTS_WAITING_FOR_KEEP_ALIVE.remove(Types.compareClientKey, client_key);
+      CURRENT_CLIENT_KEY_MAP.remove(Principal.compare, client_key.client_principal);
+      OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.remove(Types.compareClientKey, client_key);
+      INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.remove(Types.compareClientKey, client_key);
 
-      switch (REGISTERED_CLIENTS.remove(client_key)) {
+      switch (REGISTERED_CLIENTS.take(Types.compareClientKey, client_key)) {
         case (?registered_client) {
           decrement_gateway_clients_count(registered_client.gateway_principal);
 
@@ -352,7 +352,7 @@ module {
         var nonce_str = Nat64.toText(nonce);
         let padding : Nat = 20 - Text.size(nonce_str);
         if (padding > 0) {
-          for (i in Iter.range(0, padding - 1)) {
+          for (i in Nat.rangeInclusive(0, padding - 1)) {
             nonce_str := "0" # nonce_str;
           };
         };
@@ -369,7 +369,7 @@ module {
         };
         case (#Err(_)) {
           // the value exists because we just checked that the gateway is registered
-          Prelude.unreachable();
+          Runtime.unreachable();
         };
       };
     };
@@ -405,15 +405,15 @@ module {
     func get_messages_for_gateway(gateway_principal : Principal, start_index : Nat, end_index : Nat) : List.List<CanisterOutputMessage> {
       let messages_queue = get_gateway_messages_queue(gateway_principal);
 
-      var messages : List.List<CanisterOutputMessage> = List.nil();
-      for (i in Iter.range(start_index, end_index - 1)) {
+      var messages : List.List<CanisterOutputMessage> = List.empty();
+      for (i in Nat.range(start_index, end_index)) {
         let message = List.get(messages_queue, i);
         switch (message) {
           case (?message) {
-            messages := List.push(message, messages);
+            messages := List.pushFront(messages, message);
           };
           case (null) {
-            Prelude.unreachable(); // the value exists because this function is called only after partitioning the queue
+            Runtime.unreachable(); // the value exists because this function is called only after partitioning the queue
           };
         };
       };
@@ -426,7 +426,7 @@ module {
       let { start_index; end_index; is_end_of_queue } = get_messages_for_gateway_range(gateway_principal, nonce, max_number_of_returned_messages);
       let messages = get_messages_for_gateway(gateway_principal, start_index, end_index);
 
-      if (List.isNil(messages)) {
+      if (List.isEmpty(messages)) {
         return get_cert_messages_empty();
       };
 
@@ -436,7 +436,7 @@ module {
           [Text.encodeUtf8(message.key)];
         },
       );
-      let (cert, tree) = get_cert_for_range(List.toIter(keys));
+      let (cert, tree) = get_cert_for_range(List.values(keys));
 
       #Ok({
         messages = List.toArray(messages);
@@ -449,8 +449,8 @@ module {
     public func get_cert_messages_empty() : CanisterWsGetMessagesResult {
       #Ok({
         messages = [];
-        cert = Blob.fromArray([]);
-        tree = Blob.fromArray([]);
+        cert = Array.toBlob([]);
+        tree = Array.toBlob([]);
         is_end_of_queue = true;
       });
     };
@@ -458,7 +458,7 @@ module {
     func labeledHash(l : Blob, content : CertTree.Hash) : Blob {
       let d = Sha256.new();
       let domain_sep : Blob = "ic-hashtree-labeled";
-      d.writeArray([Nat8.fromNat(domain_sep.size())]);
+      d.writeArray([Nat.toNat8(domain_sep.size())]);
       d.writeBlob(domain_sep);
       d.writeBlob(l);
       d.writeBlob(content);
@@ -506,7 +506,7 @@ module {
 
     func delete_keys_from_cert_tree(keys : List.List<Text>) {
       let root_hash = do {
-        for (key in Iter.fromList(keys)) {
+        for (key in keys.values()) {
           CERT_TREE.delete([Text.encodeUtf8(key)]);
         };
         labeledHash(Constants.LABEL_WEBSOCKET, CERT_TREE.treeHash());
@@ -525,13 +525,13 @@ module {
           let tree_blob = CERT_TREE.encodeWitness(tree);
           (cert, tree_blob);
         };
-        case (null) Prelude.unreachable();
+        case (null) Runtime.unreachable();
       };
     };
 
     func handle_keep_alive_client_message(client_key : ClientKey, _keep_alive_message : Types.ClientKeepAliveMessageContent) {
       // update the last keep alive timestamp for the client
-      switch (REGISTERED_CLIENTS.get(client_key)) {
+      switch (REGISTERED_CLIENTS.get(Types.compareClientKey, client_key)) {
         case (?client_metadata) {
           client_metadata.update_last_keep_alive_timestamp();
         };

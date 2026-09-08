@@ -1,11 +1,12 @@
-import Hash "mo:base/Hash";
-import Principal "mo:base/Principal";
-import Text "mo:base/Text";
-import Nat64 "mo:base/Nat64";
-import List "mo:base/List";
-import Blob "mo:base/Blob";
-import Prelude "mo:base/Prelude";
-import Iter "mo:base/Iter";
+import Principal "mo:core/Principal";
+import Text "mo:core/Text";
+import Nat64 "mo:core/Nat64";
+import Nat "mo:core/Nat";
+import Array "mo:core/Array";
+import List "mo:core/pure/List";
+import Blob "mo:core/Blob";
+import Order "mo:core/Order";
+import Runtime "mo:core/Runtime";
 import CborEncoder "mo:cbor/Encoder";
 import CborTypes "mo:cbor/Types";
 
@@ -29,8 +30,11 @@ module {
   public func clientKeyToText(k : ClientKey) : Text {
     Principal.toText(k.client_principal) # "_" # Nat64.toText(k.client_nonce);
   };
-  public func hashClientKey(k : ClientKey) : Hash.Hash {
-    Text.hash(clientKeyToText(k));
+  public func compareClientKey(k1 : ClientKey, k2 : ClientKey) : Order.Order {
+    switch (Principal.compare(k1.client_principal, k2.client_principal)) {
+      case (#equal) { Nat64.compare(k1.client_nonce, k2.client_nonce) };
+      case (other) { other };
+    };
   };
 
   /// The result of [ws_open].
@@ -91,7 +95,7 @@ module {
         return #Err(err);
       };
       case (#ok(data)) {
-        #Ok(Blob.fromArray(data));
+        #Ok(Array.toBlob(data));
       };
     };
   };
@@ -128,9 +132,9 @@ module {
   /// Contains data about the registered WS Gateway.
   public class RegisteredGateway() {
     /// The queue of the messages that the gateway can poll.
-    public var messages_queue : List.List<CanisterOutputMessage> = List.nil();
+    public var messages_queue : List.List<CanisterOutputMessage> = List.empty();
     /// The queue of messages' keys to delete.
-    public var messages_to_delete : List.List<MessageToDelete> = List.nil();
+    public var messages_to_delete : List.List<MessageToDelete> = List.empty();
     /// Keeps track of the nonce which:
     /// - the WS Gateway uses to specify the first index of the certified messages to be returned when polling
     /// - the client uses as part of the path in the Merkle tree in order to verify the certificate of the messages relayed by the WS Gateway
@@ -158,11 +162,11 @@ module {
 
     /// Adds the message to the queue and its metadata to the `messages_to_delete` queue.
     public func add_message_to_queue(message : CanisterOutputMessage, message_timestamp : TimestampNs) {
-      messages_queue := List.append(
+      messages_queue := List.concat(
         messages_queue,
         List.fromArray([message]),
       );
-      messages_to_delete := List.append(
+      messages_to_delete := List.concat(
         messages_to_delete,
         List.fromArray([{
           timestamp = message_timestamp;
@@ -175,20 +179,20 @@ module {
     /// Returns the deleted messages keys.
     public func delete_old_messages(n : Nat, message_max_age_ms : Nat64) : List.List<Text> {
       let time = Utils.get_current_time();
-      var deleted_keys : List.List<Text> = List.nil();
+      var deleted_keys : List.List<Text> = List.empty();
 
-      label f for (_ in Iter.range(0, n - 1)) {
+      label f for (_ in Nat.range(0, n)) {
         switch (List.get(messages_to_delete, 0)) {
           case (?message_to_delete) {
             if ((time - message_to_delete.timestamp) > (message_max_age_ms * 1_000_000)) {
               let deleted_message = do {
-                let (m, l) = List.pop(messages_queue);
+                let (m, l) = List.popFront(messages_queue);
                 messages_queue := l;
                 m;
               };
               switch (deleted_message) {
                 case (?deleted_message) {
-                  deleted_keys := List.append(
+                  deleted_keys := List.concat(
                     deleted_keys,
                     List.fromArray([deleted_message.key]),
                   );
@@ -196,10 +200,10 @@ module {
                 case (null) {
                   // there is no case in which the messages_to_delete queue is populated
                   // while the messages_queue is empty
-                  Prelude.unreachable();
+                  Runtime.unreachable();
                 };
               };
-              let (_, l) = List.pop(messages_to_delete);
+              let (_, l) = List.popFront(messages_to_delete);
               messages_to_delete := l;
             } else {
               // In this case, no messages can be deleted because
