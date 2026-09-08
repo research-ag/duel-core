@@ -290,8 +290,31 @@ module {
   /// send a request of its own.
   public type Attached = {
     ws : IcWebSocketCdk.IcWebSocket;
-    sweep : (Int) -> async ();
+    sweep : (Int) -> async* ();
   };
+
+  /// `async*`/`await*`, not `async`/`await`, on `sweep` here and on every
+  /// push helper below (`pushTo`/`pushView`/`pushRelevant`/`finishClose`/
+  /// `sweepAndPush`): only `pushTo`'s own call to `IcWebSocketCdk.send`
+  /// is a genuine `await` — everything that calls it, directly or
+  /// transitively, is a thin wrapper (a fan-out loop, a phase-based
+  /// dispatch) with no awaiting of its own to do. A plain `async`/`await`
+  /// chain would still pay a real cost for each one of those wrappers: on
+  /// the IC, every `async` function call is its own message with its own
+  /// commit point, so e.g. `pushRelevant`'s two-seat fan-out would compile
+  /// to two extra round trips through the scheduler even though nothing
+  /// in either wrapper actually suspends. `async*`/`await*` inlines a
+  /// call into its caller's own async state machine instead of starting a
+  /// new one, so the whole `sweep`/`onMessage`/`onClose` call tree down to
+  /// `pushTo`'s single real `await` compiles to ONE message, not one per
+  /// wrapper — the same number of genuine sends, far fewer commit points
+  /// and continuation-closure allocations. Never widen one of these back
+  /// to plain `async`/`await` just to make a call site read more
+  /// familiarly; it silently reintroduces that per-wrapper overhead.
+  /// `disconnectSession` below goes one step further and drops `async`
+  /// entirely — it calls only `TP.leave` (fully synchronous engine code,
+  /// no `await`/`await*` of any kind inside it), so there is no async
+  /// state machine to build at all.
 
   /// How long `onClose` waits before actually treating a closed
   /// connection as a genuine departure — see `onClose`'s own doc for the
@@ -323,7 +346,7 @@ module {
   ) : Attached {
     let wsState = IcWebSocketCdkState.IcWebSocketState(wsParams);
 
-    func pushTo(sid : TP.SessionId, msg : Msg<S, M>) : async () {
+    func pushTo(sid : TP.SessionId, msg : Msg<S, M>) : async* () {
       switch (Map.get(hub.bySid, Text.compare, sid)) {
         case null {}; // that seat isn't connected over WS (e.g. still polling)
         case (?p) {
@@ -335,8 +358,8 @@ module {
     /// `reqId` is `null` unless `sid` is the session whose OWN request
     /// triggered this push — see `pushRelevant`'s doc for why a push to
     /// anyone else always passes `null` here.
-    func pushView(now : Int, sid : TP.SessionId, reqId : ?Nat64) : async () {
-      await pushTo(sid, #view({ reqId; view = TP.status(table, now, sid) }));
+    func pushView(now : Int, sid : TP.SessionId, reqId : ?Nat64) : async* () {
+      await* pushTo(sid, #view({ reqId; view = TP.status(table, now, sid) }));
     };
 
     /// Views change for both seats on almost every mutation (a submit can
@@ -347,18 +370,18 @@ module {
     /// is passed through ONLY to `sid` itself; the partner's push is
     /// always an unsolicited broadcast from their point of view, `null`
     /// regardless of what `sid` passed in.
-    func pushRelevant(now : Int, sid : TP.SessionId, reqId : ?Nat64) : async () {
+    func pushRelevant(now : Int, sid : TP.SessionId, reqId : ?Nat64) : async* () {
       func forSid(other : TP.SessionId) : ?Nat64 {
         if (other == sid) reqId else null;
       };
       switch (table.phase) {
         case (#active g) {
-          await pushView(now, g.p1, forSid(g.p1));
-          await pushView(now, g.p2, forSid(g.p2));
+          await* pushView(now, g.p1, forSid(g.p1));
+          await* pushView(now, g.p2, forSid(g.p2));
         };
         case (#debrief d) {
-          await pushView(now, d.p1, forSid(d.p1));
-          await pushView(now, d.p2, forSid(d.p2));
+          await* pushView(now, d.p1, forSid(d.p1));
+          await* pushView(now, d.p2, forSid(d.p2));
         };
         case (_) {
           // No fixed pair of participants yet (#empty / #staging) — the
@@ -374,7 +397,7 @@ module {
           // so it needs no special case — `forSid` still gives it its own
           // `reqId` like any other branch.
           for (other in Map.keys(hub.bySid)) {
-            await pushView(now, other, forSid(other));
+            await* pushView(now, other, forSid(other));
           };
         };
       };
@@ -388,40 +411,40 @@ module {
           remember(hub, sid, args.client_principal);
           let now = Time.now();
           switch (req) {
-            case (#status) { await pushView(now, sid, reqId) };
+            case (#status) { await* pushView(now, sid, reqId) };
             case (#join seat) {
               switch (TP.join(spec, table, now, sid, seat)) {
-                case (#ok _) { await pushRelevant(now, sid, reqId) };
-                case (#err e) { await pushTo(sid, #err({ reqId; err = e })) };
+                case (#ok _) { await* pushRelevant(now, sid, reqId) };
+                case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#submit move) {
               switch (TP.submit(spec, table, now, sid, move)) {
-                case (#ok _) { await pushRelevant(now, sid, reqId) };
-                case (#err e) { await pushTo(sid, #err({ reqId; err = e })) };
+                case (#ok _) { await* pushRelevant(now, sid, reqId) };
+                case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#rematch) {
               switch (TP.rematch(spec, table, now, sid)) {
-                case (#ok _) { await pushRelevant(now, sid, reqId) };
-                case (#err e) { await pushTo(sid, #err({ reqId; err = e })) };
+                case (#ok _) { await* pushRelevant(now, sid, reqId) };
+                case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#leave) {
               switch (TP.leave(table, now, sid)) {
-                case (#ok _) { await pushRelevant(now, sid, reqId) };
-                case (#err e) { await pushTo(sid, #err({ reqId; err = e })) };
+                case (#ok _) { await* pushRelevant(now, sid, reqId) };
+                case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#reset) {
               switch (TP.reset(table, now, sid)) {
-                case (#ok _) { await pushRelevant(now, sid, reqId) };
-                case (#err e) { await pushTo(sid, #err({ reqId; err = e })) };
+                case (#ok _) { await* pushRelevant(now, sid, reqId) };
+                case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#ackEnded) {
               TP.ackEnded(table, sid);
-              await pushView(now, sid, reqId);
+              await* pushView(now, sid, reqId);
             };
           };
         };
@@ -439,7 +462,7 @@ module {
     /// second acks that same debrief immediately, since a session whose
     /// socket just closed will never come back to click "leave" a second
     /// time itself the way a still-connected player would.
-    func disconnectSession(now : Int, sid : TP.SessionId) : async () {
+    func disconnectSession(now : Int, sid : TP.SessionId) {
       ignore TP.leave(table, now, sid);
       ignore TP.leave(table, now, sid);
     };
@@ -451,21 +474,26 @@ module {
     /// this close turned out to be stale after all — back off entirely
     /// rather than abort a game a still-connected player never left. On
     /// a genuine departure, also prunes `s`'s own `hub.generation` entry
-    /// once every `await` below has had its chance to be raced by a
-    /// reconnect (re-checked against `seenGen` again right before the
-    /// prune, not just at entry) — `bySid`/`byPrincipal` already get
-    /// cleaned up this way via `forget`, but `generation` otherwise never
-    /// shrinks, growing by one entry per distinct sid for the life of
-    /// the canister. The re-check matters: a reconnect landing in the
-    /// window opened up by any of these `await`s would have bumped the
-    /// generation again, and pruning the entry out from under that
+    /// once the suspension below (`await* pushRelevant`, which still
+    /// reaches a real IC `await` down in `pushTo` — `async*`/`await*`
+    /// removes the extra per-wrapper MESSAGE, not the underlying
+    /// suspension itself, see `Attached`'s own doc) has had its chance to
+    /// be raced by a reconnect (re-checked against `seenGen` again right
+    /// before the prune, not just at entry) — `bySid`/`byPrincipal`
+    /// already get cleaned up this way via `forget`, but `generation`
+    /// otherwise never shrinks, growing by one entry per distinct sid for
+    /// the life of the canister. The re-check matters: a reconnect
+    /// landing in the window that suspension opens up would have bumped
+    /// the generation again, and pruning the entry out from under that
     /// bumped counter would silently reset it to 0 — a LATER stale close
     /// for the connection that reconnect superseded could then wrongly
-    /// match again.
-    func finishClose(s : TP.SessionId, seenGen : Nat) : async () {
+    /// match again. (`disconnectSession` just above is no longer part of
+    /// this race at all — it's plain synchronous code now, not even
+    /// `async*`, so calling it opens no window for anything to land in.)
+    func finishClose(s : TP.SessionId, seenGen : Nat) : async* () {
       if (generationOf(hub, s) != seenGen) return; // reconnected since — false alarm
       let now = Time.now();
-      await disconnectSession(now, s);
+      disconnectSession(now, s);
       // Both gone: free the board now instead of leaving it occupied
       // until the idle timeout notices. Only reachable via #debrief
       // here, since disconnectSession() above already collapsed
@@ -492,16 +520,16 @@ module {
           if (d.p1 == s or d.p2 == s) {
             let partner = if (d.p1 == s) d.p2 else d.p1;
             switch (Map.get(hub.bySid, Text.compare, partner)) {
-              case null { await disconnectSession(now, partner) };
+              case null disconnectSession(now, partner);
               case (?_) {}; // partner is still connected — nothing to do
             };
           };
         };
         case (_) {};
       };
-      await pushRelevant(now, s, null);
+      await* pushRelevant(now, s, null);
       // Safe to prune only if nothing bumped the generation again while
-      // the awaits above ran — see this function's own doc.
+      // that suspended — see this function's own doc.
       if (generationOf(hub, s) == seenGen) {
         Map.remove(hub.generation, Text.compare, s);
       };
@@ -546,7 +574,7 @@ module {
           let seenGen = generationOf(hub, s);
           ignore Timer.setTimer<system>(
             CLOSE_GRACE,
-            func() : async () { await finishClose(s, seenGen) },
+            func() : async () { await* finishClose(s, seenGen) },
           );
         };
       };
@@ -568,14 +596,14 @@ module {
     /// participants-only push would reach — without this, it wouldn't
     /// learn the table just freed up until it happened to send a
     /// request of its own.
-    func sweepAndPush(now : Int) : async () {
+    func sweepAndPush(now : Int) : async* () {
       let wasEmpty = switch (table.phase) { case (#empty) true; case (_) false };
       TP.sweep(table, now);
       if (wasEmpty) return; // already empty going in — this sweep did nothing
       let becameEmpty = switch (table.phase) { case (#empty) true; case (_) false };
       if (not becameEmpty) return; // nothing timed out this round
       for (sid in Map.keys(hub.bySid)) {
-        await pushView(now, sid, null);
+        await* pushView(now, sid, null);
       };
     };
 

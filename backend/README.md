@@ -216,6 +216,26 @@ anything that reaches the engine outside this transport at all (e.g. a
 canister upgrade dropping every live connection until browsers
 reconnect on their own).
 
+**Push overhead.** Internally, `attach()`'s push helpers
+(`pushTo`/`pushView`/`pushRelevant`, plus `finishClose`/`sweepAndPush`)
+are `async*`/`await*`, not plain `async`/`await` — only `pushTo`'s own
+call into `IcWebSocketCdk.send` is a genuine send; the rest are thin
+fan-out/dispatch wrappers around it with nothing to await themselves.
+On the IC, a plain `async` call is its own message with its own commit
+point regardless of whether it suspends, so e.g. broadcasting to both
+seats of an `#active` game would otherwise cost two extra round trips
+through the scheduler on top of the one real send. `async*`/`await*`
+inlines a wrapper into its caller's own async state machine instead of
+starting a new one, so the whole dispatch tree down to `pushTo`'s single
+real `await` compiles to one message, not one per wrapper — same number
+of genuine sends, far fewer commit points and continuation-closure
+allocations. `disconnectSession` goes further still and isn't `async`
+at all: it only calls `TP.leave` (synchronous engine code), so there's
+no async state machine to build. See `Ws.mo`'s own comments on
+`Attached`/`pushTo` before "fixing" one of these back to plain
+`async`/`await` for readability — it silently reintroduces that
+per-wrapper overhead.
+
 **The wire protocol.** `ic-websocket-js` requires ONE application-message
 type shared by both directions (it reads the type straight off the
 canister's `ws_message` method's second Candid parameter at runtime) — so
