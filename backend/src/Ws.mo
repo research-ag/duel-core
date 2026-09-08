@@ -350,7 +350,7 @@ module {
       switch (Map.get(hub.bySid, Text.compare, sid)) {
         case null {}; // that seat isn't connected over WS (e.g. still polling)
         case (?p) {
-          ignore await IcWebSocketCdk.send(wsState, p, codec.encode(msg));
+          ignore await* IcWebSocketCdk.send(wsState, p, codec.encode(msg));
         };
       };
     };
@@ -405,7 +405,7 @@ module {
 
     func onMessage(
       args : IcWebSocketCdkTypes.OnMessageCallbackArgs
-    ) : async () {
+    ) : async* () {
       switch (codec.decode(args.message)) {
         case (? #req { sid; req; reqId }) {
           remember(hub, sid, args.client_principal);
@@ -564,7 +564,7 @@ module {
     /// either. The actual fix — `finishClose`, above — defers the real
     /// disconnect by `CLOSE_GRACE` and re-checks this sid's `generation`
     /// once that elapses.
-    func onClose(args : IcWebSocketCdkTypes.OnCloseCallbackArgs) : async () {
+    func onClose(args : IcWebSocketCdkTypes.OnCloseCallbackArgs) : async* () {
       let p = args.client_principal;
       let sid = Map.get(hub.byPrincipal, Principal.compare, p);
       forget(hub, p);

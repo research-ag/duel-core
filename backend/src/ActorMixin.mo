@@ -29,20 +29,20 @@ mixin<system>(
   public shared ({ caller }) func ws_open(
     args : IcWebSocketCdkTypes.CanisterWsOpenArguments
   ) : async IcWebSocketCdkTypes.CanisterWsOpenResult {
-    await ws.ws_open(caller, args);
+    await* ws.ws_open(caller, args);
   };
 
   public shared ({ caller }) func ws_close(
     args : IcWebSocketCdkTypes.CanisterWsCloseArguments
   ) : async IcWebSocketCdkTypes.CanisterWsCloseResult {
-    await ws.ws_close(caller, args);
+    await* ws.ws_close(caller, args);
   };
 
   public shared ({ caller }) func ws_message(
     args : IcWebSocketCdkTypes.CanisterWsMessageArguments,
     msgType : ?Blob,
   ) : async IcWebSocketCdkTypes.CanisterWsMessageResult {
-    await ws.ws_message(caller, args, msgType);
+    await* ws.ws_message(caller, args, msgType);
   };
 
   public shared query ({ caller }) func ws_get_messages(
