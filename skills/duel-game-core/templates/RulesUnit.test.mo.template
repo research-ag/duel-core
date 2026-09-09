@@ -1,0 +1,43 @@
+// Unit checks for __RULES_MODULE__'s pure functions: init/validate/resolve
+// exercised directly, no engine, no actor. Extend this per rule you wrote
+// — one assertion block per illegal-move case in `validate` and per
+// win/lose/draw path in `resolve`. Plain interpreter script (moc -r), not
+// a test framework: `assert` + `Runtime.trap` on violation.
+//
+// Run: moc -r --package core <path-to-core/src> --package duel-game-core
+//      <path-to-duel-game-core-backend/src> test/RulesUnit.test.mo
+import R "../src/__RULES_MODULE__";
+import TP "mo:duel-game-core"; // Verdict/Seat live in the engine, not the rules
+import Debug "mo:core/Debug";
+import Runtime "mo:core/Runtime";
+
+// Shorthand: run one round, trap if it ended unexpectedly.
+func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
+  let r = R.resolve(s, a1, a2);
+  switch (r.verdict) { case null {}; case (?_) Runtime.trap("unexpected end") };
+  r.state;
+};
+
+// ── 1. init() is a clean slate, and spec() hands out the same rules ────────
+let s0 = R.init();
+let sp = R.spec();
+let s1 = sp.init();
+// assert <fields of s1 match your fresh-state expectations>;
+Debug.print("1. init + spec wiring OK");
+
+// ── 2. validate rejects each illegal move you defined ──────────────────────
+// switch (R.validate(s0, #p1, #yourMove)) {
+//   case (?_) {};
+//   case null Runtime.trap("expected #yourMove to be illegal from a fresh state");
+// };
+Debug.print("2. validate OK");
+
+// ── 3. resolve reaches each win/lose/draw path you defined ──────────────────
+// let r = R.resolve(s0, #move1, #move2);
+// switch (r.verdict) {
+//   case (?#p1Wins) {};
+//   case (_) Runtime.trap("expected p1 to win this exchange");
+// };
+Debug.print("3. resolve OK");
+
+Debug.print("ALL __RULES_MODULE__ RULESUNIT CHECKS PASSED");

@@ -216,9 +216,11 @@ that file first. Two rules specific to this example:
 
 ## Motoko skills (read before editing)
 
-Local copies of the relevant SKILL.md playbooks live in this repo under
-`../../.agents/skills/` — the same set `../../CLAUDE.md` points to.
-Consult those before editing `src/Duel007Rules.mo` or `src/Host.mo`.
+Local copies of the relevant Motoko-authoring SKILL.md playbooks live in
+this repo under `../../.agents/skills/` — the same set `../../CLAUDE.md`
+points to (the duel-game-core-specific playbook instead lives in the
+tracked `../../skills/duel-game-core/`). Consult those before editing
+`src/Duel007Rules.mo` or `src/Host.mo`.
 
 ## Conventions
 

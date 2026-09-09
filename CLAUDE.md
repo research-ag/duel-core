@@ -83,8 +83,12 @@ usable end to end and to give a new game something concrete to copy. A
 real game normally lives in its own repo, structured the same way.
 Building one — whether from scratch or by adapting an existing client —
 is a whole workflow with its own hard-won lessons: see the
-`duel-game-core-new-game` skill
-(`.agents/skills/duel-game-core-new-game/SKILL.md`) before starting.
+`duel-game-core` skill (`skills/duel-game-core/SKILL.md`) before
+starting — it's written for a third party building from nothing but a
+rules description, with no other context, and is installable standalone
+in that party's own repo (see that file's own header and the root
+README's "Building a game" section), but is equally the right starting
+point when working in this repo.
 
 ## Toolchain
 
@@ -311,16 +315,26 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
 
 ## Skills (read before editing)
 
-Local copies of the relevant SKILL.md playbooks live in this repo under
-`.agents/skills/` — consult these when working here, in order of
-relevance to this package:
+Two kinds of `SKILL.md` playbook are relevant here, in different places
+because only one of them ships to third parties:
 
-- `.agents/skills/duel-game-core-new-game/SKILL.md` — building a new
-  game (or adapting an existing client) on these two packages: the
-  `Spec<S, M>` design process, the generic-chrome-vs-rich-UI frontend
-  decision, and lessons learned building `examples/007` and
-  `examples/racing`. Covers both backend and frontend — read this one
-  first if that's the task, before the Motoko-specific skills below.
+- **`skills/`** (repo root, tracked in git, installable standalone via
+  `npx skills add research-ag/duel-core --skill <name>`) — the
+  duel-game-core-specific playbook:
+  - `skills/duel-game-core/SKILL.md` — building a new game (or adapting
+    an existing client) on these two packages, from nothing but a
+    plain-English rules description: the `Spec<S, M>` design process,
+    copy-and-fill templates for every game-specific file, and (in its
+    `references/`) the generic-chrome-vs-rich-UI frontend decision and
+    lessons learned building `examples/007` and `examples/racing`.
+    Covers both backend and frontend — read this one first if that's the
+    task, before the Motoko-specific skills below. Written to be
+    installed standalone in a game's OWN repo, but equally the right
+    starting point when working here.
+- **`.agents/skills/`** (local dev setup, not tracked in git — general
+  Motoko authoring skills, not specific to this project) — consult these
+  when working here, in order of relevance to this package:
+
 - `.agents/skills/motoko-general-style-guidelines/SKILL.md` — naming,
   layout, 2-space indent, 80-char margin, type-annotation rules. House
   style for ALL code in this repo.
@@ -355,6 +369,36 @@ relevance to this package:
   `.agents/skills/motoko-benchmarks-generation/SKILL.md` — when
   publishing this package, adding CI, or benchmarking the engine.
 
+### Keeping `skills/` current
+
+`skills/duel-game-core/SKILL.md`, its `templates/`, and its
+`references/` are shipped documentation — installed standalone via
+`npx skills add research-ag/duel-core --skill duel-game-core` into a
+third party's OWN repo, read cold by an agent with none of this repo's
+history or this session's context. Whenever a change here touches
+anything any of them describes — an engine/`Ws.mo`/`ActorMixin` API, a
+`GamePlugin`/`app.js`/`ws.js` contract, a build/deploy command, a type
+shape a template mirrors, an example game's structure — update the
+affected file(s) in the SAME change, not as a follow-up.
+
+Write the affected passage as if authoring it fresh against today's
+architecture, never as a patch over yesterday's. Concretely, nothing
+under `skills/` may ever contain:
+
+- Before/after framing — "used to be X, now Y", "previously",
+  "as of this change", "was renamed from X".
+- Removal notices — "X is gone", "no longer exists", "don't use X
+  anymore", "deprecated".
+- Any other changelog voice ("recently", "this used to require...").
+
+A reader of `skills/*` should never be able to tell an edit happened —
+only ever what's true now. A grep for the changed name catches direct
+mentions, not a worked example, a template's own inline comment, or a
+"why" aside elsewhere in the same file that quietly assumed the old
+shape — after changing anything a skill references, re-read the WHOLE
+affected file (and its `templates/`) for exactly that kind of
+second-order staleness, not just the passage you edited on purpose.
+
 ## Conventions
 
 - Tests are plain interpreter scripts (moc -r), not a test framework:
@@ -363,4 +407,6 @@ relevance to this package:
 - `msg`, not `label`, for text parameters (`label` is a reserved word).
 - Update BOTH test suites when touching engine semantics; the doc-header
   in `backend/src/lib.mo` (wiring example + design guarantees) must
-  be kept in sync with reality, as must both READMEs.
+  be kept in sync with reality, as must both READMEs and `skills/` (see
+  "Keeping `skills/` current" above — as clean rewritten documentation,
+  never a changelog-style patch note).

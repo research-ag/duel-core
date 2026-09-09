@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>__GAME_TITLE__</title>
+    <link rel="stylesheet" href="/node_modules/duel-game-core/style.css" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>__GAME_TITLE__</h1>
+      <div class="session">
+        <span class="label">Session</span>
+        <code id="sid">…</code>
+        <button id="new-sid" title="Play as a different session">new</button>
+      </div>
+    </header>
+
+    <p id="error" class="error" hidden></p>
+
+    <main id="screen">
+      <p class="muted">Connecting…</p>
+    </main>
+
+    <footer>
+      <p class="muted">
+        Your session id is per browser tab — open a second tab to play the
+        other seat. An idle board can be taken over after
+        __IDLE_TIMEOUT_SECONDS__&nbsp;seconds.
+      </p>
+    </footer>
+
+    <!--
+      Bare-specifier resolution for duel-game-core/ws/gateway-*.js's own
+      dependencies (@icp-sdk/core/candid, @icp-sdk/core/principal, cborg)
+      — the browser has no node_modules resolution of its own. INLINE ON
+      PURPOSE: the CSP in .ic-assets.json5 allow-lists this exact script
+      by content hash (not 'unsafe-inline', which would allow ANY inline
+      script). If you edit the JSON below, recompute the hash or the app
+      silently sticks on "Connecting…" — the only symptom is a swallowed
+      `TypeError: Failed to resolve module specifier "cborg"` in the
+      console:
+
+        python3 -c "
+        import hashlib, base64, re
+        html = open('index.html').read()
+        m = re.search(r'<script type=\"importmap\">(.*?)</script>', html, re.S)
+        print('sha256-' + base64.b64encode(hashlib.sha256(m.group(1).encode()).digest()).decode())
+        "
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@icp-sdk/core/candid": "https://esm.sh/@icp-sdk/core@6.1.0/candid",
+          "@icp-sdk/core/principal": "https://esm.sh/@icp-sdk/core@6.1.0/principal",
+          "cborg": "https://esm.sh/cborg@4.5.8"
+        }
+      }
+    </script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

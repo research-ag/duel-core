@@ -1,0 +1,10 @@
+{
+  "name": "__GAME_SLUG__-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "__GAME_SLUG__ client — a GamePlugin for the duel-game-core npm package.",
+  "type": "module",
+  "dependencies": {
+    "duel-game-core": "*"
+  }
+}

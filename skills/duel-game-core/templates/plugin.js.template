@@ -1,0 +1,76 @@
+// GamePlugin for __GAME_TITLE__ — the only game-specific piece the
+// client needs. Everything else (lobby, staging, rematch, debrief
+// chrome, session identity, real-time push) comes from the
+// duel-game-core npm package's generic start()/renderView() — see
+// app.js. The Action/State Candid shapes here must mirror
+// ../src/__RULES_MODULE__.mo exactly. `legal()` below is a COSMETIC echo
+// of that module's `validate` (disabled buttons only — the server is the
+// only real legality gate, CLAUDE.md architecture rule 4).
+
+import { actionAttr, esc } from "./node_modules/duel-game-core/dist/render.js";
+
+const SEAT_NAME = { p1: "__P1_NAME__", p2: "__P2_NAME__" };
+
+// One entry per Action variant. `key` must match the variant name.
+const ACTIONS = [
+  // { key: "yourMove", label: "YOUR MOVE", hint: "what it does" },
+];
+
+function legal(mySide, actionKey) {
+  // Mirror validate()'s logic here, read-only, for disabling buttons.
+  return true;
+}
+
+export const plugin = {
+  idlTypes({ IDL }) {
+    // Mirror ../src/__RULES_MODULE__.mo's Action/State/Side/Round types
+    // exactly — Candid shape, not JS naming. A Motoko `Nat`/`Int` field
+    // decodes to a JS `bigint`; a Motoko tuple decodes to a plain array,
+    // not `.0`/`.1`.
+    const Side = IDL.Record({
+      // ...your Side fields...
+    });
+    const Action = IDL.Variant({
+      // yourMove: IDL.Null,
+    });
+    const Round = IDL.Record({
+      p1Action: Action,
+      p2Action: Action,
+    });
+    const State = IDL.Record({
+      p1: Side,
+      p2: Side,
+      lastRound: IDL.Opt(Round),
+    });
+    return { Action, State };
+  },
+
+  seatLabel(seat) {
+    return SEAT_NAME[seat];
+  },
+
+  // Full board markup for one game state, from mySeat's point of view.
+  // Called for both a live game and a finished debrief's final state —
+  // render whatever makes sense in each case from gameState alone.
+  // render.js already wraps this in a `.board` div.
+  renderBoard(gameState, mySeat, oppSeat) {
+    return `<pre>${esc(JSON.stringify(gameState, (_, v) =>
+      typeof v === "bigint" ? v.toString() : v, 2))}</pre>`;
+  },
+
+  // Action buttons for mySeat — only ever called while it's legal for
+  // them to move (the framework hides this once they've submitted).
+  // Each button must carry its move value via the actionAttr helper so
+  // the framework's click handling can submit it as-is.
+  renderActions(gameState, mySeat) {
+    const me = gameState[mySeat];
+    return ACTIONS.map((a) => {
+      const enabled = legal(me, a.key);
+      return `
+        <button ${actionAttr({ [a.key]: null })} ${enabled ? "" : "disabled"}>
+          <span class="act">${a.label}</span>
+          <span class="hint">${esc(a.hint)}</span>
+        </button>`;
+    }).join("");
+  },
+};

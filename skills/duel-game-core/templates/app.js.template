@@ -1,0 +1,47 @@
+// Bootstrap for __GAME_TITLE__. Builds the actor and a push-shaped `ws`
+// over it, then hands off to duel-game-core's generic session/render
+// wiring. This file only knows how to reach the canister and which
+// GamePlugin to use — everything else (lobby, staging, rematch, debrief
+// chrome) lives in the npm package.
+//
+// No build step: @dfinity/agent is loaded from esm.sh; duel-game-core
+// itself is fetched via `npm install` (see package.json/.npmrc) and
+// imported below by its on-disk dist/ path.
+
+import { Actor, HttpAgent } from "https://esm.sh/@dfinity/agent@2.4.1?deps=@dfinity/candid@2.4.1,@dfinity/principal@2.4.1";
+import { Ed25519KeyIdentity } from "https://esm.sh/@dfinity/identity@2.4.1?deps=@dfinity/agent@2.4.1,@dfinity/candid@2.4.1,@dfinity/principal@2.4.1";
+import { makeIdlFactory } from "./node_modules/duel-game-core/dist/idl.js";
+import { start } from "./node_modules/duel-game-core/dist/app.js";
+import { connectWs } from "./node_modules/duel-game-core/dist/ws.js";
+import { readIcEnv, deriveHost } from "./node_modules/duel-game-core/dist/ic-env.js";
+import { plugin } from "./__PLUGIN_FILE__";
+
+const env = readIcEnv();
+const canisterId = env["PUBLIC_CANISTER_ID:backend"];
+if (!canisterId) {
+  document.body.innerHTML =
+    "<p style='color:#ff7b72;padding:2rem'>Could not find " +
+    "<code>PUBLIC_CANISTER_ID:backend</code> in the <code>ic_env</code> " +
+    "cookie. Serve this page from the asset canister after " +
+    "<code>icp deploy</code>.</p>";
+  throw new Error("missing canister id");
+}
+
+const host = deriveHost();
+// A FRESH throwaway identity every page load — required (ic-websocket-
+// cdk's ws_open hard-rejects the anonymous principal), and deliberately
+// NOT derived from `sid`/stable across reload (see
+// duel-game-core's frontend/README.md "Real-time push" section for the
+// ic-websocket-cdk@0.4.1 cleanup bug a stable principal would trigger).
+const agent = await HttpAgent.create({
+  host,
+  identity: Ed25519KeyIdentity.generate(),
+  shouldFetchRootKey: /localhost|127\.0\.0\.1/.test(host),
+});
+const idlFactory = makeIdlFactory(plugin.idlTypes);
+const actor = Actor.createActor(idlFactory, { agent, canisterId });
+
+const principal = await agent.getPrincipal();
+const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
+
+start({ plugin, ws });

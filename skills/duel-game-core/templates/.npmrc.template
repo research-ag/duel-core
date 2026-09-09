@@ -1,0 +1,6 @@
+# Static asset canister, no build step of its own: whatever lands in
+# node_modules/ is served byte-for-byte to the browser. A plain `file:`
+# dependency installs as a symlink by default, which an asset-sync step
+# may not follow — install-links forces npm to copy the real files
+# instead, so `npm install` is the only "build" this frontend needs.
+install-links=true
