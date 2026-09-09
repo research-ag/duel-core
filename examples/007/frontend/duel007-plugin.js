@@ -129,13 +129,19 @@ export const plugin = {
   // Called both for a live game and for a finished debrief's final state.
   // render.js already wraps this in a `.board` div — the two-panel grid
   // gets its own `.agents` class so the narration paragraph above it
-  // doesn't become a stray third grid cell.
+  // doesn't become a stray third grid cell. Panels are always ordered
+  // BOND (p1) left, SILVA (p2) right, regardless of which seat is mine —
+  // only the "You"/"Opponent" label and the `self` styling follow mySeat.
   renderBoard(gameState, mySeat, oppSeat) {
+    const panel = (seat) =>
+      statsPanel(seat === mySeat ? "You" : "Opponent", seat, gameState[seat], {
+        self: seat === mySeat,
+      });
     return `
       ${narration(gameState)}
       <div class="agents">
-        ${statsPanel("You", mySeat, gameState[mySeat], { self: true })}
-        ${statsPanel("Opponent", oppSeat, gameState[oppSeat])}
+        ${panel("p1")}
+        ${panel("p2")}
       </div>`;
   },
 
