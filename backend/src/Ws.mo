@@ -130,12 +130,22 @@ module {
   /// A client -> canister request. Mirrors the engine's six mutating
   /// operations plus an explicit resync (`#status`, e.g. right after the
   /// socket opens, before any local mutation has happened).
+  ///
+  /// `#submit`/`#leave`/`#reset` carry the `gen` (and, for `#submit`,
+  /// `turn`) the client last observed via `View` — see `TP.Table.gen`'s
+  /// own doc for why: it's what lets `TP.submit`/`TP.leave`/`TP.reset`
+  /// reject a stale replay (most commonly a client-side resend of a call
+  /// whose original attempt secretly already landed — see
+  /// `../../frontend/src/ws/gateway-client.ts`'s resend-queue doc) as
+  /// `#stale` instead of silently applying it to whatever match/round is
+  /// current by the time it's processed. `#join`/`#rematch`/`#ackEnded`
+  /// need no such binding — see the engine doc header's guarantee 6.
   public type Request<M> = {
     #join : TP.Seat;
-    #submit : M;
+    #submit : { gen : Nat; turn : Nat; move : M };
     #rematch;
-    #leave;
-    #reset;
+    #leave : { gen : Nat };
+    #reset : { gen : Nat };
     #ackEnded;
     #status;
   };
@@ -418,8 +428,8 @@ module {
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
-            case (#submit move) {
-              switch (TP.submit(spec, table, now, sid, move)) {
+            case (#submit { gen; turn; move }) {
+              switch (TP.submit(spec, table, now, sid, gen, turn, move)) {
                 case (#ok _) { await* pushRelevant(now, sid, reqId) };
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
@@ -430,14 +440,14 @@ module {
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
-            case (#leave) {
-              switch (TP.leave(table, now, sid)) {
+            case (#leave { gen }) {
+              switch (TP.leave(table, now, sid, gen)) {
                 case (#ok _) { await* pushRelevant(now, sid, reqId) };
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
-            case (#reset) {
-              switch (TP.reset(table, now, sid)) {
+            case (#reset { gen }) {
+              switch (TP.reset(table, now, sid, gen)) {
                 case (#ok _) { await* pushRelevant(now, sid, reqId) };
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
@@ -463,8 +473,13 @@ module {
     /// socket just closed will never come back to click "leave" a second
     /// time itself the way a still-connected player would.
     func disconnectSession(now : Int, sid : TP.SessionId) {
-      ignore TP.leave(table, now, sid);
-      ignore TP.leave(table, now, sid);
+      // `table.gen` itself, not a caller-supplied value: this leave is
+      // driven by the socket closing, not by any `#req` a client sent, so
+      // there's no earlier-observed generation to validate against — it
+      // must always go through. (Unrelated to `Hub.generation`/`seenGen`
+      // below, which tracks WS *connection* identity, not match epochs.)
+      ignore TP.leave(table, now, sid, table.gen);
+      ignore TP.leave(table, now, sid, table.gen);
     };
 
     /// The actual disconnect work `onClose` defers behind `CLOSE_GRACE` —

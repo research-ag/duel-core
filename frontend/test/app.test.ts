@@ -110,7 +110,7 @@ test("onmessage: a pushed view renders via the plugin", async () => {
   const { els, ws } = setup();
   start({ plugin, ws });
 
-  ws.onmessage!({ data: { view: { inGame: { seat: { p1: null }, game: { n: 7 }, turn: 0n, youSubmitted: false, oppSubmitted: false } } } });
+  ws.onmessage!({ data: { view: { inGame: { seat: { p1: null }, game: { n: 7 }, turn: 0n, youSubmitted: false, oppSubmitted: false, gen: 1n } } } });
   assert.match(els.screen.innerHTML, /n=7/);
   assert.match(els.screen.innerHTML, /Pass/);
 });
@@ -208,7 +208,7 @@ test("a button's spinner survives an unrelated re-render that arrives before its
 
   // B's own join finally resolves.
   ws.requests[0]!.resolve({
-    view: { stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n } },
+    view: { stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } },
   });
   await Promise.resolve();
   await Promise.resolve();
@@ -223,7 +223,7 @@ test("a submit action button round-trips its data-act JSON verbatim", async () =
   const btn = makeButton({ act: JSON.stringify({ shoot: { power: 2 } }) });
   click(els.screen, btn);
   assert.equal(ws.requests.length, 1);
-  assert.deepEqual(ws.requests[0]!.req, { submit: { shoot: { power: 2 } } });
+  assert.deepEqual(ws.requests[0]!.req, { submit: { gen: 0n, turn: 0n, move: { shoot: { power: 2 } } } });
 });
 
 test("a disabled button never dispatches", async () => {
@@ -265,7 +265,7 @@ test("a data-confirm button waits for confirmation before dispatching", async ()
   const yesBtn = makeButton({ confirmYes: "" });
   overlay.dispatch("click", { target: yesBtn });
   assert.equal(ws.requests.length, 1);
-  assert.deepEqual(ws.requests[0]!.req, { leave: null });
+  assert.deepEqual(ws.requests[0]!.req, { leave: { gen: 0n } });
   assert.equal(overlay.hidden, true);
 });
 
@@ -304,14 +304,15 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
   start({ plugin, ws });
 
   const seated = [
-    { stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n } },
-    { inGame: { seat: { p1: null }, game: { n: 0 }, turn: 0n, youSubmitted: false, oppSubmitted: false } },
+    { stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n } },
+    { inGame: { seat: { p1: null }, game: { n: 0 }, turn: 0n, youSubmitted: false, oppSubmitted: false, gen: 1n } },
     {
       debrief: {
         seat: { p1: null },
         end: { finished: { p1Wins: null } },
         turns: 1n,
         finalGame: { n: 0 },
+        gen: 1n,
       },
     },
   ];
@@ -368,7 +369,7 @@ test("the new-sid button disables the instant a seat request is dispatched, not 
 
   // The join succeeds; the confirmed seat keeps new-sid disabled as usual.
   ws.requests[0]!.resolve({
-    view: { stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 999n } },
+    view: { stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } },
   });
   await Promise.resolve();
   await Promise.resolve();
@@ -430,7 +431,7 @@ test("the new-sid button stays disabled through an unrelated push arriving mid-j
   // B's own join finally resolves — new-sid stays disabled as usual, now
   // because the confirmed view itself is seated.
   ws.requests[0]!.resolve({
-    view: { stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n } },
+    view: { stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } },
   });
   await Promise.resolve();
   await Promise.resolve();
@@ -489,6 +490,7 @@ test("a wrongPhase rejection from a NON-join request still shows the error banne
           end: { finished: { p1Wins: null } },
           turns: 3n,
           finalGame: { n: 7 },
+          gen: 1n,
         },
       },
     },
@@ -515,7 +517,7 @@ test("fallback transport (no ws.request): settles inFlight off the shared onmess
   const btn = makeButton({ reset: "" });
   click(els.screen, btn);
   assert.equal(ws.sent.length, 1);
-  assert.deepEqual(ws.sent[0]!.req, { reset: null });
+  assert.deepEqual(ws.sent[0]!.req, { reset: { gen: 0n } });
   assert.ok(doc.body.classList.contains("working"));
 
   ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });

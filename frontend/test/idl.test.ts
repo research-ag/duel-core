@@ -54,6 +54,7 @@ test("View round-trips through Candid encode/decode for a game's own State shape
       turn: 3n,
       youSubmitted: true,
       oppSubmitted: false,
+      gen: 1n,
     },
   };
   const bytes = IDL.encode([t.View], [view]);
@@ -65,7 +66,7 @@ test("WsRequest round-trips a game's own Action through the submit variant", () 
   const { Action, State } = sampleGameTypes({ IDL });
   const t = buildEngineTypes({ IDL, Action, State });
 
-  const req = { submit: { shoot: 5n } };
+  const req = { submit: { gen: 1n, turn: 2n, move: { shoot: 5n } } };
   const bytes = IDL.encode([t.WsRequest], [req]);
   const [decoded] = IDL.decode(
     [t.WsRequest],
@@ -86,6 +87,7 @@ test("Err round-trips every variant shape", () => {
     { wrongPhase: "game is over" },
     { reserved: { secondsLeft: 9n } },
     { notIdle: { secondsLeft: 1n } },
+    { stale: null },
   ]) {
     const bytes = IDL.encode([t.Err], [err]);
     const [decoded] = IDL.decode(

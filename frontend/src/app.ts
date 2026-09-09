@@ -47,7 +47,7 @@
 // shared push stream — see the "Calls" section below for why that
 // distinction matters.
 
-import { renderView, errText, tag } from "./render.js";
+import { renderView, errText, tag, val } from "./render.js";
 import type { DuelWs, EngineErr, GamePlugin, Seat, SeatTag, WsPayload, WsRequest } from "./types.js";
 
 const $ = (id: string): HTMLElement | null => document.getElementById(id);
@@ -249,6 +249,42 @@ export function start<S>({
     return req !== null && "join" in req && "wrongPhase" in err;
   }
 
+  // Mirror of isStaleJoin for `submit`/`leave`/`reset`: each stamps the
+  // `gen` (and, for `submit`, `turn`) it read off `lastView` at click
+  // time (see genOf/turnOf below) — see backend/src/lib.mo's `Table.gen`
+  // doc for why the engine can reject that as `#stale` instead of
+  // applying it (most commonly a resend whose original attempt secretly
+  // already landed, moving the match/round on before the resend was
+  // processed — see ws/gateway-client.ts's `_isRetryAmbiguousError` doc).
+  // Same treatment as a stale join: resync silently rather than surface
+  // an error the user can't act on.
+  function isStaleMutation(req: WsRequest | null, err: EngineErr): boolean {
+    return req !== null && ("submit" in req || "leave" in req || "reset" in req) && "stale" in err;
+  }
+
+  // `gen`/`turn` a real client must stamp onto `submit`/`leave`/`reset` —
+  // read off `lastView` (declared below), the single source of truth this
+  // file already redraws from. A view outside a live phase (or none
+  // loaded yet, e.g. a click landing before the first status ever
+  // resolved) has no `gen`/`turn` to speak of; `0n` is a safe placeholder
+  // for that edge case — the engine's own check just rejects it as
+  // `#stale` like any other mismatch (see isStaleMutation above), never
+  // misapplies it.
+  function genOf(view: unknown): bigint {
+    if (view == null) return 0n;
+    const t = tag(view as object);
+    if (t === "stagingYou" || t === "inGame" || t === "debrief") {
+      return (val(view as object) as { gen: bigint }).gen;
+    }
+    return 0n;
+  }
+  function turnOf(view: unknown): bigint {
+    if (view != null && tag(view as object) === "inGame") {
+      return (val(view as object) as { turn: bigint }).turn;
+    }
+    return 0n;
+  }
+
   function sendWs(req: WsRequest): void {
     lastReq = req;
     try {
@@ -266,15 +302,16 @@ export function start<S>({
     document.body.classList.remove("working");
     endButtonLoading();
     if ("err" in payload) {
-      if (isStaleJoin(req, payload.err)) {
+      if (isStaleJoin(req, payload.err) || isStaleMutation(req, payload.err)) {
         // Resync silently instead of surfacing an error the user can't
-        // act on — see isStaleJoin's own doc. `ws.onmessage` below runs
-        // its own copy of this same check, since a `DuelWs` implementing
-        // `request()` is never guaranteed to ALSO deliver this same
-        // payload there (`GatewayWs` happens to, but nothing requires
-        // it) — so this can't assume that path already fired. Both
-        // copies firing for one call (as they will, for `GatewayWs`) just
-        // means two harmless, redundant `status` refreshes.
+        // act on — see isStaleJoin's/isStaleMutation's own docs.
+        // `ws.onmessage` below runs its own copy of this same check,
+        // since a `DuelWs` implementing `request()` is never guaranteed
+        // to ALSO deliver this same payload there (`GatewayWs` happens
+        // to, but nothing requires it) — so this can't assume that path
+        // already fired. Both copies firing for one call (as they will,
+        // for `GatewayWs`) just means two harmless, redundant `status`
+        // refreshes.
         refresh();
         return;
       }
@@ -312,10 +349,11 @@ export function start<S>({
   }
 
   const doJoin = (seat: SeatTag) => call({ join: { [seat]: null } as Seat });
-  const doSubmit = (action: unknown) => call({ submit: action });
+  const doSubmit = (action: unknown) =>
+    call({ submit: { gen: genOf(lastView), turn: turnOf(lastView), move: action } });
   const doRematch = () => call({ rematch: null });
-  const doLeave = () => call({ leave: null });
-  const doReset = () => call({ reset: null });
+  const doLeave = () => call({ leave: { gen: genOf(lastView) } });
+  const doReset = () => call({ reset: { gen: genOf(lastView) } });
   const doAck = () => call({ ackEnded: null });
 
   // ---------------------------------------------------------------------
@@ -560,26 +598,28 @@ export function start<S>({
     // resync silently, so at worst that's a second harmless `status`
     // round-trip, never a doubled error.
     const staleJoin = "err" in msg && isStaleJoin(lastReq, msg.err);
+    const staleMutation = "err" in msg && isStaleMutation(lastReq, msg.err);
 
     // When `call()` can correlate its own response (see above), it
     // already settled `inFlight`/the spinner off THAT response — doing
     // it again here, off whichever message the shared push stream
     // happens to deliver next, is exactly the premature-clear this was
     // built to avoid. The fallback transport has no such signal of its
-    // own, so this remains its only one — except a stale join, which
-    // needs its own spinner cleared before `refresh()` below (that call
-    // is a no-op while `inFlight` is still true).
-    if (!canCorrelate || staleJoin) {
+    // own, so this remains its only one — except a stale join/mutation,
+    // which needs its own spinner cleared before `refresh()` below (that
+    // call is a no-op while `inFlight` is still true).
+    if (!canCorrelate || staleJoin || staleMutation) {
       inFlight = false;
       document.body.classList.remove("working");
       endButtonLoading();
     }
     if ("err" in msg) {
-      if (staleJoin) {
-        // This sid already holds a seat in the running game — refresh
-        // silently instead of surfacing an error the user can't act on;
-        // the real view (`inGame`) replaces whatever stale view led to
-        // the join attempt.
+      if (staleJoin || staleMutation) {
+        // This sid already holds a seat in the running game, or its own
+        // submit/leave/reset stamped a gen/turn that's since moved on —
+        // refresh silently instead of surfacing an error the user can't
+        // act on; the real view replaces whatever stale one led to the
+        // request.
         refresh();
         return;
       }

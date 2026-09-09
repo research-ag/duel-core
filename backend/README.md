@@ -280,6 +280,28 @@ connection is keyed by principal — `Hub` learns the `sid <-> principal`
 pairing from the `sid` every inbound message carries, and forgets it on
 `ws_close`.
 
+**Replay safety.** `#submit`/`#leave`/`#reset` each carry a `gen : Nat`
+(and `#submit` additionally a `turn : Nat`) — the match generation (and,
+for submit, round number) the client last saw in a `View`. A client can't
+always tell whether a mutating call it believes failed (a dropped
+connection, a decode error) actually reached `Ws.mo`'s `onMessage` —
+`ws/gateway-client.ts`'s resend queue exists to retry exactly that
+ambiguous case — so without this, a resent `submit` whose original copy
+secretly already resolved the round (or ended the match) would be
+silently replayed against whatever round/match is current by the time the
+resend lands, and a resent `leave`/`reset` could silently abort a
+brand-new match the SAME session later started (typically a same-partner
+rematch) instead of the one it actually meant to end. `TP.submit`/
+`TP.leave`/`TP.reset` reject a mismatch as `Err.#stale` instead of
+applying it; the client's fix is always the same regardless of cause —
+refetch `status` (or just look at the next pushed `View`) and act on the
+real, current one. `#join`/`#rematch`/`#ackEnded` carry no such binding:
+each already recomputes its effect from live state (current partner,
+current seat availability, current debrief membership) rather than
+applying a stale payload, so a replay of any of them is already either a
+no-op or a pre-existing, harmless error — see `lib.mo`'s doc-header
+guarantee 6 for the full reasoning.
+
 **Wiring it into a host actor** — extending the example above:
 
 ```motoko
@@ -442,6 +464,11 @@ ad-hoc 2-player game backends:
    showing that same player the identical debrief screen — with live
    Rematch/Leave buttons — until the partner ALSO left: visually
    indistinguishable from the button doing nothing at all.
+6. **Replay-safe.** `submit`/`leave`/`reset` all take a `gen` (and, for
+   `submit`, `turn`) the caller must have last observed via `status`; a
+   mismatch against the table's CURRENT generation/round comes back
+   `#stale` instead of being applied — see this file's "Replay safety"
+   section above for the concrete scenario it closes.
 
 ## Implementation notes
 

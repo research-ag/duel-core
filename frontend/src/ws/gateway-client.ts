@@ -341,29 +341,38 @@ export class GatewayWs extends EventTarget implements DuelWs {
   }
 
   /// True for an `#err` that can ONLY mean "this exact mutation already
-  /// landed", never a fresh, first-attempt failure. `#alreadySubmitted`
-  /// is the one `EngineErr` this unambiguous: `_queueResend()` retries a
-  /// mutation whose own `ws_message` call failed client-side with no way
-  /// to tell whether the message actually reached `Ws.mo`'s `onMessage`
-  /// first (see that method's own doc) — when it turns out it did, the
-  /// RESENT copy comes back rejected with exactly this error, even
-  /// though the original click already succeeded. Every other
-  /// `EngineErr` variant is ambiguous (a genuinely fresh
+  /// landed (or the world has moved on since)", never a fresh, first-
+  /// attempt failure. `_queueResend()` retries a mutation whose own
+  /// `ws_message` call failed client-side with no way to tell whether the
+  /// message actually reached `Ws.mo`'s `onMessage` first (see that
+  /// method's own doc) — when it turns out it did, the RESENT copy comes
+  /// back rejected with one of these two, even though the original click
+  /// already succeeded:
+  ///   - `#alreadySubmitted` — the original `submit` landed and the round
+  ///     hasn't moved on yet, so the resend collides with its own pending
+  ///     slot directly.
+  ///   - `#stale` — the original landed AND the match/round has since
+  ///     moved on (the round resolved, or — for `leave`/`reset` — a brand
+  ///     new match started) before the resend was processed; the engine's
+  ///     `gen`/`turn` check catches this (see `../../backend/src/lib.mo`'s
+  ///     `Table.gen` doc) instead of silently replaying the resend against
+  ///     whatever is current now.
+  /// Every other `EngineErr` variant is ambiguous (a genuinely fresh
   /// #seatTaken/#notIdle/etc. is just as plausible as a stale resend), so
-  /// only this one is worth reconciling rather than surfacing as-is.
-  private _isDuplicateSubmitError(payload: WsPayload): boolean {
-    return "err" in payload && "alreadySubmitted" in payload.err;
+  /// only these two are worth reconciling rather than surfacing as-is.
+  private _isRetryAmbiguousError(payload: WsPayload): boolean {
+    return "err" in payload && ("alreadySubmitted" in payload.err || "stale" in payload.err);
   }
 
-  /// A resent mutation's own reply came back `#alreadySubmitted` — see
-  /// `_isDuplicateSubmitError`'s own doc for why that means the ORIGINAL
-  /// attempt already succeeded server-side. Handing the caller that raw
-  /// error would make today's click look like it failed when it didn't
-  /// (the exact "spurious Call failed toast" class of bug `request()`'s
-  /// own doc already guards against for a different race), so fetch a
-  /// fresh `#status` view instead and settle the caller's pending promise
-  /// with THAT, same as if the original attempt's own reply had simply
-  /// arrived a little late.
+  /// A resent mutation's own reply came back `#alreadySubmitted`/`#stale`
+  /// — see `_isRetryAmbiguousError`'s own doc for why that means the
+  /// ORIGINAL attempt already succeeded server-side. Handing the caller
+  /// that raw error would make today's click look like it failed when it
+  /// didn't (the exact "spurious Call failed toast" class of bug
+  /// `request()`'s own doc already guards against for a different race),
+  /// so fetch a fresh `#status` view instead and settle the caller's
+  /// pending promise with THAT, same as if the original attempt's own
+  /// reply had simply arrived a little late.
   private _resolveAfterReconcile(p: PendingRequest): void {
     if (this._sid == null) {
       p.resolve({ err: { alreadySubmitted: null } });
@@ -481,7 +490,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
           if (p) {
             this._pending.delete(action.reqId);
             clearTimeout(p.timer);
-            if (this._isDuplicateSubmitError(action.payload)) {
+            if (this._isRetryAmbiguousError(action.payload)) {
               this._resolveAfterReconcile(p);
             } else {
               p.resolve(action.payload);

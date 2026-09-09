@@ -36,8 +36,12 @@ module {
         case (0) {
           while (i < n) {
             let t = TP.create<Rules.State, Rules.Action>(timeout);
+            // `t` is fresh every iteration, so `join`'s own `stage()` call
+            // always bumps its `gen` from 0 to exactly 1 — a literal, not
+            // `TP.status`, since a read inside this timed loop would tax
+            // the very cost this row means to isolate.
             ignore TP.join(spec, t, 0, "a", #p1);
-            ignore TP.leave(t, 0, "a");
+            ignore TP.leave(t, 0, "a", 1);
             i += 1;
           };
         };
@@ -47,8 +51,11 @@ module {
         case (1) {
           let t = freshGame();
           while (i < n) {
-            ignore TP.submit(spec, t, 0, "a", #gather);
-            ignore TP.submit(spec, t, 0, "b", #gather);
+            // `gen` is a fixed `1` for this game's whole lifetime (no
+            // rematch ever happens here); `turn` is `i` for both calls in
+            // this round — it only advances once BOTH have submitted.
+            ignore TP.submit(spec, t, 0, "a", 1, i, #gather);
+            ignore TP.submit(spec, t, 0, "b", 1, i, #gather);
             i += 1;
           };
         };

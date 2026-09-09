@@ -115,7 +115,7 @@ test("request(): a reply of #alreadySubmitted is reconciled into a fresh status 
   // produces it in practice.
   const canister = new FakeCanister();
   const freshView: View = {
-    inGame: { seat: { p1: null }, game: { hp: 3n }, turn: 2n, youSubmitted: true, oppSubmitted: false },
+    inGame: { seat: { p1: null }, game: { hp: 3n }, turn: 2n, youSubmitted: true, oppSubmitted: false, gen: 1n },
   };
   canister.respond = (req) => {
     if (req && typeof req === "object" && "submit" in (req as object)) {
@@ -126,7 +126,28 @@ test("request(): a reply of #alreadySubmitted is reconciled into a fresh status 
   const ws = makeWs(t, canister);
   await waitFor(() => canister.opened);
 
-  const result = await ws.request!("player-1", { submit: { pass: null } });
+  const result = await ws.request!("player-1", { submit: { gen: 1n, turn: 2n, move: { pass: null } } });
+  assert.deepEqual(result, { view: freshView });
+});
+
+test("request(): a reply of #stale is reconciled into a fresh status view the same way as #alreadySubmitted", async (t) => {
+  // Same reconciliation, for the OTHER ambiguous-resend signal (see
+  // _isRetryAmbiguousError's own doc): the resent copy landed after the
+  // match/round it targeted had already moved on.
+  const canister = new FakeCanister();
+  const freshView: View = {
+    inGame: { seat: { p1: null }, game: { hp: 3n }, turn: 3n, youSubmitted: false, oppSubmitted: false, gen: 1n },
+  };
+  canister.respond = (req) => {
+    if (req && typeof req === "object" && "submit" in (req as object)) {
+      return { err: { stale: null } };
+    }
+    return { view: freshView };
+  };
+  const ws = makeWs(t, canister);
+  await waitFor(() => canister.opened);
+
+  const result = await ws.request!("player-1", { submit: { gen: 1n, turn: 2n, move: { pass: null } } });
   assert.deepEqual(result, { view: freshView });
 });
 

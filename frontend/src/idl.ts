@@ -87,6 +87,9 @@ export function buildEngineTypes({
     wrongPhase: IDL.Text,
     reserved: IDL.Record({ secondsLeft: IDL.Nat }),
     notIdle: IDL.Record({ secondsLeft: IDL.Nat }),
+    // A submit/leave/reset carried a stale gen/turn — see lib.mo's
+    // Table.gen doc and gateway-client.ts's `_isRetryAmbiguousError`.
+    stale: IDL.Null,
   });
   // No JoinOk/SubmitOk/RematchOk here: those were only ever the result
   // types of the plain join/submit/rematch Candid methods, which don't
@@ -104,6 +107,7 @@ export function buildEngineTypes({
       seat: Seat,
       reservedForPartner: IDL.Bool,
       secondsUntilReclaimable: IDL.Nat,
+      gen: IDL.Nat,
     }),
     awaitingRematch: IDL.Record({ openSeat: Seat }),
     inGame: IDL.Record({
@@ -112,12 +116,14 @@ export function buildEngineTypes({
       turn: IDL.Nat,
       youSubmitted: IDL.Bool,
       oppSubmitted: IDL.Bool,
+      gen: IDL.Nat,
     }),
     debrief: IDL.Record({
       seat: Seat,
       end: End,
       turns: IDL.Nat,
       finalGame: State,
+      gen: IDL.Nat,
     }),
     endedByOther: IDL.Null,
   });
@@ -191,10 +197,12 @@ export function buildEngineTypes({
   // WS channel — mirrors `Ws.Msg<S, M>` on the backend exactly.
   const WsRequest = IDL.Variant({
     join: Seat,
-    submit: Action,
+    // `gen`/`turn`: the caller's last-observed match generation/round —
+    // see lib.mo's `Table.gen` doc and this file's `Err.stale` comment.
+    submit: IDL.Record({ gen: IDL.Nat, turn: IDL.Nat, move: Action }),
     rematch: IDL.Null,
-    leave: IDL.Null,
-    reset: IDL.Null,
+    leave: IDL.Record({ gen: IDL.Nat }),
+    reset: IDL.Record({ gen: IDL.Nat }),
     ackEnded: IDL.Null,
     status: IDL.Null,
   });

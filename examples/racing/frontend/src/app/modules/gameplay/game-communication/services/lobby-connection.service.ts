@@ -111,6 +111,17 @@ export class LobbyConnectionService {
   private wasInGame: boolean = false;
   private prevGame: RacingState | null = null;
   private pendingMine: StepDataModel | null = null;
+  // The engine's own match generation/round number, as of the most
+  // recent #inGame view (see onStatus() below) — NOT RacingState.step,
+  // which is this GAME's own round counter, tracked separately (the two
+  // move in lockstep by construction, but `submit`/`leave` bind to the
+  // ENGINE's `View.inGame.gen`/`.turn`, so that's what must be threaded
+  // through here — see ../../../../../../../backend/src/lib.mo's
+  // `Table.gen` doc for why a stale one is rejected as `#stale` instead
+  // of being silently misapplied to whatever round/match is current by
+  // the time a delayed/resent request is processed).
+  private currentGen: bigint = 0n;
+  private currentTurn: bigint = 0n;
   // True from the moment the game-ending step is delivered as a final
   // nextStep (see onStatus()'s #debrief handling) until gameplay.service.ts
   // calls finishRace() once it's actually done animating it - keeps
@@ -192,8 +203,10 @@ export class LobbyConnectionService {
     // repo root CLAUDE.md's frontend bullet); gameplay.service.ts's requestAndSubmitMove()
     // only ever checks 'err' in result / the Observable's error channel,
     // so its retry logic needed no changes when this moved off the old
-    // plain-polling transport.
-    return from(this.ws.request(this.sid, { submit: action }));
+    // plain-polling transport. `gen`/`turn` are this.currentGen/
+    // this.currentTurn, as of the last #inGame view onStatus() saw — see
+    // this.currentGen's own doc for why those, not RacingState.step.
+    return from(this.ws.request(this.sid, { submit: { gen: this.currentGen, turn: this.currentTurn, move: action } }));
   }
 
   emitFinished(stepsCount?: number): Observable<any> {
@@ -218,7 +231,7 @@ export class LobbyConnectionService {
   public async forfeit(): Promise<void> {
     if (!this.ws) return;
     try {
-      await this.ws.request(this.sid, { leave: null });
+      await this.ws.request(this.sid, { leave: { gen: this.currentGen } });
     } catch (err) {
       console.error('duel: auto-forfeit request failed', err);
     }
@@ -265,6 +278,12 @@ export class LobbyConnectionService {
     if (inGameNow) {
       document.body.classList.add('in-race');
       const v = view.inGame;
+      // Refreshed on EVERY #inGame view, not just a new race's first one
+      // — emitNextStep()/forfeit() must always stamp the round they're
+      // actually acting on, not whatever was current when the race
+      // started (see this.currentGen's own doc).
+      this.currentGen = v.gen;
+      this.currentTurn = v.turn;
       const slot = 'p1' in v.seat ? 0 : 1;
       const game: RacingState = v.game;
       const isNewRace = !this.wasInGame;

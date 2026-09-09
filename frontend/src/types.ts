@@ -32,7 +32,13 @@ export type EngineErr =
   | { illegalMove: string }
   | { wrongPhase: string }
   | { reserved: { secondsLeft: bigint } }
-  | { notIdle: { secondsLeft: bigint } };
+  | { notIdle: { secondsLeft: bigint } }
+  // A `submit`/`leave`/`reset` carried a `gen` (or, for `submit`, `turn`)
+  // that no longer matches the table's current one — see lib.mo's
+  // `Table.gen` doc. Handled the same way as `alreadySubmitted` (see
+  // gateway-client.ts's `_isRetryAmbiguousError`): refetch `status`
+  // instead of surfacing this as a failure.
+  | { stale: null };
 
 export interface LobbyView {
   p1Open: boolean;
@@ -48,6 +54,8 @@ export interface StagingYouView {
   seat: Seat;
   reservedForPartner: boolean;
   secondsUntilReclaimable: bigint;
+  /// Stamp onto a later `leave`/`reset` — see lib.mo's `Table.gen` doc.
+  gen: bigint;
 }
 
 export interface AwaitingRematchView {
@@ -60,6 +68,8 @@ export interface InGameView<S = unknown> {
   turn: bigint;
   youSubmitted: boolean;
   oppSubmitted: boolean;
+  /// Stamp onto a later `submit`/`leave`/`reset`.
+  gen: bigint;
 }
 
 export interface DebriefView<S = unknown> {
@@ -67,6 +77,8 @@ export interface DebriefView<S = unknown> {
   end: End;
   turns: bigint;
   finalGame: S;
+  /// Stamp onto a later `leave`/`reset`.
+  gen: bigint;
 }
 
 /// The per-caller status view — already encodes which screen to show
@@ -97,13 +109,16 @@ export interface GamePlugin<S = unknown> {
 
 /// The wire request shape — mirrors `Ws.Request<M>` on the backend.
 /// `action` (inside `submit`) is a game's own `Action` Candid value,
-/// opaque here.
+/// opaque here. `submit`/`leave`/`reset` carry the `gen` (and, for
+/// `submit`, `turn`) the caller last saw in a `View` — see lib.mo's
+/// `Table.gen` doc for why: a stale value there is rejected as `#stale`
+/// instead of being replayed against whatever match/round is current.
 export type WsRequest<A = unknown> =
   | { join: Seat }
-  | { submit: A }
+  | { submit: { gen: bigint; turn: bigint; move: A } }
   | { rematch: null }
-  | { leave: null }
-  | { reset: null }
+  | { leave: { gen: bigint } }
+  | { reset: { gen: bigint } }
   | { ackEnded: null }
   | { status: null };
 

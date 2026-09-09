@@ -48,7 +48,7 @@ test("buildKeepAliveReply is marked is_service_message and carries the reflected
 
 test("interpret: a #req frame (a client->canister request, never a reply to anything) decodes to 'unknown'", () => {
   const p = new GatewayProtocol({ gameIdlTypes: sampleGameTypes });
-  const msg = p.buildAppMessage(clientKey, "sid-1", { submit: { pass: null } }, 5n);
+  const msg = p.buildAppMessage(clientKey, "sid-1", { submit: { gen: 0n, turn: 0n, move: { pass: null } } }, 5n);
   // interpret() takes a *decoded* envelope — plug the built record's
   // content straight in, the same shape gateway-transport.js's
   // decodeEnvelope() would hand back.

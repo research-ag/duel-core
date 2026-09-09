@@ -84,6 +84,24 @@
 ///      kept showing that same player the identical #debrief screen (with
 ///      live Rematch/Leave buttons) until the partner ALSO left — visually
 ///      indistinguishable from the button doing nothing at all.
+///   6. REPLAY-SAFE. `submit`/`leave`/`reset` all take a `gen` (and, for
+///      `submit`, `turn`) the caller must have last observed via `status`;
+///      a mismatch against the table's CURRENT `Table.gen`/round comes back
+///      `#stale` instead of being applied. This closes a real class of bug:
+///      a client can't always tell whether a mutating call it believes
+///      failed (a dropped connection, a decode error) actually landed —
+///      `frontend/src/ws/gateway-client.ts`'s resend queue exists to retry
+///      exactly that ambiguous case — and without this check, a resent
+///      `submit` whose original copy secretly already resolved the round
+///      (or the whole match) would be silently replayed against whatever
+///      round/match is current by then, and a resent `leave`/`reset` could
+///      silently abort a brand-new match the SAME session later started
+///      (typically a same-partner rematch) instead of the one it actually
+///      meant to end. `join`/`rematch`/`ackEnded` need no such binding —
+///      each already recomputes its effect from live state (current
+///      partner, current seat availability, current debrief membership)
+///      rather than applying a stale payload, so a replay of any of them is
+///      already either a no-op or a pre-existing, harmless error.
 ///
 /// Alternating-turn games: this engine is simultaneous-reveal. Model strictly
 /// alternating games with a pass-move convention — include a #pass move, have
@@ -177,7 +195,17 @@ module {
   public type Table<S, M> = {
     idleTimeoutNs : Int;
     var phase : Phase<S, M>;
-    var seq : Nat;                    // match counter (a new staging = new match)
+    // Match generation: bumped once per new match, at every `stage()` call
+    // (a fresh join, a squatter eviction, an idle takeover, a rematch
+    // staging). Exposed to the caller via `View` and echoed back on
+    // `submit`/`leave`/`reset` (see those functions' own docs) so a
+    // request that was actually meant for an OLDER match — most commonly
+    // a client-side resend whose original attempt secretly already landed
+    // (see `../../frontend/src/ws/gateway-client.ts`'s `_queueResend` doc)
+    // — is rejected as `#stale` instead of being silently misapplied to
+    // whatever match/round happens to be current by the time it's
+    // processed.
+    var gen : Nat;
     // One entry per game that vanished without both players seeing a
     // debrief, still missing at least one ack — see `noteEnded`'s own doc
     // for why this must stay a list, not a single slot.
@@ -188,7 +216,7 @@ module {
   public func create<S, M>(idleTimeoutNs : Int) : Table<S, M> = {
     idleTimeoutNs;
     var phase = #empty;
-    var seq = 0;
+    var gen = 0;
     var lastEnded = [];
     var debriefAcked = [];
   };
@@ -203,6 +231,11 @@ module {
     #wrongPhase : Text;
     #reserved : { secondsLeft : Nat }; // open seat is held for a rematch partner
     #notIdle : { secondsLeft : Nat };  // takeover/reset not allowed yet
+    // `submit`/`leave`/`reset` carried a `gen` (or, for `submit`, `turn`)
+    // that no longer matches the table's current one — see `Table.gen`'s
+    // own doc. The caller's fix is always the same regardless of cause:
+    // refetch `status` and act on the real, current view.
+    #stale;
   };
 
   public type Res<T> = { #ok : T; #err : Err };
@@ -229,6 +262,7 @@ module {
       seat : Seat;
       reservedForPartner : Bool;
       secondsUntilReclaimable : Nat;
+      gen : Nat; // stamp onto a later `leave`/`reset` — see Table.gen's doc
     };
     #awaitingRematch : { openSeat : Seat };
     #inGame : {
@@ -237,8 +271,15 @@ module {
       turn : Nat;
       youSubmitted : Bool;
       oppSubmitted : Bool;
+      gen : Nat; // stamp onto a later `submit`/`leave`/`reset`
     };
-    #debrief : { seat : Seat; end : End; turns : Nat; finalGame : S };
+    #debrief : {
+      seat : Seat;
+      end : End;
+      turns : Nat;
+      finalGame : S;
+      gen : Nat; // stamp onto a later `leave`/`reset`
+    };
     #endedByOther;
   };
 
@@ -310,8 +351,15 @@ module {
     false;
   };
 
+  /// `null` if `gen` still matches the table's current match generation;
+  /// `?#stale` otherwise. See `Table.gen`'s own doc for what this guards
+  /// against — call this before doing anything else in an operation that
+  /// takes a caller-supplied `gen`.
+  func checkGen<S, M>(t : Table<S, M>, gen : Nat) : ?Err =
+    if (gen == t.gen) { null } else { ?#stale };
+
   func stage<S, M>(t : Table<S, M>, now : Int, session : SessionId, seat : Seat, reservedFor : ?SessionId) {
-    t.seq += 1;
+    t.gen += 1;
     t.phase := #staging { seat; session; reservedFor; since = now };
   };
 
@@ -464,12 +512,23 @@ module {
     };
   };
 
-  /// Submit this round's move. Duplicate submissions are rejected without
+  /// Submit this round's move. `gen`/`turn` must match the match/round the
+  /// caller last observed (see `Table.gen`'s own doc) — this is what lets
+  /// a resent move whose original attempt secretly already resolved THIS
+  /// round (or ended the match entirely) come back `#stale` instead of
+  /// being replayed against whatever round/match happens to be current by
+  /// the time the resend is processed. Within the SAME round, a duplicate
+  /// submission is separately rejected via `#alreadySubmitted`, without
   /// consuming the turn; legality is enforced via `spec.validate` for both
   /// players. Resolves the round once both moves are in.
-  public func submit<S, M>(spec : Spec<S, M>, t : Table<S, M>, now : Int, session : SessionId, move : M) : Res<SubmitOk> {
+  public func submit<S, M>(spec : Spec<S, M>, t : Table<S, M>, now : Int, session : SessionId, gen : Nat, turn : Nat, move : M) : Res<SubmitOk> {
+    switch (checkGen(t, gen)) {
+      case (?e) return #err(e);
+      case null {};
+    };
     switch (t.phase) {
       case (#active g) {
+        if (turn != g.turn) return #err(#stale);
         let mySeat = switch (seatIn(g, session)) {
           case (?s) s;
           case null return #err(#notSeated);
@@ -529,10 +588,25 @@ module {
   /// players land in a special `#aborted` debrief — the partner is told, in
   /// debrief form, that you left. From a debrief: acknowledges it for you;
   /// when both participants have left, the board frees early.
-  public func leave<S, M>(t : Table<S, M>, now : Int, session : SessionId) : Res<()> {
+  ///
+  /// `gen` must match the match the caller last observed (see `Table.gen`'s
+  /// own doc) in every phase but `#empty` — without this, a resent `leave`
+  /// whose original attempt secretly already landed (emptying a staging,
+  /// aborting a game, or acking a debrief) can resurface after the SAME
+  /// session has since started a brand-new match (most plausibly a
+  /// same-partner rematch) and silently wipe/abort/ack THAT one instead,
+  /// with no error at all — session identity alone can't tell an old
+  /// match's leave apart from a new one's. `#empty` skips the check: there
+  /// is nothing there for a stale leave to damage, and it must stay
+  /// callable unconditionally to keep this idempotent.
+  public func leave<S, M>(t : Table<S, M>, now : Int, session : SessionId, gen : Nat) : Res<()> {
     switch (t.phase) {
 
       case (#staging st) {
+        switch (checkGen(t, gen)) {
+          case (?e) return #err(e);
+          case null {};
+        };
         if (st.session == session) {
           t.phase := #empty;
           #ok(());
@@ -540,6 +614,10 @@ module {
       };
 
       case (#active g) {
+        switch (checkGen(t, gen)) {
+          case (?e) return #err(e);
+          case null {};
+        };
         switch (seatIn(g, session)) {
           case (?mySeat) {
             enterDebrief(t, now, g.p1, g.p2, #aborted(mySeat), g.turn, g.game);
@@ -550,6 +628,10 @@ module {
       };
 
       case (#debrief d) {
+        switch (checkGen(t, gen)) {
+          case (?e) return #err(e);
+          case null {};
+        };
         switch (seatInDebrief(d, session)) {
           case (?_) {
             t.debriefAcked := push(t.debriefAcked, session);
@@ -567,14 +649,28 @@ module {
     };
   };
 
-  /// Reset the board. Participants get leave-semantics; outsiders are gated
-  /// by the idle timeout (with a countdown in the error until then).
-  public func reset<S, M>(t : Table<S, M>, now : Int, session : SessionId) : Res<()> {
+  /// Reset the board. Participants get leave-semantics (`gen`-checked, see
+  /// `leave`'s own doc — a stale participant reset is exactly as dangerous
+  /// as a stale `leave`, since this delegates straight to it); outsiders
+  /// are gated by the idle timeout instead (with a countdown in the error
+  /// until then) and never checked against `gen` — "free this board if
+  /// it's been idle long enough" is valid no matter how stale the request
+  /// making that observation is, since it's re-verified against the
+  /// CURRENT `expired(...)` right here, not against any state the caller
+  /// captured earlier.
+  public func reset<S, M>(t : Table<S, M>, now : Int, session : SessionId, gen : Nat) : Res<()> {
     switch (t.phase) {
       case (#empty) #ok(());
 
       case (#staging st) {
-        if (st.session == session or expired(t, st.since, now)) {
+        if (st.session == session) {
+          switch (checkGen(t, gen)) {
+            case (?e) return #err(e);
+            case null {};
+          };
+          t.phase := #empty;
+          #ok(());
+        } else if (expired(t, st.since, now)) {
           t.phase := #empty;
           #ok(());
         } else { #err(#notIdle { secondsLeft = secsLeft(t, st.since, now) }) };
@@ -582,7 +678,7 @@ module {
 
       case (#active g) {
         if (isSome(seatIn(g, session))) {
-          leave(t, now, session); // participant reset = abort with shared debrief
+          leave(t, now, session, gen); // participant reset = abort with shared debrief
         } else if (expired(t, g.lastActivity, now)) {
           noteEnded(t, g.p1, g.p2, []);
           t.phase := #empty;
@@ -594,7 +690,7 @@ module {
 
       case (#debrief d) {
         if (isSome(seatInDebrief(d, session))) {
-          leave(t, now, session);
+          leave(t, now, session, gen);
         } else if (expired(t, d.since, now)) {
           noteEnded(t, d.p1, d.p2, [d.p1, d.p2]); // they saw their debrief
           t.phase := #empty;
@@ -675,6 +771,7 @@ module {
             seat = st.seat;
             reservedForPartner = isSome(st.reservedFor);
             secondsUntilReclaimable = secsLeft(t, st.since, now);
+            gen = t.gen;
           };
         } else if (st.reservedFor == ?session) {
           #awaitingRematch { openSeat = otherSeat(st.seat) };
@@ -703,6 +800,7 @@ module {
               turn = g.turn;
               youSubmitted = isSome(switch (mySeat) { case (#p1) g.pending1; case (#p2) g.pending2 });
               oppSubmitted = isSome(switch (mySeat) { case (#p1) g.pending2; case (#p2) g.pending1 });
+              gen = t.gen;
             };
           };
           case null {
@@ -725,7 +823,7 @@ module {
         // left, giving no sign the click had done anything.
         switch (activeDebriefSeat(t, d, session)) {
           case (?mySeat) {
-            #debrief { seat = mySeat; end = d.end; turns = d.turns; finalGame = d.finalGame };
+            #debrief { seat = mySeat; end = d.end; turns = d.turns; finalGame = d.finalGame; gen = t.gen };
           };
           case null {
             if (unackedEnded(t, session)) { #endedByOther }
