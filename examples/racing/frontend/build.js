@@ -4,7 +4,7 @@
 // dist/main.js, then copy everything else static-asset-canister-style.
 //
 // duel-app.js and duel-racing-plugin.js are NOT bundled — they're plain,
-// dependency-free ESM that import @dfinity/agent from esm.sh and
+// dependency-free ESM that import @icp-sdk/core/agent from esm.sh and
 // duel-game-core by its on-disk path at runtime (see duel-app.js's own
 // comments), same as the 007 example's frontend. They're just copied.
 import * as esbuild from 'esbuild';

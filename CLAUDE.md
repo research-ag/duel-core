@@ -233,7 +233,7 @@ actually doing the work — run it every time, don't assume `npm install`
 alone did it.
 
 **Why the lockfile has to go too** (a real bug hit doing exactly this
-for the `@dfinity/candid`/`cborg` addition to `frontend/ws/gateway-*.js`):
+for the `@icp-sdk/core`/`cborg` addition to `frontend/ws/gateway-*.js`):
 `rm -rf node_modules/duel-game-core && npm install` alone silently
 under-installs. The existing `package-lock.json` has a cached entry for
 `duel-game-core` recorded from a PREVIOUS install with a DIFFERENT
@@ -242,7 +242,7 @@ of re-reading `frontend/package.json`'s current one, so the new
 sub-dependencies never get resolved at all — no error, just missing
 packages. Only a full `node_modules` + lockfile wipe forces npm to
 re-resolve from scratch. Verify it worked: `ls
-node_modules/@dfinity node_modules/cborg` (or whatever the new package
+node_modules/@icp-sdk node_modules/cborg` (or whatever the new package
 was) should exist afterward, not just `node_modules/duel-game-core`.
 
 ## Architecture rules (violating these reintroduces shipped bugs)

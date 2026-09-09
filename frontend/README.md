@@ -67,10 +67,10 @@ messages, verdict banner, rematch/leave/forfeit buttons) is handled by
 ## Wiring it up
 
 You build the `actor` — this package doesn't import `@icp-sdk/core/agent`
-(the successor to the deprecated `@dfinity/agent`) or hardcode a CDN, so
-you're free to load it however you like (esm.sh, a bundled dependency, a
-mock for tests) — and a `ws` over it (see "Real-time push" below;
-`start()` requires one, there is no plain-polling mode):
+or hardcode a CDN, so you're free to load it however you like (esm.sh, a
+bundled dependency, a mock for tests) — and a `ws` over it (see
+"Real-time push" below; `start()` requires one, there is no
+plain-polling mode):
 
 ```js
 import { Actor, HttpAgent } from "@icp-sdk/core/agent"; // however you prefer to load it
@@ -182,8 +182,7 @@ faster since `GatewayWs` proactively calls `ws_close` itself on
 
 **Dependencies and the trade-off that buys.** This is the one place in
 this package that pulls in real npm dependencies — `@icp-sdk/core/candid`
-(Candid encode/decode of the message content blob; the maintained
-successor to the deprecated `@dfinity/candid`) and `cborg`
+(Candid encode/decode of the message content blob) and `cborg`
 (CBOR-decoding `ws_get_messages`' envelope) — confined to
 `./ws/gateway-*.js`, the same narrow, documented exception
 `ic-websocket-cdk` gets on the backend (see the root `CLAUDE.md`'s rule

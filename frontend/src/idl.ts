@@ -18,9 +18,9 @@
 // IDL type it needs (records, nested variants, vecs, ...). This module
 // never imports an IDL implementation itself — `IDL` always arrives as a
 // parameter from the caller's own Candid tooling, so it works against
-// either `@icp-sdk/core/candid` or (for a caller not yet migrated off
-// it) `@dfinity/candid`, whichever built the `idlFactory` in the first
-// place.
+// any implementation whose `IDL` namespace is structurally compatible
+// with `@icp-sdk/core/candid`'s, whichever built the `idlFactory` in the
+// first place.
 
 import type { IDL as IDLNS } from "@icp-sdk/core/candid";
 

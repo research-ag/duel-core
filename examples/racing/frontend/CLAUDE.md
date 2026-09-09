@@ -75,18 +75,11 @@ TypeScript with no framework:
   WS-layer identity. If "Connection closed" or this exact `ws_message`
   error ever comes back, check whether something reintroduced a
   stable-across-reload principal before assuming it's a new bug.
-  **esm.sh gotcha:** loading `@dfinity/identity@2.4.1` bare (no `?deps=`)
-  breaks with `Uncaught SyntaxError: The requested module
-  '/@dfinity/candid?target=es2022' does not provide an export named
-  'bufFromBufLike'` — that package's own `delegation.ts` imports
-  `@dfinity/candid` with NO version constraint at all (unlike
-  `@dfinity/agent@2.4.1`, which pins `^2.4.1`), so esm.sh resolves it to
-  whatever's currently tagged "latest," which has since renamed/dropped
-  that export. Fixed by pinning both esm.sh imports to the exact same
-  dependency versions via `?deps=@dfinity/candid@2.4.1,...` (see
-  `duel-app.js`'s import lines) — confirmed this makes both modules'
-  `@dfinity/candid`/`@dfinity/principal` imports resolve to
-  byte-identical esm.sh URLs. Don't drop the `?deps=` query strings.
+  `duel-app.js` loads `Actor`/`HttpAgent` from `@icp-sdk/core@6.1.0/agent`
+  and `Ed25519KeyIdentity` from `@icp-sdk/core@6.1.0/identity` on
+  esm.sh, both pinned to the same exact version — `agent` and `identity`
+  are submodules of the SAME package, so one shared version pin keeps
+  them mutually consistent with no further query-string tricks needed.
 - `lobby-connection.service.ts`'s `init()` fires an immediate `status`
   `request()` the moment `getDuelWs()` resolves, ahead of the shared
   connection's own first poll tick. This is safe only because

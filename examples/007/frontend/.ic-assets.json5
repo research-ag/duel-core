@@ -4,7 +4,7 @@
     "security_policy": "standard",
     "headers": {
       "Cache-Control": "public, max-age=0, must-revalidate",
-      // Allow loading @dfinity/agent from esm.sh (vanilla-JS, no build step).
+      // Allow loading @icp-sdk/core from esm.sh (vanilla-JS, no build step).
       // `upgrade-insecure-requests` is deliberately omitted: the local
       // replica is served over plain http://…localhost:8000.
       //

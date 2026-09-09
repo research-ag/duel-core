@@ -4,12 +4,15 @@
 // GamePlugin to use — everything else (lobby, staging, rematch, debrief
 // chrome) lives in the npm package.
 //
-// No build step: @dfinity/agent is loaded from esm.sh; duel-game-core
+// No build step: @icp-sdk/core is loaded from esm.sh; duel-game-core
 // itself is fetched via `npm install` (see package.json/.npmrc) and
-// imported below by its on-disk dist/ path.
+// imported below by its on-disk dist/ path. `agent` and `identity` are
+// both submodules of the SAME `@icp-sdk/core` package, so pinning one
+// exact version on both esm.sh URLs is enough to keep them mutually
+// consistent.
 
-import { Actor, HttpAgent } from "https://esm.sh/@dfinity/agent@2.4.1?deps=@dfinity/candid@2.4.1,@dfinity/principal@2.4.1";
-import { Ed25519KeyIdentity } from "https://esm.sh/@dfinity/identity@2.4.1?deps=@dfinity/agent@2.4.1,@dfinity/candid@2.4.1,@dfinity/principal@2.4.1";
+import { Actor, HttpAgent } from "https://esm.sh/@icp-sdk/core@6.1.0/agent";
+import { Ed25519KeyIdentity } from "https://esm.sh/@icp-sdk/core@6.1.0/identity";
 import { makeIdlFactory } from "./node_modules/duel-game-core/dist/idl.js";
 import { start } from "./node_modules/duel-game-core/dist/app.js";
 import { connectWs } from "./node_modules/duel-game-core/dist/ws.js";

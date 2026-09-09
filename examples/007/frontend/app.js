@@ -4,7 +4,7 @@
 // engine lives in the npm package, not here. This file only knows how to
 // reach the canister and which GamePlugin to use.
 //
-// Uses @dfinity/agent loaded from esm.sh — no build step required for
+// Uses @icp-sdk/core loaded from esm.sh — no build step required for
 // THIS file; `duel-game-core` itself is fetched once via `npm install`
 // (see package.json / .npmrc) since it has no CDN distribution, and is
 // imported below by its plain on-disk path, under `dist/` — that's
@@ -16,21 +16,12 @@
 // automatically) — the browser has no bare "duel-game-core/..."
 // specifier resolution without an import map.
 
-// Both imports pin the SAME exact @dfinity/candid and @dfinity/principal
-// versions via esm.sh's `?deps=` — @dfinity/identity@2.4.1 itself
-// imports @dfinity/candid with NO version constraint at all, so left
-// unpinned, esm.sh resolves it to whatever's currently tagged "latest"
-// instead of the 2.4.1 line @dfinity/agent@2.4.1 was built against. That
-// mismatch is real, not hypothetical: it surfaced as `Uncaught
-// SyntaxError: The requested module '/@dfinity/candid?target=es2022'
-// does not provide an export named 'bufFromBufLike'` (a since-renamed/
-// removed export) the first time this shipped without the pin. `?deps=`
-// forces both esm.sh module graphs to resolve to byte-identical URLs for
-// the shared dependencies (verified: same hash-suffixed path either
-// way) — remove it and this breaks again the next time "latest"
-// @dfinity/candid changes shape.
-import { Actor, HttpAgent } from "https://esm.sh/@dfinity/agent@2.4.1?deps=@dfinity/candid@2.4.1,@dfinity/principal@2.4.1";
-import { Ed25519KeyIdentity } from "https://esm.sh/@dfinity/identity@2.4.1?deps=@dfinity/agent@2.4.1,@dfinity/candid@2.4.1,@dfinity/principal@2.4.1";
+// `agent` and `identity` are both submodules of the SAME `@icp-sdk/core`
+// package, so pinning one exact version on both esm.sh URLs is enough to
+// keep them mutually consistent — no separate cross-package version-pin
+// trick needed the way independently versioned packages would require.
+import { Actor, HttpAgent } from "https://esm.sh/@icp-sdk/core@6.1.0/agent";
+import { Ed25519KeyIdentity } from "https://esm.sh/@icp-sdk/core@6.1.0/identity";
 import { makeIdlFactory } from "./node_modules/duel-game-core/dist/idl.js";
 import { start } from "./node_modules/duel-game-core/dist/app.js";
 import { connectWs } from "./node_modules/duel-game-core/dist/ws.js";

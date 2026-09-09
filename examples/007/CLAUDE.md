@@ -48,7 +48,7 @@ concrete to copy — it is **not** part of either package itself.
 - **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as
   canister `backend` and `frontend/` as an asset canister.
 - **`frontend/`** — vanilla-JS web client, no bundler/build step (uses
-  `@dfinity/agent` from esm.sh; `duel-game-core` fetched locally via
+  `@icp-sdk/core` from esm.sh; `duel-game-core` fetched locally via
   `npm install`, see below). `duel007-plugin.js` is the whole
   game-specific surface: it implements the `GamePlugin` contract
   (`idlTypes`, `seatLabel`, `renderBoard`, `renderActions`) from
