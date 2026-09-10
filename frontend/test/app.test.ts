@@ -1,4 +1,4 @@
-import { test, afterEach } from "node:test";
+import { test, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { FakeElement, makeFakeDocument, makeButton } from "./support/fake-dom.js";
 import type { DuelWs, GamePlugin, Status, TableSummary, WsPayload, WsRequest } from "../src/types.js";
@@ -176,6 +176,36 @@ test("onmessage: identical consecutive statuses are only rendered once (dedup)",
 
   ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, waitingSecs: 0n }]) } });
   assert.equal(writes, 2);
+});
+
+test("open-tables list: a row's 'waiting Ns' label counts up locally between pushes (regression: frozen waiting time)", async () => {
+  mock.timers.enable({ apis: ["setInterval", "Date"] });
+  try {
+    const { start } = await import("../src/app.js");
+    const { els, ws } = setup();
+    start({ plugin, ws });
+
+    ws.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, waitingSecs: 5n }]) } });
+    const row = els.screen.querySelectorAll("[data-wait-base]")[0];
+    assert.ok(row, "expected a rendered wait-ticker element");
+    assert.equal(row!.textContent, "waiting 5s");
+
+    // No fresh push arrives — only the local ticker should move this.
+    mock.timers.tick(3000);
+    assert.equal(row!.textContent, "waiting 8s");
+
+    // A fresh push with a redrawn (but otherwise identical) row
+    // re-baselines the ticker off the NEW node rather than going on
+    // patching a stale, now-detached one from the previous render.
+    ws.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, waitingSecs: 20n }]) } });
+    const freshRow = els.screen.querySelectorAll("[data-wait-base]")[0];
+    assert.ok(freshRow, "expected a freshly rendered wait-ticker element");
+    assert.equal(freshRow!.textContent, "waiting 20s");
+    mock.timers.tick(2000);
+    assert.equal(freshRow!.textContent, "waiting 22s");
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 test("clicking 'create table' calls ws.request with a createTable request and shows/clears the loading state", async () => {

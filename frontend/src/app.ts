@@ -59,6 +59,7 @@ import {
   DUEL_RECLAIM_WARNING_ID,
   RECLAIM_WARNING_SECS,
   reclaimWarningText,
+  waitingText,
 } from "./render.js";
 import type { DuelWs, EngineErr, GamePlugin, InGameView, Seat, SeatTag, StagingYouView, Visibility, WsPayload, WsRequest } from "./types.js";
 
@@ -159,6 +160,65 @@ function makeCountdownTicker(elId: string) {
       (timer as unknown as { unref?: () => void }).unref?.();
     }
     tick();
+  }
+
+  return { sync };
+}
+
+/// Ticks every second for however many "waiting Ns" labels the open-tables
+/// list (render.ts's `renderTableRow`) currently has on screen, counting
+/// each one UP from its own pushed baseline — the same staleness problem
+/// `makeCountdownTicker` above solves for a single countdown (a table's
+/// `waitingSecs` is only ever as fresh as the last push, so left unticked
+/// it sits frozen between pushes), just inverted (counting up, not down)
+/// and for however many rows happen to be in `root` right now rather than
+/// one fixed element id — the browsing lobby's table list can hold any
+/// number of rows, appearing and disappearing between renders as tables
+/// come and go, so there's no single id to key a `makeCountdownTicker` on.
+/// `sync()` re-scans `root` and re-baselines every row off `Date.now()`;
+/// call it once, right after `root`'s markup is (re)drawn — a redraw
+/// recreates every row's element, so any baseline kept from before would
+/// be patching a detached node. `tick()` only ever sets `textContent`, so
+/// (like the countdown ticker above) it never fights `renderIfChanged`'s
+/// `deepEqual` short-circuit for hover-state stability.
+function makeTableWaitTicker(root: HTMLElement) {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let rows: { el: HTMLElement; baseSecs: bigint; atMs: number }[] = [];
+
+  function tick(): void {
+    for (const row of rows) {
+      const elapsed = BigInt(Math.max(0, Math.floor((Date.now() - row.atMs) / 1000)));
+      row.el.textContent = waitingText(row.baseSecs + elapsed);
+    }
+  }
+
+  function sync(): void {
+    rows = [...root.querySelectorAll<HTMLElement>("[data-wait-base]")].map((el) => ({
+      el,
+      baseSecs: BigInt(el.dataset.waitBase ?? "0"),
+      atMs: Date.now(),
+    }));
+    if (rows.length === 0) {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+      return;
+    }
+    // A row's markup already starts out textually correct (render.ts
+    // wrote the same text this baseline was just read from) — but a
+    // FakeElement in tests never populates `textContent` from parsed
+    // markup the way a real browser would, so an immediate `tick()` here
+    // both keeps that test-only surface honest and, for a real browser
+    // too, guarantees this row's `atMs` baseline and its displayed text
+    // agree from the very first render, not just from one second later.
+    tick();
+    if (timer === undefined) {
+      timer = setInterval(tick, 1000);
+      // See makeCountdownTicker's own comment on unref() above — same
+      // Node-vs-browser rationale applies here verbatim.
+      (timer as unknown as { unref?: () => void }).unref?.();
+    }
   }
 
   return { sync };
@@ -794,6 +854,7 @@ export function start<S>({
   // id so patching one never touches the other.
   const idleTicker = makeCountdownTicker(DUEL_IDLE_WARNING_ID);
   const reclaimTicker = makeCountdownTicker(DUEL_RECLAIM_WARNING_ID);
+  const waitTicker = makeTableWaitTicker(screenEl);
 
   // Re-baselines off a FRESH `#inGame` push (a real submit/leave/etc.
   // reset the engine's own idle clock too, so this push's own
@@ -844,6 +905,7 @@ export function start<S>({
     screenEl.innerHTML = renderStatus(status as Parameters<typeof renderStatus<S>>[0], plugin);
     syncIdleTick(status);
     syncReclaimTick(status);
+    waitTicker.sync();
     // Freshly created buttons start out with whatever disabled state
     // render.js baked into the markup — reapply any still-pending
     // button's loading/disabled override on top (see applyLoadingState's

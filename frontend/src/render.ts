@@ -121,6 +121,15 @@ function renderLobby(v: LobbyView, plugin: GamePlugin): string {
 // dataset is read back into a `createTable`/`joinTable` request.
 // ---------------------------------------------------------------------
 
+// Pure text formatter for a table row's waiting time — shared between the
+// initial render here and app.ts's `makeTableWaitTicker`, which patches
+// this same text in place once a second so it counts up between pushes
+// instead of sitting frozen at whatever `waitingSecs` last read (see that
+// function's own doc for why a bare push alone isn't enough).
+export function waitingText(waitingSecs: bigint): string {
+  return `waiting ${waitingSecs}s`;
+}
+
 function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
   const seatBtn = (seat: SeatTag, open: boolean) => `
     <button class="seat" data-join-table-id="${r.id}" data-join-table="${seat}" ${open ? "" : "disabled"}>
@@ -129,7 +138,7 @@ function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
   return `
     <div class="table-row">
       <span class="table-id">Table #${r.id}</span>
-      <span class="muted">waiting ${r.waitingSecs}s</span>
+      <span class="muted" data-wait-base="${r.waitingSecs}">${waitingText(r.waitingSecs)}</span>
       <div class="table-row-seats">
         ${seatBtn("p1", r.p1Open)}
         ${seatBtn("p2", r.p2Open)}

@@ -12,31 +12,35 @@
 // implementation would mostly sit unused.
 //
 // One narrow exception: assigning `innerHTML` DOES parse out `<button
-// ...>` tags into real child FakeElements (see `parseButtons` below),
-// just enough that `querySelectorAll("button")` — the one selector
-// app.ts's applyLoadingState() ever asks for — can answer honestly. This
-// exists specifically so a test can reproduce a re-render REPLACING a
-// button mid-flight (an unrelated push tick redrawing the screen while
-// this tab's own call is still pending) and assert on the freshly
-// created node, the way a real browser's own querySelectorAll would
-// hand back a new node too — not just on the exact object a test built
-// by hand with makeButton(). It is still not a general HTML parser: only
-// `<button>` tags and their attributes are recognized, and only
+// ...>` tags and any element carrying a `data-wait-base` attribute into
+// real child FakeElements (see `parseTaggedElements` below), just enough
+// that `querySelectorAll("button")` and `querySelectorAll("[data-wait-
+// base]")` — the two selectors app.ts's applyLoadingState() and
+// makeTableWaitTicker() ever ask for — can answer honestly. This exists
+// specifically so a test can reproduce a re-render REPLACING an element
+// mid-flight (an unrelated push tick redrawing the screen while this
+// tab's own call is still pending, or a fresh browsing-list render
+// re-baselining the wait ticker) and assert on the freshly created node,
+// the way a real browser's own querySelectorAll would hand back a new
+// node too — not just on the exact object a test built by hand with
+// makeButton(). It is still not a general HTML parser: only `<button>`
+// tags and elements with `data-wait-base` are recognized, and only
 // `class`/`disabled`/`data-*` are read off them.
 
-const BUTTON_TAG_RE = /<button\b([^>]*)>/gi;
+const TAGGED_EL_RE = /<(button|span)\b([^>]*)>/gi;
 const ATTR_RE = /([\w-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'))?/g;
 
-function parseButtons(html: string): FakeElement[] {
-  const buttons: FakeElement[] = [];
-  BUTTON_TAG_RE.lastIndex = 0;
+function parseTaggedElements(html: string): FakeElement[] {
+  const found: FakeElement[] = [];
+  TAGGED_EL_RE.lastIndex = 0;
   let tagMatch: RegExpExecArray | null;
-  while ((tagMatch = BUTTON_TAG_RE.exec(html))) {
+  while ((tagMatch = TAGGED_EL_RE.exec(html))) {
+    const [, tagName, attrsSrc] = tagMatch;
     const el = new FakeElement();
-    el.tagName = "button";
+    el.tagName = tagName.toLowerCase();
     ATTR_RE.lastIndex = 0;
     let attrMatch: RegExpExecArray | null;
-    while ((attrMatch = ATTR_RE.exec(tagMatch[1]))) {
+    while ((attrMatch = ATTR_RE.exec(attrsSrc))) {
       const [, name, dq, sq] = attrMatch;
       const value = dq ?? sq ?? "";
       if (name === "disabled") el.disabled = true;
@@ -44,14 +48,19 @@ function parseButtons(html: string): FakeElement[] {
       else if (name.startsWith("data-")) {
         // Mirror a real browser's `dataset` API: `data-join-table-id`
         // becomes `dataset.joinTableId`, not the literal hyphenated
-        // string — app.ts's click handler reads the camelCase form.
+        // string — app.ts's click handler (and makeTableWaitTicker) read
+        // the camelCase form.
         const camelKey = name.slice(5).replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
         el.dataset[camelKey] = value;
       }
     }
-    buttons.push(el);
+    // A plain `<span>` with no `data-wait-base` is just markup this file
+    // doesn't need to represent (e.g. `.muted`/`.table-id` labels) — only
+    // `<button>`s and wait-ticker spans are real "elements" here.
+    if (el.tagName === "span" && !("waitBase" in el.dataset)) continue;
+    found.push(el);
   }
-  return buttons;
+  return found;
 }
 
 export class FakeClassList {
@@ -92,12 +101,12 @@ export class FakeElement {
     return this._innerHTML;
   }
 
-  /// Replaces `children` with freshly parsed `<button>` stand-ins (see
-  /// parseButtons() above) — same as a real browser discarding and
+  /// Replaces `children` with freshly parsed stand-ins (see
+  /// parseTaggedElements() above) — same as a real browser discarding and
   /// recreating every descendant node on an innerHTML assignment.
   set innerHTML(html: string) {
     this._innerHTML = html;
-    this.children = parseButtons(html);
+    this.children = parseTaggedElements(html);
   }
 
   addEventListener(type: string, fn: Listener): void {
@@ -127,13 +136,16 @@ export class FakeElement {
     return (this._sub ??= new FakeElement());
   }
 
-  /// Only "button" is recognized (the one selector app.ts ever passes to
-  /// applyLoadingState()) — answered from the children the last
-  /// `innerHTML` assignment parsed out (see parseButtons() above). Any
-  /// other selector returns empty, same as before this existed.
+  /// Only "button" and "[data-wait-base]" are recognized (the two
+  /// selectors app.ts ever passes, to applyLoadingState() and
+  /// makeTableWaitTicker() respectively) — answered from the children the
+  /// last `innerHTML` assignment parsed out (see parseTaggedElements()
+  /// above). Any other selector returns empty, same as before this
+  /// existed.
   querySelectorAll(sel: string): FakeElement[] {
-    if (sel !== "button") return [];
-    return this.children.filter((c) => c.tagName === "button");
+    if (sel === "button") return this.children.filter((c) => c.tagName === "button");
+    if (sel === "[data-wait-base]") return this.children.filter((c) => "waitBase" in c.dataset);
+    return [];
   }
 
   closest(_sel: string): FakeElement {
