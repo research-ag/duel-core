@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionAttr, DUEL_IDLE_WARNING_ID, errText, esc, renderView, tag, val } from "../src/render.js";
+import { actionAttr, DUEL_IDLE_WARNING_ID, DUEL_RECLAIM_WARNING_ID, errText, esc, renderView, tag, val } from "../src/render.js";
 import type { GamePlugin, View } from "../src/types.js";
 
 const plugin: GamePlugin<{ turn: string }> = {
@@ -98,8 +98,10 @@ test("renderView: stagingYou names the held seat and offers Leave", () => {
   );
   assert.match(html, /Black/);
   assert.match(html, /data-leave/);
-  // Above the 15s warning threshold — no countdown shown.
-  assert.doesNotMatch(html, /Still there\?/);
+  // Above the 15s warning threshold — the countdown element is rendered
+  // (so app.ts's ticker can find and patch it in place — see its own
+  // doc), but stays hidden.
+  assert.match(html, new RegExp(`id="${DUEL_RECLAIM_WARNING_ID}" hidden`));
 });
 
 test("renderView: stagingYou warns once reclaim is imminent", () => {
@@ -116,6 +118,7 @@ test("renderView: stagingYou warns once reclaim is imminent", () => {
   );
   assert.match(html, /Still there\?/);
   assert.match(html, /in 5s/);
+  assert.doesNotMatch(html, new RegExp(`id="${DUEL_RECLAIM_WARNING_ID}" hidden`));
 });
 
 test("renderView: stagingYou reclaim warning at exactly 0s says 'any moment now'", () => {

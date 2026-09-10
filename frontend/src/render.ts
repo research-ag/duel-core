@@ -187,20 +187,29 @@ function renderBusy(v: BusyView): string {
 // engine's documented "no ghost lobbies" idle takeover, working exactly as
 // designed, just with no warning attached. Quiet below the threshold so a
 // normal, short wait doesn't carry a running countdown the whole time.
-const RECLAIM_WARNING_SECS = 15n;
+//
+// Rendered unconditionally (never omitted, just `hidden`) for the same
+// reason `renderInGame`'s idle-reset warning is: `secondsUntilReclaimable`
+// is only ever as fresh as the last push (no push repeats on a bare tick
+// of the clock — see `ws.mo`'s `sweepAndPush` doc), so `app.ts`'s
+// `makeCountdownTicker` needs a stable element to find by id and patch in
+// place every second between pushes — an element that only exists once
+// the threshold is already crossed could never be found BEFORE that, and
+// the countdown would sit frozen exactly like the 007 defect report's
+// finding 05 found it (byte-identical from 5s through 59s, then straight
+// to "seat gone" with no warning ever having appeared).
+export const DUEL_RECLAIM_WARNING_ID = "duel-reclaim-warning";
+export const RECLAIM_WARNING_SECS = 15n;
 
-function renderReclaimWarning(secondsUntilReclaimable: bigint): string {
-  if (secondsUntilReclaimable > RECLAIM_WARNING_SECS) return "";
+export function reclaimWarningText(secondsUntilReclaimable: bigint): string {
   const when =
-    secondsUntilReclaimable === 0n
-      ? "any moment now"
-      : `in ${secondsUntilReclaimable}s`;
-  return `<p class="countdown">Still there? This seat may be given to
-    someone else ${when} if the page stays idle.</p>`;
+    secondsUntilReclaimable <= 0n ? "any moment now" : `in ${secondsUntilReclaimable}s`;
+  return `Still there? This seat may be given to someone else ${when} if the page stays idle.`;
 }
 
 function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string {
   const seat = tag(v.seat) as SeatTag;
+  const reclaimWarningHidden = v.secondsUntilReclaimable > RECLAIM_WARNING_SECS;
   return `
     <h2>Waiting for an opponent</h2>
     <p>You hold <strong class="seat-label">${esc(plugin.seatLabel(seat))}</strong>.</p>
@@ -211,7 +220,7 @@ function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string {
         : `<p class="muted">Open this page in another tab to take the other
              seat.</p>`
     }
-    ${renderReclaimWarning(v.secondsUntilReclaimable)}
+    <p class="countdown" id="${DUEL_RECLAIM_WARNING_ID}"${reclaimWarningHidden ? " hidden" : ""}>${reclaimWarningText(v.secondsUntilReclaimable)}</p>
     <p><button data-leave class="ghost">Leave</button></p>`;
 }
 
@@ -235,12 +244,16 @@ function renderAwaitingRematch(v: AwaitingRematchView, plugin: GamePlugin): stri
 // leaving before a game starts or after it's already over isn't
 // destructive the same way.
 // A live game's own idle-reset countdown warns IN PLACE, the same idea as
-// `renderReclaimWarning` above but for a seated, in-progress round instead
-// of an unfilled seat — `#inGame` carries the raw countdown fresh as of
-// this push (`secondsUntilIdleReset`) plus the table's own configured
-// timeout (`idleTimeoutSecs`, constant for the table's life), so the
-// threshold scales with whatever timeout THIS table actually runs instead
-// of a hardcoded guess. `app.ts` re-runs `idleWarningText`/
+// `renderStagingYou`'s reclaim warning above but for a seated,
+// in-progress round instead of an unfilled seat — `#inGame` carries the
+// raw countdown fresh as of this push (`secondsUntilIdleReset`) plus the
+// table's own configured timeout (`idleTimeoutSecs`, constant for the
+// table's life), so the threshold scales with whatever timeout THIS
+// table actually runs instead of a hardcoded guess (the reclaim warning
+// above uses a flat `RECLAIM_WARNING_SECS` instead — nothing forces the
+// two to share a policy, they just happen to warn about the same
+// underlying idle-takeover mechanism from two different phases).
+// `app.ts`'s shared `makeCountdownTicker` re-runs `idleWarningText`/
 // `idleWarningThreshold` itself every second, off its own wall clock, to
 // patch #DUEL_IDLE_WARNING_ID's text/visibility in place between pushes —
 // see its own doc for why a push alone would otherwise leave this frozen.

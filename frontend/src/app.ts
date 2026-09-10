@@ -56,8 +56,11 @@ import {
   DUEL_IDLE_WARNING_ID,
   idleWarningThreshold,
   idleWarningText,
+  DUEL_RECLAIM_WARNING_ID,
+  RECLAIM_WARNING_SECS,
+  reclaimWarningText,
 } from "./render.js";
-import type { DuelWs, EngineErr, GamePlugin, InGameView, Seat, SeatTag, Visibility, WsPayload, WsRequest } from "./types.js";
+import type { DuelWs, EngineErr, GamePlugin, InGameView, Seat, SeatTag, StagingYouView, Visibility, WsPayload, WsRequest } from "./types.js";
 
 const $ = (id: string): HTMLElement | null => document.getElementById(id);
 
@@ -85,6 +88,80 @@ function deepEqual(a: unknown, b: unknown): boolean {
       Object.hasOwn(b, k) &&
       deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
   );
+}
+
+/// One `sync`-per-push, tick-every-second countdown warning — the shared
+/// mechanism behind BOTH `renderInGame`'s idle-reset warning and
+/// `renderStagingYou`'s reclaim warning (render.js), which face the same
+/// problem: their `secondsUntilX` field is only ever as fresh as the last
+/// push (nothing pushes on a bare tick of the clock — a push only ever
+/// arrives off a real mutation, or off the host's periodic sweep actually
+/// evicting someone; see backend/src/ws.mo's `sweepAndPush` doc), so
+/// without a local tick the number sits frozen at whatever it read the
+/// moment its view was last pushed instead of visibly counting down —
+/// exactly the 007 defect report's finding 05 ("byte-identical from 5s
+/// through 59s"). Ticks patch `elId`'s `hidden`/`textContent` directly and
+/// never touch `screenEl.innerHTML` — doing that every second would
+/// reintroduce exactly the hover-flicker `renderIfChanged`'s own
+/// `deepEqual` short-circuit exists to avoid. A caller's own `sync(null)`
+/// (wrong phase, or a phase-specific suppressed case — e.g. a player who
+/// already locked in this round) stops the ticker entirely rather than
+/// ticking toward a number that no longer means anything.
+function makeCountdownTicker(elId: string) {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let baseline: {
+    secs: bigint;
+    atMs: number;
+    hidden: (secondsLeft: bigint) => boolean;
+    text: (secondsLeft: bigint) => string;
+  } | undefined;
+
+  function stop(): void {
+    if (timer !== undefined) {
+      clearInterval(timer);
+      timer = undefined;
+    }
+    baseline = undefined;
+  }
+
+  function tick(): void {
+    if (!baseline) return;
+    // `unref()` below keeps this tolerable in Node, but the interval
+    // still fires for as long as the process is alive — including after
+    // a test (or any other caller that tears its own `document` mock
+    // back down between runs) has already moved on. Guard the lookup
+    // itself rather than assume `document` is still there to ask.
+    if (typeof document === "undefined") return;
+    const el = document.getElementById(elId);
+    if (!el) return; // screen moved on without going through stop()
+    const elapsed = BigInt(Math.max(0, Math.floor((Date.now() - baseline.atMs) / 1000)));
+    const remaining = baseline.secs > elapsed ? baseline.secs - elapsed : 0n;
+    el.hidden = baseline.hidden(remaining);
+    el.textContent = baseline.text(remaining);
+  }
+
+  function sync(
+    next: { secs: bigint; hidden: (secondsLeft: bigint) => boolean; text: (secondsLeft: bigint) => string } | null,
+  ): void {
+    if (next === null) {
+      stop();
+      return;
+    }
+    baseline = { secs: next.secs, atMs: Date.now(), hidden: next.hidden, text: next.text };
+    if (timer === undefined) {
+      timer = setInterval(tick, 1000);
+      // Node (unlike a browser) keeps a process alive for as long as a
+      // timer is still pending — harmless here since this page never
+      // "exits" in a browser tab, but it hangs a Node-hosted caller (a
+      // test runner, an SSR pass) that outlives this instance without an
+      // explicit teardown. `unref` doesn't exist on a browser's
+      // `setInterval` handle at all, so this is a no-op there.
+      (timer as unknown as { unref?: () => void }).unref?.();
+    }
+    tick();
+  }
+
+  return { sync };
 }
 
 export interface StartOptions<S = unknown> {
@@ -176,11 +253,18 @@ export function start<S>({
   }
 
   /// Unwraps a `Status`'s `inGame` branch, or `null` for any other phase.
-  /// Feeds `startIdleTick`'s baseline below.
+  /// Feeds `syncIdleTick`'s baseline below.
   function inGameView(status: unknown): InGameView | null {
     const at = atTable(status);
     if (at === null || tag(at.view as object) !== "inGame") return null;
     return val(at.view as object) as InGameView;
+  }
+
+  /// Same, for `stagingYou`. Feeds `syncReclaimTick`'s baseline below.
+  function stagingYouView(status: unknown): StagingYouView | null {
+    const at = atTable(status);
+    if (at === null || tag(at.view as object) !== "stagingYou") return null;
+    return val(at.view as object) as StagingYouView;
   }
 
   // True while THIS sid's own create/join-table call is in flight
@@ -705,72 +789,48 @@ export function start<S>({
   // JSON.stringify comparison.
   let lastStatus: unknown;
 
-  // Live-ticks the in-game idle-reset warning (`#DUEL_IDLE_WARNING_ID`,
-  // from render.js's `renderInGame`) on the browser's own wall clock
-  // between pushes. Nothing pushes on a bare tick of the clock — a push
-  // only ever arrives off a real mutation, or off the host's periodic
-  // sweep actually evicting someone (see backend/src/ws.mo's
-  // `sweepAndPush` doc) — so without this, `secondsUntilIdleReset` would
-  // sit frozen at whatever it read the moment the game was last pushed to
-  // (typically the full timeout, reset by the very submit that produced
-  // this view) instead of visibly counting down. This patches that one
-  // element's text/visibility directly and never touches
-  // `screenEl.innerHTML` itself — doing that every second would
-  // reintroduce exactly the hover-flicker `renderIfChanged`'s own
-  // `deepEqual` short-circuit above exists to avoid.
-  let idleTickTimer: ReturnType<typeof setInterval> | undefined;
-  let idleBaseline: { secs: bigint; idleTimeoutSecs: bigint; atMs: number } | undefined;
-
-  function stopIdleTick(): void {
-    if (idleTickTimer !== undefined) {
-      clearInterval(idleTickTimer);
-      idleTickTimer = undefined;
-    }
-    idleBaseline = undefined;
-  }
-
-  function tickIdleWarning(): void {
-    if (!idleBaseline) return;
-    // `unref()` above keeps this tolerable in Node, but the interval still
-    // fires for as long as the process is alive — including after a test
-    // (or any other caller that tears its own `document` mock back down
-    // between runs) has already moved on. Guard the lookup itself rather
-    // than assume `document` is still there to ask.
-    if (typeof document === "undefined") return;
-    const el = document.getElementById(DUEL_IDLE_WARNING_ID);
-    if (!el) return; // screen moved on without going through stopIdleTick
-    const elapsed = BigInt(Math.max(0, Math.floor((Date.now() - idleBaseline.atMs) / 1000)));
-    const remaining = idleBaseline.secs > elapsed ? idleBaseline.secs - elapsed : 0n;
-    el.hidden = remaining > idleWarningThreshold(idleBaseline.idleTimeoutSecs);
-    el.textContent = idleWarningText(remaining);
-  }
+  // Two independent `makeCountdownTicker`s (declared above `start()`) —
+  // one per warning this package renders, each keyed to its own element
+  // id so patching one never touches the other.
+  const idleTicker = makeCountdownTicker(DUEL_IDLE_WARNING_ID);
+  const reclaimTicker = makeCountdownTicker(DUEL_RECLAIM_WARNING_ID);
 
   // Re-baselines off a FRESH `#inGame` push (a real submit/leave/etc.
   // reset the engine's own idle clock too, so this push's own
-  // `secondsUntilIdleReset` is the new source of truth); leaves any
-  // other phase's countdown, if it has one, to stop ticking entirely — as
-  // does a player who's already locked in this round (see render.ts's
-  // `renderInGame` doc: the warning stays hidden for them regardless of
-  // how far the countdown falls, so there's nothing for a tick to do
-  // until their NEXT push flips `youSubmitted` back to false).
+  // `secondsUntilIdleReset` is the new source of truth); stops ticking
+  // entirely for any other phase — as it does for a player who's already
+  // locked in this round (see render.ts's `renderInGame` doc: the warning
+  // stays hidden for them regardless of how far the countdown falls, so
+  // there's nothing for a tick to do until their NEXT push flips
+  // `youSubmitted` back to false).
   function syncIdleTick(status: unknown): void {
     const inGame = inGameView(status);
     if (!inGame || inGame.youSubmitted) {
-      stopIdleTick();
+      idleTicker.sync(null);
       return;
     }
-    idleBaseline = { secs: inGame.secondsUntilIdleReset, idleTimeoutSecs: inGame.idleTimeoutSecs, atMs: Date.now() };
-    if (idleTickTimer === undefined) {
-      idleTickTimer = setInterval(tickIdleWarning, 1000);
-      // Node (unlike a browser) keeps a process alive for as long as a
-      // timer is still pending — harmless here since this page never
-      // "exits" in a browser tab, but it hangs a Node-hosted caller (a
-      // test runner, an SSR pass) that outlives this instance without an
-      // explicit teardown. `unref` doesn't exist on a browser's
-      // `setInterval` handle at all, so this is a no-op there.
-      (idleTickTimer as unknown as { unref?: () => void }).unref?.();
+    idleTicker.sync({
+      secs: inGame.secondsUntilIdleReset,
+      hidden: (secondsLeft) => secondsLeft > idleWarningThreshold(inGame.idleTimeoutSecs),
+      text: idleWarningText,
+    });
+  }
+
+  // Same idea, for `#stagingYou`'s reclaim warning — re-baselines off a
+  // fresh push (a seat switch or a fresh join both re-stamp `since`, so
+  // this push's own `secondsUntilReclaimable` is the new source of
+  // truth); stops ticking entirely for any other phase.
+  function syncReclaimTick(status: unknown): void {
+    const staging = stagingYouView(status);
+    if (!staging) {
+      reclaimTicker.sync(null);
+      return;
     }
-    tickIdleWarning();
+    reclaimTicker.sync({
+      secs: staging.secondsUntilReclaimable,
+      hidden: (secondsLeft) => secondsLeft > RECLAIM_WARNING_SECS,
+      text: reclaimWarningText,
+    });
   }
 
   const renderIfChanged = (status: unknown): void => {
@@ -783,6 +843,7 @@ export function start<S>({
     lastStatus = status;
     screenEl.innerHTML = renderStatus(status as Parameters<typeof renderStatus<S>>[0], plugin);
     syncIdleTick(status);
+    syncReclaimTick(status);
     // Freshly created buttons start out with whatever disabled state
     // render.js baked into the markup — reapply any still-pending
     // button's loading/disabled override on top (see applyLoadingState's
