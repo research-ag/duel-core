@@ -341,6 +341,21 @@ test("a data-confirm button dispatches nothing if cancelled", async () => {
   assert.equal(overlay.hidden, true);
 });
 
+test("declining a rematch invite (Decline, from #awaitingRematch) sends its own gen", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({
+    data: { view: atTable({ awaitingRematch: { openSeat: { p2: null }, gen: 7n } }) },
+  });
+
+  const btn = makeButton({ leave: "" });
+  click(els.screen, btn);
+  assert.equal(ws.requests.length, 1);
+  assert.deepEqual(ws.requests[0]!.req, { leave: { gen: 7n } });
+});
+
 test("the new-sid button rotates sid and re-sends #status", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
@@ -396,7 +411,7 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
   const unseated = [
     browsing(),
     atTable({ busy: { secondsUntilTakeover: 5n } }),
-    atTable({ awaitingRematch: { openSeat: { p1: null } } }),
+    atTable({ awaitingRematch: { openSeat: { p1: null }, gen: 1n } }),
     atTable({ endedByOther: null }),
   ];
   for (const view of unseated) {

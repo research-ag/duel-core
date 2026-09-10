@@ -98,6 +98,8 @@ export interface StagingYouView {
 
 export interface AwaitingRematchView {
   openSeat: Seat;
+  /// Stamp onto a later `leave` to decline — see lib.mo's `Table.gen` doc.
+  gen: bigint;
 }
 
 export interface InGameView<S = unknown> {

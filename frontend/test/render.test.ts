@@ -136,10 +136,11 @@ test("renderView: stagingYou reclaim warning at exactly 0s says 'any moment now'
   assert.match(html, /any moment now/);
 });
 
-test("renderView: awaitingRematch names the open seat", () => {
-  const html = renderView<{ turn: string }>({ awaitingRematch: { openSeat: { p1: null } } }, plugin);
+test("renderView: awaitingRematch names the open seat and offers accept + decline", () => {
+  const html = renderView<{ turn: string }>({ awaitingRematch: { openSeat: { p1: null }, gen: 1n } }, plugin);
   assert.match(html, /White/);
   assert.match(html, /data-rematch/);
+  assert.match(html, /data-leave/); // Decline — see app.ts's doLeave/genOf
 });
 
 test("renderView: inGame shows the turn counter (1-indexed) and delegates board/actions", () => {

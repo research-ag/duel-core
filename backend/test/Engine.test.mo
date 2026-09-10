@@ -647,4 +647,52 @@ switch (t.status(T0, "b")) {
 };
 Debug.print("20. a stale cross-match leave is rejected, not replayed OK");
 
+// ── 21. rematch/join-veteran never reserves a seat for a partner who
+//         already acked (left) THIS debrief — regression: b clicking
+//         "Rematch" after a already clicked "Return to lobby" used to
+//         stage a seat reserved specifically for a, who is gone and never
+//         coming back — b then waited on an accept that could never
+//         arrive, and the reservation kept the staging hidden from
+//         `listTables` (see `Registry.openness`) the whole time too ─────
+t := debriefOf(T0);
+ignore ok(t.leave(T0, "a", genOf(t, T0, "a")), "a returns to the lobby, acking their debrief");
+switch (ok(t.rematch(spec, T0, "b"), "b requests a rematch after a already left")) {
+  case (#awaitingPartner) {};
+  case (_) Runtime.trap("b's rematch should still stage, just unreserved");
+};
+switch (t.status(T0, "b")) {
+  case (#stagingYou v) assert not v.reservedForPartner;
+  case (_) Runtime.trap("b's seat must be open, not waiting on a's ghost");
+};
+switch (ok(t.join(spec, T0, "c", #p1), "an unrelated outsider takes the open seat")) {
+  case (#started(#p1)) {};
+  case (_) Runtime.trap("nobody should be reserving this seat for a");
+};
+Debug.print("21. a rematch never reserves a seat for an already-left partner OK");
+
+// ── 22. #awaitingRematch can be DECLINED, not just accepted or ignored —
+//         regression: there was no way to reject a rematch invitation at
+//         all; the reserved partner could only accept or silently let the
+//         countdown run out ─────────────────────────────────────────────
+t := debriefOf(T0);
+ignore ok(t.rematch(spec, T0, "a"), "a requests a rematch, reserving b's old seat");
+let declineGen = switch (t.status(SOON, "b")) {
+  case (#awaitingRematch v) { assert v.openSeat == #p2; v.gen };
+  case (_) Runtime.trap("b should see the invitation, gen and all");
+};
+ignore ok(t.leave(SOON, "b", declineGen), "b declines the rematch");
+switch (t.status(SOON, "b")) {
+  case (#lobby v) { assert not v.p1Open; assert v.p2Open }; // a's seat still held
+  case (_) Runtime.trap("declining should return b to a plain, unseated lobby view");
+};
+switch (t.status(SOON, "a")) {
+  case (#stagingYou v) assert not v.reservedForPartner; // a's own staging survives, now open
+  case (_) Runtime.trap("a's staging must survive b's decline, just no longer reserved");
+};
+switch (ok(t.join(spec, SOON, "c", #p2), "an unrelated outsider takes the now-open seat")) {
+  case (#started(#p2)) {};
+  case (_) Runtime.trap("the declined seat should be open to anyone immediately");
+};
+Debug.print("22. #awaitingRematch can be declined, freeing the seat immediately OK");
+
 Debug.print("ALL ENGINE CHECKS PASSED");

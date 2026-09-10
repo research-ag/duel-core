@@ -243,17 +243,21 @@ function renderAwaitingRematch(v: AwaitingRematchView, plugin: GamePlugin): stri
       Your last opponent wants another game and has held
       <strong class="seat-label">${esc(plugin.seatLabel(seat))}</strong> for you.
     </p>
-    <p><button data-rematch class="primary">Accept rematch</button></p>
-    <p class="muted">Ignore it and the seat opens to anyone after a while.</p>`;
+    <p>
+      <button data-rematch class="primary">Accept rematch</button>
+      <button data-leave class="ghost">Decline</button>
+    </p>
+    <p class="muted">Decline (or ignore it) and the seat opens to anyone.</p>`;
 }
 
 // The Forfeit button carries `data-confirm="..."` — app.ts's click
 // delegation shows a confirmation modal before dispatching any button
 // with that attribute, so a mid-game misclick can't hand the round to
-// the opponent unintentionally. The staging/debrief `data-leave` buttons
-// below (renderStagingYou/renderDebrief) deliberately don't carry it —
-// leaving before a game starts or after it's already over isn't
-// destructive the same way.
+// the opponent unintentionally. The other `data-leave` buttons — staging
+// (renderStagingYou), debrief (renderDebrief), and the Decline button
+// above (renderAwaitingRematch) — deliberately don't carry it: leaving
+// before a game starts, after it's already over, or declining an invite
+// nobody's forced to accept, isn't destructive the same way.
 // A live game's own idle-reset countdown warns IN PLACE, the same idea as
 // `renderStagingYou`'s reclaim warning above but for a seated,
 // in-progress round instead of an unfilled seat — `#inGame` carries the

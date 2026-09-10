@@ -186,7 +186,10 @@ module {
       secondsUntilReclaimable : Nat;
       gen : Nat; // stamp onto a later `leave`/`reset` — see Table.gen's doc
     };
-    #awaitingRematch : { openSeat : Seat };
+    // `gen` — stamp onto a later `leave` to decline: see `Table.leave`'s
+    // own doc for what declining does (frees the reservation, not the
+    // whole board — the requester's own staging survives, now fully open).
+    #awaitingRematch : { openSeat : Seat; gen : Nat };
     #inGame : {
       seat : Seat;
       game : S;

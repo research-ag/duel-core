@@ -119,7 +119,7 @@ export function buildEngineTypes({
       secondsUntilReclaimable: IDL.Nat,
       gen: IDL.Nat,
     }),
-    awaitingRematch: IDL.Record({ openSeat: Seat }),
+    awaitingRematch: IDL.Record({ openSeat: Seat, gen: IDL.Nat }),
     inGame: IDL.Record({
       seat: Seat,
       game: State,

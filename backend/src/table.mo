@@ -52,6 +52,23 @@ module {
     };
   };
 
+  /// Who a rematch staging (from `join`'s veteran branch or `rematch`
+  /// itself) should hold the open seat for — the debrief's OTHER
+  /// participant, unless they already acked THIS debrief (via `leave`)
+  /// and are therefore not coming back to accept it (see
+  /// `activeDebriefSeat`'s own doc: that's exactly what an ack means).
+  /// `null` in that case, not the partner's id, so the caller opens a
+  /// plain unreserved staging instead — reserving a seat for someone who
+  /// already said "I'm done, back to lobby" would otherwise wait forever
+  /// for an accept that's never coming, and — worse, at the `Registry`
+  /// layer — stay hidden from `listTables` the whole time (see
+  /// `Registry.openness`'s own doc), since a reserved-and-unexpired
+  /// staging isn't browsable by design.
+  func rematchPartner<S, M>(self : Table<S, M>, d : T.Debrief<S>, session : T.SessionId) : ?T.SessionId {
+    let partner = if (d.p1 == session) d.p2 else d.p1;
+    if (member(self.debriefAcked, partner)) { null } else { ?partner };
+  };
+
   /// A game vanished without a debrief for these players — remember them so
   /// `status` can show #endedByOther until they acknowledge. Appends rather
   /// than replacing: this table's board is free again (`#empty`) the
@@ -193,13 +210,13 @@ module {
         switch (self.activeDebriefSeat(d, session)) {
           case (?_) {
             // veteran: joining from the debrief = starting a rematch staging,
-            // with a free choice of seat; the partner gets the reservation.
+            // with a free choice of seat; the partner gets the reservation,
+            // unless they've already left (see `rematchPartner`'s own doc).
             // (A session that already acked THIS debrief via `leave` falls
             // through to `case null` below instead — having said "I'm
             // done here", clicking a lobby seat shouldn't quietly turn
             // into a rematch with the old partner.)
-            let partner = if (d.p1 == session) d.p2 else d.p1;
-            self.stage(now, session, seat, ?partner);
+            self.stage(now, session, seat, self.rematchPartner(d, session));
             #ok(#staged(seat));
           };
           case null {
@@ -218,7 +235,9 @@ module {
   };
 
   /// One-click rematch. From a debrief (as a participant): stages a new game
-  /// on your previous seat with the open seat reserved for your partner.
+  /// on your previous seat with the open seat reserved for your partner —
+  /// unless they've already left (see `rematchPartner`'s own doc), in which
+  /// case the seat is left open to anyone instead of waiting on them.
   /// From a staging reserved for you: seats you and starts the game.
   /// Two simultaneous calls serialize into create-then-join — race-free.
   public func rematch<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.Res<T.RematchOk> {
@@ -232,8 +251,7 @@ module {
         // they said they were done.
         switch (self.activeDebriefSeat(d, session)) {
           case (?mySeat) {
-            let partner = if (d.p1 == session) d.p2 else d.p1;
-            self.stage(now, session, mySeat, ?partner);
+            self.stage(now, session, mySeat, self.rematchPartner(d, session));
             #ok(#awaitingPartner);
           };
           case null #err(#notSeated);
@@ -335,10 +353,15 @@ module {
     };
   };
 
-  /// Leave. From your own staging: the board empties. From a live game: BOTH
-  /// players land in a special `#aborted` debrief — the partner is told, in
-  /// debrief form, that you left. From a debrief: acknowledges it for you;
-  /// when both participants have left, the board frees early.
+  /// Leave. From your own staging: the board empties. From a staging that
+  /// holds the OPEN seat reserved for you (i.e. you're looking at
+  /// `#awaitingRematch`): declines the rematch — frees just your
+  /// reservation, not the whole board, so the requester's own staging
+  /// survives, now open to anyone (same as if the reservation had simply
+  /// expired, just without the wait). From a live game: BOTH players land
+  /// in a special `#aborted` debrief — the partner is told, in debrief
+  /// form, that you left. From a debrief: acknowledges it for you; when
+  /// both participants have left, the board frees early.
   ///
   /// `gen` must match the match the caller last observed (see `Table.gen`'s
   /// own doc) in every phase but `#empty` — without this, a resent `leave`
@@ -360,6 +383,12 @@ module {
         };
         if (st.session == session) {
           self.phase := #empty;
+          #ok(());
+        } else if (st.reservedFor == ?session) {
+          // decline: clear just the reservation — the requester's own
+          // staging survives, immediately open to anyone (see this
+          // function's own doc).
+          self.phase := #staging { seat = st.seat; session = st.session; reservedFor = null; since = st.since };
           #ok(());
         } else { #err(#notSeated) };
       };
@@ -530,7 +559,7 @@ module {
             gen = self.gen;
           };
         } else if (st.reservedFor == ?session) {
-          #awaitingRematch { openSeat = T.otherSeat(st.seat) };
+          #awaitingRematch { openSeat = T.otherSeat(st.seat); gen = self.gen };
         } else if (self.unackedEnded(session)) {
           #endedByOther;
         } else {

@@ -487,7 +487,7 @@ export function start<S>({
     const at = atTable(status);
     if (!at) return 0n;
     const t = tag(at.view as object);
-    if (t === "stagingYou" || t === "inGame" || t === "debrief") {
+    if (t === "stagingYou" || t === "inGame" || t === "debrief" || t === "awaitingRematch") {
       return (val(at.view as object) as { gen: bigint }).gen;
     }
     return 0n;

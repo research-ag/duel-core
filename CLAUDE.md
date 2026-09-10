@@ -311,9 +311,16 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
 5. **Every phase carries a timestamp** (`since` / `lastActivity`) so idle
    takeover works from any phase — no ghost lobbies.
 6. **Rematch is create-then-join.** A rematch request stages a game with
-   `reservedFor = partner`; the partner's own rematch/join pattern-matches
-   that staging. Actor message serialization makes simultaneous clicks
-   race-free. Don't replace this with a flag-and-poll scheme. At the
+   `reservedFor = partner` — unless `partner` already acked (left) that
+   same debrief, in which case `Table.rematchPartner` reserves nobody and
+   the seat opens immediately instead of waiting on a partner who's gone
+   for good; the partner's own rematch/join pattern-matches that staging.
+   Actor message serialization makes simultaneous clicks race-free. Don't
+   replace this with a flag-and-poll scheme. The reserved partner isn't
+   only able to accept, either: `leave` while `reservedFor == ?session`
+   declines it, clearing just the reservation (the requester's own
+   staging survives, now open to anyone) — the `#awaitingRematch` view
+   carries a `gen` for exactly this call. At the
    `Registry` layer a rematch reuses the SAME `TableId` — it never
    allocates a new table.
 7. **No silent endings.** `leave` from an active game produces a shared

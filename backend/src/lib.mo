@@ -15,7 +15,10 @@
 ///     (`end = #aborted seat`) instead of the game silently vanishing
 ///   • during the debrief, either previous player can request a REMATCH,
 ///     reusing the SAME table; two simultaneous rematch requests converge
-///     race-free (see below)
+///     race-free (see below), the reserved partner may DECLINE it instead
+///     of only accepting or letting it time out, and requesting one after
+///     your partner already left doesn't reserve a seat for them — it
+///     opens immediately instead of waiting on someone who's gone for good
 ///   • `leave` from a debrief dismisses it for YOU specifically — your own
 ///     `status`/`join`/`rematch` stop treating you as a participant of it
 ///     immediately, even though the underlying phase legitimately stays
@@ -106,11 +109,15 @@
 /// ── Design guarantees (each maps to a bug class found in the wild) ─────────
 ///
 ///   1. RACE-FREE REMATCH. `rematch` from #debrief stages a new game, on the
-///      SAME table, with the open seat RESERVED for the partner; the
-///      partner's own `rematch` (or a `Registry.joinTable` onto that same
-///      table) pattern-matches that staging and seats them. Because the
-///      actor serializes update messages, two simultaneous rematch clicks
-///      always execute as create-then-join — nobody can be stranded.
+///      SAME table, with the open seat RESERVED for the partner — unless
+///      the partner already acked (left) this same debrief, in which case
+///      the seat opens unreserved instead of waiting on someone who's gone
+///      for good; the partner's own `rematch` (or a `Registry.joinTable`
+///      onto that same table) pattern-matches that staging and seats them,
+///      or `leave` (carrying the `gen` `#awaitingRematch` supplies) DECLINES
+///      it, freeing just the reservation. Because the actor serializes
+///      update messages, two simultaneous rematch clicks always execute as
+///      create-then-join — nobody can be stranded.
 ///   2. NO GHOST LOBBIES. Every phase carries its own timestamp (`since` /
 ///      `lastActivity`), stamped at creation — a first joiner who vanishes is
 ///      evictable after the timeout, not squatting forever, and (at the

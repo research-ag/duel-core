@@ -28,7 +28,13 @@ rules:
   `rematch` stop treating you as one of its two participants) right
   away, even though the underlying table can legitimately linger in that
   debrief until your partner also leaves (or it expires) — their own
-  rematch option isn't cut short by your exit.
+  rematch option isn't cut short by your exit. Requesting a rematch
+  against a partner who already left doesn't reserve a seat for them
+  either — that seat opens immediately, since nobody's coming back to
+  accept it. And the reserved partner isn't limited to accepting or
+  waiting it out: `leave` while looking at `#awaitingRematch` declines
+  it, freeing just the reservation (the requester's own staging survives,
+  now open to anyone).
 - **Idle takeover** — after a configurable timeout, third parties may
   reclaim a squatted staging seat, reset a dead game, or start fresh over
   an expired debrief — discoverable through the browsable table list
@@ -501,10 +507,14 @@ level (`Table.join`/`rematch`/...); every one holds equally at the
 table creation/discovery/routing on top without changing any of them:
 
 1. **Race-free rematch.** `rematch` from a debrief stages a new game with
-   the open seat RESERVED for the partner; the partner's own `rematch`
-   (or `join`) pattern-matches that staging and gets seated. Because an
-   IC actor serializes update messages, two simultaneous rematch clicks
-   always execute as create-then-join — nobody is stranded.
+   the open seat RESERVED for the partner — unless the partner already
+   acked (left) this same debrief, in which case the seat opens
+   unreserved instead of waiting on someone who's gone for good; the
+   partner's own `rematch` (or `join`) pattern-matches that staging and
+   gets seated, or `leave` (with the `gen` `#awaitingRematch` carries)
+   DECLINES it, freeing just the reservation. Because an IC actor
+   serializes update messages, two simultaneous rematch clicks always
+   execute as create-then-join — nobody is stranded.
 2. **No ghost lobbies.** Every phase carries its own timestamp (`since` /
    `lastActivity`), stamped at creation — a first joiner who vanishes is
    evictable after the idle timeout, not squatting forever.

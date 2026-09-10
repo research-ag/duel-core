@@ -192,4 +192,61 @@ switch (reg8.status(LONG_AFTER, "a")) {
 };
 Debug.print("8. a permanently-unacked notice is eventually pruned, unblocking GC OK");
 
+// ── 9. the exact reported bug: a clicks "Return to lobby", THEN b clicks
+//        "Rematch" — b must not be stranded waiting on a reservation for a
+//        partner who already left; a never sees anything because they
+//        genuinely aren't a participant any more (see architecture rule
+//        12) — that's correct, not a missed notification ────────────────
+let reg9 = fresh();
+let idR = ok(reg9.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+ignore ok(reg9.joinTable(spec, T0, "b", idR, #p2, null), "b joins; game live");
+ignore ok(reg9.submit(spec, T0, "a", genOf(reg9, T0, "a"), turnOf(reg9, T0, "a"), #gather), "a gathers");
+ignore ok(reg9.submit(spec, T0, "b", genOf(reg9, T0, "b"), turnOf(reg9, T0, "b"), #gather), "b gathers");
+ignore ok(reg9.submit(spec, T0, "a", genOf(reg9, T0, "a"), turnOf(reg9, T0, "a"), #attack), "a attacks");
+ignore ok(reg9.submit(spec, T0, "b", genOf(reg9, T0, "b"), turnOf(reg9, T0, "b"), #gather), "b gathers again; a wins, both land in debrief");
+ignore ok(reg9.leave(T0, "a", genOf(reg9, T0, "a")), "a returns to the lobby first");
+switch (reg9.status(T0, "a")) {
+  case (#browsing _) {};
+  case (_) Runtime.trap("a should be back to browsing after their own leave");
+};
+switch (ok(reg9.rematch(spec, T0, "b"), "b requests a rematch after a already left")) {
+  case (#awaitingPartner) {};
+  case (_) Runtime.trap("b's rematch should still stage");
+};
+switch (atTableView(reg9, T0, "b")) {
+  case (#stagingYou v) assert not v.reservedForPartner;
+  case (_) Runtime.trap("b's seat must be open, not reserved for a's ghost");
+};
+var listed = false;
+for (r in reg9.listTables(T0).values()) { if (r.id == idR) listed := true };
+assert listed; // no longer hidden behind a reservation nobody can ever fill
+ignore ok(reg9.joinTable(spec, T0, "c", idR, #p1, null), "an unrelated visitor takes the open seat");
+Debug.print("9. rematch after the partner already left doesn't strand the requester OK");
+
+// ── 10. a still-live rematch invite can be DECLINED, not just accepted or
+//         silently waited out ─────────────────────────────────────────────
+let reg10 = fresh();
+let idR2 = ok(reg10.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+ignore ok(reg10.joinTable(spec, T0, "b", idR2, #p2, null), "b joins; game live");
+ignore ok(reg10.submit(spec, T0, "a", genOf(reg10, T0, "a"), turnOf(reg10, T0, "a"), #gather), "a gathers");
+ignore ok(reg10.submit(spec, T0, "b", genOf(reg10, T0, "b"), turnOf(reg10, T0, "b"), #gather), "b gathers");
+ignore ok(reg10.submit(spec, T0, "a", genOf(reg10, T0, "a"), turnOf(reg10, T0, "a"), #attack), "a attacks");
+ignore ok(reg10.submit(spec, T0, "b", genOf(reg10, T0, "b"), turnOf(reg10, T0, "b"), #gather), "b gathers again; a wins");
+ignore ok(reg10.rematch(spec, T0, "a"), "a requests a rematch, reserving b's old seat");
+let declineGen = switch (atTableView(reg10, T0, "b")) {
+  case (#awaitingRematch v) v.gen;
+  case (_) Runtime.trap("b should see the invitation");
+};
+ignore ok(reg10.leave(T0, "b", declineGen), "b declines");
+switch (reg10.status(T0, "b")) {
+  case (#browsing _) {};
+  case (_) Runtime.trap("declining should return b to browsing, not strand them either");
+};
+switch (atTableView(reg10, T0, "a")) {
+  case (#stagingYou v) assert not v.reservedForPartner;
+  case (_) Runtime.trap("a's own staging must survive b's decline, now open");
+};
+ignore ok(reg10.joinTable(spec, T0, "c", idR2, #p2, null), "an unrelated visitor takes the declined seat");
+Debug.print("10. a still-live rematch invite can be declined, not just accepted or ignored OK");
+
 Debug.print("ALL LOBBY CHECKS PASSED");
