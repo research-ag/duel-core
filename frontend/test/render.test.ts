@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionAttr, errText, esc, renderView, tag, val } from "../src/render.js";
+import { actionAttr, DUEL_IDLE_WARNING_ID, errText, esc, renderView, tag, val } from "../src/render.js";
 import type { GamePlugin, View } from "../src/types.js";
 
 const plugin: GamePlugin<{ turn: string }> = {
@@ -149,6 +149,8 @@ test("renderView: inGame shows the turn counter (1-indexed) and delegates board/
         youSubmitted: false,
         oppSubmitted: false,
         gen: 1n,
+        secondsUntilIdleReset: 60n,
+        idleTimeoutSecs: 60n,
       },
     },
     plugin,
@@ -170,6 +172,8 @@ test("renderView: inGame hides actions and shows the waiting note once submitted
         youSubmitted: true,
         oppSubmitted: true,
         gen: 1n,
+        secondsUntilIdleReset: 60n,
+        idleTimeoutSecs: 60n,
       },
     },
     plugin,
@@ -177,6 +181,45 @@ test("renderView: inGame hides actions and shows the waiting note once submitted
   assert.match(html, /◉ Opponent has locked in/);
   assert.match(html, /Move locked in/);
   assert.doesNotMatch(html, /Pass/);
+});
+
+test("renderView: inGame shows the idle-reset warning once within threshold, for the player still deciding", () => {
+  const html = renderView<{ turn: string }>(
+    {
+      inGame: {
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: false,
+        oppSubmitted: false,
+        gen: 1n,
+        secondsUntilIdleReset: 10n,
+        idleTimeoutSecs: 60n,
+      },
+    },
+    plugin,
+  );
+  assert.match(html, /Still thinking\? This game will be interrupted in 10s/);
+  assert.doesNotMatch(html, new RegExp(`id="${DUEL_IDLE_WARNING_ID}" hidden`));
+});
+
+test("renderView: inGame hides the idle-reset warning for a player who already locked in, even within threshold", () => {
+  const html = renderView<{ turn: string }>(
+    {
+      inGame: {
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: true,
+        oppSubmitted: false,
+        gen: 1n,
+        secondsUntilIdleReset: 5n,
+        idleTimeoutSecs: 60n,
+      },
+    },
+    plugin,
+  );
+  assert.match(html, new RegExp(`id="${DUEL_IDLE_WARNING_ID}" hidden`));
 });
 
 test("renderView: debrief — win/lose/draw wording from the acting seat's own point of view", () => {

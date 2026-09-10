@@ -28,6 +28,13 @@ module {
     if (left <= 0) { 0 } else { left.toNat() / 1_000_000_000 };
   };
 
+  /// The table's own configured idle timeout, in whole seconds — constant
+  /// for the table's lifetime. Handed to a client alongside a live
+  /// countdown (see `#inGame`'s own doc in types.mo) so it can derive its
+  /// own warning threshold instead of a host hardcoding a copy of this
+  /// number in its UI.
+  public func idleTimeoutSecs<S, M>(self : Table<S, M>) : Nat = self.idleTimeoutNs.toNat() / 1_000_000_000;
+
   /// Like `Debrief.seat`, but a session that already acknowledged THIS
   /// debrief (via `leave` — see its own doc) no longer counts as a
   /// participant, even though the table's `phase` can still legitimately
@@ -528,6 +535,8 @@ module {
               youSubmitted = Option.isSome(switch (mySeat) { case (#p1) g.pending1; case (#p2) g.pending2 });
               oppSubmitted = Option.isSome(switch (mySeat) { case (#p1) g.pending2; case (#p2) g.pending1 });
               gen = self.gen;
+              secondsUntilIdleReset = self.secsLeft(g.lastActivity, now);
+              idleTimeoutSecs = self.idleTimeoutSecs();
             };
           };
           case null {

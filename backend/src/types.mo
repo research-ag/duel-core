@@ -191,6 +191,17 @@ module {
       youSubmitted : Bool;
       oppSubmitted : Bool;
       gen : Nat; // stamp onto a later `submit`/`leave`/`reset`
+      // Raw countdown to the idle sweep, plus the table's own configured
+      // timeout (constant for the table's lifetime, repeated here rather
+      // than fetched separately) — together enough for a host's UI to
+      // compute its own warning threshold and count the seconds down
+      // locally between pushes, the same way `secondsUntilReclaimable`
+      // lets a staged occupant do it. No push repeats on a bare tick of
+      // the clock (see `ws.mo`'s `sweepAndPush` doc): these two numbers
+      // are only ever as fresh as the last real push, so a client ticking
+      // them down on its own wall clock is what makes them look alive.
+      secondsUntilIdleReset : Nat;
+      idleTimeoutSecs : Nat;
     };
     #debrief : {
       seat : Seat;

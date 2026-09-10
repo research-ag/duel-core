@@ -231,6 +231,23 @@ switch (ok(t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #gathe
 };
 Debug.print("7. hidden pendings + non-consuming rejection OK");
 
+// ── 7b. A seated player also sees the idle-reset countdown, live ───────────
+// b's round-resolving submit above reset `lastActivity` to T0, same as the
+// table's own creation instant — so both fields read the full, freshly-reset
+// timeout right here, then visibly shrink one second later.
+switch (t.status(T0, "a")) {
+  case (#inGame g) {
+    assert g.idleTimeoutSecs == 60;
+    assert g.secondsUntilIdleReset == 60;
+  };
+  case (_) Runtime.trap("a is in the game");
+};
+switch (t.status(SOON, "a")) {
+  case (#inGame g) { assert g.secondsUntilIdleReset == 59 };
+  case (_) Runtime.trap("a is still in the game");
+};
+Debug.print("7b. seated idle-reset countdown OK");
+
 // ── 8. An outsider watching a live game sees a takeover countdown ──────────
 t := gameOf(T0);
 switch (t.status(SOON, "zz")) {

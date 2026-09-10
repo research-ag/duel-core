@@ -108,6 +108,16 @@ export interface InGameView<S = unknown> {
   oppSubmitted: boolean;
   /// Stamp onto a later `submit`/`leave`/`reset`.
   gen: bigint;
+  /// Raw countdown to the idle sweep, as of this push — only as fresh as
+  /// the last push landed (see ws.mo's `sweepAndPush` doc: nothing pushes
+  /// on a bare tick of the clock), so render.ts ticks it down locally on
+  /// the browser's own wall clock between pushes rather than showing it
+  /// frozen.
+  secondsUntilIdleReset: bigint;
+  /// The table's own configured idle timeout, in whole seconds — constant
+  /// for the table's lifetime. Lets the UI derive its own warning
+  /// threshold instead of a game hardcoding a copy of this number.
+  idleTimeoutSecs: bigint;
 }
 
 export interface DebriefView<S = unknown> {

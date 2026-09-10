@@ -123,7 +123,18 @@ test("onmessage: a pushed status renders via the plugin", async () => {
 
   ws.onmessage!({
     data: {
-      view: atTable({ inGame: { seat: { p1: null }, game: { n: 7 }, turn: 0n, youSubmitted: false, oppSubmitted: false, gen: 1n } }),
+      view: atTable({
+        inGame: {
+          seat: { p1: null },
+          game: { n: 7 },
+          turn: 0n,
+          youSubmitted: false,
+          oppSubmitted: false,
+          gen: 1n,
+          secondsUntilIdleReset: 60n,
+          idleTimeoutSecs: 60n,
+        },
+      }),
     },
   });
   assert.match(els.screen.innerHTML, /n=7/);
@@ -320,7 +331,18 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
 
   const seated = [
     atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n } }),
-    atTable({ inGame: { seat: { p1: null }, game: { n: 0 }, turn: 0n, youSubmitted: false, oppSubmitted: false, gen: 1n } }),
+    atTable({
+      inGame: {
+        seat: { p1: null },
+        game: { n: 0 },
+        turn: 0n,
+        youSubmitted: false,
+        oppSubmitted: false,
+        gen: 1n,
+        secondsUntilIdleReset: 60n,
+        idleTimeoutSecs: 60n,
+      },
+    }),
     atTable({
       debrief: {
         seat: { p1: null },

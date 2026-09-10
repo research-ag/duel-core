@@ -234,9 +234,40 @@ function renderAwaitingRematch(v: AwaitingRematchView, plugin: GamePlugin): stri
 // below (renderStagingYou/renderDebrief) deliberately don't carry it —
 // leaving before a game starts or after it's already over isn't
 // destructive the same way.
+// A live game's own idle-reset countdown warns IN PLACE, the same idea as
+// `renderReclaimWarning` above but for a seated, in-progress round instead
+// of an unfilled seat — `#inGame` carries the raw countdown fresh as of
+// this push (`secondsUntilIdleReset`) plus the table's own configured
+// timeout (`idleTimeoutSecs`, constant for the table's life), so the
+// threshold scales with whatever timeout THIS table actually runs instead
+// of a hardcoded guess. `app.ts` re-runs `idleWarningText`/
+// `idleWarningThreshold` itself every second, off its own wall clock, to
+// patch #DUEL_IDLE_WARNING_ID's text/visibility in place between pushes —
+// see its own doc for why a push alone would otherwise leave this frozen.
+export const DUEL_IDLE_WARNING_ID = "duel-idle-warning";
+
+export function idleWarningThreshold(idleTimeoutSecs: bigint): bigint {
+  const half = idleTimeoutSecs / 2n;
+  return half < 30n ? half : 30n;
+}
+
+export function idleWarningText(secondsUntilIdleReset: bigint): string {
+  const when =
+    secondsUntilIdleReset <= 0n ? "any moment now" : `in ${secondsUntilIdleReset}s`;
+  return `Still thinking? This game will be interrupted ${when} if nobody moves.`;
+}
+
 function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
   const mySeat = tag(v.seat) as SeatTag;
   const oppSeat: SeatTag = mySeat === "p1" ? "p2" : "p1";
+  // A player who already locked in this round can't do anything more about
+  // the idle clock — "Still thinking?" doesn't even apply to them, and the
+  // one actually holding up the round (the opponent) is the one who needs
+  // the nudge, not them. `app.ts`'s `syncIdleTick` mirrors this same
+  // youSubmitted check so the local per-second tick doesn't un-hide it
+  // between pushes either.
+  const idleWarningHidden =
+    v.youSubmitted || v.secondsUntilIdleReset > idleWarningThreshold(v.idleTimeoutSecs);
 
   return `
     <div class="turnbar">
@@ -251,6 +282,7 @@ function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
         ? `<p class="waiting">Move locked in — waiting for your opponent…</p>`
         : `<div class="actions">${plugin.renderActions(v.game, mySeat)}</div>`
     }
+    <p class="countdown" id="${DUEL_IDLE_WARNING_ID}"${idleWarningHidden ? " hidden" : ""}>${idleWarningText(v.secondsUntilIdleReset)}</p>
     <p><button data-leave data-confirm="Forfeit this game? Your opponent will win." class="ghost">Forfeit</button></p>`;
 }
 
@@ -292,7 +324,7 @@ function renderDebrief<S>(v: DebriefView<S>, plugin: GamePlugin<S>): string {
 function renderEndedByOther(): string {
   return `
     <h2>Your game was ended</h2>
-    <p>The board went idle and someone else claimed it. Your game is gone.</p>
+    <p>The board sat idle too long and was reclaimed. Your game is gone.</p>
     <p><button data-ack class="primary">Return to lobby</button></p>`;
 }
 

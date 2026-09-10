@@ -2,13 +2,14 @@
 // generic engine with the racing rules plugged in.
 // Run: moc -r --package core <core/src> --package duel-game-core <backend/src> test/Lifecycle.test.mo
 import TP "mo:duel-game-core";
+import Table "mo:duel-game-core/table";
 import Rules "../src/RacingRules";
 import H "RaceTestHelpers";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
 let spec = Rules.spec();
-let t = TP.create<Rules.State, Rules.Action>(60_000_000_000); // 60s
+let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, #open, "test"); // 60s
 var now : Int = 1_000_000_000_000;
 func tick() : Int { now += 1_000_000_000; now }; // +1s
 
@@ -23,7 +24,7 @@ func expectErr<T>(r : TP.Res<T>, msg : Text) = switch (r) {
 
 /// Pulls the `gen` a real client would have to stamp onto a later
 /// `submit`/`leave`/`reset` off `session`'s own current view — see
-/// ../../../backend/src/lib.mo's `Table.gen` doc.
+/// `mo:duel-game-core`'s `Table.gen` doc.
 func genOf(at : Int, session : Text) : Nat = switch (t.status(at, session)) {
   case (#stagingYou v) v.gen;
   case (#inGame v) v.gen;
@@ -72,8 +73,8 @@ Debug.print("3. round resolution + verdict OK");
 // Captured BEFORE the rematch: the `gen` alice's FIRST-match debrief
 // carried, kept around to replay against the SECOND match in step 4b.
 let firstMatchGen = genOf(now, "alice");
-ignore ok(TP.rematch(spec, t, tick(), "alice"), "alice rematch");
-switch (ok(TP.rematch(spec, t, tick(), "bob"), "bob rematch")) {
+ignore ok(t.rematch(spec, tick(), "alice"), "alice rematch");
+switch (ok(t.rematch(spec, tick(), "bob"), "bob rematch")) {
   case (#started) {};
   case (_) Runtime.trap("bob's rematch should complete the pair");
 };

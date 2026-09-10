@@ -127,6 +127,8 @@ export function buildEngineTypes({
       youSubmitted: IDL.Bool,
       oppSubmitted: IDL.Bool,
       gen: IDL.Nat,
+      secondsUntilIdleReset: IDL.Nat,
+      idleTimeoutSecs: IDL.Nat,
     }),
     debrief: IDL.Record({
       seat: Seat,

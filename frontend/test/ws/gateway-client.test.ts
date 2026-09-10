@@ -117,7 +117,18 @@ test("request(): a reply of #alreadySubmitted is reconciled into a fresh status 
   const freshView: Status = {
     atTable: {
       id: 1n,
-      view: { inGame: { seat: { p1: null }, game: { hp: 3n }, turn: 2n, youSubmitted: true, oppSubmitted: false, gen: 1n } },
+      view: {
+        inGame: {
+          seat: { p1: null },
+          game: { hp: 3n },
+          turn: 2n,
+          youSubmitted: true,
+          oppSubmitted: false,
+          gen: 1n,
+          secondsUntilIdleReset: 60n,
+          idleTimeoutSecs: 60n,
+        },
+      },
     },
   };
   canister.respond = (req) => {
@@ -141,7 +152,18 @@ test("request(): a reply of #stale is reconciled into a fresh status view the sa
   const freshView: Status = {
     atTable: {
       id: 1n,
-      view: { inGame: { seat: { p1: null }, game: { hp: 3n }, turn: 3n, youSubmitted: false, oppSubmitted: false, gen: 1n } },
+      view: {
+        inGame: {
+          seat: { p1: null },
+          game: { hp: 3n },
+          turn: 3n,
+          youSubmitted: false,
+          oppSubmitted: false,
+          gen: 1n,
+          secondsUntilIdleReset: 60n,
+          idleTimeoutSecs: 60n,
+        },
+      },
     },
   };
   canister.respond = (req) => {
