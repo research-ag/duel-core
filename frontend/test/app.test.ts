@@ -575,10 +575,36 @@ test("ws.onerror shows the error banner", async () => {
   assert.match(els.error.textContent, /WebSocket error: boom/);
 });
 
-test("ws.onclose shows a reload prompt", async () => {
+test("ws.onclose shows a persistent reload prompt and disables every button on the page", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
   start({ plugin, ws });
+
+  // A real browsing screen first, so there's a page full of clickable
+  // buttons (create-table / join-by-code) to prove get disabled — not
+  // just an assertion against an empty screen.
+  ws.onmessage!({ data: { view: browsing() } });
+  const screenButtons = els.screen.querySelectorAll("button");
+  assert.ok(screenButtons.length > 0, "the browsing screen should have rendered at least one button");
+  assert.ok(screenButtons.every((b) => !b.disabled), "buttons start out clickable");
+  assert.equal(els["new-sid"].disabled, false, "not seated yet — new-sid starts enabled");
+
   ws.onclose!();
-  assert.match(els.error.textContent, /Connection closed/);
+
+  // `innerHTML`, not `textContent`: this banner carries a real reload
+  // button, not plain text (see showDisconnected's own doc).
+  assert.match(els.error.innerHTML, /Connection closed/);
+  assert.equal(els.error.querySelectorAll("button").length, 1, "a reload button should be present");
+  assert.equal(els["new-sid"].disabled, true);
+  for (const b of els.screen.querySelectorAll("button")) {
+    assert.equal(b.disabled, true, "every button must be disabled once disconnected");
+  }
+
+  // A stray in-flight rejection landing right after close ("Call failed:
+  // GatewayWs: closed", the exact symptom the 007 defect report's
+  // finding 04 reproduced) must not clobber the persistent banner with a
+  // fresh, auto-hiding toast.
+  ws.onerror!({ error: new Error("boom") });
+  assert.match(els.error.innerHTML, /Connection closed/);
+  assert.doesNotMatch(els.error.innerHTML, /boom/);
 });

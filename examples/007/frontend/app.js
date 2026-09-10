@@ -44,8 +44,8 @@ const host = deriveHost();
 // deliberately NOT anonymous, and deliberately NOT derived from/stable
 // across this tab's own sid either: deriving it from `sid` would keep the
 // same principal across a reload, which triggers a real cleanup bug in
-// `ic-websocket-cdk@0.4.1` (see below) that surfaces as "Connection
-// closed — reload to reconnect" / `ws_message: Client with principal
+// `ic-websocket-cdk@0.4.1` (see below) that surfaces as a persistent
+// "Connection closed" banner / `ws_message: Client with principal
 // ... doesn't have an open connection".
 //
 // This game has no login (players are told apart by seat/sid, never by

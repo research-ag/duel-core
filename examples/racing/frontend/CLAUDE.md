@@ -63,8 +63,8 @@ choose beyond a table and a seat), plain TypeScript with no framework:
   re-registered under the SAME principal, it silently erases the NEW,
   perfectly-live connection's own lookup entry — surfacing as
   `ws_message: Client with principal ... doesn't have an open
-  connection` immediately, and "Connection closed — reload to
-  reconnect." once the ack keep-alive can no longer be sent either.
+  connection` immediately, and a persistent "Connection closed" banner
+  once the ack keep-alive can no longer be sent either.
   Retry logic alone can't paper over this — `../../../frontend/ws/
   gateway-client.js`'s send retries and `_invalidateAndRetry()` reopen on
   failure, but neither stops a live connection's lookup entry from being

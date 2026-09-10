@@ -159,7 +159,7 @@ export class LobbyConnectionService {
   /// gameplay.service.ts's requestAndSubmitMove() to stop retrying a
   /// submit against a connection that's already gone, rather than
   /// spinning a tight retry loop against it (app.js's own chrome already
-  /// shows "Connection closed — reload to reconnect" once this happens).
+  /// shows a persistent "Connection closed" banner once this happens).
   public get isConnected(): boolean {
     return !!this.ws && !this.ws.closed;
   }
@@ -227,8 +227,7 @@ export class LobbyConnectionService {
   /// never leaves a game silently hanging). Swallows its own failure:
   /// this is already the last resort, and if `leave` itself doesn't land
   /// duel-game-core's own chrome will surface the underlying connection
-  /// problem on its own (e.g. "Connection closed — reload to
-  /// reconnect.").
+  /// problem on its own (e.g. a persistent "Connection closed" banner).
   public async forfeit(): Promise<void> {
     if (!this.ws) return;
     try {

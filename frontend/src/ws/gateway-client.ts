@@ -231,7 +231,8 @@ export class GatewayWs extends EventTarget implements DuelWs {
   /// every other outgoing send on this connection. `ic-websocket-cdk`
   /// tracks a strict per-connection expected sequence number and evicts
   /// the client outright (`WrongSequenceNumber`, surfacing here as
-  /// `onclose`/"Connection closed — reload to reconnect") the instant a
+  /// `onclose`/a persistent "Connection closed" banner, see app.ts's
+  /// `showDisconnected()`) the instant a
   /// message arrives out of order (see `ic-websocket-cdk`'s own
   /// `lib.mo`) — and TWO independent `ws_message` update calls, once
   /// both are in flight, have no guaranteed relative arrival/processing
@@ -275,8 +276,8 @@ export class GatewayWs extends EventTarget implements DuelWs {
   /// reported and left to rot until the canister's OWN 60s keep-alive
   /// timeout finally evicted it for real (a `KeepAliveTimeout` this
   /// client could never successfully ack once its outgoing messages
-  /// started failing), surfacing as a much-delayed, confusing
-  /// "Connection closed — reload to reconnect." A fresh `ws_open` (a
+  /// started failing), surfacing as a much-delayed, confusing persistent
+  /// "Connection closed" banner. A fresh `ws_open` (a
   /// brand new `client_key`) unconditionally repopulates
   /// `CURRENT_CLIENT_KEY_MAP` for this principal, so IF this ever
   /// happens, recovery takes about one poll interval instead of up to

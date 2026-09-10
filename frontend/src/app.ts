@@ -223,13 +223,49 @@ export function start<S>({
 
   let errorTimer: ReturnType<typeof setTimeout>;
 
+  // Set for good once `ws.onclose` fires (see below) — this transport
+  // instance is permanently dead at that point (GatewayWs never revives
+  // the SAME instance; recovering means reloading the page for a fresh
+  // ws/actor — see `showDisconnected`'s own doc), so nothing after that
+  // should either show a fresh transient toast over the persistent
+  // disconnected banner OR leave the board clickable. `applyLoadingState`
+  // (declared below) reads this on every pass to force every button
+  // disabled; `showError` reads it to stop clobbering the banner.
+  let disconnected = false;
+
   function showError(msg: string): void {
+    if (disconnected) return; // the persistent disconnected banner wins for good
     const el = $(errorElId);
     if (!el) return;
     el.textContent = msg;
     el.hidden = false;
     clearTimeout(errorTimer);
     errorTimer = setTimeout(() => (el.hidden = true), 5000);
+  }
+
+  // A closed transport is a fundamentally different situation from an
+  // ordinary recoverable error: nothing this tab does from here on will
+  // ever reach the canister again (no more pushes, no more calls), so a
+  // 5-second toast that quietly hides itself — while every board button
+  // stays fully clickable, each click just flashing ANOTHER misleading
+  // toast ("Call failed: GatewayWs: closed") over this one — leaves a
+  // dead session looking exactly like a live one. This banner stays up
+  // for good instead (no `errorTimer`), and a page reload really is the
+  // only way back: `start()` never owns how `ws`/`actor` were built (see
+  // this file's own header), so it has no fresh connection of its own to
+  // hand back — only the reload button below, a plain `location.reload()`.
+  function showDisconnected(): void {
+    if (disconnected) return;
+    disconnected = true;
+    clearTimeout(errorTimer);
+    const el = $(errorElId);
+    if (el) {
+      el.innerHTML = `Connection closed. <button type="button" class="ghost" id="duel-reload">Reload to reconnect</button>`;
+      el.hidden = false;
+      $("duel-reload")?.addEventListener("click", () => location.reload());
+    }
+    if (newSidBtn) newSidBtn.disabled = true;
+    applyLoadingState();
   }
 
   // ---------------------------------------------------------------------
@@ -457,7 +493,15 @@ export function start<S>({
       if (el.dataset.naturalDisabled === undefined) {
         el.dataset.naturalDisabled = el.disabled ? "1" : "0";
       }
-      if (pendingButtonKey) {
+      if (disconnected) {
+        // Permanent, not a `pendingButtonKey`-style spinner state: once
+        // `showDisconnected` has fired there is no in-flight call to wait
+        // out and no natural state to restore later, so every button —
+        // including ones a stray render creates after this point — stays
+        // disabled for the rest of this page's life.
+        el.disabled = true;
+        el.classList.remove("duel-loading");
+      } else if (pendingButtonKey) {
         el.disabled = true;
         el.classList.toggle("duel-loading", buttonKey(el) === pendingButtonKey);
       } else {
@@ -795,5 +839,5 @@ export function start<S>({
     }
   };
   ws.onerror = (ev) => showError(`WebSocket error: ${ev?.error?.message ?? ev}`);
-  ws.onclose = () => showError("Connection closed — reload to reconnect.");
+  ws.onclose = () => showDisconnected();
 }

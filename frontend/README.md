@@ -110,7 +110,14 @@ shown here with their defaults):
   lobby or a specific table's own screen, depending on the current
   status); also where clicks are delegated from, so re-rendering never
   leaks event listeners.
-- `error` — where a transient rejection (`errText`) is shown.
+- `error` — where a transient rejection (`errText`) is shown, auto-hiding
+  after 5s. `ws.onclose` uses this same element differently: a closed
+  transport is terminal, not transient (this `GatewayWs` instance never
+  revives itself — see "Real-time push" below), so that banner stays up
+  for good with its own "Reload to reconnect" button instead of fading
+  out, and every button on the page (including `new-sid`) is disabled at
+  the same time — a live-looking board a dead connection can no longer
+  update is exactly the bug this replaced (007 defect report, finding 04).
 
 Override any of the ids: `start({ plugin, ws, sidElId: "...", ... })`.
 
@@ -146,8 +153,9 @@ the anonymous identity: the WS handshake, and with it the whole app
 Resist the temptation to derive that identity's seed from `sid` so it
 stays the same across a plain reload (a previous version of this
 worked example did exactly that) — it actively causes `ws_message:
-Client with principal ... doesn't have an open connection` and
-"Connection closed — reload to reconnect.": `ic-websocket-cdk@0.4.1`'s
+Client with principal ... doesn't have an open connection` and a
+persistent "Connection closed" banner (`app.js`'s `showDisconnected()`
+— see its own doc): `ic-websocket-cdk@0.4.1`'s
 own `remove_client` (in its `State.mo`) deletes its
 principal->client_key lookup by PRINCIPAL ALONE, not scoped to the exact
 client_key being removed. A plain reload gives the OLD page's own
@@ -250,7 +258,7 @@ against, not a hypothetical one.
 **Every outgoing `ws_message` is serialized, never sent concurrently.**
 `ic-websocket-cdk` tracks a strict per-connection expected sequence
 number and evicts the client outright (`WrongSequenceNumber` — surfaces
-here as `onclose`/"Connection closed — reload to reconnect") the instant
+here as `onclose`/a persistent "Connection closed" banner) the instant
 a message arrives out of order — and two independent `ws_message` update
 calls, once both are actually in flight, have no guaranteed relative
 processing order on the IC, regardless of which was dispatched first.

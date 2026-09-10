@@ -60,9 +60,9 @@ const host = deriveHost();
 // deliberately NOT anonymous, and deliberately NOT derived from/stable
 // across this tab's own sid either (an earlier version of this file
 // derived it from `sid` so it stayed the same across a reload — reverted
-// after that turned out to actively cause "Connection closed — reload
-// to reconnect" / `ws_message: Client with principal ... doesn't have an
-// open connection", see below).
+// after that turned out to actively cause a persistent "Connection
+// closed" banner / `ws_message: Client with principal ... doesn't have
+// an open connection", see below).
 //
 // This game has no login (see ../../CLAUDE.md: no auth, players are
 // told apart by seat/sid, never by principal — the engine's own identity
