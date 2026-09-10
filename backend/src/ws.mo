@@ -1,5 +1,5 @@
 /// ═══════════════════════════════════════════════════════════════════════════
-/// duel-game-core/Ws — the REQUIRED real-time push transport, built on the
+/// duel-game-core/ws — the REQUIRED real-time push transport, built on the
 /// `ic-websocket-cdk` package (a browser <-> canister WebSocket relayed by
 /// an off-chain Gateway, e.g. `wss://gateway.icws.io` — the IC itself has
 /// no native WebSocket support).
