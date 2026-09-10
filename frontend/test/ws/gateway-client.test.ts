@@ -201,6 +201,27 @@ test("request(): rejects on timeout when no reply ever arrives", async (t) => {
   await assert.rejects(() => ws.request!("player-1", { status: null }), /timed out/);
 });
 
+test("request(): a move the Candid interface doesn't know rejects promptly with the real encode error, not a stuck timeout", async (t) => {
+  // The 007 defect report's finding 07: reaching this path with a move
+  // outside the IDL's known variants (only reachable by tampering with a
+  // button's own data-act in a real client) used to throw synchronously
+  // INSIDE a detached `.then()` callback with nothing downstream to catch
+  // it — an unhandled rejection that left `request()`'s own OUTER promise
+  // (and so `app.js`'s `inFlight`) stuck until `requestTimeoutMs` finally
+  // expired, surfacing the wrong cause ("timed out waiting for a reply")
+  // entirely. `requestTimeoutMs` here is deliberately generous — this
+  // assertion only passes if the fix rejects well BEFORE it, not because
+  // it raced past it.
+  const canister = new FakeCanister();
+  const ws = makeWs(t, canister, { requestTimeoutMs: 5000 });
+  const start = Date.now();
+  await assert.rejects(
+    () => ws.request!("player-1", { submit: { gen: 0n, turn: 0n, move: { nuke: null } as never } }),
+    /Variant has no data/,
+  );
+  assert.ok(Date.now() - start < 1000, "must reject off the encode failure itself, not wait out requestTimeoutMs");
+});
+
 test("close(): rejects every pending request and fires onclose", async (t) => {
   const canister = new FakeCanister();
   canister.respond = () => {

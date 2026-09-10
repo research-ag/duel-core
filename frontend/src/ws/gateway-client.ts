@@ -319,6 +319,20 @@ export class GatewayWs extends EventTarget implements DuelWs {
     this._resendQueue.push({ sid, req, reqId });
   }
 
+  /// `buildAppMessage` throws on a request its own IDL doesn't recognize
+  /// (untamperered real UI never sends one, but a tampered `data-act` can
+  /// — see the 007 defect report's finding 07). Callers used to inline
+  /// this try/catch three times over; centralized here so a build failure
+  /// can never become an unhandled rejection again no matter which call
+  /// site hits it.
+  private _tryBuildMessage(sid: string, req: WsRequest, reqId: bigint | null): { record: ReturnType<GatewayProtocol["buildAppMessage"]> } | { error: Error } {
+    try {
+      return { record: this._protocol.buildAppMessage(this._transport.clientKey, sid, req, reqId) };
+    } catch (e) {
+      return { error: e as Error };
+    }
+  }
+
   /// Resends everything `_queueResend()` collected, called once this
   /// connection is confirmed freshly open again (see `_handle()`'s "open"
   /// case). Drains the queue up front so a resend that itself fails
@@ -329,8 +343,15 @@ export class GatewayWs extends EventTarget implements DuelWs {
     const queued = this._resendQueue;
     this._resendQueue = [];
     for (const { sid, req, reqId } of queued) {
-      const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req, reqId);
-      this._serialSend(record).then(
+      const built = this._tryBuildMessage(sid, req, reqId);
+      if ("error" in built) {
+        // Already encoded once to get queued in the first place, so
+        // re-queueing (like a real transient failure does, below) would
+        // just retry a permanently broken message forever — drop it.
+        console.debug("[duel-ws] resend could not be re-encoded, dropping it:", built.error.message);
+        continue;
+      }
+      this._serialSend(built.record).then(
         () => this._pollSoon(),
         (e) => {
           console.debug("[duel-ws] resend after reconnect failed, will retry on the next one:", e && e.message ? e.message : e);
@@ -530,8 +551,12 @@ export class GatewayWs extends EventTarget implements DuelWs {
         // whole point of `send()`), so it needs no correlation token; its
         // eventual push (if any) is delivered generically like any other,
         // same as an unsolicited broadcast from the other seat.
-        const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req, null);
-        this._serialSend(record).then(
+        const built = this._tryBuildMessage(sid, req, null);
+        if ("error" in built) {
+          this._reportError(built.error);
+          return;
+        }
+        this._serialSend(built.record).then(
           () => this._pollSoon(),
           (e) => {
             this._reportError(e);
@@ -628,8 +653,17 @@ export class GatewayWs extends EventTarget implements DuelWs {
 
       this._ensureOpen().then(
         () => {
-          const record = this._protocol.buildAppMessage(this._transport.clientKey, sid, req, reqId);
-          this._serialSend(record).then(
+          const built = this._tryBuildMessage(sid, req, reqId);
+          if ("error" in built) {
+            // Reject THIS pending call right away with the real cause,
+            // instead of leaving it to expire via the timeout above with
+            // a misleading "timed out waiting for a reply".
+            clearTimeout(timer);
+            this._pending.delete(reqId);
+            reject(built.error);
+            return;
+          }
+          this._serialSend(built.record).then(
             () => this._pollSoon(),
             (e) => {
               // Do NOT delete `_pending` or reject here. Unlike a plain
