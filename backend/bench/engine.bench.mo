@@ -80,7 +80,7 @@ module {
           ignore reg.leave(0, "a", 1);
         };
         // One live game, N `status` queries. Isolates the read path
-        // `Ws.mo`'s `pushView` calls on every affected session for almost
+        // `ws.mo`'s `pushView` calls on every affected session for almost
         // every mutation (and that any caller can also hit directly as a
         // plain query, WS handshake or not) — must stay cheap and
         // side-effect-free (CLAUDE.md rule 8).

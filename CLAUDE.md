@@ -35,7 +35,7 @@ top.
   fixed board with no lobby of its own can use `Table` directly instead.
   See [`backend/README.md`](backend/README.md) for the `Spec<S, M>`
   contract a game implements and a full host-actor wiring example.
-  `backend/src/Ws.mo` (`mo:duel-game-core/Ws`) is a separate module
+  `backend/src/ws.mo` (`mo:duel-game-core/ws`) is a separate module
   layered on top of `table.mo`/`registry.mo`, never merged into `lib.mo`
   (see the toolchain note below), but MANDATORY, not optional: real-time
   push over `ic-websocket-cdk` — the live transport `frontend/ws.js`
@@ -43,11 +43,11 @@ top.
   client can mutate game state at all. None of `Registry`'s
   `createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/
   `ackEnded` is exposed as a plain Candid method on a host actor; a
-  direct update call bypassing `Ws.mo` is exactly the race a single,
+  direct update call bypassing `ws.mo` is exactly the race a single,
   ordered WS channel exists to close (two independent update calls have
   no guaranteed relative processing order once both are in flight).
   `status` is the one exception, staying a plain public `query`
-  (side-effect-free, no race risk). `Ws.mo` also drives the disappearance
+  (side-effect-free, no race risk). `ws.mo` also drives the disappearance
   handling a real WS close signal makes possible (ending a game a
   vanished player left mid-round, freeing a table both walked away from
   — see `backend/README.md`'s "Real-time push" section). `backend/src/actor_mixin.mo`
@@ -68,7 +68,7 @@ top.
   `ws`, and a host actor built on this framework has no plain mutating
   method to poll in the first place. `frontend/ws.js`'s `connectWs()`
   builds a `GatewayWs` (`frontend/ws/gateway-*.js`) that speaks
-  `backend/src/Ws.mo`'s real `ic-websocket-cdk` protocol directly: each
+  `backend/src/ws.mo`'s real `ic-websocket-cdk` protocol directly: each
   browser tab self-registers as its own Gateway via plain Candid
   `ws_open`/`ws_message`/`ws_close` calls (the CDK allows this — no
   pre-registered Gateway principal required), then a timer drives
@@ -95,7 +95,7 @@ top.
   routing across several live tables at once, garbage collection, id
   non-reuse) and a multi-table narrative (two tables running
   independently and interleaved) respectively. `Hub.test.mo` covers
-  `Ws.mo`'s `Hub` — the sid<->principal bridge behind the real-time push
+  `ws.mo`'s `Hub` — the sid<->principal bridge behind the real-time push
   transport — in isolation, against its two maps directly, since the
   full `IcWebSocketCdk` actor machinery isn't exercisable in this
   interpreter harness. All are plugged into `backend/test/FakeGame.mo` —
@@ -128,7 +128,7 @@ point when working in this repo.
 ## Toolchain
 
 - moc **1.11.2** (mops toolchain, pinned in `backend/mops.toml`) — enough
-  to type-check `lib.mo`/`types.mo`/`table.mo`/`registry.mo`/`Ws.mo` and
+  to type-check `lib.mo`/`types.mo`/`table.mo`/`registry.mo`/`ws.mo` and
   run every `backend/test/*.test.mo` suite. `actor_mixin.mo`'s top-level
   `mixin <system>(...)` declaration needs a newer moc — `examples/racing`
   pins **1.14.0** for exactly this reason (see its own `CLAUDE.md`'s
@@ -138,12 +138,12 @@ point when working in this repo.
 - The engine (`src/lib.mo`/`types.mo`/`table.mo`/`registry.mo`) has
   exactly one Motoko dependency: `core` (mo:core, the current Motoko
   standard library). Never import `mo:base` in any of it — that's the
-  legacy library. `src/Ws.mo` is the sole exception: it additionally
+  legacy library. `src/ws.mo` is the sole exception: it additionally
   depends on `ic-websocket-cdk` (vendored in this repo at
   `backend/src/ic-websocket-cdk/src`, migrated to `mo:core` throughout —
   it has no `mo:base` import left) — confined there so the engine
   modules themselves stay exactly as pure as the architecture rules
-  require, NOT because wiring `Ws.mo` is optional (every host actor
+  require, NOT because wiring `ws.mo` is optional (every host actor
   built on this package must wire it — see the `backend/` bullet above).
   `ic-websocket-cdk` in turn depends on the third-party
   `ic-certification` mops package for its Merkle certification tree,
@@ -160,7 +160,7 @@ point when working in this repo.
   (and a WebSocket-like `ws`, required) from its caller (see
   `frontend/README.md`), so it never hardcodes an agent-loading
   strategy. `frontend/ws.js` builds that `ws` FOR the caller — a
-  `GatewayWs` speaking `backend/src/Ws.mo`'s real `ic-websocket-cdk`
+  `GatewayWs` speaking `backend/src/ws.mo`'s real `ic-websocket-cdk`
   protocol, no external relay library, no Gateway URL, nothing to load
   from a CDN — but `gateway-*.js` itself is the one documented, narrow
   exception: it depends on `@icp-sdk/core` (Candid encode/decode) and
@@ -297,7 +297,7 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
 2. **The engine owns time.** `now : Int` (nanoseconds, `Time.now()` at the
    host) is a parameter everywhere; none of `lib.mo`/`types.mo`/
    `table.mo`/`registry.mo` may import `Time`. This is what makes the
-   test suites deterministic. `Ws.mo` and `actor_mixin.mo` are the two
+   test suites deterministic. `ws.mo` and `actor_mixin.mo` are the two
    documented exceptions — both play the HOST's role (each calls
    `Time.now()` itself, same as any host actor would, then hands it to
    the engine as a parameter exactly like the plain wiring does); neither
@@ -332,23 +332,23 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
     import `@icp-sdk/core/agent` or hardcode a CDN, and never will — that
     rule is absolute, not just "no dependencies yet". Dependencies are a
     narrower, deliberate exception: `frontend/ws/gateway-*.js` (the real
-    `mo:duel-game-core/Ws` client `frontend/ws.js`'s `connectWs()`
+    `mo:duel-game-core/ws` client `frontend/ws.js`'s `connectWs()`
     always builds) depends on `@icp-sdk/core` (Candid encode/decode of
     the message content blob) and `cborg` (CBOR-decoding
     `ws_get_messages`' certified envelope) — confined there for the same
-    reason `ic-websocket-cdk` is confined to `backend/src/Ws.mo`: every
+    reason `ic-websocket-cdk` is confined to `backend/src/ws.mo`: every
     OTHER file in this package (`app.js`, `render.js`, `idl.js`,
     `ic-env.js`) stays dependency-free. `start()` itself stays exactly as
     transport-agnostic as before — a caller may still hand it any
     WebSocket-shaped mock (e.g. for tests) instead of a real `GatewayWs`.
-11. **`Ws.mo` reimplements no game logic, and is the sole entry point for
+11. **`ws.mo` reimplements no game logic, and is the sole entry point for
     mutation.** Every WebSocket request dispatches to `registry.mo`'s own
     `Registry` operations (`createTable`, `joinTable`, `submit`, ...)
     directly — none of those seven operations is ALSO exposed as a plain
     Candid method on a host actor (only `status` is, being
     side-effect-free). There is no second transport for the same calls to
     (dis)agree with; a game that ever adds a plain mutating Candid method
-    alongside `Ws.mo` reopens exactly the race this design closes.
+    alongside `ws.mo` reopens exactly the race this design closes.
 12. **Leave means left.** `status`/`join`/`rematch` all treat a session
     that already acked its own debrief (via `leave`) as no longer a
     participant of it (`activeDebriefSeat`, not plain `seatInDebrief`),
@@ -423,7 +423,7 @@ because only one of them ships to third parties:
 `npx skills add research-ag/duel-core --skill duel-game-core` into a
 third party's OWN repo, read cold by an agent with none of this repo's
 history or this session's context. Whenever a change here touches
-anything any of them describes — an engine/`Ws.mo`/`ActorMixin` API, a
+anything any of them describes — an engine/`ws.mo`/`ActorMixin` API, a
 `GamePlugin`/`app.js`/`ws.js` contract, a build/deploy command, a type
 shape a template mirrors, an example game's structure — update the
 affected file(s) in the SAME change, not as a follow-up.

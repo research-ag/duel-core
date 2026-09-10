@@ -22,7 +22,7 @@ concrete to copy — it is **not** part of either package itself.
   — see `../../CLAUDE.md`'s architecture rule 8); `createTable`/
   `joinTable`/`submit`/`rematch`/`leave`/`reset`/`ackEnded` have NO plain
   Candid method at all — they're reachable exclusively through
-  `mo:duel-game-core/Ws`'s
+  `mo:duel-game-core/ws`'s
   `ws_message`, which is what `frontend/app.js` actually talks to
   (`duel-game-core/ws.js`'s `GatewayWs`, a real `ic-websocket-cdk` client
   that self-registers each tab as its own Gateway, not client-side
@@ -30,7 +30,7 @@ concrete to copy — it is **not** part of either package itself.
   close-detection-driven disappearance handling, AND to close the race a
   plain update call would otherwise open (two independent update calls
   have no guaranteed relative processing order once both are in flight —
-  see `../../backend/src/Ws.mo`'s doc header). `status` and `Ws.attach`
+  see `../../backend/src/ws.mo`'s doc header). `status` and `Ws.attach`
   are wired directly in `Host.mo`; the four `ws_*` Candid methods
   (including `ws_message`) plus the idle-sweep timer come from a single
   `include ActorMixin<system>(ws, ...)` (`mo:duel-game-core/actor_mixin`)
@@ -74,7 +74,7 @@ concrete to copy — it is **not** part of either package itself.
   principal, gameIdlTypes: plugin.idlTypes })` for the real push
   transport `start()` requires (see `../../frontend/README.md`'s
   "Real-time push" section) — this game's own code never touches
-  `mo:duel-game-core/Ws`'s protocol directly (`duel-game-core/ws/
+  `mo:duel-game-core/ws`'s protocol directly (`duel-game-core/ws/
   gateway-*.js` does, registering this tab as its own WS Gateway) or
   imports any third-party library itself; `index.html`'s import map
   resolves `duel-game-core`'s own `@icp-sdk/core/candid`/`cborg` dependencies
@@ -99,7 +99,7 @@ concrete to copy — it is **not** part of either package itself.
 - Motoko dependencies: `duel-game-core` (path dependency on
   `../../backend` — see `mops.toml`), `core` (mo:core), and
   `ic-websocket-cdk` (only because `src/Host.mo` opts into
-  `mo:duel-game-core/Ws` — see `../../CLAUDE.md`'s toolchain note). Never
+  `mo:duel-game-core/ws` — see `../../CLAUDE.md`'s toolchain note). Never
   import `mo:base` directly in this game's own code — it's the legacy
   library; `ic-websocket-cdk` pulling it in transitively is a
   documented, contained exception, not license to import it yourself.
@@ -133,7 +133,7 @@ concrete to copy — it is **not** part of either package itself.
   an import map, and this repo doesn't give it one for that). What DOES
   need `index.html`'s import map: `duel-game-core/ws.js` (see
   `../../../CLAUDE.md`'s toolchain note) talks to
-  `mo:duel-game-core/Ws`'s real `ic-websocket-cdk` protocol, and pulls
+  `mo:duel-game-core/ws`'s real `ic-websocket-cdk` protocol, and pulls
   in `@icp-sdk/core/candid`/`cborg` transitively through
   `duel-game-core`'s own `package.json` (a normal `npm install` picks
   them up — nothing to add here) — resolved in the browser via THAT

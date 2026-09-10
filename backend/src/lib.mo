@@ -63,17 +63,17 @@
 ///
 /// Every mutating operation (`Registry.createTable`/`joinTable`/`submit`/
 /// `rematch`/`leave`/`reset`/`ackEnded`) is driven EXCLUSIVELY through
-/// `mo:duel-game-core/Ws`'s `ws_message` — there is no plain Candid method
+/// `mo:duel-game-core/ws`'s `ws_message` — there is no plain Candid method
 /// for any of them, and no fallback: a direct update call is exactly the
 /// race a WS-only transport exists to close (two independent update calls
 /// have no guaranteed relative processing order once both are in flight;
-/// see `src/Ws.mo`'s doc header). Only `status` stays a plain public
+/// see `src/ws.mo`'s doc header). Only `status` stays a plain public
 /// `query` — it's side-effect-free, so it carries no such race risk, and
 /// it's useful for tooling/tests that don't want a WS handshake:
 ///
 ///   import TP "mo:duel-game-core";
 ///   import Registry "mo:duel-game-core/registry";
-///   import Ws "mo:duel-game-core/Ws";
+///   import Ws "mo:duel-game-core/ws";
 ///   import ActorMixin "mo:duel-game-core/actor_mixin";
 ///   import Rules "YourGameRules"; // any module implementing TP.Spec<S, M>
 ///   import Time "mo:core/Time";
@@ -90,7 +90,7 @@
 ///     // registry.createTable/joinTable/submit/... above, with
 ///     // Time.now()) and `include ActorMixin<system>(attached.ws,
 ///     // attached.sweep)` for the four ws_* Candid methods plus the
-///     // idle-sweep timer — see `src/Ws.mo`'s doc header for the full
+///     // idle-sweep timer — see `src/ws.mo`'s doc header for the full
 ///     // wiring and `backend/README.md`'s "Real-time push" section for
 ///     // the worked example end to end.
 ///   };

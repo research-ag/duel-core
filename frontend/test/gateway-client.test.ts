@@ -7,7 +7,7 @@
 //      underlying `ws_message` call failed with the CDK's own "Client
 //      with principal ... doesn't have an open connection" — the
 //      canister had already forgotten this connection (e.g. a keep-alive
-//      eviction), so `Ws.mo`'s `onMessage` never ran for this request at
+//      eviction), so `ws.mo`'s `onMessage` never ran for this request at
 //      all. `request()` reconnected but never actually RESENT the
 //      `ackEnded` message — it just waited for a reply that could now
 //      never arrive, eventually timing out with a swallowed error toast
@@ -76,7 +76,7 @@ class FakeWsCdkActor implements WsActor {
 
   openCalls = 0;
   /// How many times a NON-service app message actually reached this
-  /// point — i.e., how many times the real equivalent of `Ws.mo`'s
+  /// point — i.e., how many times the real equivalent of `ws.mo`'s
   /// `onMessage` would have run.
   appMessagesProcessed = 0;
 
@@ -234,7 +234,7 @@ test("request() resends the app message after a connection-registration send fai
 
     // Simulate the canister having already forgotten this connection —
     // ic-websocket-cdk@0.4.1's own `ws_message` rejects a call like this
-    // BEFORE ever calling into `Ws.mo`'s `onMessage`, so no reply for it
+    // BEFORE ever calling into `ws.mo`'s `onMessage`, so no reply for it
     // can ever exist server-side.
     actor.failNextMessage = "Client with principal x doesn't have an open connection";
 

@@ -98,7 +98,7 @@ separate sibling modules, both built on those same types:
   one that can mutate takes `spec` and the current time (`now : Int`,
   nanoseconds) as explicit parameters — see Implementation notes. At the
   `Registry` layer, every mutating operation is called ONLY from inside
-  `mo:duel-game-core/Ws`'s `ws_message` dispatch — they are not, and
+  `mo:duel-game-core/ws`'s `ws_message` dispatch — they are not, and
   must not be, exposed as plain Candid methods on a host actor (see
   "Real-time push" below for why). `status` is the exception: it stays a
   plain public `query` too, since it's side-effect-free and carries no
@@ -146,7 +146,7 @@ A host actor forwards every call to the engine, supplying `Time.now()`
 and your `Spec` — but only `status` is a plain Candid method. Everything
 that can mutate state (`createTable`/`joinTable`/`submit`/`rematch`/
 `leave`/`reset`/`ackEnded`) is driven exclusively through
-`mo:duel-game-core/Ws`'s `ws_message`, wired alongside `status` in the
+`mo:duel-game-core/ws`'s `ws_message`, wired alongside `status` in the
 SAME actor — there is no plain Candid method for any of them, and no
 fallback: see "Real-time push" below for why, and for the idle-sweep
 timer that also belongs in this actor. A minimal host actor's non-WS
@@ -182,7 +182,7 @@ persistent actor {
   };
   startSweeping<system>();
 
-  // ...wire mo:duel-game-core/Ws here — see "Real-time push" below for
+  // ...wire mo:duel-game-core/ws here — see "Real-time push" below for
   // the full `ActorMixin` wiring (all four `ws_*` methods plus this same
   // idle-sweep timer, in one `include`), which is what actually drives
   // createTable/joinTable/submit/rematch/leave/reset/ackEnded.
@@ -214,7 +214,7 @@ which is why `createTable`/`joinTable`/`submit`/`rematch`/`leave`/
 `reset`/`ackEnded` are not exposed as plain Candid methods at all, only
 reachable via `ws_message`.
 
-`src/Ws.mo` — imported separately as `mo:duel-game-core/Ws`, never merged
+`src/ws.mo` — imported separately as `mo:duel-game-core/ws`, never merged
 into the engine itself — is built on
 [`ic-websocket-cdk`](https://github.com/omnia-network/ic-websocket-cdk-mo)
 (mops). The IC has no native WebSocket support; `ic-websocket-cdk`'s
@@ -241,13 +241,13 @@ dependency itself. It does still depend on the third-party
 `ic-certification` mops package for its Merkle certification tree, and
 that package's own code still uses `mo:base` internally — genuinely
 outside this repo's control, unlike the vendored CDK. Keeping the CDK
-confined to `Ws.mo` means a host actor that never imports
-`mo:duel-game-core/Ws` never compiles any of that in; `src/lib.mo` stays
+confined to `ws.mo` means a host actor that never imports
+`mo:duel-game-core/ws` never compiles any of that in; `src/lib.mo` stays
 exactly as pure as the architecture rules require.
 
 **Disappearance handling.** Real WS close detection is exactly what
 makes it possible for the backend to tell a genuinely vanished player
-apart from one merely thinking — `attach()`'s `onClose` (see `Ws.mo`)
+apart from one merely thinking — `attach()`'s `onClose` (see `ws.mo`)
 drives an implicit `Registry.leave` on behalf of whichever session's
 connection just closed, whether that close was the client's own
 cooperative goodbye or the CDK's internal keep-alive timeout catching an
@@ -281,7 +281,7 @@ instead of starting a new one, so the whole dispatch tree down to
 wrapper — same number of genuine sends, far fewer commit points and
 continuation-closure allocations. `disconnectSession` goes further still
 and isn't `async` at all: it only calls `Registry.leave` (synchronous
-engine code), so there's no async state machine to build. See `Ws.mo`'s
+engine code), so there's no async state machine to build. See `ws.mo`'s
 own comments on `Attached`/`pushTo` before "fixing" one of these back to
 plain `async`/`await` for readability — it silently reintroduces that
 per-wrapper overhead.
@@ -296,7 +296,7 @@ canister→client pushes (`#view { reqId; view }` / `#err { reqId; err }`),
 not two separate types — `view` here is a `TP.SessionStatus<S>`, not a
 bare `View<S>`, since a push has to say WHICH table (if any) it's about.
 Every mutating request re-uses `registry.mo`'s own operations
-(`createTable`, `joinTable`, `submit`, ...) directly — `Ws.mo`
+(`createTable`, `joinTable`, `submit`, ...) directly — `ws.mo`
 reimplements no game logic or table routing, and these are the ONLY
 place those operations are ever called from a host actor, since none of
 them is exposed as a plain Candid method — and, after each one, pushes a
@@ -311,7 +311,7 @@ have changed (a table created, filled, freed, or garbage-collected),
 every OTHER session `Hub` currently knows is connected AND isn't
 currently at any table (see below). Either way, a client can receive a
 status it never requested. `reqId` is an opaque token the CLIENT makes
-up for a `#req` it wants correlated to its own reply; `Ws.mo` only ever
+up for a `#req` it wants correlated to its own reply; `ws.mo` only ever
 echoes it straight back on that SAME session's own push, never
 inspecting or generating it — a push to anyone else always carries
 `reqId = null`, since it's a broadcast, not a reply to anything they
@@ -331,7 +331,7 @@ pairing from the `sid` every inbound message carries, and forgets it on
 (and `#submit` additionally a `turn : Nat`) — the match generation (and,
 for submit, round number) the client last saw in a `View`. A client can't
 always tell whether a mutating call it believes failed (a dropped
-connection, a decode error) actually reached `Ws.mo`'s `onMessage` —
+connection, a decode error) actually reached `ws.mo`'s `onMessage` —
 `ws/gateway-client.ts`'s resend queue exists to retry exactly that
 ambiguous case — so without this, a resent `submit` whose original copy
 secretly already resolved the round (or ended the match) would be
@@ -352,7 +352,7 @@ doc-header guarantee 6 for the full reasoning.
 **Wiring it into a host actor** — extending the example above:
 
 ```motoko
-import Ws "mo:duel-game-core/Ws";
+import Ws "mo:duel-game-core/ws";
 import ActorMixin "mo:duel-game-core/actor_mixin";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
@@ -421,7 +421,7 @@ second parameter) — nothing game-specific to add there;
 half).
 
 `examples/007/src/Host.mo` and `examples/racing/src/Host.mo` both wire
-`Ws.mo` exactly this way — it's the live transport both examples'
+`ws.mo` exactly this way — it's the live transport both examples'
 frontends actually talk to, not a reference-only add-on. **The Motoko
 side has been type-checked and reviewed against the CDK's actual
 source; the Candid/CBOR codec on the frontend side has been round-tripped
@@ -542,8 +542,8 @@ table creation/discovery/routing on top without changing any of them:
   operations live in two sibling modules, both importable by their own
   subpath: `src/table.mo` (`mo:duel-game-core/table`), the single-table
   primitive, and `src/registry.mo` (`mo:duel-game-core/registry`), the
-  multi-table router built on top of it. `src/Ws.mo`
-  (`mo:duel-game-core/Ws`) is a separately-imported, but MANDATORY,
+  multi-table router built on top of it. `src/ws.mo`
+  (`mo:duel-game-core/ws`) is a separately-imported, but MANDATORY,
   module layered on top of both — never merged into `lib.mo` purely to
   confine its `ic-websocket-cdk` dependency (see the root `CLAUDE.md`'s
   toolchain note), not because wiring it is optional. `src/actor_mixin.mo`

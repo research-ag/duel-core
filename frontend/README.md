@@ -133,7 +133,7 @@ start({ plugin, ws });
 FRESH one every page load, not stable across a reload.** `agent`'s
 identity doesn't need to mean anything — the engine's own identity is
 the client-chosen `sid`, decoupled from any IC principal on purpose (see
-`../backend/src/Ws.mo`'s doc header) — but `ic-websocket-cdk`'s
+`../backend/src/ws.mo`'s doc header) — but `ic-websocket-cdk`'s
 `ws_open` hard-rejects an anonymous caller outright ("Anonymous
 principal is not allowed"), so a game with no login step (the common
 case — see both `examples/`) must not build `agent` with
@@ -162,7 +162,7 @@ identity) already persists across reload on its own, completely
 independent of this principal.
 
 `connectWs()` builds a `GatewayWs` (`./ws/gateway-client.js`) that
-speaks `mo:duel-game-core/Ws`'s real `ic-websocket-cdk` protocol
+speaks `mo:duel-game-core/ws`'s real `ic-websocket-cdk` protocol
 directly against `actor` — genuine canister-driven push, not client-side
 polling wearing a push-shaped interface. There is still no separate
 Gateway *process* to run: `ic-websocket-cdk` doesn't require a
@@ -175,7 +175,7 @@ story). This is also what makes an opponent's disappearance a genuine
 server-side signal instead of a guess: the CDK's own canister-side timer
 (periodic ack → wait for a keep-alive reply → evict) calls `on_close` on
 its own if a connection goes quiet, independent of any explicit goodbye
-— see `../backend/src/Ws.mo`'s doc header for what the backend does with
+— see `../backend/src/ws.mo`'s doc header for what the backend does with
 that (ends/frees the affected game) and the resulting detection floor
 (that timeout is fixed at 60s inside the CDK, not configurable — expect
 roughly 60-120s for an involuntary disappearance to be noticed, not
@@ -201,10 +201,10 @@ to check — a documented trade-off, not an oversight.
 framework has no `createTable`/`joinTable`/`submit`/`rematch`/`leave`/
 `reset`/`ackEnded` Candid method to poll in the first place — the ONLY
 way to mutate game
-state is `mo:duel-game-core/Ws`'s `ws_message` (see
-`../backend/src/Ws.mo`'s doc header for why: a direct update call is
+state is `mo:duel-game-core/ws`'s `ws_message` (see
+`../backend/src/ws.mo`'s doc header for why: a direct update call is
 exactly the race a single, ordered WS channel exists to close). Every
-canister built on this package MUST wire `Ws.mo`. `start()` itself
+canister built on this package MUST wire `ws.mo`. `start()` itself
 doesn't know or care which kind of `ws` it got — bring your own
 WebSocket-like object entirely (a genuine mock for tests, or a
 hand-rolled one talking to a real EXTERNAL Gateway relay instead of
@@ -289,12 +289,12 @@ chrome, runs over this one shared connection).
 
 **Any number of `request()`s can be genuinely in flight at once, from
 any code sharing this `ws`.** This connection's incoming stream isn't
-only replies to its own calls — `Ws.mo`'s `pushRelevant` pushes a fresh
+only replies to its own calls — `ws.mo`'s `pushRelevant` pushes a fresh
 view to BOTH seats of a match on almost every mutation, so this same
 connection routinely gets an unsolicited push whenever the OTHER seat
 acts, indistinguishable on the wire from a genuine reply unless
 something says otherwise. `GatewayWs` mints a fresh `reqId` per
-`request()` call and `Ws.mo` echoes it back verbatim on that request's
+`request()` call and `ws.mo` echoes it back verbatim on that request's
 own `#view`/`#err` (`null` on a push to the non-acting seat — see
 `../backend/README.md`'s "The wire protocol" section); `_handle()`
 matches replies to their own pending `request()` by that id, rather than
@@ -324,7 +324,7 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 
 | Module                   | Exports                                   |
 | ------------------------ | ------------------------------------------ |
-| `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`'s own type plus the `Ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
+| `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`'s own type plus the `ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
 | `render.js`              | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
 | `app.js`                 | `start({ plugin, ws, ...elIds })`          |
 | `ic-env.js`              | `readIcEnv()`, `deriveHost()` (optional)   |

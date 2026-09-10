@@ -1,7 +1,7 @@
 import Time "mo:core/Time";
 
 import TP "mo:duel-game-core";
-import Ws "mo:duel-game-core/Ws";
+import Ws "mo:duel-game-core/ws";
 import ActorMixin "mo:duel-game-core/actor_mixin";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 import Registry "mo:duel-game-core/registry";

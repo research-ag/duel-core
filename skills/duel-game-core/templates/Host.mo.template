@@ -1,6 +1,6 @@
 // Host actor for __GAME_SLUG__. This file barely ever changes between
 // games — it forwards `status` as a plain query and wires
-// `mo:duel-game-core/Ws` for every mutating call. Copy verbatim; the only
+// `mo:duel-game-core/ws` for every mutating call. Copy verbatim; the only
 // per-game line is the `Rules` import. Wires a multi-table LOBBY, not a
 // single fixed board — anyone may open a table (open, or access-code
 // protected to share with a friend out of band), and any number run
@@ -11,7 +11,7 @@ import Time "mo:core/Time";
 
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
-import Ws "mo:duel-game-core/Ws";
+import Ws "mo:duel-game-core/ws";
 import ActorMixin "mo:duel-game-core/actor_mixin";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 

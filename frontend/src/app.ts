@@ -20,7 +20,7 @@
 //   3. There is exactly one transport, and no fallback: everything —
 //      every action AND every refresh — goes over `ws`. `start()` never
 //      calls a plain actor method itself (there is no plain mutating
-//      method on the canister to call — see `../backend/src/Ws.mo`'s doc
+//      method on the canister to call — see `../backend/src/ws.mo`'s doc
 //      header) and never runs a poll loop of its own; see `ws.js`'s own
 //      header for why that's still fine on the IC, which has no native
 //      server push (short version: `ws.js`'s `connectWs()` builds a `ws`

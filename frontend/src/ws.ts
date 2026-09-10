@@ -1,17 +1,17 @@
 // The real-time push transport — the ONLY one `start()` supports, and the
 // ONLY way to mutate game state at all: `connectWs()` builds a `GatewayWs`
-// (`./ws/gateway-client.js`), a client that speaks `mo:duel-game-core/Ws`'s
+// (`./ws/gateway-client.js`), a client that speaks `mo:duel-game-core/ws`'s
 // real `ic-websocket-cdk` protocol directly, self-registering each tab
 // as its own Gateway (see `./ws/gateway-transport.js`'s header for why
 // that's a legitimate use of the protocol, not a hack) — genuine
 // canister-driven push, and a genuine server-side signal when a
 // connection goes quiet (crash, force-quit, network drop; see
-// `../backend/src/Ws.mo`'s doc header for the resulting detection
+// `../backend/src/ws.mo`'s doc header for the resulting detection
 // floor), not client-side polling wearing a push-shaped interface. There
 // is no plain-polling fallback: a canister built on this package has no
 // join/submit/rematch/leave/reset/ackEnded Candid method to poll in the
-// first place — `mo:duel-game-core/Ws` is mandatory, not opt-in (see
-// `../backend/src/Ws.mo`'s doc header).
+// first place — `mo:duel-game-core/ws` is mandatory, not opt-in (see
+// `../backend/src/ws.mo`'s doc header).
 //
 // Usage:
 //

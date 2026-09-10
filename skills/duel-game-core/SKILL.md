@@ -241,11 +241,11 @@ reasonable default — how long an abandoned table sits before a third
 party may reclaim it; shared by every table this game's players open).
 Nothing else in this file should change between games — do not hand-roll
 `createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`
-as plain Candid methods on this actor. `mo:duel-game-core/Ws` (wired here
+as plain Candid methods on this actor. `mo:duel-game-core/ws` (wired here
 via `Ws.attach` + `ActorMixin`) is the *only* way a client can mutate
 game state; a direct update call bypassing it reopens exactly the
 ordering race a single WS channel exists to close (see
-`mo:duel-game-core/Ws`'s own doc header, shipped in the package, for the
+`mo:duel-game-core/ws`'s own doc header, shipped in the package, for the
 full reasoning). `status` is the one exception, staying a plain
 `query` — it's side-effect-free. Your `Host.mo` wires a
 `TP.Registry<State, Action>` (built with `Registry.new`, from
@@ -397,7 +397,7 @@ here automates an actual two-tab playthrough.
   `submit`/`rematch`/`leave`/`reset`/`ackEnded`**, "just to test with
   `dfx canister call`" or similar — `Host.mo`'s template deliberately has
   none. Every
-  mutation goes through `mo:duel-game-core/Ws`'s `ws_message`, wired by
+  mutation goes through `mo:duel-game-core/ws`'s `ws_message`, wired by
   `ActorMixin`. Use the deployed frontend (or a `ws`-speaking test
   client) to exercise it manually, not a raw Candid call.
 - **Don't let a client-supplied value stand in for something `resolve`

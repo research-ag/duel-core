@@ -117,7 +117,7 @@ export class GatewayProtocol {
 
   /// Builds the outer `WebsocketMessage` record for the CDK's own
   /// keep-alive reply — sent in response to every `#AckMessage` the
-  /// canister's periodic timer pushes (see `../../backend/src/Ws.mo`'s
+  /// canister's periodic timer pushes (see `../../backend/src/ws.mo`'s
   /// doc header on the resulting disappearance-detection floor).
   buildKeepAliveReply(
     clientKey: ClientKey | null,
@@ -164,7 +164,7 @@ export class GatewayProtocol {
   ///   {kind: "ack", lastIncomingSequenceNum}           — reply with a keep-alive
   ///   {kind: "close", reason}                          — canister evicted us
   ///   {kind: "message", payload: {view: V} | {err: E}, reqId} — an
-  ///     app-level push; `reqId` (a BigInt, or `null`) is `Ws.mo`'s
+  ///     app-level push; `reqId` (a BigInt, or `null`) is `ws.mo`'s
   ///     echoed-back correlation token — `null` means this is an
   ///     unsolicited broadcast (the OTHER seat acted), not a reply to
   ///     anything THIS connection asked for — see `gateway-client.js`'s

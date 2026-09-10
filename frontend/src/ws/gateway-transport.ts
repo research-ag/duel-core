@@ -4,7 +4,7 @@
 // public WebSocket-shaped surface (that's `gateway-client.js`). This
 // split exists so a future transport that speaks to a REAL external
 // Gateway relay (the way `ic-websocket-cdk` is normally deployed — see
-// `../../backend/src/Ws.mo`'s doc header) can be dropped in later
+// `../../backend/src/ws.mo`'s doc header) can be dropped in later
 // without touching protocol or client code: it would just need to
 // implement the same four methods (`open`/`poll`/`send`/`close`) and
 // hand `poll()`'s caller the same decoded-envelope shape.
@@ -135,7 +135,7 @@ export class SelfGatewayTransport {
   /// Drops this transport's registration WITHOUT calling `ws_close` —
   /// for when the caller already knows (or must assume) the canister
   /// side is gone (a failed poll/send after a previously successful
-  /// open — presumptively an upgrade wiped `Ws.mo`'s transient state;
+  /// open — presumptively an upgrade wiped `ws.mo`'s transient state;
   /// see `Host.mo`'s own comment on that) and just needs to force the
   /// next `open()` to redo the handshake from scratch.
   invalidate(): void {
@@ -262,7 +262,7 @@ export class SelfGatewayTransport {
     // Best-effort: a teardown call racing an already-dead connection
     // (network gone, tab closing) failing silently is fine — the CDK's
     // own keep-alive timeout is the backstop either way (see
-    // `../../backend/src/Ws.mo`'s doc header).
+    // `../../backend/src/ws.mo`'s doc header).
     try {
       await this._actor.ws_close({ client_key: clientKey });
     } catch {

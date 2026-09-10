@@ -49,7 +49,7 @@ const host = deriveHost();
 // ... doesn't have an open connection".
 //
 // This game has no login (players are told apart by seat/sid, never by
-// principal — see ../../../backend/src/Ws.mo's doc header: the engine's
+// principal — see ../../../backend/src/ws.mo's doc header: the engine's
 // own identity is the client-chosen `sid`, decoupled from IC principal
 // on purpose), so `HttpAgent.create()` with no `identity` would sign
 // every call, including ws_open, as the anonymous principal — and
@@ -85,7 +85,7 @@ const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
 // A real push transport — see ../../../frontend/README.md's "Real-time
 // push" section. connectWs() builds a GatewayWs that speaks
-// mo:duel-game-core/Ws's ic-websocket-cdk protocol directly, self-
+// mo:duel-game-core/ws's ic-websocket-cdk protocol directly, self-
 // registering this tab as its own Gateway (see
 // ../../../frontend/ws/gateway-transport.js) — genuine canister push,
 // and a genuine server-side signal if this tab goes quiet. `principal`

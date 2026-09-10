@@ -1,4 +1,4 @@
-// Unit checks for `Ws.mo`'s `Hub` — the sid<->principal bridge behind
+// Unit checks for `ws.mo`'s `Hub` — the sid<->principal bridge behind
 // the real-time push transport. Isolated from the full `IcWebSocketCdk`
 // actor machinery (not exercisable in this interpreter harness): these
 // drive `Ws.remember`/`Ws.forget` directly against `Hub`'s two maps,
@@ -160,7 +160,7 @@ do {
 //      remember() call for a sid — even an idempotent one under the SAME
 //      principal (a same-tab reconnect: `SelfGatewayTransport` reuses one
 //      fixed principal for its whole lifetime, only the client_key nonce
-//      changes on reopen — see `Ws.mo`'s `Hub.generation` doc). This is
+//      changes on reopen — see `ws.mo`'s `Hub.generation` doc). This is
 //      the extra signal `onClose`'s deferred-close check needs, since
 //      `bySid`/`byPrincipal` alone don't change at all across such a
 //      reconnect (tests 9/10 below exercise the actual race).
@@ -177,7 +177,7 @@ do {
   Debug.print("8. generationOf() bumps on every remember(), idempotent or not OK");
 };
 
-// ── 9. The actual race `Ws.mo`'s `onClose`/`finishClose` defer against:
+// ── 9. The actual race `ws.mo`'s `onClose`/`finishClose` defer against:
 //      old ws_close, new ws_open, new connection's first #req — IN THAT
 //      ORDER. `onClose` captures `generationOf(hub, sid)` the moment the
 //      stale close is first processed (BEFORE the reconnect's own first

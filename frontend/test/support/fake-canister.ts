@@ -1,7 +1,7 @@
 // A tiny in-memory stand-in for a canister wired with
-// `mo:duel-game-core/Ws` — decodes each incoming `ws_message` app
+// `mo:duel-game-core/ws` — decodes each incoming `ws_message` app
 // request and, via `respond`, enqueues a matching `#view`/`#err` reply
-// (echoing `reqId` back verbatim, same as `Ws.mo` does) into its own
+// (echoing `reqId` back verbatim, same as `ws.mo` does) into its own
 // outgoing queue for the next `ws_get_messages` poll to pick up. Good
 // enough to drive `GatewayWs`'s own request()/send() correlation logic
 // end to end without a real IC agent or canister.
@@ -125,7 +125,7 @@ export class FakeCanister implements WsActor {
   }
 
   /// Test-only: enqueue an unsolicited push (reqId omitted, same as
-  /// `Ws.mo`'s `pushRelevant` broadcasting to the OTHER seat) — for
+  /// `ws.mo`'s `pushRelevant` broadcasting to the OTHER seat) — for
   /// tests that need to interleave a genuine broadcast with a
   /// `request()`'s own correlated reply. Requires `ws_open` to have run
   /// at least once (needs a client_key to address).

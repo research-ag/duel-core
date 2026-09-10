@@ -130,7 +130,7 @@ choose beyond a table and a seat), plain TypeScript with no framework:
   flag, no `app.js`-side poll loop, no `ws/poller.js` module: `ws` is
   unconditionally required end to end, and the backend has no plain
   mutating Candid method to poll in the first place (see
-  `../CLAUDE.md`/`../../../backend/src/Ws.mo`'s doc header).
+  `../CLAUDE.md`/`../../../backend/src/ws.mo`'s doc header).
 - The in-race HUD (speedometer / minimap / position+time panel) is
   `app/modules/gameplay/game-viewport/hud/hud.ts` — one plain class that
   subscribes to `GameStateService`'s subjects directly and pokes the DOM
