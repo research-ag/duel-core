@@ -130,8 +130,10 @@ function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
     <div class="table-row">
       <span class="table-id">Table #${r.id}</span>
       <span class="muted">waiting ${r.waitingSecs}s</span>
-      ${seatBtn("p1", r.p1Open)}
-      ${seatBtn("p2", r.p2Open)}
+      <div class="table-row-seats">
+        ${seatBtn("p1", r.p1Open)}
+        ${seatBtn("p2", r.p2Open)}
+      </div>
     </div>`;
 }
 

@@ -8,6 +8,7 @@
  */
 
 :root {
+  color-scheme: dark;
   --bg: #0b0d10;
   --panel: #14181d;
   --panel-2: #1b2027;
@@ -242,6 +243,49 @@ button.ghost {
   color: var(--muted);
 }
 
+/* ── form controls (text inputs, radios, checkboxes) ────────────────────
+ * `color-scheme: dark` on :root (below) already gets a native
+ * checkbox/radio rendered in dark-appropriate colors in every engine that
+ * honors it; `accent-color` then ties its checked-state color to the
+ * theme instead of the browser default blue. Text inputs get no such
+ * free ride — those are styled outright to match `button`'s panel/line
+ * treatment above, since an unstyled `<input>` is plain white-on-white
+ * chrome. */
+
+input[type="text"],
+input[type="number"] {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  transition: border-color 0.15s;
+}
+
+input[type="text"]::placeholder,
+input[type="number"]::placeholder {
+  color: var(--muted);
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
+  vertical-align: middle;
+}
+
+label {
+  cursor: pointer;
+}
+
 /* ── lobby ───────────────────────────────────────────────────────────── */
 
 .seats {
@@ -269,6 +313,71 @@ button.seat {
 .countdown {
   color: var(--accent);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── lobby-of-tables (renderBrowsing) ───────────────────────────────────
+ * `.create-table`/`.open-tables`/`.join-by-code` are the three <section>s
+ * of the lobby-of-tables screen; `h3` styling here is scoped to inside
+ * them rather than global so it doesn't leak into a GamePlugin's own
+ * board markup. */
+
+.create-table,
+.open-tables,
+.join-by-code {
+  margin-bottom: 1.75rem;
+}
+
+.create-table h3,
+.open-tables h3,
+.join-by-code h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.create-table label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 1.25rem 0.75rem 0;
+}
+
+.table-code-input {
+  margin-bottom: 0.75rem;
+}
+
+.join-by-code > input {
+  margin: 0 0.75rem 0.75rem 0;
+}
+
+.table-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.6rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.table-id {
+  font-weight: 650;
+}
+
+.table-row-seats {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.table-row-seats button.seat {
+  flex-direction: row;
+  padding: 0.45rem 1rem;
 }
 
 /* ── in-game chrome ──────────────────────────────────────────────────── */
