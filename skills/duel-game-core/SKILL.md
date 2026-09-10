@@ -11,9 +11,11 @@ description: Build a complete, deployable 2-player game on duel-game-core from n
 rules-agnostic packages — a Motoko mops package (session engine) and an
 npm package (matching browser client) — that together implement
 everything a simultaneous-reveal, turn-based 2-player game needs
-*except* the game itself: seating, round submission, debrief, idle
-takeover, rematch, session identity, real-time push, and the generic
-lobby/staging/rematch/debrief screens.
+*except* the game itself: a multi-table lobby (anyone may open a table,
+open or access-code protected, and any number run simultaneously),
+seating, round submission, debrief, idle takeover, rematch, session
+identity, real-time push, and the generic lobby/staging/rematch/debrief
+screens.
 
 This skill's job is narrower than "learn the framework": the user gives
 you rules, nothing else, and you produce the whole game — every file
@@ -235,16 +237,22 @@ sketch line with real code from your Step 2 design:
 Read `templates/Host.mo.template` and write `src/Host.mo`, filling in
 only `__RULES_MODULE__` (must match Step 3's module name/import path)
 and `__IDLE_TIMEOUT_NS__` (nanoseconds; `60_000_000_000` = 60s is a
-reasonable default — how long an abandoned board sits before a third
-party may reclaim it). Nothing else in this file should change between
-games — do not hand-roll `join`/`submit`/`rematch`/`leave`/`reset`/
-`ackEnded` as plain Candid methods on this actor. `mo:duel-game-core/Ws`
-(wired here via `Ws.attach` + `ActorMixin`) is the *only* way a client
-can mutate game state; a direct update call bypassing it reopens exactly
-the ordering race a single WS channel exists to close (see
+reasonable default — how long an abandoned table sits before a third
+party may reclaim it; shared by every table this game's players open).
+Nothing else in this file should change between games — do not hand-roll
+`createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`
+as plain Candid methods on this actor. `mo:duel-game-core/Ws` (wired here
+via `Ws.attach` + `ActorMixin`) is the *only* way a client can mutate
+game state; a direct update call bypassing it reopens exactly the
+ordering race a single WS channel exists to close (see
 `mo:duel-game-core/Ws`'s own doc header, shipped in the package, for the
 full reasoning). `status` is the one exception, staying a plain
-`query` — it's side-effect-free.
+`query` — it's side-effect-free. Your `Host.mo` wires a
+`TP.Registry<State, Action>` (built with `Registry.new`, from
+`mo:duel-game-core/registry`), not a bare `TP.Table` — this game gets a
+multi-table lobby (open tables browsable by anyone, protected ones
+joinable by id + access code) for free, with zero code of your own
+beyond this template.
 
 ## Step 5 — Write the rules unit tests
 
@@ -294,10 +302,11 @@ and `core` as dependencies, simply `mops test` from that directory.
 
 Read `templates/plugin.js.template` and write
 `frontend/<game>-plugin.js`. This is the only game-specific frontend
-code — everything else (lobby, staging, rematch, busy countdown,
-debrief chrome, the turn counter, "opponent is deciding"/"locked in",
-the verdict banner) is generic and comes from the npm package itself,
-via `render.js`/`app.js`.
+code — everything else (the multi-table lobby — create a table,
+open or access-code protected, browse open ones, join by code — staging,
+rematch, busy countdown, debrief chrome, the turn counter, "opponent is
+deciding"/"locked in", the verdict banner) is generic and comes from the
+npm package itself, via `render.js`/`app.js`.
 
 - `idlTypes({ IDL })` must describe **exactly** the Candid shape of your
   `State`/`Action` from Step 3 — same field names, same variant names,
@@ -376,16 +385,18 @@ not do this for you, and the page 404s on
 `/node_modules/duel-game-core/*.js` without it.
 
 Play both seats by opening the deployed URL in two separate browser
-tabs (each tab is its own session/seat automatically) — confirm a full
-round resolves and the debrief/rematch loop actually works. The Motoko
-tests passing and the frontend building are both necessary but not
-sufficient; nothing here automates an actual two-tab playthrough.
+tabs (each tab is its own session automatically) — create a table in
+one tab, join it from the other, and confirm a full round resolves and
+the debrief/rematch loop actually works. The Motoko tests passing and
+the frontend building are both necessary but not sufficient; nothing
+here automates an actual two-tab playthrough.
 
 ## Common pitfalls (all specific to the rules-only workflow)
 
-- **Don't add a plain Candid method for `join`/`submit`/`rematch`/
-  `leave`/`reset`/`ackEnded`**, "just to test with `dfx canister call`"
-  or similar — `Host.mo`'s template deliberately has none. Every
+- **Don't add a plain Candid method for `createTable`/`joinTable`/
+  `submit`/`rematch`/`leave`/`reset`/`ackEnded`**, "just to test with
+  `dfx canister call`" or similar — `Host.mo`'s template deliberately has
+  none. Every
   mutation goes through `mo:duel-game-core/Ws`'s `ws_message`, wired by
   `ActorMixin`. Use the deployed frontend (or a `ws`-speaking test
   client) to exercise it manually, not a raw Candid call.

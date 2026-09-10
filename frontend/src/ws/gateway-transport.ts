@@ -80,7 +80,7 @@ function decodeEnvelope(contentBytes: Uint8Array): DecodedEnvelope {
 }
 
 /// The subset of an IC actor this transport calls — the four `ws_*`
-/// Candid methods `mo:duel-game-core/ActorMixin` supplies on any host
+/// Candid methods `mo:duel-game-core/actor_mixin` supplies on any host
 /// actor built on this framework (see `../idl.js`'s `makeIdlFactory`).
 export interface WsActor {
   ws_open(args: {

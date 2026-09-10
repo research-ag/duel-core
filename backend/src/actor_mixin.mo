@@ -6,7 +6,7 @@ import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
 import TP ".";
 
-mixin<system>(
+mixin <system>(
   ws : IcWebSocketCdk.IcWebSocket,
   // `(Int) -> async* ()`, not `() -> ()`: the idle-sweep hook a host actor
   // wires here is expected to be `Ws.Attached.sweep` (see that module's
@@ -54,7 +54,7 @@ mixin<system>(
   func startSweeping<system>() {
     ignore Timer.recurringTimer<system>(
       #seconds(30),
-      func() : async () { await* sweepFunc(Time.now()); },
+      func() : async () { await* sweepFunc(Time.now()) },
     );
   };
   startSweeping<system>();

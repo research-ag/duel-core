@@ -41,7 +41,13 @@ function parseButtons(html: string): FakeElement[] {
       const value = dq ?? sq ?? "";
       if (name === "disabled") el.disabled = true;
       else if (name === "class") el.className = value;
-      else if (name.startsWith("data-")) el.dataset[name.slice(5)] = value;
+      else if (name.startsWith("data-")) {
+        // Mirror a real browser's `dataset` API: `data-join-table-id`
+        // becomes `dataset.joinTableId`, not the literal hyphenated
+        // string — app.ts's click handler reads the camelCase form.
+        const camelKey = name.slice(5).replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+        el.dataset[camelKey] = value;
+      }
     }
     buttons.push(el);
   }

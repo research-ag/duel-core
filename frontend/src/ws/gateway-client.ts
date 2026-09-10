@@ -437,7 +437,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
         // resyncs on `onopen` never learns a reconnect happened at all,
         // and can be left showing a stale view (e.g. a still-connected
         // tab that missed the push for a game the idle-sweep timer froze
-        // out from under it — see `../../backend/src/ActorMixin.mo`'s
+        // out from under it — see `../../backend/src/actor_mixin.mo`'s
         // `sweepFunc`, which has no WS/push awareness of its own) until
         // its OWN next mutating action, whose `#err` reply doesn't
         // re-render anything either. A previous version of this method

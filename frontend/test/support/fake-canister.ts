@@ -12,7 +12,7 @@ import { encode as cborEncode } from "cborg";
 import { buildEngineTypes, type EngineTypes } from "../../src/idl.js";
 import type { WsActor } from "../../src/ws/gateway-transport.js";
 import type { WebsocketMessageRecord } from "../../src/ws/gateway-protocol.js";
-import type { EngineErr, View } from "../../src/types.js";
+import type { EngineErr, Status } from "../../src/types.js";
 
 export function sampleGameTypes({ IDL: I }: { IDL: typeof IDL }) {
   return { Action: I.Variant({ pass: I.Null }), State: I.Record({ hp: I.Nat }) };
@@ -30,9 +30,9 @@ export class FakeCanister implements WsActor {
   private lastClientKey: RawClientKey | null = null;
 
   /// What to reply with for the next decoded app request — defaults to a
-  /// harmless `#endedByOther` view. Override per test.
-  respond: (req: unknown) => { view: View } | { err: EngineErr } = () => ({
-    view: { endedByOther: null },
+  /// harmless `atTable`/`#endedByOther` status. Override per test.
+  respond: (req: unknown) => { view: Status } | { err: EngineErr } = () => ({
+    view: { atTable: { id: 1n, view: { endedByOther: null } } },
   });
   wsMessageBehavior: "ok" | "err" = "ok";
   wsOpenBehavior: "ok" | "err" = "ok";
@@ -129,7 +129,7 @@ export class FakeCanister implements WsActor {
   /// tests that need to interleave a genuine broadcast with a
   /// `request()`'s own correlated reply. Requires `ws_open` to have run
   /// at least once (needs a client_key to address).
-  pushUnsolicited(view: View): void {
+  pushUnsolicited(view: Status): void {
     if (!this.lastClientKey) throw new Error("FakeCanister: no client_key yet — call after ws_open");
     this._pushRaw(
       this.lastClientKey,

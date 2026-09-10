@@ -65,9 +65,9 @@ test("renderView: lobby shows both seats, open vs taken", () => {
     plugin,
   );
   assert.match(html, /Choose your seat/);
-  assert.match(html, /data-join="p1"/);
-  assert.doesNotMatch(html, /data-join="p1"[^>]*disabled/);
-  assert.match(html, /data-join="p2"[^>]*disabled/);
+  assert.match(html, /data-join-table="p1"/);
+  assert.doesNotMatch(html, /data-join-table="p1"[^>]*disabled/);
+  assert.match(html, /data-join-table="p2"[^>]*disabled/);
   assert.doesNotMatch(html, /data-reset/);
 });
 

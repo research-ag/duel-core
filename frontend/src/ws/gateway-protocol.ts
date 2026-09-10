@@ -24,7 +24,7 @@
 
 import { IDL } from "@icp-sdk/core/candid";
 import { buildEngineTypes, type BuildGameTypes, type EngineTypes } from "../idl.js";
-import type { EngineErr, View, WsRequest } from "../types.js";
+import type { EngineErr, Status, WsRequest } from "../types.js";
 
 export interface ClientKey {
   client_principal: unknown;
@@ -56,7 +56,7 @@ export type ProtocolAction =
   | { kind: "close"; reason: string }
   | {
       kind: "message";
-      payload: { view: View } | { err: EngineErr };
+      payload: { view: Status } | { err: EngineErr };
       reqId: bigint | null;
     }
   | { kind: "unknown" };
@@ -201,7 +201,7 @@ export class GatewayProtocol {
         envelope.content,
       );
       if ("view" in msg) {
-        const v = msg.view as { reqId: [bigint] | []; view: View };
+        const v = msg.view as { reqId: [bigint] | []; view: Status };
         const reqId = v.reqId.length ? v.reqId[0] : null;
         return { kind: "message", payload: { view: v.view }, reqId };
       }

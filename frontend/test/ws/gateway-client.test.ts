@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Principal } from "@icp-sdk/core/principal";
 import { GatewayWs } from "../../src/ws/gateway-client.js";
 import { FakeCanister, sampleGameTypes } from "../support/fake-canister.js";
-import type { View, WsPayload } from "../../src/types.js";
+import type { Status, WsPayload } from "../../src/types.js";
 
 const principal = Principal.anonymous();
 
@@ -70,7 +70,7 @@ test("onopen fires exactly once once the poll loop observes the CDK's OpenMessag
 
 test("send(): sid reaches the canister, and the push it triggers arrives via onmessage", async (t) => {
   const canister = new FakeCanister();
-  canister.respond = () => ({ view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } });
+  canister.respond = () => ({ view: { browsing: { tables: [] } } });
   const ws = makeWs(t, canister);
   const received: WsPayload[] = [];
   ws.onmessage = (ev) => received.push(ev.data);
@@ -80,28 +80,28 @@ test("send(): sid reaches the canister, and the push it triggers arrives via onm
   await waitFor(() => canister.sentRequests.length >= 1);
   assert.deepEqual(canister.sentRequests[0], { status: null });
 
-  await waitFor(() => received.some((p) => "view" in p && "lobby" in p.view));
+  await waitFor(() => received.some((p) => "view" in p && "browsing" in p.view));
 });
 
 test("request(): resolves with its own correlated reply, unaffected by an interleaved broadcast", async (t) => {
   const canister = new FakeCanister();
-  const lobbyView: View = { lobby: { p1Open: false, p2Open: true, resetAvailable: false } };
-  canister.respond = () => ({ view: lobbyView });
+  const status: Status = { browsing: { tables: [{ id: 1n, p1Open: false, p2Open: true, waitingSecs: 0n }] } };
+  canister.respond = () => ({ view: status });
   const ws = makeWs(t, canister);
   await waitFor(() => canister.opened);
 
   // A genuine unsolicited broadcast (reqId: null) lands on this same
   // connection before the correlated reply — must be delivered
   // generically (onmessage) but must NOT resolve the pending request().
-  const broadcastView: View = { endedByOther: null };
+  const broadcastStatus: Status = { atTable: { id: 1n, view: { endedByOther: null } } };
   const genericMessages: WsPayload[] = [];
   ws.onmessage = (ev) => genericMessages.push(ev.data);
-  canister.pushUnsolicited(broadcastView);
+  canister.pushUnsolicited(broadcastStatus);
 
   const result = await ws.request!("player-2", { status: null });
-  assert.deepEqual(result, { view: lobbyView });
+  assert.deepEqual(result, { view: status });
   assert.ok(
-    genericMessages.some((p) => "view" in p && "endedByOther" in p.view),
+    genericMessages.some((p) => "view" in p && "atTable" in p.view),
     "the broadcast must still have been delivered generically",
   );
 });
@@ -114,8 +114,11 @@ test("request(): a reply of #alreadySubmitted is reconciled into a fresh status 
   // exercises the reconciliation itself, not the resend plumbing that
   // produces it in practice.
   const canister = new FakeCanister();
-  const freshView: View = {
-    inGame: { seat: { p1: null }, game: { hp: 3n }, turn: 2n, youSubmitted: true, oppSubmitted: false, gen: 1n },
+  const freshView: Status = {
+    atTable: {
+      id: 1n,
+      view: { inGame: { seat: { p1: null }, game: { hp: 3n }, turn: 2n, youSubmitted: true, oppSubmitted: false, gen: 1n } },
+    },
   };
   canister.respond = (req) => {
     if (req && typeof req === "object" && "submit" in (req as object)) {
@@ -135,8 +138,11 @@ test("request(): a reply of #stale is reconciled into a fresh status view the sa
   // _isRetryAmbiguousError's own doc): the resent copy landed after the
   // match/round it targeted had already moved on.
   const canister = new FakeCanister();
-  const freshView: View = {
-    inGame: { seat: { p1: null }, game: { hp: 3n }, turn: 3n, youSubmitted: false, oppSubmitted: false, gen: 1n },
+  const freshView: Status = {
+    atTable: {
+      id: 1n,
+      view: { inGame: { seat: { p1: null }, game: { hp: 3n }, turn: 3n, youSubmitted: false, oppSubmitted: false, gen: 1n } },
+    },
   };
   canister.respond = (req) => {
     if (req && typeof req === "object" && "submit" in (req as object)) {
@@ -157,7 +163,7 @@ test("request(): a genuinely fresh #err (not #alreadySubmitted) is still surface
   const ws = makeWs(t, canister);
   await waitFor(() => canister.opened);
 
-  const result = await ws.request!("player-1", { join: { p1: null } });
+  const result = await ws.request!("player-1", { joinTable: { id: 1n, seat: { p1: null }, code: [] } });
   assert.deepEqual(result, { err: { seatTaken: null } });
 });
 

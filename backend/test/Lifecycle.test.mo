@@ -3,18 +3,19 @@
 // exists purely to exercise the engine, not a real game.
 // Run: moc -r --package core <core/src> test/Lifecycle.test.mo
 import TP "../src/lib";
+import Table "../src/table";
 import Rules "FakeGame";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
 let spec = Rules.spec();
-let t = TP.create<Rules.State, Rules.Action>(60_000_000_000); // 60s
+let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, #open, "test"); // 60s
 var now : Int = 1_000_000_000_000;
 func tick() : Int { now += 1_000_000_000; now }; // +1s
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
-  case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show(e));
+  case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
 };
 func expectErr<T>(r : TP.Res<T>, msg : Text) = switch (r) {
   case (#ok _) Runtime.trap(msg # " unexpectedly succeeded");
@@ -25,7 +26,7 @@ func expectErr<T>(r : TP.Res<T>, msg : Text) = switch (r) {
 /// `submit`/`leave`/`reset` off `session`'s own current view — see
 /// lib.mo's `Table.gen` doc. Only meaningful for a session actually in a
 /// live phase.
-func genOf(at : Int, session : Text) : Nat = switch (TP.status(t, at, session)) {
+func genOf(at : Int, session : Text) : Nat = switch (t.status(at, session)) {
   case (#stagingYou v) v.gen;
   case (#inGame v) v.gen;
   case (#debrief v) v.gen;
@@ -33,36 +34,39 @@ func genOf(at : Int, session : Text) : Nat = switch (TP.status(t, at, session)) 
 };
 
 /// Same, for the `turn` a `submit` must additionally stamp.
-func turnOf(at : Int, session : Text) : Nat = switch (TP.status(t, at, session)) {
+func turnOf(at : Int, session : Text) : Nat = switch (t.status(at, session)) {
   case (#inGame v) v.turn;
   case (_) Runtime.trap("turnOf: " # session # " is not in an active game");
 };
 
 // ── 1. Two players join; a third is refused ────────────────────────────────
-ignore ok(TP.join(spec, t, tick(), "alice", #p1), "alice join");
-ignore ok(TP.join(spec, t, tick(), "bob", #p2), "bob join");
-expectErr(TP.join(spec, t, tick(), "carol", #p1), "carol join during game");
-expectErr(TP.reset(t, tick(), "carol", 0), "carol reset during active (idle-gated)"); // outsider path
+ignore ok(t.join(spec, tick(), "alice", #p1), "alice join");
+ignore ok(t.join(spec, tick(), "bob", #p2), "bob join");
+expectErr(t.join(spec, tick(), "carol", #p1), "carol join during game");
+expectErr(t.reset(tick(), "carol", 0), "carol reset during active (idle-gated)"); // outsider path
 Debug.print("1. join/lockout OK");
 
 // ── 2. Server-side legality: 0-resource attack rejected ────────────────────
-expectErr(TP.submit(spec, t, tick(), "alice", genOf(now, "alice"), turnOf(now, "alice"), #attack), "0-resource attack");
-Debug.print("2. validate OK: " );
+expectErr(t.submit(spec, tick(), "alice", genOf(now, "alice"), turnOf(now, "alice"), #attack), "0-resource attack");
+Debug.print("2. validate OK: ");
 
 // ── 3. A round: both gather, then alice attacks bob (no defense) ───────────
-ignore ok(TP.submit(spec, t, tick(), "alice", genOf(now, "alice"), turnOf(now, "alice"), #gather), "a gathers");
-switch (ok(TP.submit(spec, t, tick(), "bob", genOf(now, "bob"), turnOf(now, "bob"), #gather), "b gathers")) {
+ignore ok(t.submit(spec, tick(), "alice", genOf(now, "alice"), turnOf(now, "alice"), #gather), "a gathers");
+switch (ok(t.submit(spec, tick(), "bob", genOf(now, "bob"), turnOf(now, "bob"), #gather), "b gathers")) {
   case (#roundResolved _) {};
   case (_) Runtime.trap("expected roundResolved");
 };
-ignore ok(TP.submit(spec, t, tick(), "alice", genOf(now, "alice"), turnOf(now, "alice"), #attack), "a attacks");
-switch (ok(TP.submit(spec, t, tick(), "bob", genOf(now, "bob"), turnOf(now, "bob"), #gather), "b gathers again")) {
+ignore ok(t.submit(spec, tick(), "alice", genOf(now, "alice"), turnOf(now, "alice"), #attack), "a attacks");
+switch (ok(t.submit(spec, tick(), "bob", genOf(now, "bob"), turnOf(now, "bob"), #gather), "b gathers again")) {
   case (#gameEnded _) {};
   case (_) Runtime.trap("expected gameEnded (bob had no defense)");
 };
-switch (TP.status(t, now, "alice")) {
+switch (t.status(now, "alice")) {
   case (#debrief d) {
-    switch (d.end) { case (#finished (#p1Wins)) {}; case (_) Runtime.trap("wrong verdict") };
+    switch (d.end) {
+      case (#finished(#p1Wins)) {};
+      case (_) Runtime.trap("wrong verdict");
+    };
   };
   case (_) Runtime.trap("alice not in debrief");
 };
@@ -72,12 +76,12 @@ Debug.print("3. round resolution + verdict OK");
 // Captured BEFORE the rematch: the `gen` alice's FIRST-match debrief
 // carried, kept around to replay against the SECOND match in step 4b.
 let firstMatchGen = genOf(now, "alice");
-ignore ok(TP.rematch(spec, t, tick(), "alice"), "alice rematch");
-switch (ok(TP.rematch(spec, t, tick(), "bob"), "bob rematch")) {
+ignore ok(t.rematch(spec, tick(), "alice"), "alice rematch");
+switch (ok(t.rematch(spec, tick(), "bob"), "bob rematch")) {
   case (#started) {};
   case (_) Runtime.trap("bob's rematch should complete the pair");
 };
-switch (TP.status(t, now, "bob")) {
+switch (t.status(now, "bob")) {
   case (#inGame g) { assert g.turn == 0 };
   case (_) Runtime.trap("bob not in fresh game");
 };
@@ -91,31 +95,37 @@ Debug.print("4. rematch convergence OK");
 //        the two matches apart; only `gen` can — this must come back
 //        `#stale`, and the live rematch must survive completely untouched
 //        instead of being silently aborted out from under both players ───
-switch (TP.leave(t, now, "alice", firstMatchGen)) {
+switch (t.leave(now, "alice", firstMatchGen)) {
   case (#err(#stale)) {};
   case (_) Runtime.trap("alice's stale leave from the FIRST match must not abort the rematch");
 };
-switch (TP.status(t, now, "alice")) {
+switch (t.status(now, "alice")) {
   case (#inGame _) {};
   case (_) Runtime.trap("the rematch must survive the stale leave completely untouched");
 };
-switch (TP.status(t, now, "bob")) {
+switch (t.status(now, "bob")) {
   case (#inGame _) {};
   case (_) Runtime.trap("...for bob too — no shared #aborted debrief should appear");
 };
 Debug.print("4b. a stale cross-match leave is rejected, not replayed OK");
 
 // ── 5. Leave mid-game → BOTH get the special aborted debrief ───────────────
-ignore ok(TP.leave(t, tick(), "bob", genOf(now, "bob")), "bob leaves");
-switch (TP.status(t, now, "alice")) {
+ignore ok(t.leave(tick(), "bob", genOf(now, "bob")), "bob leaves");
+switch (t.status(now, "alice")) {
   case (#debrief d) {
-    switch (d.end) { case (#aborted _) {}; case (_) Runtime.trap("expected #aborted") };
+    switch (d.end) {
+      case (#aborted _) {};
+      case (_) Runtime.trap("expected #aborted");
+    };
   };
   case (_) Runtime.trap("alice missing abort debrief");
 };
-switch (TP.status(t, now, "bob")) {
+switch (t.status(now, "bob")) {
   case (#debrief d) {
-    switch (d.end) { case (#aborted _) {}; case (_) Runtime.trap("expected #aborted for bob too") };
+    switch (d.end) {
+      case (#aborted _) {};
+      case (_) Runtime.trap("expected #aborted for bob too");
+    };
   };
   case (_) Runtime.trap("bob missing abort debrief");
 };
@@ -123,11 +133,11 @@ Debug.print("5. shared abort debrief OK");
 
 // ── 6. Idle takeover over an EXPIRED DEBRIEF: no #endedByOther (they saw
 //       their debrief already) — they just fall back to the lobby ──────────
-expectErr(TP.join(spec, t, tick(), "carol", #p1), "carol during debrief precedence");
+expectErr(t.join(spec, tick(), "carol", #p1), "carol during debrief precedence");
 now += 61_000_000_000; // 61s pass
-ignore ok(TP.reset(t, now, "carol", 0), "carol reset after idle"); // outsider path
-ignore ok(TP.join(spec, t, now, "carol", #p1), "carol joins after idle");
-switch (TP.status(t, now, "alice")) {
+ignore ok(t.reset(now, "carol", 0), "carol reset after idle"); // outsider path
+ignore ok(t.join(spec, now, "carol", #p1), "carol joins after idle");
+switch (t.status(now, "alice")) {
   case (#endedByOther _) Runtime.trap("alice already saw her debrief - no ghost notice due");
   case (#debrief _) Runtime.trap("stale debrief leaked");
   case (_) {};
@@ -135,20 +145,20 @@ switch (TP.status(t, now, "alice")) {
 Debug.print("6. debrief takeover: clean lobby fallback OK");
 
 // ── 7. Idle takeover of an ACTIVE game → #endedByOther until acked ─────────
-ignore ok(TP.join(spec, t, tick(), "dave", #p2), "dave joins carol");
+ignore ok(t.join(spec, tick(), "dave", #p2), "dave joins carol");
 now += 61_000_000_000; // both idle mid-game
-ignore ok(TP.reset(t, now, "eve", 0), "eve reset over dead active game"); // outsider path
-ignore ok(TP.join(spec, t, now, "eve", #p1), "eve joins after takeover");
-switch (TP.status(t, now, "carol")) {
+ignore ok(t.reset(now, "eve", 0), "eve reset over dead active game"); // outsider path
+ignore ok(t.join(spec, now, "eve", #p1), "eve joins after takeover");
+switch (t.status(now, "carol")) {
   case (#endedByOther _) {};
   case (_) Runtime.trap("carol should see #endedByOther");
 };
-TP.ackEnded(t, "carol");
-switch (TP.status(t, now, "carol")) {
+t.ackEnded("carol");
+switch (t.status(now, "carol")) {
   case (#endedByOther _) Runtime.trap("ack did not clear the notice");
   case (_) {};
 };
-switch (TP.status(t, now, "dave")) {
+switch (t.status(now, "dave")) {
   case (#endedByOther _) {};
   case (_) Runtime.trap("dave's notice must survive carol's ack");
 };

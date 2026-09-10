@@ -31,10 +31,8 @@ let PB = Principal.fromText("l2hgx-oicai-baeaq-caiba-eaq");
 let PC = Principal.fromText("5w2os-7qdam-bqgay-dambq-gay");
 let PD = Principal.fromText("ilzwt-kieaq-caiba-eaqca-iba");
 
-func bySid(hub : Ws.Hub, sid : Text) : ?Principal.Principal =
-  Map.get(hub.bySid, Text.compare, sid);
-func byPrincipal(hub : Ws.Hub, p : Principal.Principal) : ?Text =
-  Map.get(hub.byPrincipal, Principal.compare, p);
+func bySid(hub : Ws.Hub, sid : Text) : ?Principal.Principal = Map.get(hub.bySid, Text.compare, sid);
+func byPrincipal(hub : Ws.Hub, p : Principal.Principal) : ?Text = Map.get(hub.byPrincipal, Principal.compare, p);
 
 func expectSid(hub : Ws.Hub, sid : Text, want : ?Principal.Principal, msg : Text) {
   let got = bySid(hub, sid);

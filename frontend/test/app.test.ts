@@ -1,7 +1,7 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { FakeElement, makeFakeDocument, makeButton } from "./support/fake-dom.js";
-import type { DuelWs, GamePlugin, WsPayload, WsRequest } from "../src/types.js";
+import type { DuelWs, GamePlugin, Status, TableSummary, WsPayload, WsRequest } from "../src/types.js";
 
 class FakeStorage {
   private map = new Map<string, string>();
@@ -51,6 +51,17 @@ const plugin: GamePlugin<{ n: number }> = {
   renderBoard: (game) => `<div class="board">n=${game.n}</div>`,
   renderActions: () => `<button data-act='{"pass":null}'>Pass</button>`,
 };
+
+/// Test-fixture helpers: every pushed/resolved `view` is now a `Status`,
+/// not a bare per-table `View` — see types.ts's own doc. `browsing()`
+/// defaults to an empty table list (most tests don't care what's
+/// listed); `atTable()` wraps a per-table view under a fixed table id.
+function browsing(tables: TableSummary[] = []): Status {
+  return { browsing: { tables } };
+}
+function atTable(view: unknown, id = 1n): Status {
+  return { atTable: { id, view } } as Status;
+}
 
 function setup(opts: { withRequest?: boolean } = {}) {
   const els = {
@@ -105,12 +116,16 @@ test("start(): shows a connecting placeholder immediately, then sends #status on
   assert.deepEqual(ws.sent[0]!.req, { status: null });
 });
 
-test("onmessage: a pushed view renders via the plugin", async () => {
+test("onmessage: a pushed status renders via the plugin", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
   start({ plugin, ws });
 
-  ws.onmessage!({ data: { view: { inGame: { seat: { p1: null }, game: { n: 7 }, turn: 0n, youSubmitted: false, oppSubmitted: false, gen: 1n } } } });
+  ws.onmessage!({
+    data: {
+      view: atTable({ inGame: { seat: { p1: null }, game: { n: 7 }, turn: 0n, youSubmitted: false, oppSubmitted: false, gen: 1n } }),
+    },
+  });
   assert.match(els.screen.innerHTML, /n=7/);
   assert.match(els.screen.innerHTML, /Pass/);
 });
@@ -127,7 +142,7 @@ test("onmessage: an err shows the error banner and leaves the screen untouched",
   assert.equal(els.screen.innerHTML, before);
 });
 
-test("onmessage: identical consecutive views are only rendered once (dedup)", async () => {
+test("onmessage: identical consecutive statuses are only rendered once (dedup)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
   start({ plugin, ws });
@@ -142,29 +157,29 @@ test("onmessage: identical consecutive views are only rendered once (dedup)", as
     },
   });
 
-  const view: WsPayload = { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } };
+  const view: WsPayload = { view: browsing() };
   ws.onmessage!({ data: view });
   ws.onmessage!({ data: view });
   ws.onmessage!({ data: view });
   assert.equal(writes, 1);
 
-  ws.onmessage!({ data: { view: { lobby: { p1Open: false, p2Open: true, resetAvailable: false } } } });
+  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, waitingSecs: 0n }]) } });
   assert.equal(writes, 2);
 });
 
-test("clicking a seat button calls ws.request with the join request and shows/clears the loading state", async () => {
+test("clicking 'create table' calls ws.request with a createTable request and shows/clears the loading state", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup();
   start({ plugin, ws });
 
-  const btn = makeButton({ join: "p1" });
+  const btn = makeButton({ createTable: "p1" });
   click(els.screen, btn);
   assert.equal(ws.requests.length, 1);
-  assert.deepEqual(ws.requests[0]!.req, { join: { p1: null } });
+  assert.deepEqual(ws.requests[0]!.req, { createTable: { seat: { p1: null }, visibility: { open: null } } });
   assert.ok(btn.classList.contains("duel-loading"));
   assert.ok(doc.body.classList.contains("working"));
 
-  ws.requests[0]!.resolve({ view: { lobby: { p1Open: false, p2Open: true, resetAvailable: false } } });
+  ws.requests[0]!.resolve({ view: browsing() });
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(doc.body.classList.contains("working"), false);
@@ -175,40 +190,40 @@ test("a button's spinner survives an unrelated re-render that arrives before its
   const { els, doc, ws } = setup();
   start({ plugin, ws });
 
-  // Initial lobby: both seats open.
-  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
+  // Initial lobby: nobody's created a table yet.
+  ws.onmessage!({ data: { view: browsing() } });
 
-  const p2Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p2");
-  assert.ok(p2Btn, "expected a rendered p2 seat button");
+  const p2Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p2");
+  assert.ok(p2Btn, "expected a rendered 'create table as p2' button");
 
-  // Player B clicks "take seat 2".
+  // Player B clicks "start a table as p2".
   click(els.screen, p2Btn!);
   assert.equal(ws.requests.length, 1);
-  assert.deepEqual(ws.requests[0]!.req, { join: { p2: null } });
+  assert.deepEqual(ws.requests[0]!.req, { createTable: { seat: { p2: null }, visibility: { open: null } } });
   assert.ok(p2Btn!.classList.contains("duel-loading"));
 
-  // Before B's own join resolves, an unrelated push tick lands — e.g.
-  // player A's own join, seating p1 — and redraws the whole screen.
-  // This is exactly the bug report's sequence: B's join is still in
-  // flight when this arrives.
-  ws.onmessage!({ data: { view: { lobby: { p1Open: false, p2Open: true, resetAvailable: false } } } });
+  // Before B's own call resolves, an unrelated push tick lands — e.g. a
+  // brand new open table someone else just created — and redraws the
+  // whole screen. This is exactly the bug report's sequence: B's own
+  // call is still in flight when this arrives.
+  ws.onmessage!({ data: { view: browsing([{ id: 7n, p1Open: true, p2Open: true, waitingSecs: 0n }]) } });
 
   // The old p2Btn node is gone (the screen was redrawn); the freshly
   // rendered one occupying its slot must still show as busy — not
   // silently enabled again just because it's a new node.
-  const freshP2Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p2");
-  assert.ok(freshP2Btn, "expected a freshly rendered p2 seat button");
+  const freshP2Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p2");
+  assert.ok(freshP2Btn, "expected a freshly rendered 'create table as p2' button");
   assert.notEqual(freshP2Btn, p2Btn, "sanity: the re-render actually replaced the node");
-  assert.equal(freshP2Btn!.disabled, true, "still-pending seat button must stay disabled");
+  assert.equal(freshP2Btn!.disabled, true, "still-pending button must stay disabled");
   assert.ok(
     freshP2Btn!.classList.contains("duel-loading"),
-    "still-pending seat button must keep its spinner",
+    "still-pending button must keep its spinner",
   );
   assert.ok(doc.body.classList.contains("working"), "cursor should still read busy too");
 
-  // B's own join finally resolves.
+  // B's own call finally resolves.
   ws.requests[0]!.resolve({
-    view: { stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } },
+    view: atTable({ stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } }),
   });
   await Promise.resolve();
   await Promise.resolve();
@@ -304,9 +319,9 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
   start({ plugin, ws });
 
   const seated = [
-    { stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n } },
-    { inGame: { seat: { p1: null }, game: { n: 0 }, turn: 0n, youSubmitted: false, oppSubmitted: false, gen: 1n } },
-    {
+    atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n } }),
+    atTable({ inGame: { seat: { p1: null }, game: { n: 0 }, turn: 0n, youSubmitted: false, oppSubmitted: false, gen: 1n } }),
+    atTable({
       debrief: {
         seat: { p1: null },
         end: { finished: { p1Wins: null } },
@@ -314,11 +329,11 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
         finalGame: { n: 0 },
         gen: 1n,
       },
-    },
+    }),
   ];
   for (const view of seated) {
     ws.onmessage!({ data: { view } });
-    assert.equal(els["new-sid"].disabled, true, Object.keys(view)[0]);
+    assert.equal(els["new-sid"].disabled, true, Object.keys((view as { atTable: { view: object } }).atTable.view)[0]);
   }
 
   const before = els.sid.textContent;
@@ -327,10 +342,10 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
   assert.equal(ws.sent.length, 0);
 
   const unseated = [
-    { lobby: { p1Open: true, p2Open: true, resetAvailable: false } },
-    { busy: { secondsUntilTakeover: 5n } },
-    { awaitingRematch: { openSeat: { p1: null } } },
-    { endedByOther: null },
+    browsing(),
+    atTable({ busy: { secondsUntilTakeover: 5n } }),
+    atTable({ awaitingRematch: { openSeat: { p1: null } } }),
+    atTable({ endedByOther: null }),
   ];
   for (const view of unseated) {
     ws.onmessage!({ data: { view } });
@@ -341,116 +356,122 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
   assert.notEqual(els.sid.textContent, before);
 });
 
-test("the new-sid button disables the instant a seat request is dispatched, not only once it resolves (regression: click new-sid mid-join soft-locks the seat)", async () => {
+test("the new-sid button disables the instant a create-table request is dispatched, not only once it resolves (regression: click new-sid mid-join soft-locks the seat)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
   start({ plugin, ws });
 
-  // Lobby: both seats open, sid not seated — new-sid starts out enabled.
-  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
+  // Browsing: nobody's created a table yet — new-sid starts out enabled.
+  ws.onmessage!({ data: { view: browsing() } });
   assert.equal(els["new-sid"].disabled, false);
 
   const before = els.sid.textContent;
-  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p1");
-  assert.ok(p1Btn, "expected a rendered p1 seat button");
+  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
+  assert.ok(p1Btn, "expected a rendered 'create table as p1' button");
 
-  // Click "take seat" — the join is now in flight, still under the OLD
-  // sid, but nothing has confirmed the seat yet.
+  // Click "start a table" — the request is now in flight, still under
+  // the OLD sid, but nothing has confirmed the seat yet.
   click(els.screen, p1Btn!);
   assert.equal(ws.requests.length, 1);
 
-  // new-sid must already be disabled — waiting for the join's own
+  // new-sid must already be disabled — waiting for the request's own
   // response (which only flips SEATED_VIEW_TAGS on) would leave a window
   // where clicking it rotates sid out from under the still-in-flight
-  // join, stranding the seat on a sid the page no longer tracks.
+  // request, stranding the seat on a sid the page no longer tracks.
   assert.equal(els["new-sid"].disabled, true);
   els["new-sid"].dispatch("click", {});
-  assert.equal(els.sid.textContent, before, "sid must not rotate while the seat request is in flight");
+  assert.equal(els.sid.textContent, before, "sid must not rotate while the request is in flight");
 
-  // The join succeeds; the confirmed seat keeps new-sid disabled as usual.
+  // The call succeeds; the confirmed seat keeps new-sid disabled as usual.
   ws.requests[0]!.resolve({
-    view: { stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } },
+    view: atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } }),
   });
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(els["new-sid"].disabled, true);
 });
 
-test("the new-sid button re-enables after a rejected seat request", async () => {
+test("the new-sid button re-enables after a rejected join request", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
   start({ plugin, ws });
 
-  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
-  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p1");
-  assert.ok(p1Btn, "expected a rendered p1 seat button");
+  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, waitingSecs: 0n }]) } });
+  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.joinTable === "p1" && b.dataset.joinTableId === "1");
+  assert.ok(p1Btn, "expected a rendered join button for table #1's p1 seat");
 
   click(els.screen, p1Btn!);
   assert.equal(els["new-sid"].disabled, true, "eagerly disabled the moment the join went out");
 
   // Someone else took the seat first — the join comes back rejected. The
-  // view never changed (still not seated), so renderIfChanged's own
-  // resync (off the *new* view) never runs; the error path must resync
-  // new-sid off the last-known view itself.
+  // status never changed (still not seated), so renderIfChanged's own
+  // resync (off the *new* status) never runs; the error path must resync
+  // new-sid off the last-known status itself.
   ws.requests[0]!.resolve({ err: { seatTaken: null } });
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(els["new-sid"].disabled, false, "must not stay stuck disabled after a failed join");
 });
 
-test("the new-sid button stays disabled through an unrelated push arriving mid-join (regression: rival's join landing first briefly re-enables new-sid)", async () => {
+test("the new-sid button stays disabled through an unrelated push arriving mid-join (regression: rival's move landing first briefly re-enables new-sid)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
   start({ plugin, ws });
 
-  // Lobby: both seats open.
-  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
+  // Browsing: one open table, both seats free.
+  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, waitingSecs: 0n }]) } });
 
-  // This player (B) clicks "take seat 2" — their own join is now in
-  // flight, correlated via ws.request().
-  const p2Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p2");
-  assert.ok(p2Btn, "expected a rendered p2 seat button");
+  // This player (B) clicks "join as p2" on that table — their own call
+  // is now in flight, correlated via ws.request().
+  const p2Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.joinTable === "p2" && b.dataset.joinTableId === "1");
+  assert.ok(p2Btn, "expected a rendered join button for table #1's p2 seat");
   click(els.screen, p2Btn!);
   assert.equal(ws.requests.length, 1);
-  assert.equal(els["new-sid"].disabled, true, "eagerly disabled the moment B's own join went out");
+  assert.equal(els["new-sid"].disabled, true, "eagerly disabled the moment B's own request went out");
 
-  // Before B's own join resolves, an UNRELATED push tick lands — player
-  // A's own join succeeded first, seating p1. This still renders as
-  // "lobby" (unseated) from B's own point of view, since B isn't seated
-  // yet either. The old bug: renderIfChanged recomputed new-sid's
-  // disabled state off THIS view alone and re-enabled it, opening the
-  // exact window where clicking "new" strands B's still-in-flight join
-  // under a sid B is about to abandon.
-  ws.onmessage!({ data: { view: { lobby: { p1Open: false, p2Open: true, resetAvailable: false } } } });
+  // Before B's own call resolves, an UNRELATED push tick lands — a brand
+  // new open table appears. B is still unseated either way. The old bug:
+  // renderIfChanged recomputed new-sid's disabled state off THIS status
+  // alone and re-enabled it, opening the exact window where clicking
+  // "new" strands B's still-in-flight request under a sid B is about to
+  // abandon.
+  ws.onmessage!({
+    data: {
+      view: browsing([
+        { id: 1n, p1Open: true, p2Open: true, waitingSecs: 0n },
+        { id: 2n, p1Open: true, p2Open: true, waitingSecs: 0n },
+      ]),
+    },
+  });
   assert.equal(
     els["new-sid"].disabled,
     true,
-    "must stay disabled — B's own join is still pending, regardless of what an unrelated push shows",
+    "must stay disabled — B's own request is still pending, regardless of what an unrelated push shows",
   );
 
-  // B's own join finally resolves — new-sid stays disabled as usual, now
-  // because the confirmed view itself is seated.
+  // B's own request finally resolves — new-sid stays disabled as usual,
+  // now because the confirmed status itself is seated.
   ws.requests[0]!.resolve({
-    view: { stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } },
+    view: atTable({ stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } }),
   });
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(els["new-sid"].disabled, true);
 });
 
-test("a join rejected as wrongPhase (stale view — already seated) resyncs silently instead of showing an error", async () => {
+test("a createTable rejected as wrongPhase (stale status — already seated elsewhere) resyncs silently instead of showing an error", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
   start({ plugin, ws });
 
-  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
-  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p1");
-  assert.ok(p1Btn, "expected a rendered p1 seat button");
+  ws.onmessage!({ data: { view: browsing() } });
+  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
+  assert.ok(p1Btn, "expected a rendered 'create table as p1' button");
   click(els.screen, p1Btn!);
 
-  // The engine's own join<S, M> only ever returns #wrongPhase for this
-  // one reason — see isStaleJoin's own doc in app.ts.
-  ws.requests[0]!.resolve({ err: { wrongPhase: "you are already in the running game" } });
+  // Lobby.createTable's only #wrongPhase case is "already at another
+  // table" — see isStaleJoin's own doc in app.ts.
+  ws.requests[0]!.resolve({ err: { wrongPhase: "you are already at another table" } });
   await Promise.resolve();
   await Promise.resolve();
 
@@ -459,18 +480,18 @@ test("a join rejected as wrongPhase (stale view — already seated) resyncs sile
   assert.deepEqual(ws.sent[0]!.req, { status: null });
 });
 
-test("a join rejected as wrongPhase resyncs even without ws.request (fallback transport)", async () => {
+test("a createTable rejected as wrongPhase resyncs even without ws.request (fallback transport)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup({ withRequest: false });
   start({ plugin, ws });
 
-  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
-  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.join === "p1");
-  assert.ok(p1Btn, "expected a rendered p1 seat button");
+  ws.onmessage!({ data: { view: browsing() } });
+  const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
+  assert.ok(p1Btn, "expected a rendered 'create table as p1' button");
   click(els.screen, p1Btn!);
-  assert.deepEqual(ws.sent[0]!.req, { join: { p1: null } });
+  assert.deepEqual(ws.sent[0]!.req, { createTable: { seat: { p1: null }, visibility: { open: null } } });
 
-  ws.onmessage!({ data: { err: { wrongPhase: "you are already in the running game" } } });
+  ws.onmessage!({ data: { err: { wrongPhase: "you are already at another table" } } });
 
   assert.equal(els.error.textContent, "", "must not surface an error the user can't act on");
   assert.equal(ws.sent.length, 2, "resyncs by re-sending #status");
@@ -484,7 +505,7 @@ test("a wrongPhase rejection from a NON-join request still shows the error banne
 
   ws.onmessage!({
     data: {
-      view: {
+      view: atTable({
         debrief: {
           seat: { p1: null },
           end: { finished: { p1Wins: null } },
@@ -492,7 +513,7 @@ test("a wrongPhase rejection from a NON-join request still shows the error banne
           finalGame: { n: 7 },
           gen: 1n,
         },
-      },
+      }),
     },
   });
   const rematchBtn = els.screen.querySelectorAll("button").find((b) => "rematch" in b.dataset);
@@ -520,7 +541,7 @@ test("fallback transport (no ws.request): settles inFlight off the shared onmess
   assert.deepEqual(ws.sent[0]!.req, { reset: { gen: 0n } });
   assert.ok(doc.body.classList.contains("working"));
 
-  ws.onmessage!({ data: { view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } } });
+  ws.onmessage!({ data: { view: browsing() } });
   assert.equal(doc.body.classList.contains("working"), false);
 });
 

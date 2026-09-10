@@ -33,7 +33,7 @@ func expectErr<T>(r : TP.Res<T>, msg : Text) = switch (r) {
 /// ../../../backend/src/lib.mo's `Table.gen` doc. Only meaningful for a
 /// session actually in a live phase; a call made on behalf of an outsider
 /// passes a literal `0` instead (see those call sites' own comments).
-func genOf(t : Tbl, at : Int, session : Text) : Nat = switch (TP.status(t, at, session)) {
+func genOf(t : Tbl, at : Int, session : Text) : Nat = switch (t.status(at, session)) {
   case (#stagingYou v) v.gen;
   case (#inGame v) v.gen;
   case (#debrief v) v.gen;
@@ -41,7 +41,7 @@ func genOf(t : Tbl, at : Int, session : Text) : Nat = switch (TP.status(t, at, s
 };
 
 /// Same, for the `turn` a `submit` must additionally stamp.
-func turnOf(t : Tbl, at : Int, session : Text) : Nat = switch (TP.status(t, at, session)) {
+func turnOf(t : Tbl, at : Int, session : Text) : Nat = switch (t.status(at, session)) {
   case (#inGame v) v.turn;
   case (_) Runtime.trap("turnOf: " # session # " is not in an active game");
 };
@@ -49,8 +49,8 @@ func turnOf(t : Tbl, at : Int, session : Text) : Nat = switch (TP.status(t, at, 
 /// A live game: "a" on #p1, "b" on #p2, both seated at `at`.
 func gameOf(at : Int) : Tbl {
   let t = fresh();
-  ignore ok(TP.join(spec, t, at, "a", #p1), "a joins");
-  ignore ok(TP.join(spec, t, at, "b", #p2), "b joins");
+  ignore ok(t.join(spec, at, "a", #p1), "a joins");
+  ignore ok(t.join(spec, at, "b", #p2), "b joins");
   t;
 };
 
@@ -58,10 +58,10 @@ func gameOf(at : Int) : Tbl {
 /// undefended b).
 func debriefOf(at : Int) : Tbl {
   let t = gameOf(at);
-  ignore ok(TP.submit(spec, t, at, "a", genOf(t, at, "a"), turnOf(t, at, "a"), #load), "a load");
-  ignore ok(TP.submit(spec, t, at, "b", genOf(t, at, "b"), turnOf(t, at, "b"), #load), "b load");
-  ignore ok(TP.submit(spec, t, at, "a", genOf(t, at, "a"), turnOf(t, at, "a"), #shoot), "a shoot");
-  ignore ok(TP.submit(spec, t, at, "b", genOf(t, at, "b"), turnOf(t, at, "b"), #load), "b load 2");
+  ignore ok(t.submit(spec, at, "a", genOf(t, at, "a"), turnOf(t, at, "a"), #load), "a load");
+  ignore ok(t.submit(spec, at, "b", genOf(t, at, "b"), turnOf(t, at, "b"), #load), "b load");
+  ignore ok(t.submit(spec, at, "a", genOf(t, at, "a"), turnOf(t, at, "a"), #shoot), "a shoot");
+  ignore ok(t.submit(spec, at, "b", genOf(t, at, "b"), turnOf(t, at, "b"), #load), "b load 2");
   t;
 };
 
@@ -72,16 +72,16 @@ Debug.print("1. otherSeat OK");
 
 // ── 2. join on a staging: idempotent re-click, then a seat switch ──────────
 var t = fresh();
-ignore ok(TP.join(spec, t, T0, "a", #p1), "a stages");
-switch (ok(TP.join(spec, t, SOON, "a", #p1), "a re-clicks")) {
+ignore ok(t.join(spec, T0, "a", #p1), "a stages");
+switch (ok(t.join(spec, SOON, "a", #p1), "a re-clicks")) {
   case (#staged(#p1)) {};
   case (_) Runtime.trap("re-click must be idempotent, not a new match");
 };
-switch (ok(TP.join(spec, t, SOON, "a", #p2), "a switches seat")) {
+switch (ok(t.join(spec, SOON, "a", #p2), "a switches seat")) {
   case (#staged(#p2)) {};
   case (_) Runtime.trap("switching seats while alone must be allowed");
 };
-switch (TP.status(t, SOON, "a")) {
+switch (t.status(SOON, "a")) {
   case (#stagingYou v) {
     assert v.seat == #p2;
     assert not v.reservedForPartner;
@@ -97,8 +97,8 @@ Debug.print("2. join idempotence + seat switch OK");
 
 // ── 3. A held seat is #seatTaken until it goes idle, then evictable ────────
 t := fresh();
-ignore ok(TP.join(spec, t, T0, "a", #p1), "a stages");
-switch (TP.join(spec, t, SOON, "b", #p1)) {
+ignore ok(t.join(spec, T0, "a", #p1), "a stages");
+switch (t.join(spec, SOON, "b", #p1)) {
   case (#err(#seatTaken)) {};
   case (_) Runtime.trap("a fresh seat must not be stealable");
 };
@@ -107,15 +107,15 @@ switch (TP.join(spec, t, SOON, "b", #p1)) {
 // secondsUntilReclaimable clamps to 0 rather than going negative, which is
 // what a host's UI uses to switch from a quiet wait into an active warning
 // (see frontend/render.js's renderReclaimWarning).
-switch (TP.status(t, LATER, "a")) {
+switch (t.status(LATER, "a")) {
   case (#stagingYou v) { assert v.secondsUntilReclaimable == 0 };
   case (_) Runtime.trap("a should still see their own staging until evicted");
 };
-switch (ok(TP.join(spec, t, LATER, "b", #p1), "b evicts the squatter")) {
+switch (ok(t.join(spec, LATER, "b", #p1), "b evicts the squatter")) {
   case (#staged(#p1)) {};
   case (_) Runtime.trap("an idle squatter must be evictable");
 };
-switch (TP.status(t, LATER, "a")) {
+switch (t.status(LATER, "a")) {
   case (#stagingYou _) Runtime.trap("evicted player still holds the seat");
   case (#lobby l) { assert not l.p1Open; assert l.p2Open };
   case (_) Runtime.trap("evicted player should fall back to the lobby");
@@ -125,25 +125,25 @@ Debug.print("3. seat squat: #seatTaken then eviction OK");
 // ── 4. A rematch reservation blocks outsiders — until it expires ───────────
 t := debriefOf(T0);
 ignore ok(TP.rematch(spec, t, T0, "a"), "a requests a rematch");
-switch (TP.join(spec, t, SOON, "c", #p2)) {
+switch (t.join(spec, SOON, "c", #p2)) {
   case (#err(#reserved r)) { assert r.secondsLeft == 59 };
   case (_) Runtime.trap("the open seat is reserved for b");
 };
 // The reserved partner sees the invitation; an outsider only sees #busy.
-switch (TP.status(t, SOON, "b")) {
+switch (t.status(SOON, "b")) {
   case (#awaitingRematch r) { assert r.openSeat == #p2 };
   case (_) Runtime.trap("b should be invited to the open seat");
 };
-switch (TP.status(t, SOON, "c")) {
+switch (t.status(SOON, "c")) {
   case (#busy v) { assert v.secondsUntilTakeover == 59 };
   case (_) Runtime.trap("outsider should see #busy during a reservation");
 };
 // Once the reservation goes stale the outsider may take the seat.
-switch (ok(TP.join(spec, t, LATER, "c", #p2), "c takes the stale seat")) {
+switch (ok(t.join(spec, LATER, "c", #p2), "c takes the stale seat")) {
   case (#started(#p2)) {};
   case (_) Runtime.trap("an expired reservation must not block forever");
 };
-switch (TP.status(t, LATER, "a")) {
+switch (t.status(LATER, "a")) {
   case (#inGame g) { assert g.seat == #p1; assert g.turn == 0 };
   case (_) Runtime.trap("a should now be playing c");
 };
@@ -151,11 +151,11 @@ Debug.print("4. reservation: #reserved / #awaitingRematch / expiry OK");
 
 // ── 5. A veteran may rematch onto the OTHER seat; seats really swap ────────
 t := debriefOf(T0);
-switch (ok(TP.join(spec, t, T0, "a", #p2), "a rematches on p2")) {
+switch (ok(t.join(spec, T0, "a", #p2), "a rematches on p2")) {
   case (#staged(#p2)) {};
   case (_) Runtime.trap("a veteran may pick a different seat");
 };
-switch (TP.status(t, T0, "a")) {
+switch (t.status(T0, "a")) {
   case (#stagingYou v) {
     assert v.seat == #p2;
     assert v.reservedForPartner;
@@ -164,11 +164,11 @@ switch (TP.status(t, T0, "a")) {
   };
   case (_) Runtime.trap("a's rematch staging should reserve b's seat");
 };
-switch (ok(TP.join(spec, t, T0, "b", #p1), "b takes the swapped seat")) {
+switch (ok(t.join(spec, T0, "b", #p1), "b takes the swapped seat")) {
   case (#started(#p1)) {};
   case (_) Runtime.trap("b completes the pair");
 };
-switch (TP.status(t, T0, "b")) {
+switch (t.status(T0, "b")) {
   case (#inGame g) { assert g.seat == #p1; assert g.turn == 0 };
   case (_) Runtime.trap("b should hold p1 after the swap");
 };
@@ -177,12 +177,12 @@ Debug.print("5. rematch with seat swap OK");
 // ── 6. submit: double-submit, outsiders, empty board ───────────────────────
 t := gameOf(T0);
 let g6 = genOf(t, T0, "a");
-ignore ok(TP.submit(spec, t, T0, "a", g6, 0, #load), "a's move");
-switch (TP.submit(spec, t, T0, "a", g6, 0, #load)) {
+ignore ok(t.submit(spec, T0, "a", g6, 0, #load), "a's move");
+switch (t.submit(spec, T0, "a", g6, 0, #load)) {
   case (#err(#alreadySubmitted)) {};
   case (_) Runtime.trap("a second move in one round must be rejected");
 };
-switch (TP.submit(spec, t, T0, "zz", g6, 0, #load)) {
+switch (t.submit(spec, T0, "zz", g6, 0, #load)) {
   case (#err(#notSeated)) {};
   case (_) Runtime.trap("an outsider cannot move");
 };
@@ -193,35 +193,35 @@ switch (TP.submit(spec, fresh(), T0, "a", 0, 0, #load)) {
 // A stale `gen`/`turn` (from a match/round that's already moved on) is
 // rejected as #stale, not silently replayed against the current one —
 // see ../../../backend/src/lib.mo's `Table.gen` doc.
-switch (TP.submit(spec, t, T0, "b", g6 + 1, 0, #load)) {
+switch (t.submit(spec, T0, "b", g6 + 1, 0, #load)) {
   case (#err(#stale)) {};
   case (_) Runtime.trap("a stale gen must be rejected, not replayed");
 };
-switch (TP.submit(spec, t, T0, "b", g6, 1, #load)) {
+switch (t.submit(spec, T0, "b", g6, 1, #load)) {
   case (#err(#stale)) {};
   case (_) Runtime.trap("a stale turn must be rejected, not replayed");
 };
 Debug.print("6. submit rejections OK");
 
 // ── 7. Pending moves stay hidden; a rejected move does not burn the turn ───
-switch (TP.status(t, T0, "a")) {
+switch (t.status(T0, "a")) {
   case (#inGame g) { assert g.youSubmitted; assert not g.oppSubmitted };
   case (_) Runtime.trap("a is in the game");
 };
-switch (TP.status(t, T0, "b")) {
+switch (t.status(T0, "b")) {
   case (#inGame g) { assert not g.youSubmitted; assert g.oppSubmitted };
   case (_) Runtime.trap("b is in the game");
 };
 // b has no ammo: the shot is refused and b is still free to act this round.
-switch (TP.submit(spec, t, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #shoot)) {
+switch (t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #shoot)) {
   case (#err(#illegalMove _)) {};
   case (_) Runtime.trap("0-ammo shoot must be refused");
 };
-switch (TP.status(t, T0, "b")) {
+switch (t.status(T0, "b")) {
   case (#inGame g) { assert not g.youSubmitted };
   case (_) Runtime.trap("b is still in the game");
 };
-switch (ok(TP.submit(spec, t, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #load), "b's real move")) {
+switch (ok(t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #load), "b's real move")) {
   case (#roundResolved 1) {};
   case (_) Runtime.trap("a refused move must not consume the round");
 };
@@ -229,11 +229,11 @@ Debug.print("7. hidden pendings + non-consuming rejection OK");
 
 // ── 8. An outsider watching a live game sees a takeover countdown ──────────
 t := gameOf(T0);
-switch (TP.status(t, SOON, "zz")) {
+switch (t.status(SOON, "zz")) {
   case (#busy v) { assert v.secondsUntilTakeover == 59 };
   case (_) Runtime.trap("outsider should see #busy over a live game");
 };
-switch (TP.status(t, LATER, "zz")) {
+switch (t.status(LATER, "zz")) {
   case (#lobby l) { assert l.resetAvailable };
   case (_) Runtime.trap("a dead game should offer a reset");
 };
@@ -241,12 +241,12 @@ Debug.print("8. busy countdown → reset offer OK");
 
 // ── 9. leave: own staging empties the board; outsiders are refused ─────────
 t := fresh();
-ok(TP.leave(t, T0, "nobody", 0), "leaving an empty board is a no-op"); // gen ignored on #empty
-ignore ok(TP.join(spec, t, T0, "a", #p1), "a stages");
+ok(t.leave(T0, "nobody", 0), "leaving an empty board is a no-op"); // gen ignored on #empty
+ignore ok(t.join(spec, T0, "a", #p1), "a stages");
 // "zz" is not a's staging's session, so this is refused regardless of gen.
-expectErr(TP.leave(t, T0, "zz", 0), "outsider leave from staging");
-ok(TP.leave(t, T0, "a", genOf(t, T0, "a")), "a leaves its own staging");
-switch (TP.status(t, T0, "a")) {
+expectErr(t.leave(T0, "zz", 0), "outsider leave from staging");
+ok(t.leave(T0, "a", genOf(t, T0, "a")), "a leaves its own staging");
+switch (t.status(T0, "a")) {
   case (#lobby l) { assert l.p1Open; assert l.p2Open };
   case (_) Runtime.trap("board should be empty again");
 };
@@ -256,11 +256,11 @@ Debug.print("9. leave from staging / empty OK");
 //         rejected, not silently applied to the CURRENT one ───────────────
 t := gameOf(T0);
 let g9b = genOf(t, T0, "a");
-switch (TP.leave(t, T0, "a", g9b + 1)) {
+switch (t.leave(T0, "a", g9b + 1)) {
   case (#err(#stale)) {};
   case (_) Runtime.trap("a stale leave must not abort the live game");
 };
-switch (TP.status(t, T0, "a")) {
+switch (t.status(T0, "a")) {
   case (#inGame _) {};
   case (_) Runtime.trap("the live game must survive a stale leave untouched");
 };
@@ -268,23 +268,23 @@ Debug.print("9b. leave rejects a stale gen OK");
 
 // ── 10. The debrief frees the board only when BOTH players dismiss it ──────
 t := debriefOf(T0);
-// Captured once, up front: once "a" acks below, `TP.status(t, T0, "a")`
+// Captured once, up front: once "a" acks below, `t.status(T0, "a")`
 // stops being a live-phase view for a, but the debrief's own `gen`
 // doesn't change underneath a repeat/partner dismissal.
 let g10 = genOf(t, T0, "a");
-expectErr(TP.leave(t, T0, "zz", 0), "outsider leave from debrief");
-ok(TP.leave(t, T0, "a", g10), "a dismisses");
-switch (TP.status(t, T0, "b")) {
+expectErr(t.leave(T0, "zz", 0), "outsider leave from debrief");
+ok(t.leave(T0, "a", g10), "a dismisses");
+switch (t.status(T0, "b")) {
   case (#debrief _) {};
   case (_) Runtime.trap("b has not dismissed yet");
 };
-ok(TP.leave(t, T0, "a", g10), "a dismisses twice");
-switch (TP.status(t, T0, "b")) {
+ok(t.leave(T0, "a", g10), "a dismisses twice");
+switch (t.status(T0, "b")) {
   case (#debrief _) {};
   case (_) Runtime.trap("one player acking twice must not free the board");
 };
-ok(TP.leave(t, T0, "b", g10), "b dismisses");
-switch (TP.status(t, T0, "b")) {
+ok(t.leave(T0, "b", g10), "b dismisses");
+switch (t.status(T0, "b")) {
   case (#lobby _) {};
   case (_) Runtime.trap("both dismissed — board should be free");
 };
@@ -292,19 +292,19 @@ Debug.print("10. debrief needs both acks, dismissal idempotent OK");
 
 // ── 11. reset: owner any time, outsider only once idle ────────────────────
 t := fresh();
-ignore ok(TP.join(spec, t, T0, "a", #p1), "a stages");
-switch (TP.reset(t, SOON, "zz", 0)) { // outsider path never consults gen
+ignore ok(t.join(spec, T0, "a", #p1), "a stages");
+switch (t.reset(SOON, "zz", 0)) { // outsider path never consults gen
   case (#err(#notIdle n)) { assert n.secondsLeft == 59 };
   case (_) Runtime.trap("outsider reset must be gated by the timeout");
 };
-ok(TP.reset(t, SOON, "a", genOf(t, SOON, "a")), "owner resets its own staging");
-switch (TP.status(t, SOON, "a")) {
+ok(t.reset(SOON, "a", genOf(t, SOON, "a")), "owner resets its own staging");
+switch (t.status(SOON, "a")) {
   case (#lobby _) {};
   case (_) Runtime.trap("owner reset should empty the board");
 };
-ignore ok(TP.join(spec, t, T0, "a", #p1), "a stages again");
-ok(TP.reset(t, LATER, "zz", 0), "outsider resets an idle staging"); // outsider path
-switch (TP.status(t, LATER, "zz")) {
+ignore ok(t.join(spec, T0, "a", #p1), "a stages again");
+ok(t.reset(LATER, "zz", 0), "outsider resets an idle staging"); // outsider path
+switch (t.status(LATER, "zz")) {
   case (#lobby _) {};
   case (_) Runtime.trap("idle staging should be resettable");
 };
@@ -313,11 +313,11 @@ Debug.print("11. reset gating OK");
 // ── 11b. reset: a stale gen from a participant is rejected, exactly like
 //         a stale `leave` (reset delegates straight to it) ────────────────
 t := gameOf(T0);
-switch (TP.reset(t, T0, "a", genOf(t, T0, "a") + 1)) {
+switch (t.reset(T0, "a", genOf(t, T0, "a") + 1)) {
   case (#err(#stale)) {};
   case (_) Runtime.trap("a stale participant reset must not abort the live game");
 };
-switch (TP.status(t, T0, "a")) {
+switch (t.status(T0, "a")) {
   case (#inGame _) {};
   case (_) Runtime.trap("the live game must survive a stale reset untouched");
 };
@@ -325,8 +325,8 @@ Debug.print("11b. reset rejects a stale gen OK");
 
 // ── 12. A participant's reset mid-game is an abort, not a silent wipe ──────
 t := gameOf(T0);
-ok(TP.reset(t, T0, "a", genOf(t, T0, "a")), "a resets mid-game");
-switch (TP.status(t, T0, "b")) {
+ok(t.reset(T0, "a", genOf(t, T0, "a")), "a resets mid-game");
+switch (t.status(T0, "b")) {
   case (#debrief d) {
     switch (d.end) {
       case (#aborted(#p1)) {};
@@ -369,19 +369,19 @@ Debug.print("13. rematch phase guards OK");
 
 // ── 14. ackEnded: per-player, idempotent, and inert for strangers ──────────
 t := gameOf(T0);
-ok(TP.reset(t, LATER, "zz", 0), "outsider clears the dead game"); // outsider path
-TP.ackEnded(t, "stranger"); // not a participant — must change nothing
-switch (TP.status(t, LATER, "a")) {
+ok(t.reset(LATER, "zz", 0), "outsider clears the dead game"); // outsider path
+t.ackEnded("stranger"); // not a participant — must change nothing
+switch (t.status(LATER, "a")) {
   case (#endedByOther) {};
   case (_) Runtime.trap("a's notice must survive a stranger's ack");
 };
-TP.ackEnded(t, "a");
-TP.ackEnded(t, "a"); // idempotent
-switch (TP.status(t, LATER, "a")) {
+t.ackEnded("a");
+t.ackEnded("a"); // idempotent
+switch (t.status(LATER, "a")) {
   case (#endedByOther) Runtime.trap("a's ack did not clear the notice");
   case (_) {};
 };
-switch (TP.status(t, LATER, "b")) {
+switch (t.status(LATER, "b")) {
   case (#endedByOther) {};
   case (_) Runtime.trap("b's notice must survive a's ack");
 };

@@ -2,11 +2,12 @@
 
 Rules-agnostic browser client for any canister built on the
 [`duel-game-core`](../backend/README.md) Motoko engine. It implements every screen
-that's the same for every game — lobby, staging, rematch offer, busy
-countdown, debrief chrome, the `#endedByOther` notice — plus session
-identity and real-time push, so a new game only has to supply a small
-**GamePlugin**: the two Candid types, seat labels, and how to draw the
-board and action buttons.
+that's the same for every game — the multi-table lobby (create a table,
+browse open ones, join by code), staging, rematch offer, busy countdown,
+debrief chrome, the `#endedByOther` notice — plus session identity and
+real-time push, so a new game only has to supply a small **GamePlugin**:
+the two Candid types, seat labels, and how to draw the board and action
+buttons.
 
 Written in TypeScript, published pre-compiled: `npm install` in this
 package builds `dist/` (`npm run build`, plain `tsc`) and everything a
@@ -105,8 +106,10 @@ shown here with their defaults):
   automatically while the current sid still holds a seat (`stagingYou`/
   `inGame`/`debrief`) — swapping identities there would abandon that seat
   instead of freeing it, leaving it stuck until idle takeover reclaims it.
-- `screen` — where `renderView`'s output is written; also where clicks
-  are delegated from, so re-rendering never leaks event listeners.
+- `screen` — where `renderStatus`'s output is written (the multi-table
+  lobby or a specific table's own screen, depending on the current
+  status); also where clicks are delegated from, so re-rendering never
+  leaks event listeners.
 - `error` — where a transient rejection (`errText`) is shown.
 
 Override any of the ids: `start({ plugin, ws, sidElId: "...", ... })`.
@@ -195,8 +198,9 @@ property buys nothing and would cost a real BLS-verification dependency
 to check — a documented trade-off, not an oversight.
 
 **There is no plain-polling fallback.** A canister built on this
-framework has no `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`
-Candid method to poll in the first place — the ONLY way to mutate game
+framework has no `createTable`/`joinTable`/`submit`/`rematch`/`leave`/
+`reset`/`ackEnded` Candid method to poll in the first place — the ONLY
+way to mutate game
 state is `mo:duel-game-core/Ws`'s `ws_message` (see
 `../backend/src/Ws.mo`'s doc header for why: a direct update call is
 exactly the race a single, ordered WS channel exists to close). Every
@@ -321,7 +325,7 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 | Module                   | Exports                                   |
 | ------------------------ | ------------------------------------------ |
 | `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`'s own type plus the `Ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
-| `render.js`              | `renderView(view, plugin)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
+| `render.js`              | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
 | `app.js`                 | `start({ plugin, ws, ...elIds })`          |
 | `ic-env.js`              | `readIcEnv()`, `deriveHost()` (optional)   |
 | `ws.js`                  | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result |

@@ -36,8 +36,10 @@ module {
     };
   };
 
-  public func resolve(s : State, a1 : Action, a2 : Action)
-    : { state : State; verdict : ?TP.Verdict } {
+  public func resolve(s : State, a1 : Action, a2 : Action) : {
+    state : State;
+    verdict : ?TP.Verdict;
+  } {
     let attacked1 = a1 == #attack;
     let attacked2 = a2 == #attack;
 
@@ -50,11 +52,7 @@ module {
       case (#attack) if (s.p2 > 0) s.p2 - 1 else 0;
     };
 
-    let verdict : ?TP.Verdict =
-      if (attacked1 and attacked2) ?#draw
-      else if (attacked1) ?#p1Wins
-      else if (attacked2) ?#p2Wins
-      else null;
+    let verdict : ?TP.Verdict = if (attacked1 and attacked2) ?#draw else if (attacked1) ?#p1Wins else if (attacked2) ?#p2Wins else null;
 
     { state = { p1; p2 }; verdict };
   };

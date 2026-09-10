@@ -18,13 +18,18 @@ first to complete the lap wins.
   `frontend/src/assets/maps/island/scene.meta` — see `frontend/CLAUDE.md`
   for that file's format. Pure data; `RacingRules.mo` is what interprets
   it.
-- **`src/Host.mo`** — the host actor: forwards every call to the engine
-  with `Time.now()` and `Rules.spec()`, wired exactly as
+- **`src/Host.mo`** — the host actor: forwards every call to a
+  `TP.Registry<Rules.State, Rules.Action>` (built with `Registry.new`
+  from `mo:duel-game-core/registry`; a multi-table lobby — anyone may
+  open a table, open or access-code protected — not a single fixed
+  board; see `mo:duel-game-core`'s own doc header) with
+  `Time.now()` and `Rules.spec()`, wired exactly as
   `../../backend/README.md`'s example shows. Deploy target. `status` is
   the only plain Candid method on this actor (a `query`, side-effect-free
-  — see `../../CLAUDE.md`'s architecture rule 8); `join`/`submit`/
-  `rematch`/`leave`/`reset`/`ackEnded` have NO plain Candid method at
-  all — they're reachable exclusively through `mo:duel-game-core/Ws`'s
+  — see `../../CLAUDE.md`'s architecture rule 8); `createTable`/
+  `joinTable`/`submit`/`rematch`/`leave`/`reset`/`ackEnded` have NO plain
+  Candid method at all — they're reachable exclusively through
+  `mo:duel-game-core/Ws`'s
   `ws_message`, which is what `duel-app.js` actually talks to
   (`duel-game-core/ws.js`'s `GatewayWs`, a real `ic-websocket-cdk` client
   that self-registers this tab as its own Gateway, not client-side
@@ -35,7 +40,7 @@ first to complete the lap wins.
   see `../../backend/src/Ws.mo`'s doc header). `status` and `Ws.attach`
   are wired directly in `Host.mo`; the four `ws_*` Candid methods
   (including `ws_message`) plus the idle-sweep timer come from a single
-  `include ActorMixin<system>(ws, ...)` (`mo:duel-game-core/ActorMixin`)
+  `include ActorMixin<system>(ws, ...)` (`mo:duel-game-core/actor_mixin`)
   — no per-game `ws_message` declaration needed, since its `msgType`
   parameter is a plain `Blob`, not a type generic over this game's
   `State`/`Action`. See
@@ -66,7 +71,7 @@ first to complete the lap wins.
   no decorators.
   `frontend/src/duel/duel-app.js` + `duel-racing-plugin.js` are the whole
   `duel-game-core` integration (a `GamePlugin`, exactly like the `examples/007`
-  frontend) — they own the single global lobby/staging/rematch/debrief
+  frontend) — they own the multi-table lobby/staging/rematch/debrief
   chrome, driven by the real push transport `start()` requires
   (`duel-game-core/ws.js`'s `connectWs()`, exactly like
   `examples/007/frontend/app.js` — see `../../frontend/README.md`'s
@@ -107,9 +112,10 @@ first to complete the lap wins.
 ## Toolchain
 
 - moc **1.14.0** (mops toolchain — newer than `../../backend`'s and
-  `examples/007`'s pinned 1.11.2; `src/Host.mo`'s `mixin<system>(...)`
-  wiring for `mo:duel-game-core/ActorMixin` needs it), node/npm for the
-  frontend.
+  `examples/007`'s pinned 1.11.2, though nothing in this example's own
+  source actually requires it: every file here, including `src/Host.mo`'s
+  `mixin<system>(...)` wiring for `mo:duel-game-core/actor_mixin`, also
+  type-checks cleanly under 1.11.2), node/npm for the frontend.
 - Motoko dependencies: `duel-game-core` (path dependency on `../../backend`
   — see `mops.toml`), `core` (mo:core), and `ic-websocket-cdk` (only
   because `src/Host.mo` opts into `mo:duel-game-core/Ws` — see

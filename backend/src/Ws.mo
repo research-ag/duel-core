@@ -5,17 +5,17 @@
 /// no native WebSocket support).
 ///
 /// Every host actor built on this package MUST wire this module: it's the
-/// only way a client can mutate game state at all (`lib.mo`'s `TP.join`/
-/// `TP.submit`/... are not exposed as plain Candid methods anywhere — see
-/// `lib.mo`'s "How a host actor wires it" section). There is no
-/// dependency-free polling fallback any more — a direct update call
-/// bypassing this module is exactly the race a single, ordered WS channel
-/// exists to close (two independent update calls have no guaranteed
-/// relative processing order once both are in flight, so a plain `submit`
-/// racing this module's own traffic could resolve out of order against
-/// it). `status` is the one exception: it stays a plain public `query`
-/// (side-effect-free, no race risk) for tooling/tests that don't want a WS
-/// handshake.
+/// only way a client can mutate game state at all (`registry.mo`'s
+/// `createTable`/`joinTable`/`submit`/... are not exposed as
+/// plain Candid methods anywhere — see `lib.mo`'s "How a host actor wires
+/// it" section). There is no dependency-free polling fallback any more —
+/// a direct update call bypassing this module is exactly the race a
+/// single, ordered WS channel exists to close (two independent update
+/// calls have no guaranteed relative processing order once both are in
+/// flight, so a plain `submit` racing this module's own traffic could
+/// resolve out of order against it). `status` is the one exception: it
+/// stays a plain public `query` (side-effect-free, no race risk) for
+/// tooling/tests that don't want a WS handshake.
 ///
 /// This module is layered ON TOP of the pure engine (`lib.mo`), never
 /// merged into it: `lib.mo` stays free of `Time`, actor context, and every
@@ -34,39 +34,45 @@
 /// learns `sid <-> principal` from the `sid` every inbound `Msg` carries,
 /// and forgets it on `ws_close`.
 ///
-/// Every mutating request re-uses the plain engine operations (`TP.join`,
-/// `TP.submit`, ...) with `Time.now()` — nothing about game state or
-/// legality is reimplemented here — then pushes a fresh `TP.View` to every
-/// connected participant of the affected match (both seats, so an
-/// opponent's screen updates the instant a round resolves, not on their
-/// next poll).
+/// Every mutating request re-uses `Registry`'s own routed operations
+/// (`createTable`, `joinTable`, `submit`, ...) with `Time.now()` —
+/// nothing about game state, table routing, or legality is reimplemented
+/// here — then pushes a fresh `TP.SessionStatus` to every session that
+/// needs to see it: the affected table's own current occupants (both
+/// seats, so an opponent's screen updates the instant a round resolves,
+/// not on their next poll) and, whenever the open-table list itself may
+/// have changed, every OTHER connected session that isn't currently at a
+/// table (see `attach`'s `afterMutation`).
 ///
 /// `ws_close` — whether the client's own goodbye or the CDK's internal
 /// keep-alive timeout catching an involuntary disappearance (crash,
-/// force-quit, network drop) — also drives an implicit `TP.leave` on
-/// behalf of that session (see `attach`'s `onClose`/`disconnectSession`):
-/// a live game a player vanished from ends in a shared debrief instead of
-/// leaving their opponent staring at a move that's never coming, and a
-/// board BOTH players vanished from frees itself instead of sitting
-/// occupied with nobody left to poll it into freeing lazily. The CDK's
-/// keep-alive timeout is fixed at 60s (not configurable via
-/// `WsInitParams`), so involuntary disappearance has a real detection
-/// floor of roughly 60-120s depending on where in the ack cycle it
-/// happens — see `../README.md`'s real-time-push section.
+/// force-quit, network drop) — also drives an implicit `Registry.leave`
+/// on behalf of that session (see `attach`'s `onClose`/
+/// `disconnectSession`): a live game a player vanished from ends in a
+/// shared debrief instead of leaving their opponent staring at a move
+/// that's never coming, and a table BOTH players vanished from frees
+/// itself instead of sitting occupied with nobody left to poll it into
+/// freeing lazily. The CDK's keep-alive timeout is fixed at 60s (not
+/// configurable via `WsInitParams`), so involuntary disappearance has a
+/// real detection floor of roughly 60-120s depending on where in the ack
+/// cycle it happens — see `../README.md`'s real-time-push section.
 ///
 /// ── How a host actor wires it ──────────────────────────────────────────
 ///
 ///   import Time "mo:core/Time";
 ///   import TP "mo:duel-game-core";
+///   import Registry "mo:duel-game-core/registry";
 ///   import IcWebSocketCdk "mo:ic-websocket-cdk";
 ///   import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 ///   import Ws "mo:duel-game-core/Ws";
-///   import ActorMixin "mo:duel-game-core/ActorMixin";
+///   import ActorMixin "mo:duel-game-core/actor_mixin";
 ///
+///   let registry : TP.Registry<Rules.State, Rules.Action> =
+///     Registry.new(60_000_000_000); // 60 s idle timeout, per table
 ///   let hub : Ws.Hub = Ws.createHub();
 ///   let attached = Ws.attach<system, Rules.State, Rules.Action>(
 ///     Rules.spec(),
-///     table,
+///     registry,
 ///     hub,
 ///     {
 ///       encode = func(m) = to_candid (m);
@@ -83,8 +89,8 @@
 ///   // `ActorMixin` supplies all four `ws_*` Candid methods (open, close,
 ///   // message, get_messages) plus the idle-sweep timer — a host actor
 ///   // never has to hand-declare any of them. Wiring `attached.sweep`
-///   // (not a bare `TP.sweep(table, Time.now())`) is what makes a
-///   // still-connected tab whose game the sweep just ended get a fresh
+///   // (not a bare `registry.sweep(Time.now())`) is what makes
+///   // a still-connected tab whose game the sweep just ended get a fresh
 ///   // push instead of silently keeping a stale view — see `Attached`'s
 ///   // own doc below.
 ///   include ActorMixin<system>(attached.ws, attached.sweep);
@@ -108,6 +114,7 @@
 /// ═══════════════════════════════════════════════════════════════════════════
 
 import Map "mo:core/Map";
+import Nat "mo:core/Nat";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
@@ -115,7 +122,9 @@ import Timer "mo:core/Timer";
 import IcWebSocketCdk "mo:ic-websocket-cdk";
 import IcWebSocketCdkState "mo:ic-websocket-cdk/State";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
+
 import TP "./lib";
+import Registry "./registry";
 
 module {
 
@@ -127,21 +136,26 @@ module {
   // variant covering client->canister requests AND canister->client pushes,
   // not two separate types.
 
-  /// A client -> canister request. Mirrors the engine's six mutating
-  /// operations plus an explicit resync (`#status`, e.g. right after the
-  /// socket opens, before any local mutation has happened).
+  /// A client -> canister request. Mirrors `Registry`'s own operations
+  /// plus an explicit resync (`#status`, e.g. right after the socket
+  /// opens, before any local mutation has happened) — `#status` already
+  /// returns the open-table list whenever the caller isn't currently at
+  /// a table (see `TP.SessionStatus`), so there's no separate "list
+  /// tables" request to send.
   ///
   /// `#submit`/`#leave`/`#reset` carry the `gen` (and, for `#submit`,
   /// `turn`) the client last observed via `View` — see `TP.Table.gen`'s
-  /// own doc for why: it's what lets `TP.submit`/`TP.leave`/`TP.reset`
+  /// own doc for why: it's what lets `Registry.submit`/`leave`/`reset`
   /// reject a stale replay (most commonly a client-side resend of a call
   /// whose original attempt secretly already landed — see
   /// `../../frontend/src/ws/gateway-client.ts`'s resend-queue doc) as
   /// `#stale` instead of silently applying it to whatever match/round is
-  /// current by the time it's processed. `#join`/`#rematch`/`#ackEnded`
-  /// need no such binding — see the engine doc header's guarantee 6.
+  /// current by the time it's processed. `#createTable`/`#joinTable`/
+  /// `#rematch`/`#ackEnded` need no such binding — see the engine doc
+  /// header's guarantee 6.
   public type Request<M> = {
-    #join : TP.Seat;
+    #createTable : { seat : TP.Seat; visibility : TP.TableVisibility };
+    #joinTable : { id : TP.TableId; seat : TP.Seat; code : ?Text };
     #submit : { gen : Nat; turn : Nat; move : M };
     #rematch;
     #leave : { gen : Nat };
@@ -156,8 +170,8 @@ module {
   /// unrelated things a client cannot otherwise tell apart: the direct
   /// reply to ITS OWN outstanding request, and an unsolicited push this
   /// same connection gets because the OTHER seat just did something (see
-  /// `pushRelevant` below — a submit/join/etc. pushes a fresh view to
-  /// BOTH participants, not just the acting one). Before this field
+  /// `afterMutation` below — a submit/joinTable/etc. pushes a fresh
+  /// status to BOTH participants, not just the acting one). Before this field
   /// existed, a client-side FIFO match-the-next-message-to-the-oldest-
   /// pending-request scheme (the only thing available) could have an
   /// opponent's broadcast steal the slot meant for this connection's own
@@ -170,8 +184,8 @@ module {
   /// touches this type at all.
   public type Msg<S, M> = {
     #req : { sid : TP.SessionId; req : Request<M>; reqId : ?Nat64 }; // client -> canister
-    #view : { reqId : ?Nat64; view : TP.View<S> };                   // canister -> client
-    #err : { reqId : ?Nat64; err : TP.Err };                         // canister -> client
+    #view : { reqId : ?Nat64; view : TP.SessionStatus<S> }; // canister -> client
+    #err : { reqId : ?Nat64; err : TP.Err }; // canister -> client
   };
 
   /// Built at a call site where `S`/`M` are concrete (a host actor, not
@@ -288,43 +302,44 @@ module {
   /// What `attach` hands back to a host actor. `ws` is the raw CDK object
   /// (`ws.init<system>()`, and `ActorMixin`'s four `ws_*` methods forward
   /// straight into it). `sweep` is the idle-sweep hook `ActorMixin` wires
-  /// to its own recurring timer — it runs the engine's own `TP.sweep`
-  /// AND, unlike a bare `TP.sweep(table, Time.now())` would, pushes a
-  /// fresh view to every connected session in `hub` when that sweep just
-  /// collapsed a #staging/#active/#debrief phase to #empty. Without
-  /// going through here, that eviction is invisible to `hub`/
-  /// `pushRelevant` entirely (`ActorMixin.mo`'s timer has no access to
-  /// either), so a still-connected tab — whether one of the evicted
-  /// participants or just a lobby tab watching this table for an
-  /// opponent — would keep showing a stale view until it happened to
-  /// send a request of its own.
+  /// to its own recurring timer — it runs `Registry.sweep` (across EVERY
+  /// table in the registry) AND, unlike a bare
+  /// `registry.sweep(Time.now())` would, pushes a fresh status
+  /// to every connected session in `hub` when that sweep just timed
+  /// something out. Without going through here, that eviction is
+  /// invisible to `hub`/`afterMutation` entirely (`actor_mixin.mo`'s timer
+  /// has no access to either), so a still-connected tab — whether one of
+  /// the evicted participants or just a lobby tab browsing the table
+  /// list — would keep showing a stale status until it happened to send
+  /// a request of its own.
   public type Attached = {
     ws : IcWebSocketCdk.IcWebSocket;
     sweep : (Int) -> async* ();
   };
 
   /// `async*`/`await*`, not `async`/`await`, on `sweep` here and on every
-  /// push helper below (`pushTo`/`pushView`/`pushRelevant`/`finishClose`/
-  /// `sweepAndPush`): only `pushTo`'s own call to `IcWebSocketCdk.send`
-  /// is a genuine `await` — everything that calls it, directly or
-  /// transitively, is a thin wrapper (a fan-out loop, a phase-based
-  /// dispatch) with no awaiting of its own to do. A plain `async`/`await`
-  /// chain would still pay a real cost for each one of those wrappers: on
-  /// the IC, every `async` function call is its own message with its own
-  /// commit point, so e.g. `pushRelevant`'s two-seat fan-out would compile
-  /// to two extra round trips through the scheduler even though nothing
-  /// in either wrapper actually suspends. `async*`/`await*` inlines a
-  /// call into its caller's own async state machine instead of starting a
-  /// new one, so the whole `sweep`/`onMessage`/`onClose` call tree down to
-  /// `pushTo`'s single real `await` compiles to ONE message, not one per
-  /// wrapper — the same number of genuine sends, far fewer commit points
-  /// and continuation-closure allocations. Never widen one of these back
-  /// to plain `async`/`await` just to make a call site read more
-  /// familiarly; it silently reintroduces that per-wrapper overhead.
+  /// push helper below (`pushTo`/`pushStatus`/`afterMutation`/
+  /// `finishClose`/`sweepAndPush`): only `pushTo`'s own call to
+  /// `IcWebSocketCdk.send` is a genuine `await` — everything that calls
+  /// it, directly or transitively, is a thin wrapper (a fan-out loop, a
+  /// phase-based dispatch) with no awaiting of its own to do. A plain
+  /// `async`/`await` chain would still pay a real cost for each one of
+  /// those wrappers: on the IC, every `async` function call is its own
+  /// message with its own commit point, so e.g. `afterMutation`'s
+  /// multi-session fan-out would compile to one extra round trip through
+  /// the scheduler per session even though nothing in either wrapper
+  /// actually suspends. `async*`/`await*` inlines a call into its
+  /// caller's own async state machine instead of starting a new one, so
+  /// the whole `sweep`/`onMessage`/`onClose` call tree down to `pushTo`'s
+  /// single real `await` compiles to ONE message, not one per wrapper —
+  /// the same number of genuine sends, far fewer commit points and
+  /// continuation-closure allocations. Never widen one of these back to
+  /// plain `async`/`await` just to make a call site read more familiarly;
+  /// it silently reintroduces that per-wrapper overhead.
   /// `disconnectSession` below goes one step further and drops `async`
-  /// entirely — it calls only `TP.leave` (fully synchronous engine code,
-  /// no `await`/`await*` of any kind inside it), so there is no async
-  /// state machine to build at all.
+  /// entirely — it calls only `Registry.leave` (fully synchronous engine
+  /// code, no `await`/`await*` of any kind inside it), so there is no
+  /// async state machine to build at all.
 
   /// How long `onClose` waits before actually treating a closed
   /// connection as a genuine departure — see `onClose`'s own doc for the
@@ -337,19 +352,21 @@ module {
   let CLOSE_GRACE : Time.Duration = #seconds(3);
 
   /// Builds a ready-to-forward `IcWebSocketCdk.IcWebSocket` bound to one
-  /// game's `Spec`/`Table`: every inbound `#req` is dispatched to the
-  /// matching engine operation, and every connected participant of the
-  /// affected match gets a fresh `#view` push. A host actor forwards its
-  /// four `ws_*` Candid methods straight into the returned `ws` — see
-  /// this module's doc header for the exact one-liners — and wires the
+  /// game's `Spec`/`Registry`: every inbound `#req` is dispatched to
+  /// the matching `Registry` operation, and every session that needs to
+  /// see the result — the affected table's own occupants, and, when the
+  /// open-table list itself might have changed, every other browsing
+  /// session — gets a fresh `#view` push. A host actor forwards its four
+  /// `ws_*` Candid methods straight into the returned `ws` — see this
+  /// module's doc header for the exact one-liners — and wires the
   /// returned `sweep` to `ActorMixin`'s own idle-sweep timer instead of
-  /// calling `TP.sweep` directly (see `Attached`'s own doc for why).
+  /// calling `Registry.sweep` directly (see `Attached`'s own doc for why).
   /// Needs the `<system>` capability (like `ActorMixin`'s own
   /// `mixin<system>`) because `onClose` below schedules a deferred check
   /// via `Timer.setTimer<system>` — see its own doc.
   public func attach<system, S, M>(
     spec : TP.Spec<S, M>,
-    table : TP.Table<S, M>,
+    registry : TP.Registry<S, M>,
     hub : Hub,
     codec : Codec<S, M>,
     wsParams : IcWebSocketCdkTypes.WsInitParams,
@@ -366,48 +383,69 @@ module {
     };
 
     /// `reqId` is `null` unless `sid` is the session whose OWN request
-    /// triggered this push — see `pushRelevant`'s doc for why a push to
-    /// anyone else always passes `null` here.
-    func pushView(now : Int, sid : TP.SessionId, reqId : ?Nat64) : async* () {
-      await* pushTo(sid, #view({ reqId; view = TP.status(table, now, sid) }));
+    /// triggered this push — see `afterMutation`'s doc for why a push to
+    /// anyone else always passes `null` here. Always truthful and always
+    /// safe to call for any `sid`, seated or browsing: `Registry.status`
+    /// itself resolves which of the two it currently is.
+    func pushStatus(now : Int, sid : TP.SessionId, reqId : ?Nat64) : async* () {
+      await* pushTo(sid, #view({ reqId; view = registry.status(now, sid) }));
     };
 
-    /// Views change for both seats on almost every mutation (a submit can
-    /// resolve the round, a leave/rematch/reset can end or restart the
-    /// match) — push to whichever sids are actually part of the current
-    /// match, falling back to just the acting `sid` while staging/empty.
-    /// `reqId` (the acting session's own request token, see `Msg`'s doc)
-    /// is passed through ONLY to `sid` itself; the partner's push is
-    /// always an unsolicited broadcast from their point of view, `null`
-    /// regardless of what `sid` passed in.
-    func pushRelevant(now : Int, sid : TP.SessionId, reqId : ?Nat64) : async* () {
-      func forSid(other : TP.SessionId) : ?Nat64 {
-        if (other == sid) reqId else null;
+    /// The fan-out every successful mutating request runs after itself.
+    /// `sid` always gets its own fresh status first, correlated via
+    /// `reqId`. If `id` names a table that still exists, its own current
+    /// occupants (`#active`/`#debrief`'s `p1`/`p2`, `#staging`'s solo
+    /// occupant AND, if present, whoever a rematch reservation names —
+    /// worth pushing proactively so the invitation reaches them without
+    /// waiting for a request of their own) each get an unsolicited,
+    /// `reqId = null` push too — skipping `sid` itself, already covered
+    /// above. If `broadcastLobby` is set, every OTHER hub-connected
+    /// session that ISN'T currently at any table (i.e. genuinely
+    /// browsing) also gets a fresh push, since the open-table list itself
+    /// may have changed (a table created, filled, freed, or GC'd) —
+    /// `submit`/`rematch` pass `false` here, since neither can ever
+    /// change which tables are open to begin with.
+    func afterMutation(now : Int, sid : TP.SessionId, reqId : ?Nat64, id : ?TP.TableId, broadcastLobby : Bool) : async* () {
+      await* pushStatus(now, sid, reqId);
+      switch (id) {
+        case null {};
+        case (?id) switch (registry.tables.get(id)) {
+          case null {}; // GC'd — nobody left to reach through it
+          case (?t) {
+            switch (t.phase) {
+              case (#empty) {};
+              case (#staging st) {
+                if (st.session != sid) {
+                  await* pushStatus(now, st.session, null);
+                };
+                switch (st.reservedFor) {
+                  case (?partner) {
+                    if (partner != sid) {
+                      await* pushStatus(now, partner, null);
+                    };
+                  };
+                  case null {};
+                };
+              };
+              case (#active g) {
+                if (g.p1 != sid) { await* pushStatus(now, g.p1, null) };
+                if (g.p2 != sid) { await* pushStatus(now, g.p2, null) };
+              };
+              case (#debrief d) {
+                if (d.p1 != sid) { await* pushStatus(now, d.p1, null) };
+                if (d.p2 != sid) { await* pushStatus(now, d.p2, null) };
+              };
+            };
+          };
+        };
       };
-      switch (table.phase) {
-        case (#active g) {
-          await* pushView(now, g.p1, forSid(g.p1));
-          await* pushView(now, g.p2, forSid(g.p2));
-        };
-        case (#debrief d) {
-          await* pushView(now, d.p1, forSid(d.p1));
-          await* pushView(now, d.p2, forSid(d.p2));
-        };
-        case (_) {
-          // No fixed pair of participants yet (#empty / #staging) — the
-          // engine has no notion of "who else is watching an open seat"
-          // the way #active/#debrief's own p1/p2 fields do, so the only
-          // place that DOES know is this transport's own `hub`: everyone
-          // currently connected over WS, seated or not. Push to all of
-          // them, not just the session that acted — otherwise a tab
-          // sitting in the lobby watching for an opponent never finds out
-          // a seat was taken (or freed) until it happens to send a
-          // request of its own. `sid` itself is always among `hub.bySid`
-          // here (`remember` ran at the top of `onMessage`, before this),
-          // so it needs no special case — `forSid` still gives it its own
-          // `reqId` like any other branch.
-          for (other in Map.keys(hub.bySid)) {
-            await* pushView(now, other, forSid(other));
+      if (broadcastLobby) {
+        for (other in Map.keys(hub.bySid)) {
+          if (other != sid) {
+            switch (Map.get(registry.bySession, Text.compare, other)) {
+              case null { await* pushStatus(now, other, null) }; // genuinely browsing
+              case (?_) {}; // seated somewhere — already reached above if relevant
+            };
           };
         };
       };
@@ -417,49 +455,71 @@ module {
       args : IcWebSocketCdkTypes.OnMessageCallbackArgs
     ) : async* () {
       switch (codec.decode(args.message)) {
-        case (? #req { sid; req; reqId }) {
+        case (?#req { sid; req; reqId }) {
           remember(hub, sid, args.client_principal);
           let now = Time.now();
+          // This session's table BEFORE the request runs — the only way
+          // `submit`/`rematch`/`leave`/`reset`/`ackEnded` (none of which
+          // hand back a `TableId` of their own) can tell `afterMutation`
+          // which table's own occupants to also reach. `createTable`/
+          // `joinTable` don't need it: they return their own id directly.
+          let priorId = Map.get(registry.bySession, Text.compare, sid);
           switch (req) {
-            case (#status) { await* pushView(now, sid, reqId) };
-            case (#join seat) {
-              switch (TP.join(spec, table, now, sid, seat)) {
-                case (#ok _) { await* pushRelevant(now, sid, reqId) };
+            case (#status) { await* pushStatus(now, sid, reqId) };
+            case (#createTable { seat; visibility }) {
+              switch (registry.createTable(spec, now, sid, seat, visibility)) {
+                case (#ok id) await* afterMutation(now, sid, reqId, ?id, true);
+                case (#err e) await* pushTo(sid, #err({ reqId; err = e }));
+              };
+            };
+            case (#joinTable { id; seat; code }) {
+              switch (registry.joinTable(spec, now, sid, id, seat, code)) {
+                case (#ok _) {
+                  await* afterMutation(now, sid, reqId, ?id, true);
+                };
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#submit { gen; turn; move }) {
-              switch (TP.submit(spec, table, now, sid, gen, turn, move)) {
-                case (#ok _) { await* pushRelevant(now, sid, reqId) };
+              switch (registry.submit(spec, now, sid, gen, turn, move)) {
+                case (#ok _) {
+                  await* afterMutation(now, sid, reqId, priorId, false);
+                };
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#rematch) {
-              switch (TP.rematch(spec, table, now, sid)) {
-                case (#ok _) { await* pushRelevant(now, sid, reqId) };
+              switch (registry.rematch(spec, now, sid)) {
+                case (#ok _) {
+                  await* afterMutation(now, sid, reqId, priorId, false);
+                };
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#leave { gen }) {
-              switch (TP.leave(table, now, sid, gen)) {
-                case (#ok _) { await* pushRelevant(now, sid, reqId) };
+              switch (registry.leave(now, sid, gen)) {
+                case (#ok _) {
+                  await* afterMutation(now, sid, reqId, priorId, true);
+                };
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#reset { gen }) {
-              switch (TP.reset(table, now, sid, gen)) {
-                case (#ok _) { await* pushRelevant(now, sid, reqId) };
+              switch (registry.reset(now, sid, gen)) {
+                case (#ok _) {
+                  await* afterMutation(now, sid, reqId, priorId, true);
+                };
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };
             };
             case (#ackEnded) {
-              TP.ackEnded(table, sid);
-              await* pushView(now, sid, reqId);
+              registry.ackEnded(sid);
+              await* afterMutation(now, sid, reqId, priorId, true);
             };
           };
         };
         case (_) {}; // malformed, or a client sending a canister->client
-                     // variant — nothing sane to attribute this to; drop it.
+        // variant — nothing sane to attribute this to; drop it.
       };
     };
 
@@ -472,14 +532,41 @@ module {
     /// second acks that same debrief immediately, since a session whose
     /// socket just closed will never come back to click "leave" a second
     /// time itself the way a still-connected player would.
+    /// The table's OWN CURRENT `gen`, not a caller-supplied value — this
+    /// leave is driven by the socket closing, not by any `#req` a client
+    /// sent, so there's no earlier-observed generation to validate
+    /// against and it must always go through. (Unrelated to
+    /// `Hub.generation`/`seenGen` below, which tracks WS *connection*
+    /// identity, not match epochs.) `null` if `sid` isn't at any table.
+    func genOfSessionsTable(sid : TP.SessionId) : ?Nat = switch (Map.get(registry.bySession, Text.compare, sid)) {
+      case null null;
+      case (?id) switch (Map.get(registry.tables, Nat.compare, id)) {
+        case null null;
+        case (?t) ?t.gen;
+      };
+    };
+
+    /// Two calls, each re-resolving `sid`'s CURRENT table fresh (unlike
+    /// the single-table engine, `Registry.leave` can change — or clear —
+    /// which table `sid` even maps to in between them): the first
+    /// performs whatever `leave` means for `sid`'s CURRENT phase
+    /// (staging -> empty / active -> shared `#aborted` debrief, which
+    /// does NOT auto-ack `sid`'s own side — see `Registry.leave`'s own
+    /// doc — / debrief -> ack); the second, re-resolved, call then acks
+    /// that same debrief immediately, since a session whose socket just
+    /// closed will never come back to click "leave" a second time itself
+    /// the way a still-connected player would. A no-op call (nothing
+    /// left to resolve `sid` to) is silently skipped rather than passed
+    /// a made-up `gen`.
     func disconnectSession(now : Int, sid : TP.SessionId) {
-      // `table.gen` itself, not a caller-supplied value: this leave is
-      // driven by the socket closing, not by any `#req` a client sent, so
-      // there's no earlier-observed generation to validate against — it
-      // must always go through. (Unrelated to `Hub.generation`/`seenGen`
-      // below, which tracks WS *connection* identity, not match epochs.)
-      ignore TP.leave(table, now, sid, table.gen);
-      ignore TP.leave(table, now, sid, table.gen);
+      switch (genOfSessionsTable(sid)) {
+        case (?g) ignore registry.leave(now, sid, g);
+        case null {};
+      };
+      switch (genOfSessionsTable(sid)) {
+        case (?g) ignore registry.leave(now, sid, g);
+        case null {};
+      };
     };
 
     /// The actual disconnect work `onClose` defers behind `CLOSE_GRACE` —
@@ -489,7 +576,7 @@ module {
     /// this close turned out to be stale after all — back off entirely
     /// rather than abort a game a still-connected player never left. On
     /// a genuine departure, also prunes `s`'s own `hub.generation` entry
-    /// once the suspension below (`await* pushRelevant`, which still
+    /// once the suspension below (`await* afterMutation`, which still
     /// reaches a real IC `await` down in `pushTo` — `async*`/`await*`
     /// removes the extra per-wrapper MESSAGE, not the underlying
     /// suspension itself, see `Attached`'s own doc) has had its chance to
@@ -508,11 +595,17 @@ module {
     func finishClose(s : TP.SessionId, seenGen : Nat) : async* () {
       if (generationOf(hub, s) != seenGen) return; // reconnected since — false alarm
       let now = Time.now();
+      // Captured BEFORE disconnecting: `s`'s own mapping is always fully
+      // cleared by the time `disconnectSession` returns (see its own
+      // doc), so this is the only chance to know which table to check
+      // for a doubly-abandoned partner below.
+      let priorId = Map.get(registry.bySession, Text.compare, s);
       disconnectSession(now, s);
-      // Both gone: free the board now instead of leaving it occupied
+      // Both gone: free the table now instead of leaving it occupied
       // until the idle timeout notices. Only reachable via #debrief
       // here, since disconnectSession() above already collapsed
-      // #active into #debrief and #staging into #empty.
+      // #active into #debrief-then-acked-for-`s` and #staging into
+      // #empty.
       //
       // Caveat: `hub.bySid` only tracks sessions connected over THIS
       // WS transport — if a table were ever driven by two genuinely
@@ -530,19 +623,25 @@ module {
       // second deferral on top for the partner is not worth the extra
       // latency it would add to freeing a genuinely doubly-abandoned
       // board.
-      switch (table.phase) {
-        case (#debrief d) {
-          if (d.p1 == s or d.p2 == s) {
-            let partner = if (d.p1 == s) d.p2 else d.p1;
-            switch (Map.get(hub.bySid, Text.compare, partner)) {
-              case null disconnectSession(now, partner);
-              case (?_) {}; // partner is still connected — nothing to do
+      switch (priorId) {
+        case null {};
+        case (?id) switch (Map.get(registry.tables, Nat.compare, id)) {
+          case null {}; // already GC'd — nothing left to check
+          case (?t) switch (t.phase) {
+            case (#debrief d) {
+              if (d.p1 == s or d.p2 == s) {
+                let partner = if (d.p1 == s) d.p2 else d.p1;
+                switch (Map.get(hub.bySid, Text.compare, partner)) {
+                  case null disconnectSession(now, partner);
+                  case (?_) {}; // partner is still connected — nothing to do
+                };
+              };
             };
+            case (_) {};
           };
         };
-        case (_) {};
       };
-      await* pushRelevant(now, s, null);
+      await* afterMutation(now, s, null, priorId, true);
       // Safe to prune only if nothing bumped the generation again while
       // that suspended — see this function's own doc.
       if (generationOf(hub, s) == seenGen) {
@@ -597,31 +696,45 @@ module {
 
     let handlers = IcWebSocketCdkTypes.WsHandlers(null, ?onMessage, ?onClose);
 
-    /// See `Attached`'s own doc. Only if `TP.sweep` actually evicted
-    /// someone (the phase collapsed to #empty — checked both before AND
-    /// after, so a table already #empty going in is recognized as "this
-    /// sweep did nothing") does this push a fresh (now #lobby/
-    /// #endedByOther) view — to EVERY currently connected session in
-    /// `hub`, not just the sweep's own former p1/p2/staging occupant.
-    /// This mirrors `pushRelevant`'s own #empty/#staging fallback branch
-    /// exactly, and for the same reason: `hub.bySid` is the only place
-    /// that knows about a tab sitting in the lobby watching this table
-    /// for an opponent (or waiting for the seat to free up), and such a
-    /// tab is never one of the former participants a narrower,
-    /// participants-only push would reach — without this, it wouldn't
-    /// learn the table just freed up until it happened to send a
+    /// See `Attached`'s own doc. Only if `Registry.sweep` actually evicted
+    /// someone from AT LEAST ONE table (checked by snapshotting every
+    /// table's phase before sweeping, then checking which are #empty
+    /// afterward — so a registry with nothing to evict does no further
+    /// work) does this push a fresh status — to EVERY currently connected
+    /// session in `hub`, not just the sweep's own former occupants of
+    /// whichever table(s) actually timed out. This mirrors
+    /// `afterMutation`'s own lobby-broadcast branch exactly, and for the
+    /// same reason: `hub.bySid` is the only place that knows about a tab
+    /// browsing the table list, and such a tab is never one of the former
+    /// participants a narrower, participants-only push would reach —
+    /// without this, it wouldn't learn a table just freed up (or
+    /// disappeared entirely, once GC'd) until it happened to send a
     /// request of its own.
     func sweepAndPush(now : Int) : async* () {
-      let wasEmpty = switch (table.phase) { case (#empty) true; case (_) false };
-      TP.sweep(table, now);
-      if (wasEmpty) return; // already empty going in — this sweep did nothing
-      let becameEmpty = switch (table.phase) { case (#empty) true; case (_) false };
-      if (not becameEmpty) return; // nothing timed out this round
+      // Snapshot the CURRENT tables — `Table<S, M>`'s own `var phase`
+      // makes each one a genuine mutable reference, so after
+      // `Registry.sweep` mutates (and possibly GCs) them below, this
+      // snapshot's own entries still read whatever the sweep just did to
+      // them, even for one removed from `registry.tables` itself in the
+      // meantime.
+      let snapshot = Map.toArray(registry.tables);
+      registry.sweep(now);
+      var anyTableFreedUp = false;
+      for ((_, t) in snapshot.values()) {
+        switch (t.phase) {
+          case (#empty) anyTableFreedUp := true; // this one just timed out
+          case (_) {}; // still occupied — nothing timed out for it this round
+        };
+      };
+      if (not anyTableFreedUp) return; // nothing to tell anyone about
       for (sid in Map.keys(hub.bySid)) {
-        await* pushView(now, sid, null);
+        await* pushStatus(now, sid, null);
       };
     };
 
-    { ws = IcWebSocketCdk.IcWebSocket(wsState, wsParams, handlers); sweep = sweepAndPush };
+    {
+      ws = IcWebSocketCdk.IcWebSocket(wsState, wsParams, handlers);
+      sweep = sweepAndPush;
+    };
   };
 };

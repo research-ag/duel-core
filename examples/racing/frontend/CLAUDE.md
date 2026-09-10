@@ -22,8 +22,9 @@ session exactly as much time as a wrong one.
 
 ## App structure and duel-game-core integration
 
-A single global lobby, single track, single car example, plain
-TypeScript with no framework:
+A single track, single car example (duel-game-core's own multi-table
+lobby is what this game uses — see below — there's just nothing here to
+choose beyond a table and a seat), plain TypeScript with no framework:
 
 - `src/main.ts` wires the gameplay/physics/rendering services together by
   hand (plain `new X(...)` calls, dependency order matters — see its
@@ -33,10 +34,10 @@ TypeScript with no framework:
   per file with constructor-injected dependencies.
 - duel-game-core's own generic screens (`index.html`'s `#screen`, driven
   by `src/duel/duel-app.js` + `src/duel/duel-racing-plugin.js`) own
-  everything before and after a race: choosing a seat, waiting for an
-  opponent, rematch, debrief. There is exactly one global lobby, one
-  track, and one car (see `../CLAUDE.md`) — no settings UI, no login, no
-  user menu, no car selection. The camera mode, step-control color,
+  everything before and after a race: creating/browsing/joining a table,
+  choosing a seat, waiting for an opponent, rematch, debrief. There is
+  exactly one track and one car (see `../CLAUDE.md`) — no settings UI, no
+  login, no user menu, no car/map selection. The camera mode, step-control color,
   shadow resolution, and texture filtering are fixed constants, hardcoded
   at their call sites (`player-view.service.ts`,
   `control-scene.service.ts`, `world-scene.service.ts`); the camera is

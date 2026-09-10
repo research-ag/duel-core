@@ -129,7 +129,7 @@ module {
           let last_keep_alive = client_metadata.get_last_keep_alive_timestamp();
 
           if (Utils.get_current_time() - last_keep_alive > Constants.Computed().CLIENT_KEEP_ALIVE_TIMEOUT_NS) {
-            await* ws_state.remove_client(client_key, ?handlers, ? #KeepAliveTimeout);
+            await* ws_state.remove_client(client_key, ?handlers, ?#KeepAliveTimeout);
 
             Utils.custom_print("[check-keep-alive-timer-cb]: Client " # Types.clientKeyToText(client_key) # " has not sent a keep alive message in the last " # debug_show (Constants.Computed().CLIENT_KEEP_ALIVE_TIMEOUT_MS) # " ms and has been removed");
           };

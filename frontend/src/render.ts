@@ -26,6 +26,8 @@ import type {
   LobbyView,
   SeatTag,
   StagingYouView,
+  Status,
+  TableSummary,
   View,
 } from "./types.js";
 
@@ -81,6 +83,10 @@ export function errText(e: EngineErr): string {
       return `That seat is held for a rematch — ${(v as { secondsLeft: bigint }).secondsLeft}s left.`;
     case "notIdle":
       return `The board is in use — ${(v as { secondsLeft: bigint }).secondsLeft}s until it can be taken over.`;
+    case "noSuchTable":
+      return "That table doesn't exist any more.";
+    case "badCode":
+      return "Wrong (or missing) access code for that table.";
     default:
       return t;
   }
@@ -88,7 +94,7 @@ export function errText(e: EngineErr): string {
 
 function renderLobby(v: LobbyView, plugin: GamePlugin): string {
   const seatBtn = (seat: SeatTag, open: boolean) => `
-    <button class="seat" data-join="${seat}" ${open ? "" : "disabled"}>
+    <button class="seat" data-join-table="${seat}" ${open ? "" : "disabled"}>
       <span class="seat-label">${esc(plugin.seatLabel(seat))}</span>
       <span class="muted">${open ? "seat open" : "taken"}</span>
     </button>`;
@@ -103,6 +109,67 @@ function renderLobby(v: LobbyView, plugin: GamePlugin): string {
         ? `<p><button data-reset class="ghost">Clear the abandoned board</button></p>`
         : ""
     }`;
+}
+
+// ---------------------------------------------------------------------
+// The lobby-of-tables screen (`Status.browsing` — nobody's created or
+// joined a table yet). Three parts: a "create a table" form (seat +
+// open/protected visibility), the browsable list of open tables (each
+// row its own per-seat join buttons), and a "join by code" mini-form for
+// a table a friend shared out of band (never listed, since it's
+// protected). See app.ts's click delegation for how each button's
+// dataset is read back into a `createTable`/`joinTable` request.
+// ---------------------------------------------------------------------
+
+function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
+  const seatBtn = (seat: SeatTag, open: boolean) => `
+    <button class="seat" data-join-table-id="${r.id}" data-join-table="${seat}" ${open ? "" : "disabled"}>
+      ${esc(plugin.seatLabel(seat))}
+    </button>`;
+  return `
+    <div class="table-row">
+      <span class="table-id">Table #${r.id}</span>
+      <span class="muted">waiting ${r.waitingSecs}s</span>
+      ${seatBtn("p1", r.p1Open)}
+      ${seatBtn("p2", r.p2Open)}
+    </div>`;
+}
+
+function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): string {
+  const seatBtn = (seat: SeatTag) => `
+    <button class="seat" data-create-table="${seat}">${esc(plugin.seatLabel(seat))}</button>`;
+  return `
+    <h2>Duel lobby</h2>
+
+    <section class="create-table">
+      <h3>Start a new table</h3>
+      <label><input type="radio" name="table-visibility" value="open" checked /> Open — anyone can join</label>
+      <label><input type="radio" name="table-visibility" value="code" /> Protected — share a code with a friend</label>
+      <input type="text" id="create-code" class="table-code-input" placeholder="access code" hidden />
+      <div class="seats">
+        ${seatBtn("p1")}
+        ${seatBtn("p2")}
+      </div>
+    </section>
+
+    <section class="open-tables">
+      <h3>Open tables</h3>
+      ${
+        v.tables.length === 0
+          ? `<p class="muted">No open tables right now — start one above.</p>`
+          : v.tables.map((r) => renderTableRow(r, plugin)).join("")
+      }
+    </section>
+
+    <section class="join-by-code">
+      <h3>Have a code?</h3>
+      <input type="text" id="joinbycode-id" placeholder="table #" inputmode="numeric" />
+      <input type="text" id="joinbycode-code" placeholder="access code" />
+      <div class="seats">
+        <button class="seat ghost" data-join-table-by-code="p1">${esc(plugin.seatLabel("p1"))}</button>
+        <button class="seat ghost" data-join-table-by-code="p2">${esc(plugin.seatLabel("p2"))}</button>
+      </div>
+    </section>`;
 }
 
 function renderBusy(v: BusyView): string {
@@ -229,8 +296,11 @@ function renderEndedByOther(): string {
     <p><button data-ack class="primary">Return to lobby</button></p>`;
 }
 
-/// View -> HTML. One branch per engine phase; `inGame`/`debrief` delegate
-/// the board/action markup to `plugin`.
+/// View -> HTML. One branch per per-table engine phase; `inGame`/
+/// `debrief` delegate the board/action markup to `plugin`. Always
+/// reached through `renderStatus` below via a `Status.atTable` — never
+/// called directly on a `browsing` status, which has no single table's
+/// `View` to speak of.
 export function renderView<S>(view: View<S>, plugin: GamePlugin<S>): string {
   const t = tag(view as object);
   const v = val(view as object);
@@ -251,5 +321,24 @@ export function renderView<S>(view: View<S>, plugin: GamePlugin<S>): string {
       return renderEndedByOther();
     default:
       return `<p class="error">Unknown view: ${esc(t)}</p>`;
+  }
+}
+
+/// Status -> HTML, the top-level entry point `app.ts` renders every
+/// screen through. `browsing` is the multi-table lobby (`renderBrowsing`
+/// above); `atTable` prefixes a small "Table #N" badge and delegates the
+/// rest to `renderView`.
+export function renderStatus<S>(status: Status<S>, plugin: GamePlugin<S>): string {
+  const t = tag(status as object);
+  const v = val(status as object);
+  switch (t) {
+    case "browsing":
+      return renderBrowsing(v as { tables: TableSummary[] }, plugin);
+    case "atTable": {
+      const { id, view } = v as { id: bigint; view: View<S> };
+      return `<div class="table-badge">Table #${id}</div>${renderView(view, plugin)}`;
+    }
+    default:
+      return `<p class="error">Unknown status: ${esc(t)}</p>`;
   }
 }

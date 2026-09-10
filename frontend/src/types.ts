@@ -38,7 +38,45 @@ export type EngineErr =
   // `Table.gen` doc. Handled the same way as `alreadySubmitted` (see
   // gateway-client.ts's `_isRetryAmbiguousError`): refetch `status`
   // instead of surfacing this as a failure.
-  | { stale: null };
+  | { stale: null }
+  // `joinTable` named a `TableId` no table in the registry currently
+  // holds — never existed, or already garbage-collected.
+  | { noSuchTable: null }
+  // `joinTable` targeted a code-protected table with a missing or
+  // wrong code.
+  | { badCode: null };
+
+/// A table's numeric id — assigned sequentially, never reused even once
+/// a table is garbage-collected (see registry.mo's `Registry`).
+export type TableId = bigint;
+
+/// `open` tables are discoverable via a `browsing` status; a `code`
+/// table is never listed — reachable only by its `TableId` AND its
+/// code, both shared with a friend out of band.
+export type Visibility = { open: null } | { code: string };
+
+export interface TableSummary {
+  id: TableId;
+  p1Open: boolean;
+  p2Open: boolean;
+  waitingSecs: bigint;
+}
+
+export interface BrowsingStatus {
+  tables: TableSummary[];
+}
+
+export interface AtTableStatus<S = unknown> {
+  id: TableId;
+  view: View<S>;
+}
+
+/// The per-caller lobby-scoped screen — either browsing the open-table
+/// list, or seated/staged/playing/debriefing at a specific table (`view`
+/// is exactly the same per-table `View<S>` below, just labeled with
+/// which table it's about). What `status(sid)` returns, and what every
+/// `#view` push carries. Mirrors `TP.SessionStatus<S>` on the backend.
+export type Status<S = unknown> = { browsing: BrowsingStatus } | { atTable: AtTableStatus<S> };
 
 export interface LobbyView {
   p1Open: boolean;
@@ -113,8 +151,12 @@ export interface GamePlugin<S = unknown> {
 /// `submit`, `turn`) the caller last saw in a `View` — see lib.mo's
 /// `Table.gen` doc for why: a stale value there is rejected as `#stale`
 /// instead of being replayed against whatever match/round is current.
+/// There's no separate "list tables" request — a `status` reply already
+/// carries the open-table list whenever the caller isn't at a table (see
+/// `Status`).
 export type WsRequest<A = unknown> =
-  | { join: Seat }
+  | { createTable: { seat: Seat; visibility: Visibility } }
+  | { joinTable: { id: TableId; seat: Seat; code: [] | [string] } }
   | { submit: { gen: bigint; turn: bigint; move: A } }
   | { rematch: null }
   | { leave: { gen: bigint } }
@@ -122,9 +164,9 @@ export type WsRequest<A = unknown> =
   | { ackEnded: null }
   | { status: null };
 
-/// What a settled call/push resolves to — either a fresh view or a
+/// What a settled call/push resolves to — either a fresh status or a
 /// rejection. Never both.
-export type WsPayload<S = unknown> = { view: View<S> } | { err: EngineErr };
+export type WsPayload<S = unknown> = { view: Status<S> } | { err: EngineErr };
 
 /// The standard WebSocket-like surface `app.ts`'s `start()` requires —
 /// see app.ts's own header for what "WebSocket-like" means here and why
