@@ -61,9 +61,9 @@ module {
   /// pair's notice the moment the second one landed. Skips recording an
   /// entry that's already fully acked (the pre-acked-debrief-takeover
   /// case) — nothing downstream ever needs one.
-  public func noteEnded<S, M>(self : Table<S, M>, p1 : T.SessionId, p2 : T.SessionId, acked : [T.SessionId]) {
+  public func noteEnded<S, M>(self : Table<S, M>, now : Int, p1 : T.SessionId, p2 : T.SessionId, acked : [T.SessionId]) {
     if (member(acked, p1) and member(acked, p2)) return;
-    self.lastEnded := self.lastEnded.concat([{ p1; p2; acked }]);
+    self.lastEnded := self.lastEnded.concat([{ p1; p2; acked; since = now }]);
   };
 
   public func unackedEnded<S, M>(self : Table<S, M>, session : T.SessionId) : Bool {
@@ -73,6 +73,23 @@ module {
       };
     };
     false;
+  };
+
+  /// A notice's own participant is never coming back to ack it (closed tab,
+  /// a session id that only ever lived client-side, ...) often enough that
+  /// `lastEnded` can't just wait forever — otherwise `Registry.gcIfQuiesced`
+  /// keeps ANY table with one dangling entry alive permanently: an `#empty`
+  /// table it applies to reports `waitingSecs = 0` on every single
+  /// `listTables` call (see `Registry.openness`'s `#empty` branch), so it
+  /// resurfaces in the lobby, looking freshly opened, forever — even across
+  /// entirely new, cleanly-finished games later played on the same board.
+  /// A generous multiple of the idle timeout is long enough that a player
+  /// who's actually coming back already would have by now, so dropping the
+  /// notice unacked here is a deliberately rare, low-stakes trade against
+  /// that alternative. Only ever called from `sweep` (a bare, unswept
+  /// `Table` simply never prunes — same as it never idle-evicts).
+  func pruneEnded<S, M>(self : Table<S, M>, now : Int) {
+    self.lastEnded := self.lastEnded.filter(func(e) = now - e.since < self.idleTimeoutNs * 10);
   };
 
   /// `null` if `gen` still matches the table's current match generation;
@@ -164,7 +181,7 @@ module {
         } else if (self.isExpired(g.lastActivity, now)) {
           // idle takeover: the abandoned game evaporates; its players will
           // see #endedByOther until they acknowledge
-          self.noteEnded(g.p1, g.p2, []);
+          self.noteEnded(now, g.p1, g.p2, []);
           self.stage(now, session, seat, null);
           #ok(#staged(seat));
         } else {
@@ -188,7 +205,7 @@ module {
           case null {
             if (self.isExpired(d.since, now)) {
               // window over; debriefed players already saw their result
-              self.noteEnded(d.p1, d.p2, [d.p1, d.p2]);
+              self.noteEnded(now, d.p1, d.p2, [d.p1, d.p2]);
               self.stage(now, session, seat, null);
               #ok(#staged(seat));
             } else {
@@ -414,7 +431,7 @@ module {
         if (Option.isSome(getSessionSeat(g, session))) {
           self.leave(now, session, gen); // participant reset = abort with shared debrief
         } else if (self.isExpired(g.lastActivity, now)) {
-          self.noteEnded(g.p1, g.p2, []);
+          self.noteEnded(now, g.p1, g.p2, []);
           self.phase := #empty;
           #ok(());
         } else {
@@ -426,7 +443,7 @@ module {
         if (Option.isSome(getSessionSeat(d, session))) {
           self.leave(now, session, gen);
         } else if (self.isExpired(d.since, now)) {
-          self.noteEnded(d.p1, d.p2, [d.p1, d.p2]); // they saw their debrief
+          self.noteEnded(now, d.p1, d.p2, [d.p1, d.p2]); // they saw their debrief
           self.phase := #empty;
           #ok(());
         } else {
@@ -443,7 +460,11 @@ module {
   /// game there is often nobody left to poll an abandoned board and
   /// trigger the lazy, visitor-driven eviction those two functions do, so
   /// without this a board both players walked away from just sits
-  /// occupied forever instead of freeing itself.
+  /// occupied forever instead of freeing itself. Also prunes any
+  /// long-unacked `lastEnded` notices (see `pruneEnded`'s own doc) — the
+  /// only place that happens, so a bare `Table` driven by nothing but
+  /// `join`/`submit`/... directly never prunes, same as it never
+  /// idle-evicts on its own either.
   public func sweep<S, M>(self : Table<S, M>, now : Int) {
     switch (self.phase) {
       case (#empty) {};
@@ -452,17 +473,18 @@ module {
       };
       case (#active g) {
         if (self.isExpired(g.lastActivity, now)) {
-          self.noteEnded(g.p1, g.p2, []);
+          self.noteEnded(now, g.p1, g.p2, []);
           self.phase := #empty;
         };
       };
       case (#debrief d) {
         if (self.isExpired(d.since, now)) {
-          self.noteEnded(d.p1, d.p2, [d.p1, d.p2]); // they already saw it
+          self.noteEnded(now, d.p1, d.p2, [d.p1, d.p2]); // they already saw it
           self.phase := #empty;
         };
       };
     };
+    self.pruneEnded(now);
   };
 
   /// Acknowledge an #endedByOther notice (host wires this to "return to
@@ -476,7 +498,7 @@ module {
         if (e.p1 != session and e.p2 != session) { return ?e };
         let acked = pushAck(e.acked, session);
         if (member(acked, e.p1) and member(acked, e.p2)) { null } else {
-          ?{ p1 = e.p1; p2 = e.p2; acked };
+          ?{ p1 = e.p1; p2 = e.p2; acked; since = e.since };
         };
       }
     );

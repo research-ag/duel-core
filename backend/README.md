@@ -34,7 +34,10 @@ rules:
   an expired debrief — discoverable through the browsable table list
   the same as any other joinable table. No table is occupied forever by
   a player who vanished, and a table nobody ever revisits is eventually
-  garbage-collected so ids don't accumulate forever.
+  garbage-collected — including pruning any `#endedByOther` notice nobody
+  plausibly still owes a look at, so a participant who's never coming
+  back to acknowledge one can't pin that table's id in the registry
+  forever — so ids don't accumulate without bound.
 - **Status views** — every caller gets one truthful, per-caller
   `SessionStatus`: either the browsable table list, or a specific table's
   own `View` — including a proactive `#endedByOther` notice when their
@@ -510,7 +513,11 @@ table creation/discovery/routing on top without changing any of them:
    cheated by a client bypassing UI button states.
 4. **No silent endings.** Aborting yields a shared `#aborted` debrief; an
    idle takeover records the evicted players so `status` shows them
-   `#endedByOther` until they acknowledge (`ackEnded` / any re-entry).
+   `#endedByOther` until they acknowledge (`ackEnded` / any re-entry) —
+   or, failing that (nobody plausibly still coming back to look), until
+   `Table.pruneEnded` drops the notice on its own during a later `sweep`,
+   so one participant who never returns can't pin the notice — and, at
+   the `Registry` layer, the table it lives on — forever.
 5. **Leave means left.** `status`/`join`/`rematch` all treat a session
    that already acked its own debrief (via `leave`) as no longer a
    participant of it, even while the phase itself lingers in `#debrief`

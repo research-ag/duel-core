@@ -102,10 +102,13 @@ module {
 
   /// Participants of the most recent game that vanished WITHOUT both of them
   /// seeing a debrief (idle takeover / outsider reset). Drives #endedByOther.
+  /// `since` is when the notice was recorded — see `Table.pruneEnded`'s own
+  /// doc for why a notice doesn't wait for an ack forever.
   public type Ended = {
     p1 : SessionId;
     p2 : SessionId;
     acked : [SessionId];
+    since : Int;
   };
 
   /// The caller-owned, stable session state. One per global board.

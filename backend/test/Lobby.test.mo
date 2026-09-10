@@ -153,4 +153,43 @@ switch (reg.status(LATER, "a")) {
 };
 Debug.print("7. idle takeover resurfaces via listTables; ackEnded returns to browsing OK");
 
+// ── 8. a permanently-unacked notice doesn't pin a ghost table forever ─────
+// Regression for a real bug: a's/b's game goes idle and nobody ever visits
+// to ack the notice sweep records for them (e.g. both closed their tab for
+// good) — that alone used to keep the table in the registry forever, even
+// once c/d play an entirely separate, cleanly-finished game on the very
+// same freed board afterward: it kept resurfacing in `listTables`,
+// reporting itself freshly "open" (`waitingSecs == 0`, since an `#empty`
+// table's "since" is always `now` — see `openness`'s own doc), on every
+// single load, forever.
+let reg8 = fresh();
+let idG = ok(reg8.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+ignore ok(reg8.joinTable(spec, T0, "b", idG, #p2, null), "b joins; game live");
+let VANISH = T0 + TIMEOUT + 1_000_000_000; // a/b's own game goes idle
+reg8.sweep(VANISH); // the periodic timer frees it with nobody visiting
+var ghostSeen = false;
+for (r in reg8.listTables(VANISH).values()) { if (r.id == idG) ghostSeen := true };
+assert ghostSeen; // freed, but not GC'd — a/b are still owed their notice
+// c and d play an entirely separate, cleanly-finished game on the same
+// freed board — same id, since ids are only ever handed out fresh.
+ignore ok(reg8.joinTable(spec, VANISH, "c", idG, #p1, null), "c joins the freed board");
+ignore ok(reg8.joinTable(spec, VANISH, "d", idG, #p2, null), "d joins; game live");
+let cGen = genOf(reg8, VANISH, "c");
+let dGen = genOf(reg8, VANISH, "d");
+ignore ok(reg8.leave(VANISH, "c", cGen), "c forfeits (leave from the live game)");
+ignore ok(reg8.leave(VANISH, "c", cGen), "c also acks their own shared debrief");
+ignore ok(reg8.leave(VANISH, "d", dGen), "d acks the shared debrief too");
+ghostSeen := false;
+for (r in reg8.listTables(VANISH).values()) { if (r.id == idG) ghostSeen := true };
+assert ghostSeen; // a/b's still-unacked notice blocks GC even after c/d's clean finish
+// long after: a/b were never coming back — the notice goes stale and is pruned
+let LONG_AFTER = VANISH + TIMEOUT * 10 + 1_000_000_000;
+reg8.sweep(LONG_AFTER);
+for (r in reg8.listTables(LONG_AFTER).values()) { assert r.id != idG }; // finally GC'd
+switch (reg8.status(LONG_AFTER, "a")) {
+  case (#browsing _) {}; // the stale notice is gone quietly, not shown forever either
+  case (_) Runtime.trap("a's ancient, never-acked notice should have expired quietly");
+};
+Debug.print("8. a permanently-unacked notice is eventually pruned, unblocking GC OK");
+
 Debug.print("ALL LOBBY CHECKS PASSED");

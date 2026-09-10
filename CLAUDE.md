@@ -321,7 +321,17 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
    records evicted players in `lastEnded` so `status` shows `#endedByOther`
    until they `ackEnded`; takeover of an expired DEBRIEF marks them
    pre-acked (they already saw their debrief) — this asymmetry is
-   intentional, see LifecycleTest steps 6–7.
+   intentional, see LifecycleTest steps 6–7. A `lastEnded` entry nobody's
+   plausibly still coming back to ack (a session that will never return,
+   most commonly) doesn't wait forever either: `Table.sweep` also prunes
+   any entry older than a generous multiple of `idleTimeoutNs`, via
+   `Table.pruneEnded`. This matters beyond just that one entry — at the
+   `Registry` layer, `gcIfQuiesced` refuses to drop an `#empty` table
+   while ANY `lastEnded` entry is still outstanding, so one permanently
+   un-acked notice otherwise pins that table's id in the registry (and
+   in `listTables`, looking freshly "open" — `waitingSecs == 0` — forever,
+   including across later, unrelated, cleanly-finished games on the same
+   freed board) for good.
 8. **`status` must stay side-effect-free** — a host exposes it as a
    `query`. Lazy idle-reset happens only in mutating calls.
 9. **Pending moves are hidden by construction**: `status` exposes only

@@ -27,8 +27,11 @@
 ///     the same as any other joinable table — or a host may call
 ///     `Registry.sweep` on its own periodic timer to free an abandoned
 ///     table even with no visitor around to trigger that lazily (and
-///     garbage-collect it once fully quiesced, so table ids don't
-///     accumulate forever)
+///     garbage-collect it once fully quiesced — including pruning any
+///     #endedByOther notice nobody plausibly still owes a look at, so a
+///     participant who's never coming back to acknowledge one doesn't
+///     pin that table's id in the registry forever — so table ids don't
+///     accumulate without bound)
 ///   • every session gets one truthful `Registry.status` view: either the
 ///     browsable table list, or a specific table's own screen — including
 ///     the proactive #endedByOther notice when a game was ripped away
@@ -118,7 +121,11 @@
 ///      cheated by a client bypassing UI button states.
 ///   4. NO SILENT ENDINGS. Aborting yields a shared #aborted debrief; an idle
 ///      takeover records the evicted players so `status` shows them
-///      #endedByOther until they acknowledge (`ackEnded` / any re-entry).
+///      #endedByOther until they acknowledge (`ackEnded` / any re-entry) —
+///      or, failing that (nobody plausibly still coming back to look), until
+///      `Table.pruneEnded` drops the notice on its own during a later
+///      `sweep`, so one participant who never returns can't pin the notice,
+///      and (at the `Registry` layer) the table it lives on, forever.
 ///   5. LEAVE MEANS LEFT. `status`/`join`/`rematch` all treat a session that
 ///      already acked its own debrief (via `leave`) as no longer a
 ///      participant of it, even while the phase itself lingers in #debrief

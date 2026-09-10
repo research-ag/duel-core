@@ -86,9 +86,12 @@ module {
   /// A table that's quiesced (`#empty`, and nobody is still owed an
   /// `#endedByOther` notice) carries no state worth keeping around —
   /// drop it from the registry so ids don't accumulate forever. Skipped
-  /// otherwise: an `#empty` table can still owe an ack (see
-  /// `noteEnded`'s own doc), and only that ack — not this GC — may
-  /// clear it.
+  /// otherwise: an `#empty` table can still owe an ack (see `noteEnded`'s
+  /// own doc) — cleared by that ack, or eventually by `Table.pruneEnded`
+  /// (driven by the periodic `sweep` a host wires, same as this GC check
+  /// itself) once nobody's plausibly still coming back to give one. Until
+  /// either happens, this table keeps resurfacing through `listTables`
+  /// looking freshly opened — see `openness`'s `#empty` branch.
   func gcIfQuiesced<S, M>(reg : Registry<S, M>, id : T.TableId, t : T.Table<S, M>) {
     switch (t.phase) {
       case (#empty) {

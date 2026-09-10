@@ -586,7 +586,36 @@ switch (ok(t.join(spec, LATER, "a", #p1), "a re-joins after the sweep")) {
 };
 Debug.print("18c. sweep on #debrief OK");
 
-// ── 19. The concrete replay scenario `gen`-binding exists to close: a's
+// ── 19. sweep also prunes a long-unacked #endedByOther notice — otherwise a
+//         session that's never coming back (a closed tab, most commonly)
+//         pins that notice in `lastEnded` forever, and at the `Registry`
+//         layer that alone keeps the whole table from ever being GC'd (see
+//         `Lobby.test.mo`'s own regression for the user-visible symptom: a
+//         table stuck reporting itself freshly "open" forever, even across
+//         an entirely different, cleanly-finished game played on the same
+//         freed board in between). A generous multiple of the idle timeout
+//         is a deliberately rare, low-stakes trade against waiting forever ──
+t := gameOf(T0);
+t.sweep(LATER); // a/b's game goes idle with nobody visiting; noteEnded fires
+switch (t.status(LATER, "a")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("a's notice should still be fresh");
+};
+let WELL_WITHIN = LATER + TIMEOUT * 9; // short of the prune threshold
+t.sweep(WELL_WITHIN);
+switch (t.status(WELL_WITHIN, "a")) {
+  case (#endedByOther) {};
+  case (_) Runtime.trap("a well-within-window notice must survive further sweeps");
+};
+let LONG_AFTER = LATER + TIMEOUT * 10 + 1_000_000_000; // past the prune threshold
+t.sweep(LONG_AFTER);
+switch (t.status(LONG_AFTER, "a")) {
+  case (#endedByOther) Runtime.trap("an ancient, never-acked notice should have been pruned");
+  case (_) {};
+};
+Debug.print("19. sweep prunes a long-unacked #endedByOther notice OK");
+
+// ── 20. The concrete replay scenario `gen`-binding exists to close: a's
 //         `leave` from the FIRST match's debrief is delayed (e.g. a
 //         client-side resend of a call whose original attempt secretly
 //         already landed — see gateway-client.ts's `_queueResend` doc) and
@@ -616,6 +645,6 @@ switch (t.status(T0, "b")) {
   case (#inGame _) {};
   case (_) Runtime.trap("...for b too — no shared #aborted debrief should appear");
 };
-Debug.print("19. a stale cross-match leave is rejected, not replayed OK");
+Debug.print("20. a stale cross-match leave is rejected, not replayed OK");
 
 Debug.print("ALL ENGINE CHECKS PASSED");
