@@ -578,6 +578,7 @@ module {
             reservedForPartner = Option.isSome(st.reservedFor);
             secondsUntilReclaimable = self.secsLeft(st.since, now);
             gen = self.gen;
+            visibility = self.visibility;
           };
         } else if (st.reservedFor == ?session) {
           #awaitingRematch { openSeat = T.otherSeat(st.seat); gen = self.gen };

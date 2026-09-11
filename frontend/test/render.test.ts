@@ -92,16 +92,36 @@ test("renderView: stagingYou names the held seat and offers Leave", () => {
         reservedForPartner: false,
         secondsUntilReclaimable: 999n,
         gen: 1n,
+        visibility: { open: null },
       },
     },
     plugin,
   );
   assert.match(html, /Black/);
   assert.match(html, /data-leave/);
+  assert.match(html, /Open this page in another tab/);
   // Above the 15s warning threshold — the countdown element is rendered
   // (so app.ts's ticker can find and patch it in place — see its own
   // doc), but stays hidden.
   assert.match(html, new RegExp(`id="${DUEL_RECLAIM_WARNING_ID}" hidden`));
+});
+
+test("renderView: stagingYou on a Protected table shows the access code, not the 'open this page in another tab' copy (regression: the code was never shown, and that copy is actively wrong for a protected table)", () => {
+  const html = renderView<{ turn: string }>(
+    {
+      stagingYou: {
+        seat: { p1: null },
+        reservedForPartner: false,
+        secondsUntilReclaimable: 999n,
+        gen: 1n,
+        visibility: { code: "TOP-SECRET" },
+      },
+    },
+    plugin,
+  );
+  assert.match(html, /Protected/);
+  assert.match(html, /TOP-SECRET/);
+  assert.doesNotMatch(html, /Open this page in another tab/);
 });
 
 test("renderView: stagingYou warns once reclaim is imminent", () => {
@@ -112,6 +132,7 @@ test("renderView: stagingYou warns once reclaim is imminent", () => {
         reservedForPartner: true,
         secondsUntilReclaimable: 5n,
         gen: 1n,
+        visibility: { open: null },
       },
     },
     plugin,
@@ -129,6 +150,7 @@ test("renderView: stagingYou reclaim warning at exactly 0s says 'any moment now'
         reservedForPartner: true,
         secondsUntilReclaimable: 0n,
         gen: 1n,
+        visibility: { open: null },
       },
     },
     plugin,

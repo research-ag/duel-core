@@ -83,6 +83,24 @@ switch (reg.listTables(T0)) {
 };
 let idProt = ok(reg.createTable(spec, T0, "q", #p1, #code("secret")), "q creates a protected table");
 assert reg.listTables(T0).size() == 2; // idProt must not appear
+// q's own view echoes the table's visibility (code included) back to
+// them — the only way a "Protected" table's own creator can learn its
+// code well enough to actually share it with a friend; a1's own OPEN
+// table carries #open instead, never a phantom code.
+switch (atTableView(reg, T0, "q")) {
+  case (#stagingYou v) switch (v.visibility) {
+    case (#code c) assert c == "secret";
+    case (#open) Runtime.trap("q's own protected table should echo back #code(\"secret\")");
+  };
+  case (_) Runtime.trap("q should be staging");
+};
+switch (atTableView(reg, T0, "a")) {
+  case (#stagingYou v) switch (v.visibility) {
+    case (#open) {};
+    case (#code _) Runtime.trap("a's own open table should never carry a code");
+  };
+  case (_) Runtime.trap("a should be staging");
+};
 Debug.print("3. listTables shows open tables only, protected ones hidden OK");
 
 // ── 4. joinTable: bad id, bad/missing code, correct code, open needs none ──
