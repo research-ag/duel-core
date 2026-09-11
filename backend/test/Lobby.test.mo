@@ -83,6 +83,24 @@ switch (reg.listTables(T0)) {
 };
 let idProt = ok(reg.createTable(spec, T0, "q", #p1, #code("secret")), "q creates a protected table");
 assert reg.listTables(T0).size() == 2; // idProt must not appear
+// q's own view echoes the table's visibility (code included) back to
+// them — the only way a "Protected" table's own creator can learn its
+// code well enough to actually share it with a friend; a1's own OPEN
+// table carries #open instead, never a phantom code.
+switch (atTableView(reg, T0, "q")) {
+  case (#stagingYou v) switch (v.visibility) {
+    case (#code c) assert c == "secret";
+    case (#open) Runtime.trap("q's own protected table should echo back #code(\"secret\")");
+  };
+  case (_) Runtime.trap("q should be staging");
+};
+switch (atTableView(reg, T0, "a")) {
+  case (#stagingYou v) switch (v.visibility) {
+    case (#open) {};
+    case (#code _) Runtime.trap("a's own open table should never carry a code");
+  };
+  case (_) Runtime.trap("a should be staging");
+};
 Debug.print("3. listTables shows open tables only, protected ones hidden OK");
 
 // ── 4. joinTable: bad id, bad/missing code, correct code, open needs none ──
@@ -248,5 +266,67 @@ switch (atTableView(reg10, T0, "a")) {
 };
 ignore ok(reg10.joinTable(spec, T0, "c", idR2, #p2, null), "an unrelated visitor takes the declined seat");
 Debug.print("10. a still-live rematch invite can be declined, not just accepted or ignored OK");
+
+// ── 11. a session a phase transition moved past isn't locked out of the
+//         game FOREVER — regression for a real, critical shipped bug:
+//         nothing ever cleared `bySession` off a transition that happens
+//         without `leave`/`reset`/`ackEnded` running (a staging timeout,
+//         an eviction by someone ELSE's `join`, or a debrief expiring
+//         pre-acked), so `createTable`/`joinTable` refused that session
+//         with `#wrongPhase` forever after — surviving even a fresh
+//         reload, since the session id itself was what was poisoned ────
+
+// 11a. nobody ever joins the abandoned seat, and no `sweep` has even run
+//        — time passing alone must be enough; the fix can't depend on a
+//        host's periodic timer having already flipped the phase.
+let reg11a = fresh();
+ignore ok(reg11a.createTable(spec, T0, "a", #p1, #open), "a stages, alone");
+ignore ok(reg11a.createTable(spec, LATER, "a", #p1, #open), "a can create again once their own staging has expired");
+Debug.print("11a. a lone staging that simply times out doesn't lock its session out OK");
+
+// 11b. someone else's `join` evicts the expired squatter instead of a
+//        sweep — the EVICTED session, not the evictor, must recover.
+let reg11b = fresh();
+let idB = ok(reg11b.createTable(spec, T0, "a", #p1, #open), "a stages, alone");
+ignore ok(reg11b.joinTable(spec, LATER, "b", idB, #p1, null), "b evicts a's expired squat on the same seat");
+ignore ok(reg11b.createTable(spec, LATER, "a", #p1, #open), "a (evicted by b) can create again");
+Debug.print("11b. a session evicted by someone else's join can create again OK");
+
+// 11c. a full debrief expires pre-acked — an outsider's `join` is what
+//        actually marks it that way (see `join`'s own #debrief doc);
+//        neither a nor b ever called leave/ackEnded themselves.
+let reg11c = fresh();
+let idC = ok(reg11c.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+ignore ok(reg11c.joinTable(spec, T0, "b", idC, #p2, null), "b joins; game live");
+ignore ok(reg11c.submit(spec, T0, "a", genOf(reg11c, T0, "a"), turnOf(reg11c, T0, "a"), #gather), "a gathers");
+ignore ok(reg11c.submit(spec, T0, "b", genOf(reg11c, T0, "b"), turnOf(reg11c, T0, "b"), #gather), "b gathers");
+ignore ok(reg11c.submit(spec, T0, "a", genOf(reg11c, T0, "a"), turnOf(reg11c, T0, "a"), #attack), "a attacks");
+ignore ok(reg11c.submit(spec, T0, "b", genOf(reg11c, T0, "b"), turnOf(reg11c, T0, "b"), #gather), "b gathers again; a wins, both land in debrief");
+ignore ok(reg11c.joinTable(spec, LATER, "c", idC, #p1, null), "an outsider's join marks the expired debrief pre-acked");
+ignore ok(reg11c.createTable(spec, LATER, "a", #p1, #open), "a (never left/acked their own debrief) can still create again");
+ignore ok(reg11c.createTable(spec, LATER, "b", #p1, #open), "b (never left/acked their own debrief) can still create again too");
+Debug.print("11c. a debrief expiring pre-acked doesn't lock either participant out either OK");
+
+// ── 12. createTable rejects a `#code("")` table — regression: it used to
+//          be accepted with no validation, producing a table unlisted
+//          (protected) AND unjoinable by anyone (joinTable sends no code
+//          at all whenever its own code field is empty, so an empty
+//          stored code could never be matched) — the creator's own seat
+//          would then just sit there until it expired into N1 ─────────
+let reg12 = fresh();
+expectErr(reg12.createTable(spec, T0, "a", #p1, #code("")), "an empty access code should be rejected");
+switch (reg12.status(T0, "a")) {
+  case (#browsing _) {};
+  case (_) Runtime.trap("a rejected createTable must not leave a leftover at-a-table mapping behind");
+};
+// a real code still works fine, including right after the rejection —
+// the bad attempt above left nothing stale in `bySession`.
+let idOk = ok(reg12.createTable(spec, T0, "a", #p1, #code("real-code")), "a creates a table with a real code");
+switch (reg12.joinTable(spec, T0, "b", idOk, #p2, null)) {
+  case (#err(#badCode)) {};
+  case (_) Runtime.trap("no code on a real protected table should still be #badCode");
+};
+ignore ok(reg12.joinTable(spec, T0, "b", idOk, #p2, ?"real-code"), "the real code joins it fine");
+Debug.print("12. createTable rejects an empty access code instead of producing an unjoinable table OK");
 
 Debug.print("ALL LOBBY CHECKS PASSED");

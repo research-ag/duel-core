@@ -174,7 +174,7 @@ function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): stri
 
     <section class="join-by-code">
       <h3>Have a code?</h3>
-      <input type="text" id="joinbycode-id" placeholder="table #" inputmode="numeric" />
+      <input type="number" id="joinbycode-id" placeholder="table #" min="0" step="1" />
       <input type="text" id="joinbycode-code" placeholder="access code" />
       <div class="seats">
         <button class="seat ghost" data-join-table-by-code="p1">${esc(plugin.seatLabel("p1"))}</button>
@@ -221,6 +221,17 @@ export function reclaimWarningText(secondsUntilReclaimable: bigint): string {
 function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string {
   const seat = tag(v.seat) as SeatTag;
   const reclaimWarningHidden = v.secondsUntilReclaimable > RECLAIM_WARNING_SECS;
+  // `"code" in v.visibility` — the only other arm is `{ open: null }` —
+  // names this table's own access code, echoed back ONLY on the
+  // occupant's own view of their OWN table (see types.ts's own doc on
+  // `StagingYouView.visibility`). A protected table's whole feature is
+  // sharing table # (already shown above by the "Table #N" badge
+  // renderStatus prefixes every atTable screen with) and this code with
+  // a friend — without surfacing it here, that was never possible at
+  // all, and the generic "open this page in another tab" copy below is
+  // actively wrong for a protected table: no OTHER tab can take this
+  // seat without the code too.
+  const code = "code" in v.visibility ? v.visibility.code : null;
   return `
     <h2>Waiting for an opponent</h2>
     <p>You hold <strong class="seat-label">${esc(plugin.seatLabel(seat))}</strong>.</p>
@@ -228,8 +239,12 @@ function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string {
       v.reservedForPartner
         ? `<p class="muted">The other seat is held for your last opponent for
              a while — after that anyone may take it.</p>`
-        : `<p class="muted">Open this page in another tab to take the other
-             seat.</p>`
+        : code !== null
+          ? `<p class="muted"><strong>Protected</strong> — share this table's
+               number above and the code <code class="table-code">${esc(code)}</code>
+               with a friend. Nobody else can join.</p>`
+          : `<p class="muted">Open this page in another tab to take the other
+               seat.</p>`
     }
     <p class="countdown" id="${DUEL_RECLAIM_WARNING_ID}"${reclaimWarningHidden ? " hidden" : ""}>${reclaimWarningText(v.secondsUntilReclaimable)}</p>
     <p><button data-leave class="ghost">Leave</button></p>`;

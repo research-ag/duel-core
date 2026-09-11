@@ -106,6 +106,18 @@ export function buildEngineTypes({
   // exist any more (mutation goes exclusively through ws.mo's ws_message
   // — see this file's header) — `#ok`'s payload never crosses the wire on
   // its own; only a fresh `View` (below) does, via a `#view` push.
+  //
+  // Declared ahead of `View` (rather than down by `TableId`/
+  // `TableSummary` below, where it's also used) since `stagingYou` needs
+  // it too: the table's own creator/solo occupant is told their own
+  // table's visibility — and, for a `#code` table, its own access code —
+  // so the client can render the "share this with a friend" affordance a
+  // protected table's whole feature depends on, and warn against the
+  // generic "open this page in another tab" copy that's only true for an
+  // OPEN table (see render.ts's `renderStagingYou`). Nobody else's
+  // `View` ever carries this — see `Visibility`'s own doc below for why
+  // that's safe.
+  const Visibility = IDL.Variant({ open: IDL.Null, code: IDL.Text });
   const View = IDL.Variant({
     lobby: IDL.Record({
       p1Open: IDL.Bool,
@@ -118,6 +130,7 @@ export function buildEngineTypes({
       reservedForPartner: IDL.Bool,
       secondsUntilReclaimable: IDL.Nat,
       gen: IDL.Nat,
+      visibility: Visibility,
     }),
     awaitingRematch: IDL.Record({ openSeat: Seat, gen: IDL.Nat }),
     inGame: IDL.Record({
@@ -142,11 +155,11 @@ export function buildEngineTypes({
 
   // ── The multi-table lobby (mo:duel-game-core's `Registry`) ─────────────
   // `TableId` is a plain `Nat`, never reused even once a table is
-  // garbage-collected. `Visibility.code` tables are never listed by
-  // `listTables`/`Status.browsing` — reachable only by id + the matching
-  // code, both shared with a friend out of band.
+  // garbage-collected. `Visibility` (declared above, alongside `View`) —
+  // a `#code` table is never listed by `listTables`/`Status.browsing`,
+  // reachable only by id + the matching code, both shared with a friend
+  // out of band.
   const TableId = IDL.Nat;
-  const Visibility = IDL.Variant({ open: IDL.Null, code: IDL.Text });
   const TableSummary = IDL.Record({
     id: TableId,
     p1Open: IDL.Bool,

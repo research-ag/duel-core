@@ -550,15 +550,27 @@ export function start<S>({
     lastReq = req;
     document.body.classList.add("working");
     if (canCorrelate) {
-      ws.request!(sid, req).then(
-        (payload) => settleCall(req, payload),
-        (e: Error) => {
-          inFlight = false;
-          document.body.classList.remove("working");
-          endButtonLoading();
-          showError(`Call failed: ${e.message ?? e}`);
-        },
-      );
+      // A well-behaved `request()` (the bundled `GatewayWs`'s own) always
+      // returns a promise, never throws synchronously — but `DuelWs.request`
+      // is a caller-supplied surface (see this file's own header: any
+      // WebSocket-shaped mock is fair game, not just `GatewayWs`), so
+      // nothing here can assume that. `sendWs()` beside this guards its
+      // own transport call (`ws.send`) with exactly this same shape;
+      // without the matching guard here, a `request()` that threw
+      // synchronously would escape uncaught, leaving `inFlight`/the
+      // spinner stuck forever with no error shown at all — worse than the
+      // rejection case below, which `onRejected` already handles fine.
+      const onRejected = (e: Error) => {
+        inFlight = false;
+        document.body.classList.remove("working");
+        endButtonLoading();
+        showError(`Call failed: ${e.message ?? e}`);
+      };
+      try {
+        ws.request!(sid, req).then((payload) => settleCall(req, payload), onRejected);
+      } catch (e) {
+        onRejected(e as Error);
+      }
     } else {
       sendWs(req);
     }
@@ -787,11 +799,25 @@ export function start<S>({
     const dispatch = () => {
       beginButtonLoading(b);
       if (b.dataset.createTable) {
+        // An empty access code is accepted by the browser's own form
+        // validation (there is none) but is unreachable by construction
+        // once created — see registry.mo's `createTable` doc, which
+        // rejects it too; catching it here, the same way the join-by-code
+        // id below is, avoids the round trip and gives a message that
+        // actually names the problem instead of the engine's own
+        // `#badCode` (worded for a REJECTED JOIN, not a table that was
+        // never creatable in the first place).
+        const visibility = readCreateVisibility();
+        if ("code" in visibility && visibility.code.length === 0) {
+          endButtonLoading();
+          showError("Enter an access code, or choose Open.");
+          return;
+        }
         // See the `data-join`-era comment this mirrors, below: disable
         // new-sid the moment the request goes out, not only once the
         // engine confirms the seat.
         if (newSidBtn) newSidBtn.disabled = true;
-        doCreateTable(b.dataset.createTable as SeatTag, readCreateVisibility());
+        doCreateTable(b.dataset.createTable as SeatTag, visibility);
       } else if (b.dataset.joinTable && b.dataset.joinTableId) {
         // An open-table row's own per-seat button — the id is baked into
         // its own dataset by render.js, and an open table never needs a
@@ -807,6 +833,19 @@ export function start<S>({
         try {
           id = BigInt(idText);
         } catch {
+          endButtonLoading();
+          showError("Enter a valid table number.");
+          return;
+        }
+        // `BigInt("-1")` parses fine — it's a valid integer, just not a
+        // valid `TableId` (`nat` on the wire). The input's own `min="0"`
+        // is a hint, not a guarantee (a number input still hands back
+        // whatever was typed, negative sign included); left unchecked,
+        // this id reaches Candid's own `nat` encoder, which rejects it
+        // with its raw internal type dump — the engine's real errors
+        // never look like that (see errText's own doc) — straight into
+        // the error banner instead of a message anyone could act on.
+        if (id < 0n) {
           endButtonLoading();
           showError("Enter a valid table number.");
           return;
@@ -894,6 +933,70 @@ export function start<S>({
     });
   }
 
+  // The create-table form's radio/code choice, and the "Have a code?"
+  // mini-form's own two fields, are all plain live user input —
+  // renderBrowsing() has no way to bake any of it into its own markup, so
+  // a redraw always starts every one of them back at their defaults
+  // (`open`, all four fields blank). An unrelated push (someone else's
+  // table opening or closing, e.g.) landing mid-fill must not silently
+  // revert "Protected" to "Open" and clear whatever code was typed — the
+  // very next click would then publish a table its own creator meant to
+  // keep private, with no warning at all (see the 007 retest's "a lobby
+  // refresh silently discards Protected" finding). Captured right before
+  // `renderIfChanged` overwrites `screenEl.innerHTML` below and reapplied
+  // right after — the same idiom `applyLoadingState` already uses to
+  // survive a redraw landing mid-flight, just for form input instead of a
+  // button's loading state.
+  interface CreateFormState {
+    visibility: string; // the checked radio's own `value` ("open" or "code")
+    code: string;
+    joinId: string;
+    joinCode: string;
+  }
+
+  // Arrow-function consts, not `function` declarations — same reason as
+  // beginButtonLoading/endButtonLoading above: only an expression
+  // positioned after the `screenEl` null-guard carries its non-null
+  // narrowing into the closure.
+  const captureCreateFormState = (): CreateFormState | null => {
+    const radio = screenEl.querySelector(
+      'input[name="table-visibility"]:checked',
+    ) as HTMLInputElement | null;
+    if (!radio) return null; // not currently showing the browsing screen
+    return {
+      visibility: radio.value,
+      code: ($("create-code") as HTMLInputElement | null)?.value ?? "",
+      joinId: ($("joinbycode-id") as HTMLInputElement | null)?.value ?? "",
+      joinCode: ($("joinbycode-code") as HTMLInputElement | null)?.value ?? "",
+    };
+  };
+
+  const restoreCreateFormState = (saved: CreateFormState): void => {
+    // Sets BOTH radios explicitly rather than checking only the matching
+    // one and relying on native same-`name` mutual exclusivity to
+    // uncheck the other — the fresh markup's own default ("open",
+    // statically baked into renderBrowsing()) would otherwise still read
+    // as checked too once the two diverge.
+    const openRadio = screenEl.querySelector(
+      'input[name="table-visibility"][value="open"]',
+    ) as HTMLInputElement | null;
+    const codeRadio = screenEl.querySelector(
+      'input[name="table-visibility"][value="code"]',
+    ) as HTMLInputElement | null;
+    if (!openRadio && !codeRadio) return; // the fresh render isn't the browsing screen either
+    if (openRadio) openRadio.checked = saved.visibility === "open";
+    if (codeRadio) codeRadio.checked = saved.visibility === "code";
+    const codeEl = $("create-code") as HTMLInputElement | null;
+    if (codeEl) {
+      codeEl.value = saved.code;
+      codeEl.hidden = saved.visibility !== "code"; // mirrors the `change` listener above
+    }
+    const joinIdEl = $("joinbycode-id") as HTMLInputElement | null;
+    if (joinIdEl) joinIdEl.value = saved.joinId;
+    const joinCodeEl = $("joinbycode-code") as HTMLInputElement | null;
+    if (joinCodeEl) joinCodeEl.value = saved.joinCode;
+  };
+
   const renderIfChanged = (status: unknown): void => {
     // `joinPending()` first: an unrelated push (someone else's move, a
     // table filling up, e.g.) can land mid-flight showing THIS sid still
@@ -902,7 +1005,9 @@ export function start<S>({
     if (newSidBtn) newSidBtn.disabled = joinPending() || isSeated(status);
     if (deepEqual(status, lastStatus)) return;
     lastStatus = status;
+    const savedForm = captureCreateFormState();
     screenEl.innerHTML = renderStatus(status as Parameters<typeof renderStatus<S>>[0], plugin);
+    if (savedForm) restoreCreateFormState(savedForm);
     syncIdleTick(status);
     syncReclaimTick(status);
     waitTicker.sync();

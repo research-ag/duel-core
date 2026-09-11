@@ -94,6 +94,12 @@ export interface StagingYouView {
   secondsUntilReclaimable: bigint;
   /// Stamp onto a later `leave`/`reset` — see lib.mo's `Table.gen` doc.
   gen: bigint;
+  /// This table's own visibility — a `#code` table's own access code
+  /// included, since the whole point of "Protected" is for its creator
+  /// to be able to share table # + code with a friend. Only ever present
+  /// on YOUR OWN staging: nobody else's `View` carries another table's
+  /// code (see render.ts's `renderStagingYou`).
+  visibility: Visibility;
 }
 
 export interface AwaitingRematchView {

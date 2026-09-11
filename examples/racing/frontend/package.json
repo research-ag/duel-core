@@ -10,20 +10,20 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@gg-web-engine/core": "0.0.59",
-    "@gg-web-engine/three": "0.0.59",
+    "@gg-web-engine/core": "0.0.66",
+    "@gg-web-engine/three": "0.0.66",
     "duel-game-core": "file:../../../frontend",
     "point-in-polygon": "^1.1.0",
     "rxjs": "^7.8.2",
-    "three": "0.167.1"
+    "three": "0.185.1"
   },
   "devDependencies": {
     "@types/point-in-polygon": "^1.1.5",
-    "@types/three": "0.167.1",
-    "esbuild": "^0.24.0",
-    "typescript": "~5.6.0"
+    "@types/three": "0.185.4",
+    "esbuild": "^0.28.0",
+    "typescript": "~5.9.3"
   },
   "allowScripts": {
-    "esbuild@0.24.2": true
+    "esbuild@0.28.2": true
   }
 }

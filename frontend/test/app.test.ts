@@ -264,11 +264,94 @@ test("a button's spinner survives an unrelated re-render that arrives before its
 
   // B's own call finally resolves.
   ws.requests[0]!.resolve({
-    view: atTable({ stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } }),
+    view: atTable({ stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n, visibility: { open: null } } }),
   });
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(doc.body.classList.contains("working"), false);
+});
+
+test("the create-table form's live input survives an unrelated push mid-fill (regression: a lobby refresh silently discards Protected)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: browsing() } });
+
+  // The player picks Protected and types a code, and separately starts
+  // filling in the "Have a code?" mini-form — none of it submitted yet.
+  // Mutual radio exclusivity is the browser's own job, not modeled by
+  // this fake, so flip both sides by hand the way a real click would.
+  const radios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
+  radios.find((r) => r.value === "open")!.checked = false;
+  radios.find((r) => r.value === "code")!.checked = true;
+  (els.screen.children.find((c) => c.id === "create-code") as { value: string }).value = "TOP-SECRET";
+  (els.screen.children.find((c) => c.id === "joinbycode-id") as { value: string }).value = "42";
+  (els.screen.children.find((c) => c.id === "joinbycode-code") as { value: string }).value = "friend-code";
+
+  // An unrelated push lands before the click — e.g. another player
+  // opening or leaving a table — while both forms are still mid-fill.
+  ws.onmessage!({ data: { view: browsing([{ id: 9n, p1Open: true, p2Open: true, waitingSecs: 3n }]) } });
+
+  const freshRadios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
+  assert.equal(freshRadios.find((r) => r.value === "code")!.checked, true, "Protected must still be selected after the redraw");
+  assert.equal(freshRadios.find((r) => r.value === "open")!.checked, false);
+  const freshCode = els.screen.children.find((c) => c.id === "create-code")!;
+  assert.equal(freshCode.value, "TOP-SECRET", "the typed access code must survive the redraw");
+  assert.equal(freshCode.hidden, false, "the code box must stay visible, matching the restored choice");
+  assert.equal(els.screen.children.find((c) => c.id === "joinbycode-id")!.value, "42");
+  assert.equal(els.screen.children.find((c) => c.id === "joinbycode-code")!.value, "friend-code");
+
+  // The click now submitted really does carry Protected + the typed
+  // code, not the defaults renderBrowsing() baked into the fresh markup.
+  const seatBtn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
+  click(els.screen, seatBtn!);
+  assert.deepEqual(ws.requests[0]!.req, {
+    createTable: { seat: { p1: null }, visibility: { code: "TOP-SECRET" } },
+  });
+});
+
+test("clicking 'create table' with Protected chosen but no code entered shows a friendly error and never dispatches (regression: an empty access code makes an unjoinable table)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: browsing() } });
+
+  const radios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
+  radios.find((r) => r.value === "open")!.checked = false;
+  radios.find((r) => r.value === "code")!.checked = true;
+  // create-code is left blank — the exact bug repro.
+
+  const seatBtn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
+  click(els.screen, seatBtn!);
+
+  assert.equal(ws.requests.length, 0, "an empty access code must never even be sent to the engine");
+  assert.equal(els.error.textContent, "Enter an access code, or choose Open.");
+  assert.equal(els.error.hidden, false);
+  assert.equal(seatBtn!.disabled, false, "the button must not be left stuck spinning/disabled");
+});
+
+test("'Have a code?' rejects a negative table number locally instead of letting Candid's raw encoder error reach the player (regression: -1 dumped ~3,000 chars of schema into the error banner)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: browsing() } });
+  const joinBtn = () => els.screen.querySelectorAll("button").find((b) => b.dataset.joinTableByCode === "p1")!;
+
+  (els.screen.children.find((c) => c.id === "joinbycode-id") as { value: string }).value = "-1";
+  click(els.screen, joinBtn());
+  assert.equal(ws.requests.length, 0, "a negative table number must never even be sent to the engine");
+  assert.equal(els.error.textContent, "Enter a valid table number.");
+  assert.equal(els.error.hidden, false);
+  assert.equal(joinBtn().disabled, false, "the button must not be left stuck spinning/disabled");
+
+  // A real, non-negative id still works fine right after.
+  (els.screen.children.find((c) => c.id === "joinbycode-id") as { value: string }).value = "5";
+  (els.screen.children.find((c) => c.id === "joinbycode-code") as { value: string }).value = "shh";
+  click(els.screen, joinBtn());
+  assert.deepEqual(ws.requests[0]!.req, { joinTable: { id: 5n, seat: { p1: null }, code: ["shh"] } });
 });
 
 test("a submit action button round-trips its data-act JSON verbatim", async () => {
@@ -375,7 +458,7 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
   start({ plugin, ws });
 
   const seated = [
-    atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n } }),
+    atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n, visibility: { open: null } } }),
     atTable({
       inGame: {
         seat: { p1: null },
@@ -451,7 +534,7 @@ test("the new-sid button disables the instant a create-table request is dispatch
 
   // The call succeeds; the confirmed seat keeps new-sid disabled as usual.
   ws.requests[0]!.resolve({
-    view: atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } }),
+    view: atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n, visibility: { open: null } } }),
   });
   await Promise.resolve();
   await Promise.resolve();
@@ -478,6 +561,29 @@ test("the new-sid button re-enables after a rejected join request", async () => 
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(els["new-sid"].disabled, false, "must not stay stuck disabled after a failed join");
+});
+
+test("call() recovers if ws.request() throws synchronously instead of rejecting (regression: no guard around the correlated request path — carried-forward finding 07/N7)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, doc, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: browsing() } });
+  // A misbehaving (or simply different — DuelWs.request is a
+  // caller-supplied surface, not just the bundled GatewayWs) transport
+  // that throws instead of returning a rejected promise — exactly the
+  // shape `sendWs()`'s own try/catch already guards against for `send`.
+  ws.request = () => {
+    throw new Error("boom");
+  };
+
+  const btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
+  click(els.screen, btn!);
+
+  assert.equal(els.error.textContent, "Call failed: boom");
+  assert.equal(els.error.hidden, false);
+  assert.equal(doc.body.classList.contains("working"), false, "must not stay stuck spinning");
+  assert.equal(btn!.disabled, false, "must not stay stuck disabled");
 });
 
 test("the new-sid button stays disabled through an unrelated push arriving mid-join (regression: rival's move landing first briefly re-enables new-sid)", async () => {
@@ -519,7 +625,7 @@ test("the new-sid button stays disabled through an unrelated push arriving mid-j
   // B's own request finally resolves — new-sid stays disabled as usual,
   // now because the confirmed status itself is seated.
   ws.requests[0]!.resolve({
-    view: atTable({ stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n } }),
+    view: atTable({ stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n, visibility: { open: null } } }),
   });
   await Promise.resolve();
   await Promise.resolve();

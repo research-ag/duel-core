@@ -105,6 +105,32 @@ module {
 
   func alreadyAtATable<S, M>(reg : Registry<S, M>, session : T.SessionId) : Bool = Option.isSome(reg.bySession.get(session));
 
+  /// Drops `session`'s `bySession` mapping if the table it points to no
+  /// longer considers them seated `now` (`Table.isStillSeated`) — see
+  /// that function's own doc for the ways a phase transition can move on
+  /// without ever routing through `leave`/`reset`/`ackEnded`. Without
+  /// this, `alreadyAtATable` reports `true` forever once that happens
+  /// (even past the table itself getting GC'd out of `reg.tables`
+  /// entirely), permanently refusing every later `createTable`/
+  /// `joinTable` for that session. Called at the top of both — the only
+  /// two ops that gate on `alreadyAtATable` — so a session that's
+  /// actually free to start something new isn't refused over
+  /// bookkeeping the phase itself already left behind.
+  func releaseIfStale<S, M>(reg : Registry<S, M>, session : T.SessionId, now : Int) {
+    switch (reg.bySession.get(session)) {
+      case null {};
+      case (?id) switch (reg.tables.get(id)) {
+        case null reg.bySession.remove(session); // stale mapping onto an already-GC'd table
+        case (?t) {
+          if (not t.isStillSeated(now, session)) {
+            reg.bySession.remove(session);
+            gcIfQuiesced(reg, id, t);
+          };
+        };
+      };
+    };
+  };
+
   /// Resolves `session`'s current table (if any) and runs `op` against
   /// it — the shared shape every routed mutating call below follows.
   func withTable<S, M, T>(
@@ -162,9 +188,15 @@ module {
   };
 
   /// Create a fresh table and seat `session` in `seat` on it. Rejects
-  /// with `#wrongPhase` if `session` already has unfinished business
-  /// at another table (a live seat, an open debrief, an unacked
-  /// `#endedByOther` notice) — leave/ack that first.
+  /// with `#badCode` for a `#code("")` visibility — an empty access code
+  /// isn't just pointless, it's unreachable BY CONSTRUCTION: `joinTable`
+  /// below sends no code at all whenever its own code field is empty, so
+  /// an empty stored code could never be matched — the table would sit
+  /// protected and staged forever with nobody, not even a friend told
+  /// the table number, able to join it. Rejects with `#wrongPhase` if
+  /// `session` already has unfinished business at another table (a live
+  /// seat, an open debrief, an unacked `#endedByOther` notice) — leave/
+  /// ack that first.
   public func createTable<S, M>(
     self : Registry<S, M>,
     spec : T.Spec<S, M>,
@@ -173,6 +205,11 @@ module {
     seat : T.Seat,
     visibility : T.TableVisibility,
   ) : T.Res<T.TableId> {
+    switch (visibility) {
+      case (#code c) { if (c.size() == 0) return #err(#badCode) };
+      case (#open) {};
+    };
+    releaseIfStale(self, session, now);
     if (alreadyAtATable(self, session)) {
       return #err(#wrongPhase("you are already at another table"));
     };
@@ -203,6 +240,7 @@ module {
     seat : T.Seat,
     code : ?Text,
   ) : T.Res<T.JoinOk> {
+    releaseIfStale(self, session, now);
     if (alreadyAtATable(self, session)) {
       return #err(#wrongPhase("you are already at another table"));
     };

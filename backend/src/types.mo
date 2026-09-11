@@ -156,7 +156,10 @@ module {
     // garbage-collected (see `Lobby.gcIfQuiesced`'s own doc).
     #noSuchTable;
     // `Lobby.joinTable` targeted a `#code`-protected table with a
-    // missing or wrong `code`.
+    // missing or wrong `code`, or `Lobby.createTable` itself was asked
+    // for a `#code("")` table — an empty code can never be supplied
+    // back to `joinTable` to match it, so that table would otherwise be
+    // unreachable by construction.
     #badCode;
   };
 
@@ -185,6 +188,13 @@ module {
       reservedForPartner : Bool;
       secondsUntilReclaimable : Nat;
       gen : Nat; // stamp onto a later `leave`/`reset` — see Table.gen's doc
+      // This table's own visibility — a `#code` table's own access code
+      // included, so its creator/occupant can actually share table #
+      // + code with a friend, the one thing a "Protected" table exists
+      // to do. Safe to echo back here specifically because this is the
+      // SOLE occupant's own view of their OWN table — nobody else's
+      // `View` ever carries this.
+      visibility : TableVisibility;
     };
     // `gen` — stamp onto a later `leave` to decline: see `Table.leave`'s
     // own doc for what declining does (frees the reservation, not the

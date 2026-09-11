@@ -351,6 +351,40 @@ module {
   /// UNDER that floor for the cooperative-close path, not instead of it.
   let CLOSE_GRACE : Time.Duration = #seconds(3);
 
+  /// Whether a JUST-SUCCEEDED `#rematch` opened a fresh, unreserved
+  /// staging worth telling every other browsing session about — `id` is
+  /// the caller's OWN table (`priorId` at the `attach()` call site below,
+  /// since `RematchOk` carries no id of its own). A rematch usually can't
+  /// change which tables are open at all (see `afterMutation`'s own
+  /// doc) — its normal outcome either reserves the open seat for the
+  /// departing partner (unreserved-and-unexpired, so `Registry.openness`
+  /// already excludes it from `listTables`, exactly as before this call)
+  /// or starts the game outright (also excluded, now `#active`). The one
+  /// case that DOES open a fresh listing is the partner having already
+  /// acked their own debrief (`Table.rematchPartner`'s own doc): the new
+  /// staging comes back UNRESERVED, freshly browsable the instant it
+  /// exists — without telling every browsing session, a tab already
+  /// sitting in the lobby (e.g. the departed partner's own) never learns
+  /// a seat just opened up, showing "No open tables right now" for the
+  /// whole idle window (see the 007 retest's "rematch after your
+  /// opponent leaves strands you at an invisible table" finding). Pulled
+  /// out of `attach()`'s own `onMessage` specifically so it's testable
+  /// without the `IcWebSocketCdk` actor machinery `attach()` itself
+  /// needs, which isn't exercisable in this repo's interpreter test
+  /// harness (see `Hub.test.mo`'s own doc for the same constraint).
+  public func rematchOpenedLobby<S, M>(registry : TP.Registry<S, M>, id : ?TP.TableId) : Bool {
+    switch (id) {
+      case null false;
+      case (?id) switch (registry.tables.get(id)) {
+        case null false;
+        case (?t) switch (t.phase) {
+          case (#staging st) st.reservedFor == null;
+          case (_) false;
+        };
+      };
+    };
+  };
+
   /// Builds a ready-to-forward `IcWebSocketCdk.IcWebSocket` bound to one
   /// game's `Spec`/`Registry`: every inbound `#req` is dispatched to
   /// the matching `Registry` operation, and every session that needs to
@@ -403,8 +437,11 @@ module {
     /// session that ISN'T currently at any table (i.e. genuinely
     /// browsing) also gets a fresh push, since the open-table list itself
     /// may have changed (a table created, filled, freed, or GC'd) —
-    /// `submit`/`rematch` pass `false` here, since neither can ever
-    /// change which tables are open to begin with.
+    /// `submit` always passes `false` here, since it can never change
+    /// which tables are open to begin with; `#rematch`'s own call site
+    /// computes this per-outcome via `rematchOpenedLobby` above instead
+    /// of a fixed `false`, since ONE of its outcomes (the partner already
+    /// left) does open a fresh listing.
     func afterMutation(now : Int, sid : TP.SessionId, reqId : ?Nat64, id : ?TP.TableId, broadcastLobby : Bool) : async* () {
       await* pushStatus(now, sid, reqId);
       switch (id) {
@@ -491,7 +528,7 @@ module {
             case (#rematch) {
               switch (registry.rematch(spec, now, sid)) {
                 case (#ok _) {
-                  await* afterMutation(now, sid, reqId, priorId, false);
+                  await* afterMutation(now, sid, reqId, priorId, rematchOpenedLobby(registry, priorId));
                 };
                 case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
               };

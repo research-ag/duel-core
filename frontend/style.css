@@ -93,7 +93,11 @@ h2 {
   font-size: 0.7rem;
 }
 
-.session code {
+/* `.table-code` reuses this same treatment for a protected table's own
+ * access code (renderStagingYou) — a different place the same "here's a
+ * short code, shown plainly" shape shows up. */
+.session code,
+.table-code {
   color: var(--ink);
   background: var(--panel-2);
   border: 1px solid var(--line);
