@@ -92,6 +92,27 @@ module {
     false;
   };
 
+  /// Whether `session` still has unfinished business AT THIS table worth
+  /// blocking a fresh `Registry.createTable`/`joinTable` elsewhere over —
+  /// an unexpired staging occupant, a live seat, an un-acked debrief
+  /// participant, or an unacked `#endedByOther` notice. Mirrors the exact
+  /// per-phase legitimacy `join`/`status` already apply above; the point
+  /// of pulling it out is `Registry.releaseIfStale`, which uses `false`
+  /// here to drop a `bySession` mapping the phase itself already moved
+  /// past — a staging timeout nobody else claimed (`sweep`), a squatter
+  /// evicted by someone else's `join`, or a debrief that expired
+  /// pre-acked (see `join`'s own `#debrief` doc) all leave `session`
+  /// mapped to a table it's no longer seated at, with no `leave`/`reset`/
+  /// `ackEnded` call ever coming to clear it.
+  public func isStillSeated<S, M>(self : Table<S, M>, now : Int, session : T.SessionId) : Bool {
+    switch (self.phase) {
+      case (#empty) self.unackedEnded(session);
+      case (#staging st) st.session == session and not self.isExpired(st.since, now);
+      case (#active g) Option.isSome(getSessionSeat(g, session));
+      case (#debrief d) Option.isSome(self.activeDebriefSeat(d, session));
+    };
+  };
+
   /// A notice's own participant is never coming back to ack it (closed tab,
   /// a session id that only ever lived client-side, ...) often enough that
   /// `lastEnded` can't just wait forever — otherwise `Registry.gcIfQuiesced`
