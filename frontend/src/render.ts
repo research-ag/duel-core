@@ -174,7 +174,7 @@ function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): stri
 
     <section class="join-by-code">
       <h3>Have a code?</h3>
-      <input type="text" id="joinbycode-id" placeholder="table #" inputmode="numeric" />
+      <input type="number" id="joinbycode-id" placeholder="table #" min="0" step="1" />
       <input type="text" id="joinbycode-code" placeholder="access code" />
       <div class="seats">
         <button class="seat ghost" data-join-table-by-code="p1">${esc(plugin.seatLabel("p1"))}</button>

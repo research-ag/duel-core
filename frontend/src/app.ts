@@ -825,6 +825,19 @@ export function start<S>({
           showError("Enter a valid table number.");
           return;
         }
+        // `BigInt("-1")` parses fine — it's a valid integer, just not a
+        // valid `TableId` (`nat` on the wire). The input's own `min="0"`
+        // is a hint, not a guarantee (a number input still hands back
+        // whatever was typed, negative sign included); left unchecked,
+        // this id reaches Candid's own `nat` encoder, which rejects it
+        // with its raw internal type dump — the engine's real errors
+        // never look like that (see errText's own doc) — straight into
+        // the error banner instead of a message anyone could act on.
+        if (id < 0n) {
+          endButtonLoading();
+          showError("Enter a valid table number.");
+          return;
+        }
         const codeEl = $("joinbycode-code") as HTMLInputElement | null;
         const code = codeEl?.value ?? "";
         if (newSidBtn) newSidBtn.disabled = true;

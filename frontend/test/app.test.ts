@@ -332,6 +332,28 @@ test("clicking 'create table' with Protected chosen but no code entered shows a 
   assert.equal(seatBtn!.disabled, false, "the button must not be left stuck spinning/disabled");
 });
 
+test("'Have a code?' rejects a negative table number locally instead of letting Candid's raw encoder error reach the player (regression: -1 dumped ~3,000 chars of schema into the error banner)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: browsing() } });
+  const joinBtn = () => els.screen.querySelectorAll("button").find((b) => b.dataset.joinTableByCode === "p1")!;
+
+  (els.screen.children.find((c) => c.id === "joinbycode-id") as { value: string }).value = "-1";
+  click(els.screen, joinBtn());
+  assert.equal(ws.requests.length, 0, "a negative table number must never even be sent to the engine");
+  assert.equal(els.error.textContent, "Enter a valid table number.");
+  assert.equal(els.error.hidden, false);
+  assert.equal(joinBtn().disabled, false, "the button must not be left stuck spinning/disabled");
+
+  // A real, non-negative id still works fine right after.
+  (els.screen.children.find((c) => c.id === "joinbycode-id") as { value: string }).value = "5";
+  (els.screen.children.find((c) => c.id === "joinbycode-code") as { value: string }).value = "shh";
+  click(els.screen, joinBtn());
+  assert.deepEqual(ws.requests[0]!.req, { joinTable: { id: 5n, seat: { p1: null }, code: ["shh"] } });
+});
+
 test("a submit action button round-trips its data-act JSON verbatim", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
