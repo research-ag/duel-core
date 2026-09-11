@@ -894,6 +894,70 @@ export function start<S>({
     });
   }
 
+  // The create-table form's radio/code choice, and the "Have a code?"
+  // mini-form's own two fields, are all plain live user input —
+  // renderBrowsing() has no way to bake any of it into its own markup, so
+  // a redraw always starts every one of them back at their defaults
+  // (`open`, all four fields blank). An unrelated push (someone else's
+  // table opening or closing, e.g.) landing mid-fill must not silently
+  // revert "Protected" to "Open" and clear whatever code was typed — the
+  // very next click would then publish a table its own creator meant to
+  // keep private, with no warning at all (see the 007 retest's "a lobby
+  // refresh silently discards Protected" finding). Captured right before
+  // `renderIfChanged` overwrites `screenEl.innerHTML` below and reapplied
+  // right after — the same idiom `applyLoadingState` already uses to
+  // survive a redraw landing mid-flight, just for form input instead of a
+  // button's loading state.
+  interface CreateFormState {
+    visibility: string; // the checked radio's own `value` ("open" or "code")
+    code: string;
+    joinId: string;
+    joinCode: string;
+  }
+
+  // Arrow-function consts, not `function` declarations — same reason as
+  // beginButtonLoading/endButtonLoading above: only an expression
+  // positioned after the `screenEl` null-guard carries its non-null
+  // narrowing into the closure.
+  const captureCreateFormState = (): CreateFormState | null => {
+    const radio = screenEl.querySelector(
+      'input[name="table-visibility"]:checked',
+    ) as HTMLInputElement | null;
+    if (!radio) return null; // not currently showing the browsing screen
+    return {
+      visibility: radio.value,
+      code: ($("create-code") as HTMLInputElement | null)?.value ?? "",
+      joinId: ($("joinbycode-id") as HTMLInputElement | null)?.value ?? "",
+      joinCode: ($("joinbycode-code") as HTMLInputElement | null)?.value ?? "",
+    };
+  };
+
+  const restoreCreateFormState = (saved: CreateFormState): void => {
+    // Sets BOTH radios explicitly rather than checking only the matching
+    // one and relying on native same-`name` mutual exclusivity to
+    // uncheck the other — the fresh markup's own default ("open",
+    // statically baked into renderBrowsing()) would otherwise still read
+    // as checked too once the two diverge.
+    const openRadio = screenEl.querySelector(
+      'input[name="table-visibility"][value="open"]',
+    ) as HTMLInputElement | null;
+    const codeRadio = screenEl.querySelector(
+      'input[name="table-visibility"][value="code"]',
+    ) as HTMLInputElement | null;
+    if (!openRadio && !codeRadio) return; // the fresh render isn't the browsing screen either
+    if (openRadio) openRadio.checked = saved.visibility === "open";
+    if (codeRadio) codeRadio.checked = saved.visibility === "code";
+    const codeEl = $("create-code") as HTMLInputElement | null;
+    if (codeEl) {
+      codeEl.value = saved.code;
+      codeEl.hidden = saved.visibility !== "code"; // mirrors the `change` listener above
+    }
+    const joinIdEl = $("joinbycode-id") as HTMLInputElement | null;
+    if (joinIdEl) joinIdEl.value = saved.joinId;
+    const joinCodeEl = $("joinbycode-code") as HTMLInputElement | null;
+    if (joinCodeEl) joinCodeEl.value = saved.joinCode;
+  };
+
   const renderIfChanged = (status: unknown): void => {
     // `joinPending()` first: an unrelated push (someone else's move, a
     // table filling up, e.g.) can land mid-flight showing THIS sid still
@@ -902,7 +966,9 @@ export function start<S>({
     if (newSidBtn) newSidBtn.disabled = joinPending() || isSeated(status);
     if (deepEqual(status, lastStatus)) return;
     lastStatus = status;
+    const savedForm = captureCreateFormState();
     screenEl.innerHTML = renderStatus(status as Parameters<typeof renderStatus<S>>[0], plugin);
+    if (savedForm) restoreCreateFormState(savedForm);
     syncIdleTick(status);
     syncReclaimTick(status);
     waitTicker.sync();

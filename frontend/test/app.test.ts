@@ -271,6 +271,46 @@ test("a button's spinner survives an unrelated re-render that arrives before its
   assert.equal(doc.body.classList.contains("working"), false);
 });
 
+test("the create-table form's live input survives an unrelated push mid-fill (regression: a lobby refresh silently discards Protected)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: browsing() } });
+
+  // The player picks Protected and types a code, and separately starts
+  // filling in the "Have a code?" mini-form — none of it submitted yet.
+  // Mutual radio exclusivity is the browser's own job, not modeled by
+  // this fake, so flip both sides by hand the way a real click would.
+  const radios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
+  radios.find((r) => r.value === "open")!.checked = false;
+  radios.find((r) => r.value === "code")!.checked = true;
+  (els.screen.children.find((c) => c.id === "create-code") as { value: string }).value = "TOP-SECRET";
+  (els.screen.children.find((c) => c.id === "joinbycode-id") as { value: string }).value = "42";
+  (els.screen.children.find((c) => c.id === "joinbycode-code") as { value: string }).value = "friend-code";
+
+  // An unrelated push lands before the click — e.g. another player
+  // opening or leaving a table — while both forms are still mid-fill.
+  ws.onmessage!({ data: { view: browsing([{ id: 9n, p1Open: true, p2Open: true, waitingSecs: 3n }]) } });
+
+  const freshRadios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
+  assert.equal(freshRadios.find((r) => r.value === "code")!.checked, true, "Protected must still be selected after the redraw");
+  assert.equal(freshRadios.find((r) => r.value === "open")!.checked, false);
+  const freshCode = els.screen.children.find((c) => c.id === "create-code")!;
+  assert.equal(freshCode.value, "TOP-SECRET", "the typed access code must survive the redraw");
+  assert.equal(freshCode.hidden, false, "the code box must stay visible, matching the restored choice");
+  assert.equal(els.screen.children.find((c) => c.id === "joinbycode-id")!.value, "42");
+  assert.equal(els.screen.children.find((c) => c.id === "joinbycode-code")!.value, "friend-code");
+
+  // The click now submitted really does carry Protected + the typed
+  // code, not the defaults renderBrowsing() baked into the fresh markup.
+  const seatBtn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
+  click(els.screen, seatBtn!);
+  assert.deepEqual(ws.requests[0]!.req, {
+    createTable: { seat: { p1: null }, visibility: { code: "TOP-SECRET" } },
+  });
+});
+
 test("a submit action button round-trips its data-act JSON verbatim", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
