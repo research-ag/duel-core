@@ -1,7 +1,7 @@
 // GamePlugin for __GAME_TITLE__ — the only game-specific piece the
-// client needs. Everything else (lobby, staging, rematch, debrief
-// chrome, session identity, real-time push) comes from the
-// duel-game-core npm package's generic start()/renderView() — see
+// client needs. Everything else (the multi-table lobby, staging,
+// rematch, debrief chrome, session identity, real-time push) comes from
+// the duel-game-core npm package's generic start()/renderStatus() — see
 // app.js. The Action/State Candid shapes here must mirror
 // ../src/__RULES_MODULE__.mo exactly. `legal()` below is a COSMETIC echo
 // of that module's `validate` (disabled buttons only — the server is the

@@ -1,8 +1,8 @@
 // Bootstrap for __GAME_TITLE__. Builds the actor and a push-shaped `ws`
 // over it, then hands off to duel-game-core's generic session/render
 // wiring. This file only knows how to reach the canister and which
-// GamePlugin to use — everything else (lobby, staging, rematch, debrief
-// chrome) lives in the npm package.
+// GamePlugin to use — everything else (the multi-table lobby, staging,
+// rematch, debrief chrome) lives in the npm package.
 //
 // No build step: @icp-sdk/core is loaded from esm.sh; duel-game-core
 // itself is fetched via `npm install` (see package.json/.npmrc) and

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionAttr, errText, esc, renderView, tag, val } from "../src/render.js";
+import { actionAttr, DUEL_IDLE_WARNING_ID, DUEL_RECLAIM_WARNING_ID, errText, esc, renderView, tag, val } from "../src/render.js";
 import type { GamePlugin, View } from "../src/types.js";
 
 const plugin: GamePlugin<{ turn: string }> = {
@@ -65,9 +65,9 @@ test("renderView: lobby shows both seats, open vs taken", () => {
     plugin,
   );
   assert.match(html, /Choose your seat/);
-  assert.match(html, /data-join="p1"/);
-  assert.doesNotMatch(html, /data-join="p1"[^>]*disabled/);
-  assert.match(html, /data-join="p2"[^>]*disabled/);
+  assert.match(html, /data-join-table="p1"/);
+  assert.doesNotMatch(html, /data-join-table="p1"[^>]*disabled/);
+  assert.match(html, /data-join-table="p2"[^>]*disabled/);
   assert.doesNotMatch(html, /data-reset/);
 });
 
@@ -98,8 +98,10 @@ test("renderView: stagingYou names the held seat and offers Leave", () => {
   );
   assert.match(html, /Black/);
   assert.match(html, /data-leave/);
-  // Above the 15s warning threshold — no countdown shown.
-  assert.doesNotMatch(html, /Still there\?/);
+  // Above the 15s warning threshold — the countdown element is rendered
+  // (so app.ts's ticker can find and patch it in place — see its own
+  // doc), but stays hidden.
+  assert.match(html, new RegExp(`id="${DUEL_RECLAIM_WARNING_ID}" hidden`));
 });
 
 test("renderView: stagingYou warns once reclaim is imminent", () => {
@@ -116,6 +118,7 @@ test("renderView: stagingYou warns once reclaim is imminent", () => {
   );
   assert.match(html, /Still there\?/);
   assert.match(html, /in 5s/);
+  assert.doesNotMatch(html, new RegExp(`id="${DUEL_RECLAIM_WARNING_ID}" hidden`));
 });
 
 test("renderView: stagingYou reclaim warning at exactly 0s says 'any moment now'", () => {
@@ -133,10 +136,11 @@ test("renderView: stagingYou reclaim warning at exactly 0s says 'any moment now'
   assert.match(html, /any moment now/);
 });
 
-test("renderView: awaitingRematch names the open seat", () => {
-  const html = renderView<{ turn: string }>({ awaitingRematch: { openSeat: { p1: null } } }, plugin);
+test("renderView: awaitingRematch names the open seat and offers accept + decline", () => {
+  const html = renderView<{ turn: string }>({ awaitingRematch: { openSeat: { p1: null }, gen: 1n } }, plugin);
   assert.match(html, /White/);
   assert.match(html, /data-rematch/);
+  assert.match(html, /data-leave/); // Decline — see app.ts's doLeave/genOf
 });
 
 test("renderView: inGame shows the turn counter (1-indexed) and delegates board/actions", () => {
@@ -149,6 +153,8 @@ test("renderView: inGame shows the turn counter (1-indexed) and delegates board/
         youSubmitted: false,
         oppSubmitted: false,
         gen: 1n,
+        secondsUntilIdleReset: 60n,
+        idleTimeoutSecs: 60n,
       },
     },
     plugin,
@@ -170,6 +176,8 @@ test("renderView: inGame hides actions and shows the waiting note once submitted
         youSubmitted: true,
         oppSubmitted: true,
         gen: 1n,
+        secondsUntilIdleReset: 60n,
+        idleTimeoutSecs: 60n,
       },
     },
     plugin,
@@ -177,6 +185,45 @@ test("renderView: inGame hides actions and shows the waiting note once submitted
   assert.match(html, /◉ Opponent has locked in/);
   assert.match(html, /Move locked in/);
   assert.doesNotMatch(html, /Pass/);
+});
+
+test("renderView: inGame shows the idle-reset warning once within threshold, for the player still deciding", () => {
+  const html = renderView<{ turn: string }>(
+    {
+      inGame: {
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: false,
+        oppSubmitted: false,
+        gen: 1n,
+        secondsUntilIdleReset: 10n,
+        idleTimeoutSecs: 60n,
+      },
+    },
+    plugin,
+  );
+  assert.match(html, /Still thinking\? This game will be interrupted in 10s/);
+  assert.doesNotMatch(html, new RegExp(`id="${DUEL_IDLE_WARNING_ID}" hidden`));
+});
+
+test("renderView: inGame hides the idle-reset warning for a player who already locked in, even within threshold", () => {
+  const html = renderView<{ turn: string }>(
+    {
+      inGame: {
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: true,
+        oppSubmitted: false,
+        gen: 1n,
+        secondsUntilIdleReset: 5n,
+        idleTimeoutSecs: 60n,
+      },
+    },
+    plugin,
+  );
+  assert.match(html, new RegExp(`id="${DUEL_IDLE_WARNING_ID}" hidden`));
 });
 
 test("renderView: debrief — win/lose/draw wording from the acting seat's own point of view", () => {

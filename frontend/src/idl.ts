@@ -37,6 +37,10 @@ export interface EngineTypes {
   End: IDLNS.Type;
   Err: IDLNS.Type;
   View: IDLNS.Type;
+  TableId: IDLNS.Type;
+  Visibility: IDLNS.Type;
+  TableSummary: IDLNS.Type;
+  Status: IDLNS.Type;
   ClientKey: IDLNS.Type;
   WsResult: IDLNS.Type;
   CanisterWsOpenArguments: IDLNS.Type;
@@ -54,11 +58,11 @@ export interface EngineTypes {
 
 /// Builds every named Candid type this package's service surface uses,
 /// keyed by name — `status`'s own type plus the WS protocol's types
-/// (`mo:duel-game-core/Ws`, the ONLY way to mutate game state — see
-/// `../backend/src/Ws.mo`'s doc header), including the ones nothing in the
+/// (`mo:duel-game-core/ws`, the ONLY way to mutate game state — see
+/// `../backend/src/ws.mo`'s doc header), including the ones nothing in the
 /// declared `IDL.Service` below actually needs
 /// (`WebsocketServiceMessageContent` — the open/ack/keep-alive/close
-/// envelope `Ws.mo`'s CDK dependency sends over the wire, never as a
+/// envelope `ws.mo`'s CDK dependency sends over the wire, never as a
 /// normal method argument/result). Exported (not just used inline by
 /// `makeIdlFactory`) so `ws/gateway-protocol.js` can `IDL.encode`/
 /// `IDL.decode` against the EXACT same type descriptions — one
@@ -90,10 +94,16 @@ export function buildEngineTypes({
     // A submit/leave/reset carried a stale gen/turn — see lib.mo's
     // Table.gen doc and gateway-client.ts's `_isRetryAmbiguousError`.
     stale: IDL.Null,
+    // joinTable named a TableId no table in the registry currently
+    // holds (never existed, or already garbage-collected).
+    noSuchTable: IDL.Null,
+    // joinTable targeted a code-protected table with a missing or
+    // wrong code.
+    badCode: IDL.Null,
   });
   // No JoinOk/SubmitOk/RematchOk here: those were only ever the result
   // types of the plain join/submit/rematch Candid methods, which don't
-  // exist any more (mutation goes exclusively through Ws.mo's ws_message
+  // exist any more (mutation goes exclusively through ws.mo's ws_message
   // — see this file's header) — `#ok`'s payload never crosses the wire on
   // its own; only a fresh `View` (below) does, via a `#view` push.
   const View = IDL.Variant({
@@ -109,7 +119,7 @@ export function buildEngineTypes({
       secondsUntilReclaimable: IDL.Nat,
       gen: IDL.Nat,
     }),
-    awaitingRematch: IDL.Record({ openSeat: Seat }),
+    awaitingRematch: IDL.Record({ openSeat: Seat, gen: IDL.Nat }),
     inGame: IDL.Record({
       seat: Seat,
       game: State,
@@ -117,6 +127,8 @@ export function buildEngineTypes({
       youSubmitted: IDL.Bool,
       oppSubmitted: IDL.Bool,
       gen: IDL.Nat,
+      secondsUntilIdleReset: IDL.Nat,
+      idleTimeoutSecs: IDL.Nat,
     }),
     debrief: IDL.Record({
       seat: Seat,
@@ -128,7 +140,29 @@ export function buildEngineTypes({
     endedByOther: IDL.Null,
   });
 
-  // ── The WebSocket push transport (mo:duel-game-core/Ws) ────────────────
+  // ── The multi-table lobby (mo:duel-game-core's `Registry`) ─────────────
+  // `TableId` is a plain `Nat`, never reused even once a table is
+  // garbage-collected. `Visibility.code` tables are never listed by
+  // `listTables`/`Status.browsing` — reachable only by id + the matching
+  // code, both shared with a friend out of band.
+  const TableId = IDL.Nat;
+  const Visibility = IDL.Variant({ open: IDL.Null, code: IDL.Text });
+  const TableSummary = IDL.Record({
+    id: TableId,
+    p1Open: IDL.Bool,
+    p2Open: IDL.Bool,
+    waitingSecs: IDL.Nat,
+  });
+  // The per-caller lobby-scoped screen `status` (and every `#view` push)
+  // actually returns — either the browsable table list, or a specific
+  // table's own `View` (unchanged above) labeled with which table it's
+  // about. Mirrors `TP.SessionStatus<S>` exactly.
+  const Status = IDL.Variant({
+    browsing: IDL.Record({ tables: IDL.Vec(TableSummary) }),
+    atTable: IDL.Record({ id: TableId, view: View }),
+  });
+
+  // ── The WebSocket push transport (mo:duel-game-core/ws) ────────────────
   // Fixed shapes from `ic-websocket-cdk`, mirrored here so a canister
   // that wires `Ws.attach` can be talked to — either by a real Gateway
   // relay speaking `ic-websocket-js`'s wire protocol, or by
@@ -196,7 +230,8 @@ export function buildEngineTypes({
   // The one application message type shared by both directions of the
   // WS channel — mirrors `Ws.Msg<S, M>` on the backend exactly.
   const WsRequest = IDL.Variant({
-    join: Seat,
+    createTable: IDL.Record({ seat: Seat, visibility: Visibility }),
+    joinTable: IDL.Record({ id: TableId, seat: Seat, code: IDL.Opt(IDL.Text) }),
     // `gen`/`turn`: the caller's last-observed match generation/round —
     // see lib.mo's `Table.gen` doc and this file's `Err.stale` comment.
     submit: IDL.Record({ gen: IDL.Nat, turn: IDL.Nat, move: Action }),
@@ -208,19 +243,20 @@ export function buildEngineTypes({
   });
   // `reqId` (opaque, client-chosen) lets a client tell "the reply to MY
   // request" apart from an unsolicited push this same connection gets
-  // because the OTHER seat acted (`Ws.mo`'s `pushRelevant` pushes to both
-  // participants of a match) — see `../backend/README.md`'s "The wire
-  // protocol" section and `ws/gateway-client.js`'s `_pending` doc for the
-  // bug this closes. `Ws.mo` only ever echoes it back verbatim on `#view`/
-  // `#err`; a push to the non-acting participant always carries `null`.
+  // because the OTHER seat (or another lobby watcher) acted (`ws.mo`'s
+  // `afterMutation` pushes to every relevant session) — see
+  // `../backend/README.md`'s "The wire protocol" section and
+  // `ws/gateway-client.js`'s `_pending` doc for the bug this closes.
+  // `ws.mo` only ever echoes it back verbatim on `#view`/`#err`; a push
+  // to anyone but the acting session always carries `null`.
   const WsMsg = IDL.Variant({
     req: IDL.Record({ sid: IDL.Text, req: WsRequest, reqId: IDL.Opt(IDL.Nat64) }),
-    view: IDL.Record({ reqId: IDL.Opt(IDL.Nat64), view: View }),
+    view: IDL.Record({ reqId: IDL.Opt(IDL.Nat64), view: Status }),
     err: IDL.Record({ reqId: IDL.Opt(IDL.Nat64), err: Err }),
   });
 
   return {
-    Seat, Verdict, End, Err, View,
+    Seat, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
     ClientKey, WsResult, CanisterWsOpenArguments, CanisterWsCloseArguments,
     WebsocketMessage, CanisterWsMessageArguments,
     CanisterWsGetMessagesArguments, CanisterOutputMessage,
@@ -237,15 +273,16 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
     const t = buildEngineTypes({ IDL, Action, State });
 
     return IDL.Service({
-      // No join/submit/rematch/leave/reset/ackEnded here — mutation goes
-      // exclusively through ws_message below (see this file's header and
-      // `../backend/src/Ws.mo`'s doc header for why there's no fallback).
-      status: IDL.Func([IDL.Text], [t.View], ["query"]),
+      // No createTable/joinTable/submit/rematch/leave/reset/ackEnded here
+      // — mutation goes exclusively through ws_message below (see this
+      // file's header and `../backend/src/ws.mo`'s doc header for why
+      // there's no fallback).
+      status: IDL.Func([IDL.Text], [t.Status], ["query"]),
       ws_open: IDL.Func([t.CanisterWsOpenArguments], [t.WsResult], []),
       ws_close: IDL.Func([t.CanisterWsCloseArguments], [t.WsResult], []),
       // `msgType` (the second parameter) is a plain `opt blob`, not
       // `opt WsMsg` — the canister ignores its VALUE either way (see
-      // `../backend/src/Ws.mo`'s doc header: this parameter exists only
+      // `../backend/src/ws.mo`'s doc header: this parameter exists only
       // for `ic-websocket-cdk`'s own convention of shaping a canister's
       // Candid interface with SOME app-message type, never actually read
       // by anything on that side), so there's nothing to gain from

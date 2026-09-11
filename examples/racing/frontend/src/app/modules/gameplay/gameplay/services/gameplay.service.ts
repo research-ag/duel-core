@@ -403,8 +403,8 @@ export class GameplayService {
       // anyway would spin a tight loop doing nothing but reject again
       // (submitSkippedMove's forced-skip path resolves instantly, with
       // no click to naturally pace it) — app.js's own chrome already
-      // shows "Connection closed — reload to reconnect" once this
-      // happens, so there's nothing productive left to do here.
+      // shows a persistent "Connection closed" banner once this happens,
+      // so there's nothing productive left to do here.
       if (!this.lobbyConnectionService.isConnected) return;
       // Cap + back off: a forced skip has no player click to naturally
       // pace retries, so a PERSISTENT (not transient) rejection would

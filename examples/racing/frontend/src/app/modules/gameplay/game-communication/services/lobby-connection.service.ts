@@ -50,11 +50,12 @@ function reconstructTrajectory(before: RacingCarState, after: RacingCarState): S
   return StepTrajectoryModel.fromCartesianPosition(local);
 }
 
-/// Talks to the canister instead of a socket.io server: this example has
-/// one global lobby (see ../../../../../../../backend/README.md), so
-/// there is no lobby URL/slot/car selection here — duel-game-core's own
-/// screens (index.html's #screen, driven by duel-app.js) already handle
-/// choosing a seat and waiting for an opponent. This service's only job
+/// Talks to the canister instead of a socket.io server: table
+/// creation/browsing/joining and seat selection are entirely
+/// duel-game-core's own generic screens (index.html's #screen, driven by
+/// duel-app.js — see ../../../../../../../backend/README.md), so there
+/// is no lobby URL/slot/car selection of THIS game's own here. This
+/// service's only job
 /// is to notice (by sharing duel-app.js's own push connection — see
 /// getDuelWs()) when a game is under way, and translate it into the
 /// `{ slot, step }[]` event shape gameplay.service.ts already expects —
@@ -158,7 +159,7 @@ export class LobbyConnectionService {
   /// gameplay.service.ts's requestAndSubmitMove() to stop retrying a
   /// submit against a connection that's already gone, rather than
   /// spinning a tight retry loop against it (app.js's own chrome already
-  /// shows "Connection closed — reload to reconnect" once this happens).
+  /// shows a persistent "Connection closed" banner once this happens).
   public get isConnected(): boolean {
     return !!this.ws && !this.ws.closed;
   }
@@ -226,8 +227,7 @@ export class LobbyConnectionService {
   /// never leaves a game silently hanging). Swallows its own failure:
   /// this is already the last resort, and if `leave` itself doesn't land
   /// duel-game-core's own chrome will surface the underlying connection
-  /// problem on its own (e.g. "Connection closed — reload to
-  /// reconnect.").
+  /// problem on its own (e.g. a persistent "Connection closed" banner).
   public async forfeit(): Promise<void> {
     if (!this.ws) return;
     try {
@@ -273,8 +273,18 @@ export class LobbyConnectionService {
     if (data && 'view' in data) this.onStatus(data.view);
   };
 
-  private onStatus(view: any): void {
-    const inGameNow = 'inGame' in view;
+  // `data.view` is a `TP.SessionStatus`, not a bare per-table `View` —
+  // this example still has exactly one global lobby of tables (see this
+  // file's own header), but every push now arrives labeled with which
+  // table it's about (`{ atTable: { id, view } }`) or, if this session
+  // hasn't created/joined one yet, `{ browsing: { tables } }` — the
+  // latter needs no table-selection UI here (duel-app.js's own generic
+  // lobby chrome already owns that), it's simply treated the same way
+  // `#lobby` used to be below: nothing to animate, fall through to the
+  // "not in a race" cleanup.
+  private onStatus(status: any): void {
+    const view = 'atTable' in status ? status.atTable.view : null;
+    const inGameNow = !!view && 'inGame' in view;
     if (inGameNow) {
       document.body.classList.add('in-race');
       const v = view.inGame;
@@ -345,7 +355,7 @@ export class LobbyConnectionService {
     // own debrief chrome. Deliver it as one last step instead, and keep the
     // 3D view up (skip clearing body.in-race) until gameplay.service.ts
     // confirms it's actually done animating (see finishRace()).
-    if (this.wasInGame && 'debrief' in view && this.prevGame) {
+    if (this.wasInGame && view && 'debrief' in view && this.prevGame) {
       const finalGame: RacingState = view.debrief.finalGame;
       if (Number(finalGame.step) !== Number(this.prevGame.step)) {
         this.awaitingFinalAnimation = true;

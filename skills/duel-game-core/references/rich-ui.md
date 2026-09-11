@@ -9,7 +9,7 @@ each round"), you don't need this file.
 
 ## The one fact that makes or breaks this
 
-`app.js` does `screenEl.innerHTML = renderView(...)` on **every message
+`app.js` does `screenEl.innerHTML = renderStatus(...)` on **every message
 `ws` delivers** (its poller ticks every 500ms by default, plus
 immediately after every action), unconditionally, for as long as the
 game is running. Anything with real persistent state — a mounted
@@ -18,13 +18,14 @@ listeners, anything that isn't a plain string — placed inside `#screen`
 gets destroyed and reparsed from scratch every single tick. There is no
 way to make `renderBoard`'s return value "skip" this; it's a dumb
 unconditional replace, by design (the npm package's `render.js` is meant
-to stay a pure `View -> HTML string` renderer).
+to stay a pure `Status -> HTML string` renderer).
 
 ## The pattern that works
 
 1. Run the npm package's `start({ plugin, ws })` completely unmodified,
-   in its own small bootstrap script, for the chrome (lobby/staging/
-   rematch/debrief) exactly as the generic-chrome path does.
+   in its own small bootstrap script, for the chrome (the multi-table
+   lobby/staging/rematch/debrief) exactly as the generic-chrome path
+   does.
 2. Give your real UI its OWN persistent DOM region, a **sibling** of
    `#screen`, never a descendant. Your own bootstrap script (or
    framework of choice) owns that.

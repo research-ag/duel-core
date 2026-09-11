@@ -6,7 +6,7 @@ import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
 import TP ".";
 
-mixin<system>(
+mixin <system>(
   ws : IcWebSocketCdk.IcWebSocket,
   // `(Int) -> async* ()`, not `() -> ()`: the idle-sweep hook a host actor
   // wires here is expected to be `Ws.Attached.sweep` (see that module's
@@ -15,13 +15,13 @@ mixin<system>(
   // leave a still-connected tab showing a stale view with no way to be
   // told its game just ended by the idle sweep instead of a live push.
   // This mixin supplies `now` itself (via `Time.now()` below), the same
-  // exception to "the engine owns time" that `Ws.mo` already documents
+  // exception to "the engine owns time" that `ws.mo` already documents
   // for itself: it plays the host's own role, same as any host actor
   // wiring a plain `Time.now()` into a call would. `async*`/`await*`
   // (not plain `async`/`await`), same as `Ws.Attached.sweep` itself: the
   // recurring timer below is the one genuine message boundary here —
   // `sweepFunc`'s own body reaches that same boundary via `await*`
-  // without paying for a second one of its own. See `Ws.mo`'s doc on
+  // without paying for a second one of its own. See `ws.mo`'s doc on
   // `pushTo` for why this matters.
   sweepFunc : (Int) -> async* (),
 ) {
@@ -54,7 +54,7 @@ mixin<system>(
   func startSweeping<system>() {
     ignore Timer.recurringTimer<system>(
       #seconds(30),
-      func() : async () { await* sweepFunc(Time.now()); },
+      func() : async () { await* sweepFunc(Time.now()) },
     );
   };
   startSweeping<system>();

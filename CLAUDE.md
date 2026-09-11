@@ -7,36 +7,60 @@ about any particular game — that's supplied by whoever builds a game on
 top.
 
 - **`backend/`** — the Motoko mops package (`duel-game-core`): the
-  session engine (join/seating, round submission, debrief, early leave,
-  rematch, idle takeover, per-caller status views), source at
-  `backend/src/lib.mo` (the package's entry point — import it as
-  `mo:duel-game-core`, no subpath). See [`backend/README.md`](backend/README.md)
-  for the `Spec<S, M>` contract a game implements and a full host-actor
-  wiring example. `backend/src/Ws.mo` (`mo:duel-game-core/Ws`) is a
-  separate module layered on top of the engine, never merged into
-  `lib.mo` (see the toolchain note below), but MANDATORY, not optional:
-  real-time push over `ic-websocket-cdk` — the live transport
-  `frontend/ws.js` actually talks to (not an unused reference add-on) —
-  is the ONLY way a client can mutate game state at all. None of
-  `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded` is exposed as a
-  plain Candid method on a host actor; a direct update call bypassing
-  `Ws.mo` is exactly the race a single, ordered WS channel exists to
-  close (two independent update calls have no guaranteed relative
-  processing order once both are in flight). `status` is the one
-  exception, staying a plain public `query` (side-effect-free, no race
-  risk). `Ws.mo` also drives the disappearance handling a real WS close
-  signal makes possible (ending a game a vanished player left mid-round,
-  freeing a board both walked away from — see `backend/README.md`'s
-  "Real-time push" section). `backend/src/ActorMixin.mo`
-  (`mo:duel-game-core/ActorMixin`) is a third module, `include`d in the
-  host actor as `include ActorMixin<system>(ws, sweepFunc)`: it supplies
-  the four `ws_*` Candid methods (`ws_open`/`ws_close`/`ws_message`/
-  `ws_get_messages`, forwarding each straight to the `ws` built from
-  `Ws.attach`) plus the idle-sweep timer, so no host actor hand-declares
-  any of the four.
+  session engine (a multi-table lobby — table creation/discovery/join,
+  round submission, debrief, early leave, rematch, idle takeover,
+  per-caller status views, all routed to the right table). Its shared
+  type surface — `Spec`, `Seat`, `Phase`, `View`, `Err`, `Res`, `Table`,
+  `Registry`, and everything else — is defined once in
+  `backend/src/types.mo` and re-exported from `backend/src/lib.mo` (the
+  package's entry point — import it as `mo:duel-game-core`, no
+  subpath), so a host actor names all of them off one import. The actual
+  operations live in two sibling modules, each importable by its own
+  subpath: `backend/src/table.mo` (`mo:duel-game-core/table`) is the
+  low-level, single-table primitive (`Table.new` plus
+  `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`/`status`/`sweep`
+  on the table it returns); `backend/src/registry.mo`
+  (`mo:duel-game-core/registry`) is the multi-table router built on top
+  of it (`Registry.new` plus the same seven caller-facing operations,
+  routed to the right table, plus `createTable`/`listTables`/`sweep`).
+  Any number of tables run independently and simultaneously
+  (`TP.Registry`, created with `Registry.new`); a table can be `#open`
+  (browsable/joinable by anyone) or protected with an access code
+  (joinable only by id + code, shared with a friend out of band).
+  `Registry`'s own operations
+  (`createTable`/`listTables`/`joinTable`/`submit`/`rematch`/`leave`/
+  `reset`/`ackEnded`/`status`/`sweep`) delegate straight into the
+  matching `Table` operation — no game logic or legality is
+  reimplemented at this layer; a game that genuinely wants exactly one
+  fixed board with no lobby of its own can use `Table` directly instead.
+  See [`backend/README.md`](backend/README.md) for the `Spec<S, M>`
+  contract a game implements and a full host-actor wiring example.
+  `backend/src/ws.mo` (`mo:duel-game-core/ws`) is a separate module
+  layered on top of `table.mo`/`registry.mo`, never merged into `lib.mo`
+  (see the toolchain note below), but MANDATORY, not optional: real-time
+  push over `ic-websocket-cdk` — the live transport `frontend/ws.js`
+  actually talks to (not an unused reference add-on) — is the ONLY way a
+  client can mutate game state at all. None of `Registry`'s
+  `createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/
+  `ackEnded` is exposed as a plain Candid method on a host actor; a
+  direct update call bypassing `ws.mo` is exactly the race a single,
+  ordered WS channel exists to close (two independent update calls have
+  no guaranteed relative processing order once both are in flight).
+  `status` is the one exception, staying a plain public `query`
+  (side-effect-free, no race risk). `ws.mo` also drives the disappearance
+  handling a real WS close signal makes possible (ending a game a
+  vanished player left mid-round, freeing a table both walked away from
+  — see `backend/README.md`'s "Real-time push" section). `backend/src/actor_mixin.mo`
+  (`mo:duel-game-core/actor_mixin`) is a fourth module — a Motoko
+  `mixin`, `include`d in the host actor as `include
+  ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
+  methods (`ws_open`/`ws_close`/`ws_message`/`ws_get_messages`,
+  forwarding each straight to the `ws` built from `Ws.attach`) plus the
+  idle-sweep timer, so no host actor hand-declares any of the four.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
   client plumbing (session identity, real-time push, the generic
-  lobby/staging/rematch/busy/debrief screens, Candid IDL scaffolding).
+  multi-table lobby/staging/rematch/busy/debrief screens, Candid IDL
+  scaffolding).
   See [`frontend/README.md`](frontend/README.md) for the `GamePlugin`
   contract (Candid types, seat labels, board/action rendering) a game
   implements, and its "Real-time push" section for the required `ws`
@@ -44,7 +68,7 @@ top.
   `ws`, and a host actor built on this framework has no plain mutating
   method to poll in the first place. `frontend/ws.js`'s `connectWs()`
   builds a `GatewayWs` (`frontend/ws/gateway-*.js`) that speaks
-  `backend/src/Ws.mo`'s real `ic-websocket-cdk` protocol directly: each
+  `backend/src/ws.mo`'s real `ic-websocket-cdk` protocol directly: each
   browser tab self-registers as its own Gateway via plain Candid
   `ws_open`/`ws_message`/`ws_close` calls (the CDK allows this — no
   pre-registered Gateway principal required), then a timer drives
@@ -63,12 +87,23 @@ top.
 - **`backend/test/*.test.mo`** — interpreter-run suites for the engine.
   `Lifecycle.test.mo` walks one long session narrative; `Engine.test.mo`
   drives each entry point in isolation, covering the error variants,
-  takeover gates, and status views the narrative never reaches. Both are
-  plugged into `backend/test/FakeGame.mo` — a deliberately trivial
-  throwaway `Spec` that exists only to exercise the engine; it is not a
-  real game and ships no rendering. The `*.test.mo` suffix is what
-  `mops test` discovers — a file named `FooTest.mo` is silently skipped,
-  so keep the suffix when adding suites.
+  takeover gates, and status views the narrative never reaches — both
+  exercise `table.mo`'s per-table primitive (`Table.new`, then
+  `t.join`/`t.submit`/...) directly. `Lobby.test.mo` and
+  `LobbyLifecycle.test.mo` do the same for `registry.mo`'s `Registry`
+  itself: per-operation unit checks (table creation/discovery/join,
+  routing across several live tables at once, garbage collection, id
+  non-reuse) and a multi-table narrative (two tables running
+  independently and interleaved) respectively. `Hub.test.mo` covers
+  `ws.mo`'s `Hub` — the sid<->principal bridge behind the real-time push
+  transport — in isolation, against its two maps directly, since the
+  full `IcWebSocketCdk` actor machinery isn't exercisable in this
+  interpreter harness. All are plugged into `backend/test/FakeGame.mo` —
+  a deliberately trivial throwaway `Spec` that exists only to exercise
+  the engine; it is not a real game and ships no rendering. The
+  `*.test.mo` suffix is what `mops test` discovers — a file named
+  `FooTest.mo` is silently skipped, so keep the suffix when adding
+  suites.
 - **`backend/bench/*.bench.mo`** — `mops bench` suites. `engine.bench.mo`
   measures the engine's own overhead (not any game's `resolve` cost)
   using the same `FakeGame.mo` spec, across `join`+`leave`, a full
@@ -92,21 +127,30 @@ point when working in this repo.
 
 ## Toolchain
 
-- moc **1.11.2** (mops toolchain).
-- `src/lib.mo` (the engine) has exactly one Motoko dependency: `core`
-  (mo:core, the current Motoko standard library). Never import `mo:base`
-  in it — that's the legacy library. `src/Ws.mo` is the sole exception:
-  it additionally depends on `ic-websocket-cdk` (vendored in this repo at
+- moc **1.11.2** (mops toolchain, pinned in `backend/mops.toml`) — enough
+  to type-check `lib.mo`/`types.mo`/`table.mo`/`registry.mo`/`ws.mo` and
+  run every `backend/test/*.test.mo` suite. `actor_mixin.mo`'s top-level
+  `mixin <system>(...)` declaration needs a newer moc — `examples/racing`
+  pins **1.14.0** for exactly this reason (see its own `CLAUDE.md`'s
+  toolchain note); any consumer whose `Host.mo` wires
+  `mo:duel-game-core/actor_mixin` needs at least that version even though
+  the package itself is developed against 1.11.2.
+- The engine (`src/lib.mo`/`types.mo`/`table.mo`/`registry.mo`) has
+  exactly one Motoko dependency: `core` (mo:core, the current Motoko
+  standard library). Never import `mo:base` in any of it — that's the
+  legacy library. `src/ws.mo` is the sole exception: it additionally
+  depends on `ic-websocket-cdk` (vendored in this repo at
   `backend/src/ic-websocket-cdk/src`, migrated to `mo:core` throughout —
-  it has no `mo:base` import left) — confined there so `lib.mo` itself
-  stays exactly as pure as the architecture rules require, NOT because
-  wiring `Ws.mo` is optional (every host actor built on this package
-  must wire it — see the `backend/` bullet above). `ic-websocket-cdk` in
-  turn depends on the third-party `ic-certification` mops package for
-  its Merkle certification tree, which still uses `mo:base` internally
-  — genuinely outside this repo's control, unlike `ic-websocket-cdk`
-  itself. Any FUTURE module added here still needs the same "why is
-  this not in lib.mo" scrutiny before it grows a new dependency.
+  it has no `mo:base` import left) — confined there so the engine
+  modules themselves stay exactly as pure as the architecture rules
+  require, NOT because wiring `ws.mo` is optional (every host actor
+  built on this package must wire it — see the `backend/` bullet above).
+  `ic-websocket-cdk` in turn depends on the third-party
+  `ic-certification` mops package for its Merkle certification tree,
+  which still uses `mo:base` internally — genuinely outside this repo's
+  control, unlike `ic-websocket-cdk` itself. Any FUTURE module added
+  here still needs the same "why is this not in lib.mo" scrutiny before
+  it grows a new dependency.
 - `bench-helper` is a dev-dependency, used only by `backend/bench/`.
   Benchmarking requires `[toolchain] pocket-ic` and `wasm-opt` pinned in
   `mops.toml` (already done) — `mops bench` fails outright without them.
@@ -116,7 +160,7 @@ point when working in this repo.
   (and a WebSocket-like `ws`, required) from its caller (see
   `frontend/README.md`), so it never hardcodes an agent-loading
   strategy. `frontend/ws.js` builds that `ws` FOR the caller — a
-  `GatewayWs` speaking `backend/src/Ws.mo`'s real `ic-websocket-cdk`
+  `GatewayWs` speaking `backend/src/ws.mo`'s real `ic-websocket-cdk`
   protocol, no external relay library, no Gateway URL, nothing to load
   from a CDN — but `gateway-*.js` itself is the one documented, narrow
   exception: it depends on `@icp-sdk/core` (Candid encode/decode) and
@@ -251,12 +295,13 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
    types; storing the `Spec` in state would break canister upgrades. Every
    engine entry point takes `spec` as its first parameter.
 2. **The engine owns time.** `now : Int` (nanoseconds, `Time.now()` at the
-   host) is a parameter everywhere; `lib.mo` itself may not import `Time`.
-   This is what makes the test suites deterministic. `Ws.mo` is the one
-   documented exception — it plays the HOST's role (it calls `Time.now()`
-   itself, same as any host actor would, then hands it to the engine as a
-   parameter exactly like the plain wiring does); it is not part of the
-   engine and must never fold into `lib.mo`.
+   host) is a parameter everywhere; none of `lib.mo`/`types.mo`/
+   `table.mo`/`registry.mo` may import `Time`. This is what makes the
+   test suites deterministic. `ws.mo` and `actor_mixin.mo` are the two
+   documented exceptions — both play the HOST's role (each calls
+   `Time.now()` itself, same as any host actor would, then hands it to
+   the engine as a parameter exactly like the plain wiring does); neither
+   is part of the engine and must never fold into `lib.mo`.
 3. **Rules stay pure.** `init`/`validate`/`resolve` in a game's `Spec`
    must remain pure functions over immutable records. State transitions
    build new records (`{ me with ... }`), never mutate.
@@ -266,15 +311,34 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
 5. **Every phase carries a timestamp** (`since` / `lastActivity`) so idle
    takeover works from any phase — no ghost lobbies.
 6. **Rematch is create-then-join.** A rematch request stages a game with
-   `reservedFor = partner`; the partner's own rematch/join pattern-matches
-   that staging. Actor message serialization makes simultaneous clicks
-   race-free. Don't replace this with a flag-and-poll scheme.
+   `reservedFor = partner` — unless `partner` already acked (left) that
+   same debrief, in which case `Table.rematchPartner` reserves nobody and
+   the seat opens immediately instead of waiting on a partner who's gone
+   for good; the partner's own rematch/join pattern-matches that staging.
+   Actor message serialization makes simultaneous clicks race-free. Don't
+   replace this with a flag-and-poll scheme. The reserved partner isn't
+   only able to accept, either: `leave` while `reservedFor == ?session`
+   declines it, clearing just the reservation (the requester's own
+   staging survives, now open to anyone) — the `#awaitingRematch` view
+   carries a `gen` for exactly this call. At the
+   `Registry` layer a rematch reuses the SAME `TableId` — it never
+   allocates a new table.
 7. **No silent endings.** `leave` from an active game produces a shared
    `#aborted` debrief for both players. An idle takeover of an ACTIVE game
    records evicted players in `lastEnded` so `status` shows `#endedByOther`
    until they `ackEnded`; takeover of an expired DEBRIEF marks them
    pre-acked (they already saw their debrief) — this asymmetry is
-   intentional, see LifecycleTest steps 6–7.
+   intentional, see LifecycleTest steps 6–7. A `lastEnded` entry nobody's
+   plausibly still coming back to ack (a session that will never return,
+   most commonly) doesn't wait forever either: `Table.sweep` also prunes
+   any entry older than a generous multiple of `idleTimeoutNs`, via
+   `Table.pruneEnded`. This matters beyond just that one entry — at the
+   `Registry` layer, `gcIfQuiesced` refuses to drop an `#empty` table
+   while ANY `lastEnded` entry is still outstanding, so one permanently
+   un-acked notice otherwise pins that table's id in the registry (and
+   in `listTables`, looking freshly "open" — `waitingSecs == 0` — forever,
+   including across later, unrelated, cleanly-finished games on the same
+   freed board) for good.
 8. **`status` must stay side-effect-free** — a host exposes it as a
    `query`. Lazy idle-reset happens only in mutating calls.
 9. **Pending moves are hidden by construction**: `status` exposes only
@@ -285,23 +349,23 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
     import `@icp-sdk/core/agent` or hardcode a CDN, and never will — that
     rule is absolute, not just "no dependencies yet". Dependencies are a
     narrower, deliberate exception: `frontend/ws/gateway-*.js` (the real
-    `mo:duel-game-core/Ws` client `frontend/ws.js`'s `connectWs()`
+    `mo:duel-game-core/ws` client `frontend/ws.js`'s `connectWs()`
     always builds) depends on `@icp-sdk/core` (Candid encode/decode of
     the message content blob) and `cborg` (CBOR-decoding
     `ws_get_messages`' certified envelope) — confined there for the same
-    reason `ic-websocket-cdk` is confined to `backend/src/Ws.mo`: every
+    reason `ic-websocket-cdk` is confined to `backend/src/ws.mo`: every
     OTHER file in this package (`app.js`, `render.js`, `idl.js`,
     `ic-env.js`) stays dependency-free. `start()` itself stays exactly as
     transport-agnostic as before — a caller may still hand it any
     WebSocket-shaped mock (e.g. for tests) instead of a real `GatewayWs`.
-11. **`Ws.mo` reimplements no game logic, and is the sole entry point for
-    mutation.** Every WebSocket request dispatches to `lib.mo`'s own
-    plain engine operations (`TP.join`, `TP.submit`, ...) directly — none
-    of those six operations is ALSO exposed as a plain Candid method on a
-    host actor (only `status` is, being side-effect-free). There is no
-    second transport for the same calls to (dis)agree with; a game that
-    ever adds a plain mutating Candid method alongside `Ws.mo` reopens
-    exactly the race this design closes.
+11. **`ws.mo` reimplements no game logic, and is the sole entry point for
+    mutation.** Every WebSocket request dispatches to `registry.mo`'s own
+    `Registry` operations (`createTable`, `joinTable`, `submit`, ...)
+    directly — none of those seven operations is ALSO exposed as a plain
+    Candid method on a host actor (only `status` is, being
+    side-effect-free). There is no second transport for the same calls to
+    (dis)agree with; a game that ever adds a plain mutating Candid method
+    alongside `ws.mo` reopens exactly the race this design closes.
 12. **Leave means left.** `status`/`join`/`rematch` all treat a session
     that already acked its own debrief (via `leave`) as no longer a
     participant of it (`activeDebriefSeat`, not plain `seatInDebrief`),
@@ -342,8 +406,8 @@ because only one of them ships to third parties:
   reduction, text construction in blocks, loop shape. NOTE the cardinal
   rule: NEVER call `Array.concat` (or `.concat`) inside a loop — repeated
   concat is O(n²); accumulate in a `mo:core/List` (or VarArray) and
-  convert once at the end. (The single `.concat` in `push()` in
-  `lib.mo` is fine: called once per update, on a list bounded at 2
+  convert once at the end. (The single `.concat` in `pushAck()` in
+  `table.mo` is fine: called once per update, on a list bounded at 2
   elements — do not let that pattern grow.)
 - `.agents/skills/motoko-compiler-warnings-fixes/SKILL.md` — M0194/M0244
   fix recipes; fix one warning class at a time, never `_`-rename record
@@ -376,7 +440,7 @@ because only one of them ships to third parties:
 `npx skills add research-ag/duel-core --skill duel-game-core` into a
 third party's OWN repo, read cold by an agent with none of this repo's
 history or this session's context. Whenever a change here touches
-anything any of them describes — an engine/`Ws.mo`/`ActorMixin` API, a
+anything any of them describes — an engine/`ws.mo`/`ActorMixin` API, a
 `GamePlugin`/`app.js`/`ws.js` contract, a build/deploy command, a type
 shape a template mirrors, an example game's structure — update the
 affected file(s) in the SAME change, not as a follow-up.
@@ -405,8 +469,11 @@ second-order staleness, not just the passage you edited on purpose.
   `ok`/`expectErr` helpers + `Runtime.trap` on violation. Extend in kind.
   (In mo:core, `trap` lives in `Runtime`; `Debug` only has `print`.)
 - `msg`, not `label`, for text parameters (`label` is a reserved word).
-- Update BOTH test suites when touching engine semantics; the doc-header
-  in `backend/src/lib.mo` (wiring example + design guarantees) must
-  be kept in sync with reality, as must both READMEs and `skills/` (see
-  "Keeping `skills/` current" above — as clean rewritten documentation,
-  never a changelog-style patch note).
+- Update the affected test suite(s) when touching engine semantics —
+  `Lifecycle.test.mo`/`Engine.test.mo` for `table.mo`'s per-table
+  primitive, `LobbyLifecycle.test.mo`/`Lobby.test.mo` for `registry.mo`'s
+  `Registry` routing; the doc-header in `backend/src/lib.mo` (wiring
+  example + design guarantees) must be kept in sync with reality, as
+  must both READMEs and `skills/` (see "Keeping `skills/` current" above
+  — as clean rewritten documentation, never a changelog-style patch
+  note).

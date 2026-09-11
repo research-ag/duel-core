@@ -2,24 +2,25 @@
 //
 // This module owns everything that's the same for every game: session
 // identity, real-time push over `ws`, the generic screens (via
-// render.js), and dispatching clicks back to the canister. It
-// deliberately does NOT create the WebSocket-like `ws` itself — the
-// caller builds it however it likes (`duel-game-core/ws.js`'s
-// `connectWs()`, a real `ic-websocket-js` `IcWebSocket`, a mock for
-// tests, ...) and hands it to `start()`. That keeps this package
-// decoupled from any particular transport-loading strategy.
+// render.js — the multi-table lobby, staging, rematch, busy, debrief
+// chrome), and dispatching clicks back to the canister. It deliberately
+// does NOT create the WebSocket-like `ws` itself — the caller builds it
+// however it likes (`duel-game-core/ws.js`'s `connectWs()`, a real
+// `ic-websocket-js` `IcWebSocket`, a mock for tests, ...) and hands it to
+// `start()`. That keeps this package decoupled from any particular
+// transport-loading strategy.
 //
-//   1. `sid` identifies the PLAYER, not the game. There is ONE global
-//      board; a session id is how you claim a seat on it. Keeping it in
-//      sessionStorage (per-tab) means a second tab is automatically a
-//      second player.
+//   1. `sid` identifies the PLAYER, not any one game. A session id is how
+//      you claim a seat at a table; open a new tab and it's automatically
+//      a second player, free to create or join its own.
 //   2. `status(sid)` (sent as a `#status` request over `ws`) returns a
-//      per-caller View that already encodes which screen to show — see
-//      render.js.
+//      per-caller `Status` — either the browsable table list, or a
+//      specific table's own screen — that already encodes which screen
+//      to show; see render.js's `renderStatus`.
 //   3. There is exactly one transport, and no fallback: everything —
 //      every action AND every refresh — goes over `ws`. `start()` never
 //      calls a plain actor method itself (there is no plain mutating
-//      method on the canister to call — see `../backend/src/Ws.mo`'s doc
+//      method on the canister to call — see `../backend/src/ws.mo`'s doc
 //      header) and never runs a poll loop of its own; see `ws.js`'s own
 //      header for why that's still fine on the IC, which has no native
 //      server push (short version: `ws.js`'s `connectWs()` builds a `ws`
@@ -47,8 +48,20 @@
 // shared push stream — see the "Calls" section below for why that
 // distinction matters.
 
-import { renderView, errText, tag, val } from "./render.js";
-import type { DuelWs, EngineErr, GamePlugin, Seat, SeatTag, WsPayload, WsRequest } from "./types.js";
+import {
+  renderStatus,
+  errText,
+  tag,
+  val,
+  DUEL_IDLE_WARNING_ID,
+  idleWarningThreshold,
+  idleWarningText,
+  DUEL_RECLAIM_WARNING_ID,
+  RECLAIM_WARNING_SECS,
+  reclaimWarningText,
+  waitingText,
+} from "./render.js";
+import type { DuelWs, EngineErr, GamePlugin, InGameView, Seat, SeatTag, StagingYouView, Visibility, WsPayload, WsRequest } from "./types.js";
 
 const $ = (id: string): HTMLElement | null => document.getElementById(id);
 
@@ -58,11 +71,12 @@ function randomSid(): string {
   return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
-/// Structural equality for two decoded Candid values (Views, here) — used
-/// to skip a redundant re-render when a push tick delivers the exact same
-/// view as last time (the common case: nothing happened between ticks).
-/// Not `JSON.stringify(a) === JSON.stringify(b)`: Motoko `Nat`/`Int`
-/// fields decode to JS `bigint`, which `JSON.stringify` throws on.
+/// Structural equality for two decoded Candid values (Statuses, here) —
+/// used to skip a redundant re-render when a push tick delivers the
+/// exact same status as last time (the common case: nothing happened
+/// between ticks). Not `JSON.stringify(a) === JSON.stringify(b)`: Motoko
+/// `Nat`/`Int` fields decode to JS `bigint`, which `JSON.stringify`
+/// throws on.
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== "object" || typeof b !== "object") return false;
@@ -75,6 +89,139 @@ function deepEqual(a: unknown, b: unknown): boolean {
       Object.hasOwn(b, k) &&
       deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
   );
+}
+
+/// One `sync`-per-push, tick-every-second countdown warning — the shared
+/// mechanism behind BOTH `renderInGame`'s idle-reset warning and
+/// `renderStagingYou`'s reclaim warning (render.js), which face the same
+/// problem: their `secondsUntilX` field is only ever as fresh as the last
+/// push (nothing pushes on a bare tick of the clock — a push only ever
+/// arrives off a real mutation, or off the host's periodic sweep actually
+/// evicting someone; see backend/src/ws.mo's `sweepAndPush` doc), so
+/// without a local tick the number sits frozen at whatever it read the
+/// moment its view was last pushed instead of visibly counting down —
+/// exactly the 007 defect report's finding 05 ("byte-identical from 5s
+/// through 59s"). Ticks patch `elId`'s `hidden`/`textContent` directly and
+/// never touch `screenEl.innerHTML` — doing that every second would
+/// reintroduce exactly the hover-flicker `renderIfChanged`'s own
+/// `deepEqual` short-circuit exists to avoid. A caller's own `sync(null)`
+/// (wrong phase, or a phase-specific suppressed case — e.g. a player who
+/// already locked in this round) stops the ticker entirely rather than
+/// ticking toward a number that no longer means anything.
+function makeCountdownTicker(elId: string) {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let baseline: {
+    secs: bigint;
+    atMs: number;
+    hidden: (secondsLeft: bigint) => boolean;
+    text: (secondsLeft: bigint) => string;
+  } | undefined;
+
+  function stop(): void {
+    if (timer !== undefined) {
+      clearInterval(timer);
+      timer = undefined;
+    }
+    baseline = undefined;
+  }
+
+  function tick(): void {
+    if (!baseline) return;
+    // `unref()` below keeps this tolerable in Node, but the interval
+    // still fires for as long as the process is alive — including after
+    // a test (or any other caller that tears its own `document` mock
+    // back down between runs) has already moved on. Guard the lookup
+    // itself rather than assume `document` is still there to ask.
+    if (typeof document === "undefined") return;
+    const el = document.getElementById(elId);
+    if (!el) return; // screen moved on without going through stop()
+    const elapsed = BigInt(Math.max(0, Math.floor((Date.now() - baseline.atMs) / 1000)));
+    const remaining = baseline.secs > elapsed ? baseline.secs - elapsed : 0n;
+    el.hidden = baseline.hidden(remaining);
+    el.textContent = baseline.text(remaining);
+  }
+
+  function sync(
+    next: { secs: bigint; hidden: (secondsLeft: bigint) => boolean; text: (secondsLeft: bigint) => string } | null,
+  ): void {
+    if (next === null) {
+      stop();
+      return;
+    }
+    baseline = { secs: next.secs, atMs: Date.now(), hidden: next.hidden, text: next.text };
+    if (timer === undefined) {
+      timer = setInterval(tick, 1000);
+      // Node (unlike a browser) keeps a process alive for as long as a
+      // timer is still pending — harmless here since this page never
+      // "exits" in a browser tab, but it hangs a Node-hosted caller (a
+      // test runner, an SSR pass) that outlives this instance without an
+      // explicit teardown. `unref` doesn't exist on a browser's
+      // `setInterval` handle at all, so this is a no-op there.
+      (timer as unknown as { unref?: () => void }).unref?.();
+    }
+    tick();
+  }
+
+  return { sync };
+}
+
+/// Ticks every second for however many "waiting Ns" labels the open-tables
+/// list (render.ts's `renderTableRow`) currently has on screen, counting
+/// each one UP from its own pushed baseline — the same staleness problem
+/// `makeCountdownTicker` above solves for a single countdown (a table's
+/// `waitingSecs` is only ever as fresh as the last push, so left unticked
+/// it sits frozen between pushes), just inverted (counting up, not down)
+/// and for however many rows happen to be in `root` right now rather than
+/// one fixed element id — the browsing lobby's table list can hold any
+/// number of rows, appearing and disappearing between renders as tables
+/// come and go, so there's no single id to key a `makeCountdownTicker` on.
+/// `sync()` re-scans `root` and re-baselines every row off `Date.now()`;
+/// call it once, right after `root`'s markup is (re)drawn — a redraw
+/// recreates every row's element, so any baseline kept from before would
+/// be patching a detached node. `tick()` only ever sets `textContent`, so
+/// (like the countdown ticker above) it never fights `renderIfChanged`'s
+/// `deepEqual` short-circuit for hover-state stability.
+function makeTableWaitTicker(root: HTMLElement) {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let rows: { el: HTMLElement; baseSecs: bigint; atMs: number }[] = [];
+
+  function tick(): void {
+    for (const row of rows) {
+      const elapsed = BigInt(Math.max(0, Math.floor((Date.now() - row.atMs) / 1000)));
+      row.el.textContent = waitingText(row.baseSecs + elapsed);
+    }
+  }
+
+  function sync(): void {
+    rows = [...root.querySelectorAll<HTMLElement>("[data-wait-base]")].map((el) => ({
+      el,
+      baseSecs: BigInt(el.dataset.waitBase ?? "0"),
+      atMs: Date.now(),
+    }));
+    if (rows.length === 0) {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+      return;
+    }
+    // A row's markup already starts out textually correct (render.ts
+    // wrote the same text this baseline was just read from) — but a
+    // FakeElement in tests never populates `textContent` from parsed
+    // markup the way a real browser would, so an immediate `tick()` here
+    // both keeps that test-only surface honest and, for a real browser
+    // too, guarantees this row's `atMs` baseline and its displayed text
+    // agree from the very first render, not just from one second later.
+    tick();
+    if (timer === undefined) {
+      timer = setInterval(tick, 1000);
+      // See makeCountdownTicker's own comment on unref() above — same
+      // Node-vs-browser rationale applies here verbatim.
+      (timer as unknown as { unref?: () => void }).unref?.();
+    }
+  }
+
+  return { sync };
 }
 
 export interface StartOptions<S = unknown> {
@@ -93,7 +240,7 @@ export interface StartOptions<S = unknown> {
 ///   sidElId      - id of the element that displays the session id (default "sid")
 ///   newSidBtnId  - id of a "play as someone else" button (default "new-sid");
 ///                  auto-disabled while the current sid holds a seat
-///   screenElId   - id of the element `renderView` output is written into (default "screen")
+///   screenElId   - id of the element `renderStatus` output is written into (default "screen")
 ///   errorElId    - id of the element transient errors are shown in (default "error")
 ///   ws           - WebSocket-like transport (see the file header)
 export function start<S>({
@@ -141,46 +288,77 @@ export function start<S>({
     });
   }
 
-  // A view tag counts as "seated" when this sid still holds a seat the
-  // engine knows about — swapping to a fresh random sid here would abandon
-  // that seat rather than free it (there's no implicit `leave` on the way
-  // out), leaving the OLD sid's seat/game/debrief stuck until idle takeover
-  // eventually reclaims it. `lobby`/`busy`/`endedByOther` are all sid-less
-  // (nothing of yours to abandon) and `awaitingRematch` is an invitation
-  // onto a seat you don't hold yet, not a seat of your own — so only these
-  // three keep the button disabled.
+  // A status counts as "seated" when this sid still holds a seat at a
+  // table the engine knows about (`Status.atTable` wrapping one of these
+  // three inner view tags) — swapping to a fresh random sid here would
+  // abandon that seat rather than free it (there's no implicit `leave` on
+  // the way out), leaving the OLD sid's seat/game/debrief stuck until
+  // idle takeover eventually reclaims it. `busy`/`lobby`/`endedByOther`/
+  // `awaitingRematch` (at a table) and plain `browsing` (not at one at
+  // all) are all sid-less in this sense — nothing of yours to abandon —
+  // so only these three keep the button disabled.
   const SEATED_VIEW_TAGS = new Set(["stagingYou", "inGame", "debrief"]);
 
-  // True while THIS sid's own join is in flight (`pendingButtonKey` —
-  // declared below, see the forward-reference note on `syncNewSidBtn` —
-  // is this tab's single source of truth for "which of my own clicks is
-  // still waiting on a response"; only one call can be in flight at a
-  // time, so there's no ambiguity). Guards new-sid against being
-  // re-enabled by an UNRELATED push arriving mid-flight: `ws.onmessage`
-  // runs `renderIfChanged` for every view the shared push stream
-  // delivers, including periodic ticks for other players' moves, not
-  // just this call's own eventual response (see `call()`'s own doc) — a
-  // rival's join landing first still shows a `lobby` (unseated) view to
-  // THIS sid, which would otherwise read as "safe to swap identity" and
-  // re-enable the button while this sid's own join is still pending.
-  const joinPending = (): boolean =>
-    pendingButtonKey !== null && pendingButtonKey.startsWith("join:");
+  /// Unwraps a `Status`'s `atTable` branch, or `null` while browsing (or
+  /// before the first status has ever loaded).
+  function atTable(status: unknown): { id: bigint; view: unknown } | null {
+    if (status == null) return null;
+    if (tag(status as object) !== "atTable") return null;
+    return val(status as object) as { id: bigint; view: unknown };
+  }
 
-  // Recomputes newSidBtn's disabled state off `lastView` (declared below —
-  // fine, since every call to this happens from an event handler running
-  // well after start()'s synchronous body, `lastView`'s declaration
-  // included, has run). Used to resync after a call that DIDN'T produce a
-  // new view (an error), since the click listener below disables the
-  // button speculatively the moment a `join` is dispatched, before the
-  // engine has actually confirmed the seat.
+  function isSeated(status: unknown): boolean {
+    const at = atTable(status);
+    return at !== null && SEATED_VIEW_TAGS.has(tag(at.view as object));
+  }
+
+  /// Unwraps a `Status`'s `inGame` branch, or `null` for any other phase.
+  /// Feeds `syncIdleTick`'s baseline below.
+  function inGameView(status: unknown): InGameView | null {
+    const at = atTable(status);
+    if (at === null || tag(at.view as object) !== "inGame") return null;
+    return val(at.view as object) as InGameView;
+  }
+
+  /// Same, for `stagingYou`. Feeds `syncReclaimTick`'s baseline below.
+  function stagingYouView(status: unknown): StagingYouView | null {
+    const at = atTable(status);
+    if (at === null || tag(at.view as object) !== "stagingYou") return null;
+    return val(at.view as object) as StagingYouView;
+  }
+
+  // True while THIS sid's own create/join-table call is in flight
+  // (`pendingButtonKey` — declared below, see the forward-reference note
+  // on `syncNewSidBtn` — is this tab's single source of truth for "which
+  // of my own clicks is still waiting on a response"; only one call can
+  // be in flight at a time, so there's no ambiguity). Guards new-sid
+  // against being re-enabled by an UNRELATED push arriving mid-flight:
+  // `ws.onmessage` runs `renderIfChanged` for every status the shared
+  // push stream delivers, including periodic ticks for other players'
+  // moves, not just this call's own eventual response (see `call()`'s
+  // own doc) — a rival's join landing first still shows a `browsing`
+  // (unseated) status to THIS sid, which would otherwise read as "safe
+  // to swap identity" and re-enable the button while this sid's own
+  // create/join is still pending.
+  const joinPending = (): boolean =>
+    pendingButtonKey !== null &&
+    (pendingButtonKey.startsWith("create:") || pendingButtonKey.startsWith("jointable"));
+
+  // Recomputes newSidBtn's disabled state off `lastStatus` (declared
+  // below — fine, since every call to this happens from an event handler
+  // running well after start()'s synchronous body, `lastStatus`'s
+  // declaration included, has run). Used to resync after a call that
+  // DIDN'T produce a new status (an error), since the click listener
+  // below disables the button speculatively the moment a create/join
+  // request goes out, before the engine has actually confirmed the seat.
   const syncNewSidBtn = (): void => {
     if (!newSidBtn) return;
     if (joinPending()) {
       newSidBtn.disabled = true;
       return;
     }
-    if (lastView === undefined) return;
-    newSidBtn.disabled = SEATED_VIEW_TAGS.has(tag(lastView as object));
+    if (lastStatus === undefined) return;
+    newSidBtn.disabled = isSeated(lastStatus);
   };
 
   // ---------------------------------------------------------------------
@@ -189,13 +367,49 @@ export function start<S>({
 
   let errorTimer: ReturnType<typeof setTimeout>;
 
+  // Set for good once `ws.onclose` fires (see below) — this transport
+  // instance is permanently dead at that point (GatewayWs never revives
+  // the SAME instance; recovering means reloading the page for a fresh
+  // ws/actor — see `showDisconnected`'s own doc), so nothing after that
+  // should either show a fresh transient toast over the persistent
+  // disconnected banner OR leave the board clickable. `applyLoadingState`
+  // (declared below) reads this on every pass to force every button
+  // disabled; `showError` reads it to stop clobbering the banner.
+  let disconnected = false;
+
   function showError(msg: string): void {
+    if (disconnected) return; // the persistent disconnected banner wins for good
     const el = $(errorElId);
     if (!el) return;
     el.textContent = msg;
     el.hidden = false;
     clearTimeout(errorTimer);
     errorTimer = setTimeout(() => (el.hidden = true), 5000);
+  }
+
+  // A closed transport is a fundamentally different situation from an
+  // ordinary recoverable error: nothing this tab does from here on will
+  // ever reach the canister again (no more pushes, no more calls), so a
+  // 5-second toast that quietly hides itself — while every board button
+  // stays fully clickable, each click just flashing ANOTHER misleading
+  // toast ("Call failed: GatewayWs: closed") over this one — leaves a
+  // dead session looking exactly like a live one. This banner stays up
+  // for good instead (no `errorTimer`), and a page reload really is the
+  // only way back: `start()` never owns how `ws`/`actor` were built (see
+  // this file's own header), so it has no fresh connection of its own to
+  // hand back — only the reload button below, a plain `location.reload()`.
+  function showDisconnected(): void {
+    if (disconnected) return;
+    disconnected = true;
+    clearTimeout(errorTimer);
+    const el = $(errorElId);
+    if (el) {
+      el.innerHTML = `Connection closed. <button type="button" class="ghost" id="duel-reload">Reload to reconnect</button>`;
+      el.hidden = false;
+      $("duel-reload")?.addEventListener("click", () => location.reload());
+    }
+    if (newSidBtn) newSidBtn.disabled = true;
+    applyLoadingState();
   }
 
   // ---------------------------------------------------------------------
@@ -210,14 +424,14 @@ export function start<S>({
   // doc). `call()` prefers `request()`
   // when it's there, and settles `inFlight`/the button spinner off ITS
   // resolution — not off `ws.onmessage`, which now only renders whatever
-  // view the shared push stream (periodic ticks AND every request's own
-  // fetch alike) delivers next. Settling off the shared stream instead
-  // clears the spinner the moment ANY unrelated periodic tick lands —
-  // almost immediately, usually well before the slow update this button
-  // triggered has actually resolved — and only THEN, once the real
-  // response finally arrives, does the screen jump to the next view:
-  // spinner gone, then a dead pause, then the switch. A caller whose
-  // `ws` doesn't implement `request()` (a
+  // status the shared push stream (periodic ticks AND every request's
+  // own fetch alike) delivers next. Settling off the shared stream
+  // instead clears the spinner the moment ANY unrelated periodic tick
+  // lands — almost immediately, usually well before the slow update this
+  // button triggered has actually resolved — and only THEN, once the
+  // real response finally arrives, does the screen jump to the next
+  // status: spinner gone, then a dead pause, then the switch. A caller
+  // whose `ws` doesn't implement `request()` (a
   // minimal hand-rolled WebSocket, say) falls back to that same
   // send()-and-await-onmessage behavior — the best available without a
   // way to correlate a response to its own request.
@@ -234,23 +448,22 @@ export function start<S>({
   // make it stale in a way that matters.
   let lastReq: WsRequest | null = null;
 
-  // `join<S, M>` in lib.mo has exactly one `#wrongPhase` case: the sid
-  // making the call already holds a seat in the ACTIVE game (see its own
-  // doc). That only happens when this tab's view is stale — most often a
-  // fresh load/reconnect that renders a lobby before realizing this sid
-  // is already seated elsewhere. A plain refresh always resolves it (see
-  // this repo's README/CLAUDE.md), so treat it the same way here instead
-  // of surfacing an error the user can't act on: re-send `status` and let
-  // the real view (`inGame`) replace the stale one. Every OTHER
-  // `#wrongPhase` in lib.mo comes from `rematch`/`submit`, never `join`,
-  // so gating on "the request that failed was a join" is exact — no need
-  // to match the message text, which could change independently.
+  // `Lobby.createTable`/`joinTable` reject with `#wrongPhase` when the
+  // caller already has unfinished business at another table (see
+  // lib.mo's `Lobby.createTable`/`joinTable` doc) — the same shape of
+  // staleness the single-table engine's own bare `join` used to signal:
+  // this tab's local view hasn't caught up yet (most often a fresh
+  // load/reconnect that renders `browsing` before realizing this sid is
+  // already seated elsewhere). A plain refresh always resolves it, so
+  // treat it the same way here instead of surfacing an error the user
+  // can't act on: re-send `status` and let the real status (`atTable`)
+  // replace the stale one.
   function isStaleJoin(req: WsRequest | null, err: EngineErr): boolean {
-    return req !== null && "join" in req && "wrongPhase" in err;
+    return req !== null && ("createTable" in req || "joinTable" in req) && "wrongPhase" in err;
   }
 
   // Mirror of isStaleJoin for `submit`/`leave`/`reset`: each stamps the
-  // `gen` (and, for `submit`, `turn`) it read off `lastView` at click
+  // `gen` (and, for `submit`, `turn`) it read off `lastStatus` at click
   // time (see genOf/turnOf below) — see backend/src/lib.mo's `Table.gen`
   // doc for why the engine can reject that as `#stale` instead of
   // applying it (most commonly a resend whose original attempt secretly
@@ -263,24 +476,26 @@ export function start<S>({
   }
 
   // `gen`/`turn` a real client must stamp onto `submit`/`leave`/`reset` —
-  // read off `lastView` (declared below), the single source of truth this
-  // file already redraws from. A view outside a live phase (or none
-  // loaded yet, e.g. a click landing before the first status ever
-  // resolved) has no `gen`/`turn` to speak of; `0n` is a safe placeholder
-  // for that edge case — the engine's own check just rejects it as
-  // `#stale` like any other mismatch (see isStaleMutation above), never
-  // misapplies it.
-  function genOf(view: unknown): bigint {
-    if (view == null) return 0n;
-    const t = tag(view as object);
-    if (t === "stagingYou" || t === "inGame" || t === "debrief") {
-      return (val(view as object) as { gen: bigint }).gen;
+  // read off `lastStatus` (declared below), the single source of truth
+  // this file already redraws from. A status outside a live phase (not
+  // currently `atTable` at all, or `atTable` with no `gen`/`turn` of its
+  // own — e.g. `browsing`, or none loaded yet) has nothing to speak of;
+  // `0n` is a safe placeholder for that edge case — the engine's own
+  // check just rejects it as `#stale` like any other mismatch (see
+  // isStaleMutation above), never misapplies it.
+  function genOf(status: unknown): bigint {
+    const at = atTable(status);
+    if (!at) return 0n;
+    const t = tag(at.view as object);
+    if (t === "stagingYou" || t === "inGame" || t === "debrief" || t === "awaitingRematch") {
+      return (val(at.view as object) as { gen: bigint }).gen;
     }
     return 0n;
   }
-  function turnOf(view: unknown): bigint {
-    if (view != null && tag(view as object) === "inGame") {
-      return (val(view as object) as { turn: bigint }).turn;
+  function turnOf(status: unknown): bigint {
+    const at = atTable(status);
+    if (at && tag(at.view as object) === "inGame") {
+      return (val(at.view as object) as { turn: bigint }).turn;
     }
     return 0n;
   }
@@ -317,11 +532,12 @@ export function start<S>({
       }
       showError(errText(payload.err));
       // A failed call never seats this sid — undo the eager disable a
-      // `join` dispatch below applied speculatively (renderIfChanged,
+      // create/join dispatch below applied speculatively (renderIfChanged,
       // which would normally resync this, only runs on the success
-      // branch: an unchanged view — the common shape of a rejected join,
-      // e.g. `seatTaken` — never reaches it, since it's built to skip a
-      // redundant redraw off `deepEqual`, not to recompute this button).
+      // branch: an unchanged status — the common shape of a rejected
+      // join, e.g. `seatTaken` — never reaches it, since it's built to
+      // skip a redundant redraw off `deepEqual`, not to recompute this
+      // button).
       syncNewSidBtn();
     } else {
       renderIfChanged(payload.view);
@@ -348,12 +564,15 @@ export function start<S>({
     }
   }
 
-  const doJoin = (seat: SeatTag) => call({ join: { [seat]: null } as Seat });
+  const doCreateTable = (seat: SeatTag, visibility: Visibility) =>
+    call({ createTable: { seat: { [seat]: null } as Seat, visibility } });
+  const doJoinTable = (id: bigint, seat: SeatTag, code: [] | [string]) =>
+    call({ joinTable: { id, seat: { [seat]: null } as Seat, code } });
   const doSubmit = (action: unknown) =>
-    call({ submit: { gen: genOf(lastView), turn: turnOf(lastView), move: action } });
+    call({ submit: { gen: genOf(lastStatus), turn: turnOf(lastStatus), move: action } });
   const doRematch = () => call({ rematch: null });
-  const doLeave = () => call({ leave: { gen: genOf(lastView) } });
-  const doReset = () => call({ reset: { gen: genOf(lastView) } });
+  const doLeave = () => call({ leave: { gen: genOf(lastStatus) } });
+  const doReset = () => call({ reset: { gen: genOf(lastStatus) } });
   const doAck = () => call({ ackEnded: null });
 
   // ---------------------------------------------------------------------
@@ -389,7 +608,11 @@ export function start<S>({
   // ---------------------------------------------------------------------
 
   function buttonKey(b: HTMLButtonElement): string {
-    if (b.dataset.join) return `join:${b.dataset.join}`;
+    if (b.dataset.createTable) return `create:${b.dataset.createTable}`;
+    if (b.dataset.joinTable && b.dataset.joinTableId) {
+      return `jointable:${b.dataset.joinTableId}:${b.dataset.joinTable}`;
+    }
+    if (b.dataset.joinTableByCode) return `jointable-code:${b.dataset.joinTableByCode}`;
     if (b.dataset.act) return `act:${b.dataset.act}`;
     if ("rematch" in b.dataset) return "rematch";
     if ("leave" in b.dataset) return "leave";
@@ -414,7 +637,15 @@ export function start<S>({
       if (el.dataset.naturalDisabled === undefined) {
         el.dataset.naturalDisabled = el.disabled ? "1" : "0";
       }
-      if (pendingButtonKey) {
+      if (disconnected) {
+        // Permanent, not a `pendingButtonKey`-style spinner state: once
+        // `showDisconnected` has fired there is no in-flight call to wait
+        // out and no natural state to restore later, so every button —
+        // including ones a stray render creates after this point — stays
+        // disabled for the rest of this page's life.
+        el.disabled = true;
+        el.classList.remove("duel-loading");
+      } else if (pendingButtonKey) {
         el.disabled = true;
         el.classList.toggle("duel-loading", buttonKey(el) === pendingButtonKey);
       } else {
@@ -517,6 +748,37 @@ export function start<S>({
     }
   });
 
+  // ---------------------------------------------------------------------
+  // The "create a table" form's visibility toggle: swaps the access-code
+  // input's `hidden` state as the radio changes. A plain `change`
+  // listener, delegated (like the click listener below) so it survives
+  // `renderIfChanged` replacing `screenEl.innerHTML` wholesale.
+  // ---------------------------------------------------------------------
+
+  screenEl.addEventListener("change", (ev) => {
+    const target = ev.target as HTMLElement;
+    if (target instanceof HTMLInputElement && target.name === "table-visibility") {
+      const codeEl = $("create-code") as HTMLInputElement | null;
+      if (codeEl) codeEl.hidden = target.value !== "code";
+    }
+  });
+
+  /// Reads the create-table form's own current visibility choice —
+  /// called at click time, not baked into any button's own `dataset`
+  /// (unlike a seat, the access code is live user input render.js can't
+  /// know ahead of time). An arrow-function const, not a `function`
+  /// declaration — see the identical note on beginButtonLoading/
+  /// endButtonLoading above for why that's what lets this see `screenEl`
+  /// as definitely non-null.
+  const readCreateVisibility = (): Visibility => {
+    const codeChosen = (
+      screenEl.querySelector('input[name="table-visibility"][value="code"]') as HTMLInputElement | null
+    )?.checked;
+    if (!codeChosen) return { open: null };
+    const codeEl = $("create-code") as HTMLInputElement | null;
+    return { code: codeEl?.value ?? "" };
+  };
+
   // One delegated listener, so re-rendering never leaks handlers.
   screenEl.addEventListener("click", (ev) => {
     const target = ev.target as HTMLElement;
@@ -524,17 +786,35 @@ export function start<S>({
     if (!b || b.disabled) return;
     const dispatch = () => {
       beginButtonLoading(b);
-      if (b.dataset.join) {
-        // Disable new-sid the moment a seat request goes out, not only
-        // once the engine confirms it (renderIfChanged's own check, which
-        // only runs on that later response) — sid is a plain module-scope
-        // var, and swapping it out from under a join already in flight
-        // (this join still resolves under the OLD sid, but the page now
-        // displays and acts under the new one) would seat the OLD sid on
-        // a seat the player can no longer reach: a soft lock, since
-        // there's no way back to a sid the UI stopped tracking.
+      if (b.dataset.createTable) {
+        // See the `data-join`-era comment this mirrors, below: disable
+        // new-sid the moment the request goes out, not only once the
+        // engine confirms the seat.
         if (newSidBtn) newSidBtn.disabled = true;
-        doJoin(b.dataset.join as SeatTag);
+        doCreateTable(b.dataset.createTable as SeatTag, readCreateVisibility());
+      } else if (b.dataset.joinTable && b.dataset.joinTableId) {
+        // An open-table row's own per-seat button — the id is baked into
+        // its own dataset by render.js, and an open table never needs a
+        // code.
+        if (newSidBtn) newSidBtn.disabled = true;
+        doJoinTable(BigInt(b.dataset.joinTableId), b.dataset.joinTable as SeatTag, []);
+      } else if (b.dataset.joinTableByCode) {
+        // The "join by code" mini-form — table number and code are live
+        // user input, read from their own inputs at click time.
+        const idEl = $("joinbycode-id") as HTMLInputElement | null;
+        const idText = idEl?.value.trim() ?? "";
+        let id: bigint;
+        try {
+          id = BigInt(idText);
+        } catch {
+          endButtonLoading();
+          showError("Enter a valid table number.");
+          return;
+        }
+        const codeEl = $("joinbycode-code") as HTMLInputElement | null;
+        const code = codeEl?.value ?? "";
+        if (newSidBtn) newSidBtn.disabled = true;
+        doJoinTable(id, b.dataset.joinTableByCode as SeatTag, code ? [code] : []);
       } else if (b.dataset.act) doSubmit(JSON.parse(b.dataset.act));
       else if ("rematch" in b.dataset) doRematch();
       else if ("leave" in b.dataset) doLeave();
@@ -546,7 +826,7 @@ export function start<S>({
   });
 
   // ---------------------------------------------------------------------
-  // Refresh. Sends a `#status` request — the resulting view arrives via
+  // Refresh. Sends a `#status` request — the resulting status arrives via
   // `ws.onmessage` below, same path as any other action's response.
   // Doesn't mark `inFlight`/show the "working" spinner itself (unlike
   // `call()`): this is a sync ping, not a mutating action, so there's no
@@ -558,25 +838,74 @@ export function start<S>({
     sendWs({ status: null });
   }
 
-  // Tracks the last view actually drawn, so a push tick that delivers the
-  // SAME view (the common case — most ticks land while nothing changed)
-  // can skip the redraw entirely. Replacing screenEl.innerHTML destroys
-  // and recreates every button in it even when the markup is byte-for-
-  // byte identical; a freshly created element under a stationary cursor
-  // isn't considered `:hover` until the next mouse move, so redrawing on
-  // every tick made hover states visibly blink on a ~500ms cycle. See
-  // deepEqual()'s own doc for why this isn't a JSON.stringify comparison.
-  let lastView: unknown;
+  // Tracks the last status actually drawn, so a push tick that delivers
+  // the SAME status (the common case — most ticks land while nothing
+  // changed) can skip the redraw entirely. Replacing screenEl.innerHTML
+  // destroys and recreates every button in it even when the markup is
+  // byte-for-byte identical; a freshly created element under a
+  // stationary cursor isn't considered `:hover` until the next mouse
+  // move, so redrawing on every tick made hover states visibly blink on
+  // a ~500ms cycle. See deepEqual()'s own doc for why this isn't a
+  // JSON.stringify comparison.
+  let lastStatus: unknown;
 
-  const renderIfChanged = (view: unknown): void => {
-    // `joinPending()` first: an unrelated push (someone else's move, e.g.)
-    // can land mid-flight showing THIS sid still unseated — that must not
-    // re-enable new-sid while this sid's own join is still outstanding
-    // (see joinPending's own doc).
-    if (newSidBtn) newSidBtn.disabled = joinPending() || SEATED_VIEW_TAGS.has(tag(view as object));
-    if (deepEqual(view, lastView)) return;
-    lastView = view;
-    screenEl.innerHTML = renderView(view as Parameters<typeof renderView<S>>[0], plugin);
+  // Two independent `makeCountdownTicker`s (declared above `start()`) —
+  // one per warning this package renders, each keyed to its own element
+  // id so patching one never touches the other.
+  const idleTicker = makeCountdownTicker(DUEL_IDLE_WARNING_ID);
+  const reclaimTicker = makeCountdownTicker(DUEL_RECLAIM_WARNING_ID);
+  const waitTicker = makeTableWaitTicker(screenEl);
+
+  // Re-baselines off a FRESH `#inGame` push (a real submit/leave/etc.
+  // reset the engine's own idle clock too, so this push's own
+  // `secondsUntilIdleReset` is the new source of truth); stops ticking
+  // entirely for any other phase — as it does for a player who's already
+  // locked in this round (see render.ts's `renderInGame` doc: the warning
+  // stays hidden for them regardless of how far the countdown falls, so
+  // there's nothing for a tick to do until their NEXT push flips
+  // `youSubmitted` back to false).
+  function syncIdleTick(status: unknown): void {
+    const inGame = inGameView(status);
+    if (!inGame || inGame.youSubmitted) {
+      idleTicker.sync(null);
+      return;
+    }
+    idleTicker.sync({
+      secs: inGame.secondsUntilIdleReset,
+      hidden: (secondsLeft) => secondsLeft > idleWarningThreshold(inGame.idleTimeoutSecs),
+      text: idleWarningText,
+    });
+  }
+
+  // Same idea, for `#stagingYou`'s reclaim warning — re-baselines off a
+  // fresh push (a seat switch or a fresh join both re-stamp `since`, so
+  // this push's own `secondsUntilReclaimable` is the new source of
+  // truth); stops ticking entirely for any other phase.
+  function syncReclaimTick(status: unknown): void {
+    const staging = stagingYouView(status);
+    if (!staging) {
+      reclaimTicker.sync(null);
+      return;
+    }
+    reclaimTicker.sync({
+      secs: staging.secondsUntilReclaimable,
+      hidden: (secondsLeft) => secondsLeft > RECLAIM_WARNING_SECS,
+      text: reclaimWarningText,
+    });
+  }
+
+  const renderIfChanged = (status: unknown): void => {
+    // `joinPending()` first: an unrelated push (someone else's move, a
+    // table filling up, e.g.) can land mid-flight showing THIS sid still
+    // unseated — that must not re-enable new-sid while this sid's own
+    // create/join is still outstanding (see joinPending's own doc).
+    if (newSidBtn) newSidBtn.disabled = joinPending() || isSeated(status);
+    if (deepEqual(status, lastStatus)) return;
+    lastStatus = status;
+    screenEl.innerHTML = renderStatus(status as Parameters<typeof renderStatus<S>>[0], plugin);
+    syncIdleTick(status);
+    syncReclaimTick(status);
+    waitTicker.sync();
     // Freshly created buttons start out with whatever disabled state
     // render.js baked into the markup — reapply any still-pending
     // button's loading/disabled override on top (see applyLoadingState's
@@ -589,14 +918,14 @@ export function start<S>({
   ws.onopen = () => refresh();
   ws.onmessage = (ev) => {
     const msg = ev.data;
-    // A stale join (see isStaleJoin's own doc) is resynced right here too,
-    // for every transport alike, using `lastReq` — the last DISPATCHED
-    // request, since (unlike settleCall) this handler has no Promise
-    // result of its own to read the request back off. For a correlating
-    // transport this may fire alongside settleCall's own copy of the same
-    // check (see its doc for why neither assumes the other ran) — both
-    // resync silently, so at worst that's a second harmless `status`
-    // round-trip, never a doubled error.
+    // A stale create/join (see isStaleJoin's own doc) is resynced right
+    // here too, for every transport alike, using `lastReq` — the last
+    // DISPATCHED request, since (unlike settleCall) this handler has no
+    // Promise result of its own to read the request back off. For a
+    // correlating transport this may fire alongside settleCall's own
+    // copy of the same check (see its doc for why neither assumes the
+    // other ran) — both resync silently, so at worst that's a second
+    // harmless `status` round-trip, never a doubled error.
     const staleJoin = "err" in msg && isStaleJoin(lastReq, msg.err);
     const staleMutation = "err" in msg && isStaleMutation(lastReq, msg.err);
 
@@ -615,23 +944,23 @@ export function start<S>({
     }
     if ("err" in msg) {
       if (staleJoin || staleMutation) {
-        // This sid already holds a seat in the running game, or its own
+        // This sid already has unfinished business elsewhere, or its own
         // submit/leave/reset stamped a gen/turn that's since moved on —
         // refresh silently instead of surfacing an error the user can't
-        // act on; the real view replaces whatever stale one led to the
+        // act on; the real status replaces whatever stale one led to the
         // request.
         refresh();
         return;
       }
       showError(errText(msg.err));
       // Same resync as settleCall's err branch above, for the fallback
-      // transport's own error path (a rejected join here never reaches
-      // renderIfChanged either).
+      // transport's own error path (a rejected create/join here never
+      // reaches renderIfChanged either).
       syncNewSidBtn();
     } else {
       renderIfChanged(msg.view);
     }
   };
   ws.onerror = (ev) => showError(`WebSocket error: ${ev?.error?.message ?? ev}`);
-  ws.onclose = () => showError("Connection closed — reload to reconnect.");
+  ws.onclose = () => showDisconnected();
 }

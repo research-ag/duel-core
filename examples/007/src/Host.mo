@@ -1,23 +1,27 @@
 import Time "mo:core/Time";
 
 import TP "mo:duel-game-core";
-import Ws "mo:duel-game-core/Ws";
-import ActorMixin "mo:duel-game-core/ActorMixin";
+import Ws "mo:duel-game-core/ws";
+import ActorMixin "mo:duel-game-core/actor_mixin";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
+import Registry "mo:duel-game-core/registry";
 
 import Rules "Duel007Rules";
 
 persistent actor {
-  let table : TP.Table<Rules.State, Rules.Action> = TP.create(60_000_000_000); // 60 s idle timeout
+  // A lobby of tables, not one fixed board — anyone may open a new table
+  // (open, or access-code protected) and the same canister routes every
+  // move to the right one. See `mo:duel-game-core`'s own doc header.
+  let registry = Registry.new<Rules.State, Rules.Action>(60_000_000_000); // 60 s idle timeout, shared by every table
 
-  public query func status(sid : Text) : async TP.View<Rules.State> {
-    TP.status(table, Time.now(), sid);
+  public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
+    registry.status(Time.now(), sid);
   };
 
   transient let wsHub : Ws.Hub = Ws.createHub();
   transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
     Rules.spec(),
-    table,
+    registry,
     wsHub,
     {
       encode = func(m : Ws.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);

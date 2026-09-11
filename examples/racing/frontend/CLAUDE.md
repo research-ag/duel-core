@@ -22,8 +22,9 @@ session exactly as much time as a wrong one.
 
 ## App structure and duel-game-core integration
 
-A single global lobby, single track, single car example, plain
-TypeScript with no framework:
+A single track, single car example (duel-game-core's own multi-table
+lobby is what this game uses — see below — there's just nothing here to
+choose beyond a table and a seat), plain TypeScript with no framework:
 
 - `src/main.ts` wires the gameplay/physics/rendering services together by
   hand (plain `new X(...)` calls, dependency order matters — see its
@@ -33,10 +34,10 @@ TypeScript with no framework:
   per file with constructor-injected dependencies.
 - duel-game-core's own generic screens (`index.html`'s `#screen`, driven
   by `src/duel/duel-app.js` + `src/duel/duel-racing-plugin.js`) own
-  everything before and after a race: choosing a seat, waiting for an
-  opponent, rematch, debrief. There is exactly one global lobby, one
-  track, and one car (see `../CLAUDE.md`) — no settings UI, no login, no
-  user menu, no car selection. The camera mode, step-control color,
+  everything before and after a race: creating/browsing/joining a table,
+  choosing a seat, waiting for an opponent, rematch, debrief. There is
+  exactly one track and one car (see `../CLAUDE.md`) — no settings UI, no
+  login, no user menu, no car/map selection. The camera mode, step-control color,
   shadow resolution, and texture filtering are fixed constants, hardcoded
   at their call sites (`player-view.service.ts`,
   `control-scene.service.ts`, `world-scene.service.ts`); the camera is
@@ -62,8 +63,8 @@ TypeScript with no framework:
   re-registered under the SAME principal, it silently erases the NEW,
   perfectly-live connection's own lookup entry — surfacing as
   `ws_message: Client with principal ... doesn't have an open
-  connection` immediately, and "Connection closed — reload to
-  reconnect." once the ack keep-alive can no longer be sent either.
+  connection` immediately, and a persistent "Connection closed" banner
+  once the ack keep-alive can no longer be sent either.
   Retry logic alone can't paper over this — `../../../frontend/ws/
   gateway-client.js`'s send retries and `_invalidateAndRetry()` reopen on
   failure, but neither stops a live connection's lookup entry from being
@@ -129,7 +130,7 @@ TypeScript with no framework:
   flag, no `app.js`-side poll loop, no `ws/poller.js` module: `ws` is
   unconditionally required end to end, and the backend has no plain
   mutating Candid method to poll in the first place (see
-  `../CLAUDE.md`/`../../../backend/src/Ws.mo`'s doc header).
+  `../CLAUDE.md`/`../../../backend/src/ws.mo`'s doc header).
 - The in-race HUD (speedometer / minimap / position+time panel) is
   `app/modules/gameplay/game-viewport/hud/hud.ts` — one plain class that
   subscribes to `GameStateService`'s subjects directly and pokes the DOM

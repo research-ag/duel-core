@@ -684,7 +684,7 @@ module {
         };
       };
 
-      await* remove_client(client_key, handlers, ? #ClosedByApplication);
+      await* remove_client(client_key, handlers, ?#ClosedByApplication);
 
       #Ok;
     };

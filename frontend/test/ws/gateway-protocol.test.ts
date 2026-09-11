@@ -66,7 +66,7 @@ test("interpret: a #view push round-trips with its reqId", () => {
   const p = new GatewayProtocol({ gameIdlTypes: sampleGameTypes });
   const { Action, State } = sampleGameTypes({ IDL });
   const types = (p as unknown as { _types: { WsMsg: IDL.Type } })._types;
-  const view = { lobby: { p1Open: true, p2Open: false, resetAvailable: false } };
+  const view = { browsing: { tables: [] } };
   const content = IDL.encode([types.WsMsg], [{ view: { reqId: [3n], view } }]);
   const action = p.interpret({
     clientKey,
@@ -83,7 +83,7 @@ test("interpret: a #view push round-trips with its reqId", () => {
 test("interpret: a #view push with no reqId decodes reqId as null (unsolicited broadcast)", () => {
   const p = new GatewayProtocol({ gameIdlTypes: sampleGameTypes });
   const types = (p as unknown as { _types: { WsMsg: IDL.Type } })._types;
-  const view = { endedByOther: null };
+  const view = { atTable: { id: 1n, view: { endedByOther: null } } };
   const content = IDL.encode([types.WsMsg], [{ view: { reqId: [], view } }]);
   const action = p.interpret({
     clientKey,

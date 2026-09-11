@@ -2,11 +2,12 @@
 
 Rules-agnostic browser client for any canister built on the
 [`duel-game-core`](../backend/README.md) Motoko engine. It implements every screen
-that's the same for every game — lobby, staging, rematch offer, busy
-countdown, debrief chrome, the `#endedByOther` notice — plus session
-identity and real-time push, so a new game only has to supply a small
-**GamePlugin**: the two Candid types, seat labels, and how to draw the
-board and action buttons.
+that's the same for every game — the multi-table lobby (create a table,
+browse open ones, join by code), staging, rematch offer, busy countdown,
+debrief chrome, the `#endedByOther` notice — plus session identity and
+real-time push, so a new game only has to supply a small **GamePlugin**:
+the two Candid types, seat labels, and how to draw the board and action
+buttons.
 
 Written in TypeScript, published pre-compiled: `npm install` in this
 package builds `dist/` (`npm run build`, plain `tsc`) and everything a
@@ -105,9 +106,18 @@ shown here with their defaults):
   automatically while the current sid still holds a seat (`stagingYou`/
   `inGame`/`debrief`) — swapping identities there would abandon that seat
   instead of freeing it, leaving it stuck until idle takeover reclaims it.
-- `screen` — where `renderView`'s output is written; also where clicks
-  are delegated from, so re-rendering never leaks event listeners.
-- `error` — where a transient rejection (`errText`) is shown.
+- `screen` — where `renderStatus`'s output is written (the multi-table
+  lobby or a specific table's own screen, depending on the current
+  status); also where clicks are delegated from, so re-rendering never
+  leaks event listeners.
+- `error` — where a transient rejection (`errText`) is shown, auto-hiding
+  after 5s. `ws.onclose` uses this same element differently: a closed
+  transport is terminal, not transient (this `GatewayWs` instance never
+  revives itself — see "Real-time push" below), so that banner stays up
+  for good with its own "Reload to reconnect" button instead of fading
+  out, and every button on the page (including `new-sid`) is disabled at
+  the same time — a live-looking board a dead connection can no longer
+  update is exactly the bug this replaced (007 defect report, finding 04).
 
 Override any of the ids: `start({ plugin, ws, sidElId: "...", ... })`.
 
@@ -130,7 +140,7 @@ start({ plugin, ws });
 FRESH one every page load, not stable across a reload.** `agent`'s
 identity doesn't need to mean anything — the engine's own identity is
 the client-chosen `sid`, decoupled from any IC principal on purpose (see
-`../backend/src/Ws.mo`'s doc header) — but `ic-websocket-cdk`'s
+`../backend/src/ws.mo`'s doc header) — but `ic-websocket-cdk`'s
 `ws_open` hard-rejects an anonymous caller outright ("Anonymous
 principal is not allowed"), so a game with no login step (the common
 case — see both `examples/`) must not build `agent` with
@@ -143,8 +153,9 @@ the anonymous identity: the WS handshake, and with it the whole app
 Resist the temptation to derive that identity's seed from `sid` so it
 stays the same across a plain reload (a previous version of this
 worked example did exactly that) — it actively causes `ws_message:
-Client with principal ... doesn't have an open connection` and
-"Connection closed — reload to reconnect.": `ic-websocket-cdk@0.4.1`'s
+Client with principal ... doesn't have an open connection` and a
+persistent "Connection closed" banner (`app.js`'s `showDisconnected()`
+— see its own doc): `ic-websocket-cdk@0.4.1`'s
 own `remove_client` (in its `State.mo`) deletes its
 principal->client_key lookup by PRINCIPAL ALONE, not scoped to the exact
 client_key being removed. A plain reload gives the OLD page's own
@@ -159,7 +170,7 @@ identity) already persists across reload on its own, completely
 independent of this principal.
 
 `connectWs()` builds a `GatewayWs` (`./ws/gateway-client.js`) that
-speaks `mo:duel-game-core/Ws`'s real `ic-websocket-cdk` protocol
+speaks `mo:duel-game-core/ws`'s real `ic-websocket-cdk` protocol
 directly against `actor` — genuine canister-driven push, not client-side
 polling wearing a push-shaped interface. There is still no separate
 Gateway *process* to run: `ic-websocket-cdk` doesn't require a
@@ -172,7 +183,7 @@ story). This is also what makes an opponent's disappearance a genuine
 server-side signal instead of a guess: the CDK's own canister-side timer
 (periodic ack → wait for a keep-alive reply → evict) calls `on_close` on
 its own if a connection goes quiet, independent of any explicit goodbye
-— see `../backend/src/Ws.mo`'s doc header for what the backend does with
+— see `../backend/src/ws.mo`'s doc header for what the backend does with
 that (ends/frees the affected game) and the resulting detection floor
 (that timeout is fixed at 60s inside the CDK, not configurable — expect
 roughly 60-120s for an involuntary disappearance to be noticed, not
@@ -195,12 +206,13 @@ property buys nothing and would cost a real BLS-verification dependency
 to check — a documented trade-off, not an oversight.
 
 **There is no plain-polling fallback.** A canister built on this
-framework has no `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`
-Candid method to poll in the first place — the ONLY way to mutate game
-state is `mo:duel-game-core/Ws`'s `ws_message` (see
-`../backend/src/Ws.mo`'s doc header for why: a direct update call is
+framework has no `createTable`/`joinTable`/`submit`/`rematch`/`leave`/
+`reset`/`ackEnded` Candid method to poll in the first place — the ONLY
+way to mutate game
+state is `mo:duel-game-core/ws`'s `ws_message` (see
+`../backend/src/ws.mo`'s doc header for why: a direct update call is
 exactly the race a single, ordered WS channel exists to close). Every
-canister built on this package MUST wire `Ws.mo`. `start()` itself
+canister built on this package MUST wire `ws.mo`. `start()` itself
 doesn't know or care which kind of `ws` it got — bring your own
 WebSocket-like object entirely (a genuine mock for tests, or a
 hand-rolled one talking to a real EXTERNAL Gateway relay instead of
@@ -246,7 +258,7 @@ against, not a hypothetical one.
 **Every outgoing `ws_message` is serialized, never sent concurrently.**
 `ic-websocket-cdk` tracks a strict per-connection expected sequence
 number and evicts the client outright (`WrongSequenceNumber` — surfaces
-here as `onclose`/"Connection closed — reload to reconnect") the instant
+here as `onclose`/a persistent "Connection closed" banner) the instant
 a message arrives out of order — and two independent `ws_message` update
 calls, once both are actually in flight, have no guaranteed relative
 processing order on the IC, regardless of which was dispatched first.
@@ -285,12 +297,12 @@ chrome, runs over this one shared connection).
 
 **Any number of `request()`s can be genuinely in flight at once, from
 any code sharing this `ws`.** This connection's incoming stream isn't
-only replies to its own calls — `Ws.mo`'s `pushRelevant` pushes a fresh
+only replies to its own calls — `ws.mo`'s `pushRelevant` pushes a fresh
 view to BOTH seats of a match on almost every mutation, so this same
 connection routinely gets an unsolicited push whenever the OTHER seat
 acts, indistinguishable on the wire from a genuine reply unless
 something says otherwise. `GatewayWs` mints a fresh `reqId` per
-`request()` call and `Ws.mo` echoes it back verbatim on that request's
+`request()` call and `ws.mo` echoes it back verbatim on that request's
 own `#view`/`#err` (`null` on a push to the non-acting seat — see
 `../backend/README.md`'s "The wire protocol" section); `_handle()`
 matches replies to their own pending `request()` by that id, rather than
@@ -320,8 +332,8 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 
 | Module                   | Exports                                   |
 | ------------------------ | ------------------------------------------ |
-| `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`'s own type plus the `Ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
-| `render.js`              | `renderView(view, plugin)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
+| `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`'s own type plus the `ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
+| `render.js`              | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
 | `app.js`                 | `start({ plugin, ws, ...elIds })`          |
 | `ic-env.js`              | `readIcEnv()`, `deriveHost()` (optional)   |
 | `ws.js`                  | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result |

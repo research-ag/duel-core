@@ -55,6 +55,8 @@ test("View round-trips through Candid encode/decode for a game's own State shape
       youSubmitted: true,
       oppSubmitted: false,
       gen: 1n,
+      secondsUntilIdleReset: 60n,
+      idleTimeoutSecs: 60n,
     },
   };
   const bytes = IDL.encode([t.View], [view]);

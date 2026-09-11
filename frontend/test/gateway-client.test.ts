@@ -7,7 +7,7 @@
 //      underlying `ws_message` call failed with the CDK's own "Client
 //      with principal ... doesn't have an open connection" — the
 //      canister had already forgotten this connection (e.g. a keep-alive
-//      eviction), so `Ws.mo`'s `onMessage` never ran for this request at
+//      eviction), so `ws.mo`'s `onMessage` never ran for this request at
 //      all. `request()` reconnected but never actually RESENT the
 //      `ackEnded` message — it just waited for a reply that could now
 //      never arrive, eventually timing out with a swallowed error toast
@@ -21,8 +21,8 @@
 //      `ws.onopen = () => refresh()`; once that stopped re-firing after
 //      the very first connection, a reconnect this class self-healed
 //      never told the caller a gap in coverage had occurred, so a state
-//      change synced only server-side (e.g. `TP.sweep`'s idle takeover —
-//      see `../../backend/src/ActorMixin.mo`'s `sweepFunc`, which has no
+//      change synced only server-side (e.g. `Registry.sweep`'s idle takeover —
+//      see `../../backend/src/actor_mixin.mo`'s `sweepFunc`, which has no
 //      WS/push awareness of its own) was never picked up.
 //
 // Both are exercised here against a from-scratch, minimal simulation of
@@ -76,20 +76,21 @@ class FakeWsCdkActor implements WsActor {
 
   openCalls = 0;
   /// How many times a NON-service app message actually reached this
-  /// point — i.e., how many times the real equivalent of `Ws.mo`'s
+  /// point — i.e., how many times the real equivalent of `ws.mo`'s
   /// `onMessage` would have run.
   appMessagesProcessed = 0;
 
   /// Test hook: build the `#view`/`#err` reply content for one decoded
-  /// `#req`. Defaults to a canned `#view{lobby}` echoing the request's own
-  /// `reqId`, which is enough for these tests — they only care whether a
-  /// request eventually gets a MATCHING reply, not what view it carries.
+  /// `#req`. Defaults to a canned `#view{browsing}` echoing the request's
+  /// own `reqId`, which is enough for these tests — they only care
+  /// whether a request eventually gets a MATCHING reply, not what status
+  /// it carries.
   onReq: (sid: string, req: unknown, reqId: [] | [bigint]) => unknown = (
     _sid,
     _req,
     reqId,
   ) => ({
-    view: { reqId, view: { lobby: { p1Open: true, p2Open: true, resetAvailable: false } } },
+    view: { reqId, view: { browsing: { tables: [] } } },
   });
 
   private _pushEnvelope(clientKey: TransportClientKey, isService: boolean, content: Uint8Array): void {
@@ -233,7 +234,7 @@ test("request() resends the app message after a connection-registration send fai
 
     // Simulate the canister having already forgotten this connection —
     // ic-websocket-cdk@0.4.1's own `ws_message` rejects a call like this
-    // BEFORE ever calling into `Ws.mo`'s `onMessage`, so no reply for it
+    // BEFORE ever calling into `ws.mo`'s `onMessage`, so no reply for it
     // can ever exist server-side.
     actor.failNextMessage = "Client with principal x doesn't have an open connection";
 

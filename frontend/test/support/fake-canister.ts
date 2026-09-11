@@ -1,7 +1,7 @@
 // A tiny in-memory stand-in for a canister wired with
-// `mo:duel-game-core/Ws` — decodes each incoming `ws_message` app
+// `mo:duel-game-core/ws` — decodes each incoming `ws_message` app
 // request and, via `respond`, enqueues a matching `#view`/`#err` reply
-// (echoing `reqId` back verbatim, same as `Ws.mo` does) into its own
+// (echoing `reqId` back verbatim, same as `ws.mo` does) into its own
 // outgoing queue for the next `ws_get_messages` poll to pick up. Good
 // enough to drive `GatewayWs`'s own request()/send() correlation logic
 // end to end without a real IC agent or canister.
@@ -12,7 +12,7 @@ import { encode as cborEncode } from "cborg";
 import { buildEngineTypes, type EngineTypes } from "../../src/idl.js";
 import type { WsActor } from "../../src/ws/gateway-transport.js";
 import type { WebsocketMessageRecord } from "../../src/ws/gateway-protocol.js";
-import type { EngineErr, View } from "../../src/types.js";
+import type { EngineErr, Status } from "../../src/types.js";
 
 export function sampleGameTypes({ IDL: I }: { IDL: typeof IDL }) {
   return { Action: I.Variant({ pass: I.Null }), State: I.Record({ hp: I.Nat }) };
@@ -30,9 +30,9 @@ export class FakeCanister implements WsActor {
   private lastClientKey: RawClientKey | null = null;
 
   /// What to reply with for the next decoded app request — defaults to a
-  /// harmless `#endedByOther` view. Override per test.
-  respond: (req: unknown) => { view: View } | { err: EngineErr } = () => ({
-    view: { endedByOther: null },
+  /// harmless `atTable`/`#endedByOther` status. Override per test.
+  respond: (req: unknown) => { view: Status } | { err: EngineErr } = () => ({
+    view: { atTable: { id: 1n, view: { endedByOther: null } } },
   });
   wsMessageBehavior: "ok" | "err" = "ok";
   wsOpenBehavior: "ok" | "err" = "ok";
@@ -125,11 +125,11 @@ export class FakeCanister implements WsActor {
   }
 
   /// Test-only: enqueue an unsolicited push (reqId omitted, same as
-  /// `Ws.mo`'s `pushRelevant` broadcasting to the OTHER seat) — for
+  /// `ws.mo`'s `pushRelevant` broadcasting to the OTHER seat) — for
   /// tests that need to interleave a genuine broadcast with a
   /// `request()`'s own correlated reply. Requires `ws_open` to have run
   /// at least once (needs a client_key to address).
-  pushUnsolicited(view: View): void {
+  pushUnsolicited(view: Status): void {
     if (!this.lastClientKey) throw new Error("FakeCanister: no client_key yet — call after ws_open");
     this._pushRaw(
       this.lastClientKey,

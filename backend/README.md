@@ -2,12 +2,18 @@
 
 ## Overview
 
-A generic 2-player global-board session engine for the Internet Computer.
-It solves the plumbing every simultaneous-reveal, turn-based 2-player game
-needs — and knows nothing about any particular game's rules:
+A generic 2-player multi-table lobby session engine for the Internet
+Computer. It solves the plumbing every simultaneous-reveal, turn-based
+2-player game needs — and knows nothing about any particular game's
+rules:
 
-- **Seating** — two players join a single global board (seats `#p1` /
-  `#p2`); a third caller is turned away while a match is in progress.
+- **Tables** — anyone may open a new table: `#open` (discoverable and
+  joinable by anyone browsing the lobby) or protected with an access
+  code (shared with a friend out of band, never listed). Any number of
+  tables run independently and simultaneously; a shared `Registry`
+  creates them and routes every session's calls to the right one.
+- **Seating** — two players join a table (seats `#p1` / `#p2`); a third
+  caller is turned away while a match is in progress on it.
 - **Rounds** — each seated player submits one move; once both are in, the
   game's own `resolve` function runs and either continues the game or
   ends it with a verdict.
@@ -15,20 +21,33 @@ needs — and knows nothing about any particular game's rules:
   lose / draw), with the final game state attached.
 - **Early leave** — a player may leave mid-game; both players get a
   shared `#aborted` debrief instead of the game silently vanishing.
-- **Rematch** — from the debrief, either player can request a rematch;
-  two simultaneous rematch clicks converge race-free (see Design).
-  Leaving a debrief dismisses it for you specifically: your own `status`
-  stops showing it (and `join`/`rematch` stop treating you as one of its
-  two participants) right away, even though the underlying board can
-  legitimately linger in that debrief until your partner also leaves (or
-  it expires) — their own rematch option isn't cut short by your exit.
+- **Rematch** — from the debrief, either player can request a rematch,
+  reusing the SAME table; two simultaneous rematch clicks converge
+  race-free (see Design). Leaving a debrief dismisses it for you
+  specifically: your own `status` stops showing it (and `joinTable`/
+  `rematch` stop treating you as one of its two participants) right
+  away, even though the underlying table can legitimately linger in that
+  debrief until your partner also leaves (or it expires) — their own
+  rematch option isn't cut short by your exit. Requesting a rematch
+  against a partner who already left doesn't reserve a seat for them
+  either — that seat opens immediately, since nobody's coming back to
+  accept it. And the reserved partner isn't limited to accepting or
+  waiting it out: `leave` while looking at `#awaitingRematch` declines
+  it, freeing just the reservation (the requester's own staging survives,
+  now open to anyone).
 - **Idle takeover** — after a configurable timeout, third parties may
   reclaim a squatted staging seat, reset a dead game, or start fresh over
-  an expired debrief. No lobby is occupied forever by a player who
-  vanished.
-- **Status views** — every caller gets one truthful, per-caller `View`,
-  including a proactive `#endedByOther` notice when their game was ripped
-  out from under them by an idle takeover.
+  an expired debrief — discoverable through the browsable table list
+  the same as any other joinable table. No table is occupied forever by
+  a player who vanished, and a table nobody ever revisits is eventually
+  garbage-collected — including pruning any `#endedByOther` notice nobody
+  plausibly still owes a look at, so a participant who's never coming
+  back to acknowledge one can't pin that table's id in the registry
+  forever — so ids don't accumulate without bound.
+- **Status views** — every caller gets one truthful, per-caller
+  `SessionStatus`: either the browsable table list, or a specific table's
+  own `View` — including a proactive `#endedByOther` notice when their
+  game was ripped out from under them by an idle takeover.
 
 It does **not** know how to play any game — that's entirely up to you.
 Pair it with [`duel-game-core` for npm](../frontend/README.md), the
@@ -55,25 +74,49 @@ machine, so a new game only has to supply the rules.
 
 ### Interface
 
-The engine is one module (`src/lib.mo`) built around two type parameters
-a game supplies: `S` (game state) and `M` (one player's move).
+The engine is built around two type parameters a game supplies: `S`
+(game state) and `M` (one player's move). Its shared type surface —
+`Spec`, `Seat`, `Phase`, `View`, `Err`, `Res`, `Table`, `Registry`, and
+everything else below — lives in `src/types.mo` and is re-exported by
+`src/lib.mo` (`mo:duel-game-core`, no subpath) so a host actor can name
+all of them off one import. The two layers of actual operations are
+separate sibling modules, both built on those same types:
 
 - `Spec<S, M>` — the three pure functions a game implements: `init`,
   `validate`, `resolve` (see Design).
-- `Table<S, M>` — the stable session state for one global board; created
-  once per host actor with `create(idleTimeoutNs)`.
-- Seven operations: `join`, `submit`, `rematch`, `leave`, `reset`,
-  `ackEnded`, `status`. Every one that can mutate takes `spec` and the
-  current time (`now : Int`, nanoseconds) as explicit parameters — see
-  Implementation notes. Six of them (everything but `status`) are called
-  ONLY from inside `mo:duel-game-core/Ws`'s `ws_message` dispatch — they
-  are not, and must not be, exposed as plain Candid methods on a host
-  actor (see "Real-time push" below for why). `status` is the exception:
-  it stays a plain public `query` too, since it's side-effect-free and
-  carries no race risk.
-- `View<S>` — the per-caller result of `status`: exactly one of `#lobby`,
+- `src/table.mo` (`mo:duel-game-core/table`) — `Table<S, M>`, the stable
+  session state for ONE board, and the low-level primitive `Registry`
+  (below) is built from: `Table.new(idleTimeoutNs, visibility,
+  createdBy)` plus `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`/
+  `status`/`sweep` on the table it returns (Motoko dot-notation call
+  sugar — plain functions taking the table as their first argument). A
+  game that genuinely wants exactly one fixed board with no lobby of its
+  own can use this directly instead of `Registry`.
+- `src/registry.mo` (`mo:duel-game-core/registry`) — `Registry<S, M>`,
+  the stable multi-table registry: created once per host actor with
+  `Registry.new(idleTimeoutNs)`. `createTable`/`listTables`/`joinTable`
+  create, discover, and join a specific table; `submit`/`rematch`/
+  `leave`/`reset`/`ackEnded`/`status` resolve the caller's own current
+  table (via a `SessionId -> TableId` mapping the registry keeps) and
+  delegate straight into the matching `Table` operation above — no game
+  logic is reimplemented at this layer. `sweep` idle-evicts and
+  garbage-collects across every table.
+- Seven per-table operations, on either `Table<S, M>` or `Registry<S,
+  M>`: `join`/`createTable`+`joinTable`, `submit`, `rematch`, `leave`,
+  `reset`, `ackEnded`, `status` (plus `sweep`, not caller-facing). Every
+  one that can mutate takes `spec` and the current time (`now : Int`,
+  nanoseconds) as explicit parameters — see Implementation notes. At the
+  `Registry` layer, every mutating operation is called ONLY from inside
+  `mo:duel-game-core/ws`'s `ws_message` dispatch — they are not, and
+  must not be, exposed as plain Candid methods on a host actor (see
+  "Real-time push" below for why). `status` is the exception: it stays a
+  plain public `query` too, since it's side-effect-free and carries no
+  race risk.
+- `View<S>` — one table's own per-caller screen: exactly one of `#lobby`,
   `#busy`, `#stagingYou`, `#awaitingRematch`, `#inGame`, `#debrief`,
-  `#endedByOther`.
+  `#endedByOther`. `SessionStatus<S>` wraps it for the multi-table case:
+  either `#browsing { tables : [TableSummary] }` (not currently at any
+  table) or `#atTable { id : TableId; view : View<S> }`.
 
 ## Usage
 
@@ -92,6 +135,7 @@ In the Motoko source file import the package as:
 
 ```motoko
 import TP "mo:duel-game-core";
+
 ```
 
 ### Example
@@ -101,57 +145,64 @@ A game is a pure `Spec<S, M>`:
 ```motoko
 public type Spec<S, M> = {
   init : () -> S;
-  validate : (S, Seat, M) -> ?Text;   // null = legal; ?text = rejection
+  validate : (S, Seat, M) -> ?Text; // null = legal; ?text = rejection
   resolve : (S, M, M) -> { state : S; verdict : ?Verdict };
 };
+
 ```
 
 A host actor forwards every call to the engine, supplying `Time.now()`
 and your `Spec` — but only `status` is a plain Candid method. Everything
-that can mutate state (`join`/`submit`/`rematch`/`leave`/`reset`/
-`ackEnded`) is driven exclusively through `mo:duel-game-core/Ws`'s
-`ws_message`, wired alongside `status` in the SAME actor — there is no
-plain Candid method for any of them, and no fallback: see "Real-time
-push" below for why, and for the idle-sweep timer that also belongs in
-this actor. A minimal host actor's non-WS half:
+that can mutate state (`createTable`/`joinTable`/`submit`/`rematch`/
+`leave`/`reset`/`ackEnded`) is driven exclusively through
+`mo:duel-game-core/ws`'s `ws_message`, wired alongside `status` in the
+SAME actor — there is no plain Candid method for any of them, and no
+fallback: see "Real-time push" below for why, and for the idle-sweep
+timer that also belongs in this actor. A minimal host actor's non-WS
+half:
 
 ```motoko
 import TP "mo:duel-game-core";
-import Rules "YourGameRules";       // your module, implementing TP.Spec<S, M>
+import Registry "mo:duel-game-core/registry";
+import Rules "YourGameRules"; // your module, implementing TP.Spec<S, M>
 import Time "mo:core/Time";
 import Timer "mo:core/Timer";
 
 persistent actor {
-  let table : TP.Table<Rules.State, Rules.Action> =
-    TP.create(60_000_000_000); // 60 s idle timeout
+  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(60_000_000_000); // 60 s idle timeout, shared by every table
 
-  public query func status(sid : Text) : async TP.View<Rules.State> {
-    TP.status(table, Time.now(), sid);
+  public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
+    registry.status(Time.now(), sid);
   };
 
-  // Frees an abandoned board on its own — with only 2 players, there's
-  // often nobody left to visit the board and trigger the lazy,
-  // visitor-driven eviction `TP.join`/`TP.reset` already do. This bare
-  // top-level call reruns automatically on every upgrade too (no
-  // `postupgrade` override needed), so the timer never stays dead after
-  // one.
+  // Frees every abandoned table on its own — with only 2 players per
+  // table, there's often nobody left to visit an idle one and trigger
+  // the lazy, visitor-driven eviction `joinTable`/`reset` already do.
+  // This bare top-level call reruns automatically on every upgrade too
+  // (no `postupgrade` override needed), so the timer never stays dead
+  // after one.
   func startSweeping<system>() {
-    ignore Timer.recurringTimer<system>(#seconds(30), func() : async () {
-      TP.sweep(table, Time.now());
-    });
+    ignore Timer.recurringTimer<system>(
+      #seconds(30),
+      func() : async () {
+        registry.sweep(Time.now());
+      },
+    );
   };
   startSweeping<system>();
 
-  // ...wire mo:duel-game-core/Ws here — see "Real-time push" below for
+  // ...wire mo:duel-game-core/ws here — see "Real-time push" below for
   // the full `ActorMixin` wiring (all four `ws_*` methods plus this same
   // idle-sweep timer, in one `include`), which is what actually drives
-  // join/submit/rematch/leave/reset/ackEnded.
+  // createTable/joinTable/submit/rematch/leave/reset/ackEnded.
 };
+
 ```
 
-`Table<S, M>` is a stable type whenever `S` and `M` are stable types —
-the `Spec` (functions) is passed on every call and never stored, so the
-engine survives canister upgrades with no migration code.
+`Registry<S, M>` (and the `Table<S, M>` it's built from) is a
+stable type whenever `S` and `M` are stable types — the `Spec`
+(functions) is passed on every call and never stored, so the engine
+survives canister upgrades with no migration code.
 
 From there, generate (or hand-write) the Candid interface for this
 service and pair it with a **GamePlugin** on the frontend — see
@@ -168,10 +219,11 @@ update call bypassing this transport is exactly the race it exists to
 close: two independent update calls have no guaranteed relative
 processing order once both are in flight, so a plain `submit` racing
 this transport's own traffic could resolve out of order against it —
-which is why `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded` are not
-exposed as plain Candid methods at all, only reachable via `ws_message`.
+which is why `createTable`/`joinTable`/`submit`/`rematch`/`leave`/
+`reset`/`ackEnded` are not exposed as plain Candid methods at all, only
+reachable via `ws_message`.
 
-`src/Ws.mo` — imported separately as `mo:duel-game-core/Ws`, never merged
+`src/ws.mo` — imported separately as `mo:duel-game-core/ws`, never merged
 into the engine itself — is built on
 [`ic-websocket-cdk`](https://github.com/omnia-network/ic-websocket-cdk-mo)
 (mops). The IC has no native WebSocket support; `ic-websocket-cdk`'s
@@ -198,83 +250,87 @@ dependency itself. It does still depend on the third-party
 `ic-certification` mops package for its Merkle certification tree, and
 that package's own code still uses `mo:base` internally — genuinely
 outside this repo's control, unlike the vendored CDK. Keeping the CDK
-confined to `Ws.mo` means a host actor that never imports
-`mo:duel-game-core/Ws` never compiles any of that in; `src/lib.mo` stays
+confined to `ws.mo` means a host actor that never imports
+`mo:duel-game-core/ws` never compiles any of that in; `src/lib.mo` stays
 exactly as pure as the architecture rules require.
 
 **Disappearance handling.** Real WS close detection is exactly what
 makes it possible for the backend to tell a genuinely vanished player
-apart from one merely thinking — `attach()`'s `onClose` (see `Ws.mo`)
-drives an implicit `TP.leave` on behalf of whichever session's
+apart from one merely thinking — `attach()`'s `onClose` (see `ws.mo`)
+drives an implicit `Registry.leave` on behalf of whichever session's
 connection just closed, whether that close was the client's own
 cooperative goodbye or the CDK's internal keep-alive timeout catching an
 involuntary disappearance (crash, force-quit, network drop): a live game
 someone vanished from ends in a shared debrief instead of leaving the
 opponent staring at a move that's never coming, and if the OTHER
 participant is also found disconnected at that point, their side of the
-same debrief is acked too, freeing the board immediately instead of it
+same debrief is acked too, freeing the table immediately instead of it
 sitting occupied with nobody left to poll it free. The CDK's keep-alive
 timeout is fixed at 60s (not configurable via `WsInitParams`), so an
 involuntary disappearance has a real detection floor of roughly
 60-120s depending on where in the ack cycle it happens — not instant,
-but bounded, and independent of `TP.sweep` (see `src/lib.mo`), which
-stays in place underneath this as a second, timeout-based backstop for
-anything that reaches the engine outside this transport at all (e.g. a
-canister upgrade dropping every live connection until browsers
-reconnect on their own).
+but bounded, and independent of `Registry.sweep` (see `src/registry.mo`),
+which stays in place underneath this as a second, timeout-based
+backstop for anything that reaches the engine outside this transport at
+all (e.g. a canister upgrade dropping every live connection until
+browsers reconnect on their own).
 
 **Push overhead.** Internally, `attach()`'s push helpers
-(`pushTo`/`pushView`/`pushRelevant`, plus `finishClose`/`sweepAndPush`)
-are `async*`/`await*`, not plain `async`/`await` — only `pushTo`'s own
-call into `IcWebSocketCdk.send` is a genuine send; the rest are thin
-fan-out/dispatch wrappers around it with nothing to await themselves.
-On the IC, a plain `async` call is its own message with its own commit
-point regardless of whether it suspends, so e.g. broadcasting to both
-seats of an `#active` game would otherwise cost two extra round trips
-through the scheduler on top of the one real send. `async*`/`await*`
-inlines a wrapper into its caller's own async state machine instead of
-starting a new one, so the whole dispatch tree down to `pushTo`'s single
-real `await` compiles to one message, not one per wrapper — same number
-of genuine sends, far fewer commit points and continuation-closure
-allocations. `disconnectSession` goes further still and isn't `async`
-at all: it only calls `TP.leave` (synchronous engine code), so there's
-no async state machine to build. See `Ws.mo`'s own comments on
-`Attached`/`pushTo` before "fixing" one of these back to plain
-`async`/`await` for readability — it silently reintroduces that
+(`pushTo`/`pushStatus`/`afterMutation`, plus `finishClose`/
+`sweepAndPush`) are `async*`/`await*`, not plain `async`/`await` — only
+`pushTo`'s own call into `IcWebSocketCdk.send` is a genuine send; the
+rest are thin fan-out/dispatch wrappers around it with nothing to await
+themselves. On the IC, a plain `async` call is its own message with its
+own commit point regardless of whether it suspends, so e.g. broadcasting
+to both seats of an `#active` game would otherwise cost two extra round
+trips through the scheduler on top of the one real send. `async*`/
+`await*` inlines a wrapper into its caller's own async state machine
+instead of starting a new one, so the whole dispatch tree down to
+`pushTo`'s single real `await` compiles to one message, not one per
+wrapper — same number of genuine sends, far fewer commit points and
+continuation-closure allocations. `disconnectSession` goes further still
+and isn't `async` at all: it only calls `Registry.leave` (synchronous
+engine code), so there's no async state machine to build. See `ws.mo`'s
+own comments on `Attached`/`pushTo` before "fixing" one of these back to
+plain `async`/`await` for readability — it silently reintroduces that
 per-wrapper overhead.
 
 **The wire protocol.** `ic-websocket-js` requires ONE application-message
 type shared by both directions (it reads the type straight off the
 canister's `ws_message` method's second Candid parameter at runtime) — so
 `Ws.Msg<S, M>` is a variant covering client→canister requests
-(`#req { sid; req; reqId }`, where `req` mirrors the engine's six mutating
-operations plus an explicit `#status` resync) AND canister→client pushes
-(`#view { reqId; view }` / `#err { reqId; err }`), not two separate types.
-Every mutating request re-uses `lib.mo`'s own plain engine operations
-(`TP.join`, `TP.submit`, ...) directly — `Ws.mo` reimplements no game
-logic, and these are the ONLY place those six operations are ever called
-from a host actor, since none of them is exposed as a plain Candid
-method — and, after each one,
-pushes a fresh view to whoever needs to see it changed: once a match has
-two fixed seats (`#active`/`#debrief`), that's read directly off
-`table.phase`'s `p1`/`p2` fields, so a connection routinely receives a
-push it never asked for whenever the OTHER seat is the one who acted.
-Before that (`#empty`/`#staging`) there IS no fixed pair yet — a seat
-opening or closing needs to reach anyone watching the lobby, not just
-whoever happens to be seated, so that case instead pushes to every
-session `Hub` currently knows is connected at all (see below). Either
-way, a client can receive a view it never requested. `reqId` is an opaque token the
-CLIENT makes up for a `#req` it wants correlated to its own reply; `Ws.mo`
-only ever echoes it straight back on that SAME session's own push, never
-inspecting or generating it — a push to the other, non-acting participant
-always carries `reqId = null`, since it's a broadcast, not a reply to
-anything they asked. This exists because, without it, a client has no way
-to tell "the reply to my own request" apart from "an unrelated broadcast
-that happened to arrive around the same time" — a real bug this closes:
-a client-side FIFO match-next-message-to-oldest-pending-request scheme
-let an opponent's broadcast steal the slot meant for this connection's
-own reply, silently hanging the real one forever. `Hub` is the other half
-of the bridge: the engine's identity is a client-chosen `SessionId`
+(`#req { sid; req; reqId }`, where `req` mirrors `Registry`'s own
+mutating operations plus an explicit `#status` resync) AND
+canister→client pushes (`#view { reqId; view }` / `#err { reqId; err }`),
+not two separate types — `view` here is a `TP.SessionStatus<S>`, not a
+bare `View<S>`, since a push has to say WHICH table (if any) it's about.
+Every mutating request re-uses `registry.mo`'s own operations
+(`createTable`, `joinTable`, `submit`, ...) directly — `ws.mo`
+reimplements no game logic or table routing, and these are the ONLY
+place those operations are ever called from a host actor, since none of
+them is exposed as a plain Candid method — and, after each one, pushes a
+fresh status to whoever needs to see it changed: the affected table's
+own current occupants (once a match has two fixed seats, `#active`/
+`#debrief`, that's read directly off the table's own `p1`/`p2` fields —
+plus a `#staging` rematch reservation's own named partner, so an
+invitation reaches them proactively — so a connection routinely receives
+a push it never asked for whenever the OTHER seat, or a rematch partner,
+is the one who acted) and, whenever the open-table list itself might
+have changed (a table created, filled, freed, or garbage-collected),
+every OTHER session `Hub` currently knows is connected AND isn't
+currently at any table (see below). Either way, a client can receive a
+status it never requested. `reqId` is an opaque token the CLIENT makes
+up for a `#req` it wants correlated to its own reply; `ws.mo` only ever
+echoes it straight back on that SAME session's own push, never
+inspecting or generating it — a push to anyone else always carries
+`reqId = null`, since it's a broadcast, not a reply to anything they
+asked. This exists because, without it, a client has no way to tell "the
+reply to my own request" apart from "an unrelated broadcast that
+happened to arrive around the same time" — a real bug this closes: a
+client-side FIFO match-next-message-to-oldest-pending-request scheme let
+an opponent's broadcast steal the slot meant for this connection's own
+reply, silently hanging the real one forever. `Hub` is the other half of
+the bridge: the engine's identity is a client-chosen `SessionId`
 (`Text`), decoupled from any IC principal on purpose, but a WebSocket
 connection is keyed by principal — `Hub` learns the `sid <-> principal`
 pairing from the `sid` every inbound message carries, and forgets it on
@@ -284,43 +340,45 @@ pairing from the `sid` every inbound message carries, and forgets it on
 (and `#submit` additionally a `turn : Nat`) — the match generation (and,
 for submit, round number) the client last saw in a `View`. A client can't
 always tell whether a mutating call it believes failed (a dropped
-connection, a decode error) actually reached `Ws.mo`'s `onMessage` —
+connection, a decode error) actually reached `ws.mo`'s `onMessage` —
 `ws/gateway-client.ts`'s resend queue exists to retry exactly that
 ambiguous case — so without this, a resent `submit` whose original copy
 secretly already resolved the round (or ended the match) would be
 silently replayed against whatever round/match is current by the time the
 resend lands, and a resent `leave`/`reset` could silently abort a
 brand-new match the SAME session later started (typically a same-partner
-rematch) instead of the one it actually meant to end. `TP.submit`/
-`TP.leave`/`TP.reset` reject a mismatch as `Err.#stale` instead of
-applying it; the client's fix is always the same regardless of cause —
-refetch `status` (or just look at the next pushed `View`) and act on the
-real, current one. `#join`/`#rematch`/`#ackEnded` carry no such binding:
-each already recomputes its effect from live state (current partner,
-current seat availability, current debrief membership) rather than
-applying a stale payload, so a replay of any of them is already either a
-no-op or a pre-existing, harmless error — see `lib.mo`'s doc-header
-guarantee 6 for the full reasoning.
+rematch) instead of the one it actually meant to end. `Registry.submit`/
+`leave`/`reset` reject a mismatch as `Err.#stale` instead of applying it;
+the client's fix is always the same regardless of cause — refetch
+`status` (or just look at the next pushed status) and act on the real,
+current one. `#createTable`/`#joinTable`/`#rematch`/`#ackEnded` carry no
+such binding: each already recomputes its effect from live state
+(current partner, current seat availability, current debrief membership)
+rather than applying a stale payload, so a replay of any of them is
+already either a no-op or a pre-existing, harmless error — see `lib.mo`'s
+doc-header guarantee 6 for the full reasoning.
 
 **Wiring it into a host actor** — extending the example above:
 
 ```motoko
-import Ws "mo:duel-game-core/Ws";
-import ActorMixin "mo:duel-game-core/ActorMixin";
+import Ws "mo:duel-game-core/ws";
+import ActorMixin "mo:duel-game-core/actor_mixin";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
 persistent actor {
-  let table : TP.Table<Rules.State, Rules.Action> = TP.create(60_000_000_000);
+  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(60_000_000_000);
 
   // ...`status` from the example above, unchanged...
 
   // `IcWebSocketCdk.IcWebSocket` holds live connections/closures — not a
   // stable type. `transient` rebuilds it fresh on every upgrade; no game
-  // state is lost, since `table` is untouched by any of this and browser
-  // clients reconnect on their own.
+  // state is lost, since `registry` is untouched by any of this and
+  // browser clients reconnect on their own.
   transient let wsHub : Ws.Hub = Ws.createHub();
   transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
-    Rules.spec(), table, wsHub,
+    Rules.spec(),
+    registry,
+    wsHub,
     // Built here, where S/M are concrete — sidesteps any question of
     // whether to_candid/from_candid specialize inside a function still
     // generic over S/M.
@@ -342,9 +400,10 @@ persistent actor {
   // Supplies `ws_open`/`ws_close`/`ws_message`/`ws_get_messages` AND the
   // idle-sweep timer in one `include` — no host actor hand-declares any
   // of the four. Wiring `attached.sweep` (not a bare
-  // `TP.sweep(table, Time.now())`) is what makes a still-connected tab
-  // whose game the sweep just ended get a fresh push instead of silently
-  // keeping a stale view — see `Ws.Attached`'s own doc. `ws_message`'s
+  // `registry.sweep(Time.now())`) is what makes a
+  // still-connected tab whose game the sweep just ended get a fresh push
+  // instead of silently keeping a stale status — see `Ws.Attached`'s own
+  // doc. `ws_message`'s
   // second Candid parameter (`ActorMixin`'s own `msgType`) is a plain
   // `Blob`, not `Ws.Msg<Rules.State, Rules.Action>` — the mixin only ever
   // holds the already-built `ws`, with no `S`/`M` in scope to name a
@@ -357,6 +416,7 @@ persistent actor {
   // the identical value if you ever need it too.
   include ActorMixin<system>(attached.ws, attached.sweep);
 };
+
 ```
 
 Add the dependency: `mops add ic-websocket-cdk` (pins `0.4.1`). On the
@@ -370,7 +430,7 @@ second parameter) — nothing game-specific to add there;
 half).
 
 `examples/007/src/Host.mo` and `examples/racing/src/Host.mo` both wire
-`Ws.mo` exactly this way — it's the live transport both examples'
+`ws.mo` exactly this way — it's the live transport both examples'
 frontends actually talk to, not a reference-only add-on. **The Motoko
 side has been type-checked and reviewed against the CDK's actual
 source; the Candid/CBOR codec on the frontend side has been round-tripped
@@ -441,13 +501,20 @@ apply only the one real move.
   if the game just ended, a `?Verdict` (`#p1Wins` / `#p2Wins` / `#draw`).
 
 **Design guarantees** — each maps to a bug class commonly found in
-ad-hoc 2-player game backends:
+ad-hoc 2-player game backends. Stated here at the per-table primitive
+level (`Table.join`/`rematch`/...); every one holds equally at the
+`Registry` layer (`Registry.joinTable`/`rematch`/...), which just adds
+table creation/discovery/routing on top without changing any of them:
 
 1. **Race-free rematch.** `rematch` from a debrief stages a new game with
-   the open seat RESERVED for the partner; the partner's own `rematch`
-   (or `join`) pattern-matches that staging and gets seated. Because an
-   IC actor serializes update messages, two simultaneous rematch clicks
-   always execute as create-then-join — nobody is stranded.
+   the open seat RESERVED for the partner — unless the partner already
+   acked (left) this same debrief, in which case the seat opens
+   unreserved instead of waiting on someone who's gone for good; the
+   partner's own `rematch` (or `join`) pattern-matches that staging and
+   gets seated, or `leave` (with the `gen` `#awaitingRematch` carries)
+   DECLINES it, freeing just the reservation. Because an IC actor
+   serializes update messages, two simultaneous rematch clicks always
+   execute as create-then-join — nobody is stranded.
 2. **No ghost lobbies.** Every phase carries its own timestamp (`since` /
    `lastActivity`), stamped at creation — a first joiner who vanishes is
    evictable after the idle timeout, not squatting forever.
@@ -456,7 +523,11 @@ ad-hoc 2-player game backends:
    cheated by a client bypassing UI button states.
 4. **No silent endings.** Aborting yields a shared `#aborted` debrief; an
    idle takeover records the evicted players so `status` shows them
-   `#endedByOther` until they acknowledge (`ackEnded` / any re-entry).
+   `#endedByOther` until they acknowledge (`ackEnded` / any re-entry) —
+   or, failing that (nobody plausibly still coming back to look), until
+   `Table.pruneEnded` drops the notice on its own during a later `sweep`,
+   so one participant who never returns can't pin the notice — and, at
+   the `Registry` layer, the table it lives on — forever.
 5. **Leave means left.** `status`/`join`/`rematch` all treat a session
    that already acked its own debrief (via `leave`) as no longer a
    participant of it, even while the phase itself lingers in `#debrief`
@@ -481,12 +552,21 @@ ad-hoc 2-player game backends:
 - **Pending moves are hidden by construction.** `status` exposes only
   Booleans for whether the opponent has moved this round, never the move
   itself — there is no way for the frontend to leak it even by accident.
-- **`src/lib.mo` is the single entry point,** imported as `mo:duel-game-core`
-  (no subpath needed). `src/Ws.mo` (`mo:duel-game-core/Ws`) is a
-  separately-imported, but MANDATORY, module layered on top — never
-  merged into `lib.mo` purely to confine its `ic-websocket-cdk` dependency
-  (see the root `CLAUDE.md`'s toolchain note), not because wiring it is
-  optional.
+- **`src/lib.mo` is the shared type surface,** imported as
+  `mo:duel-game-core` (no subpath needed) — `Spec`, `Seat`, `Phase`,
+  `View`, `Err`, `Res`, `Table`, `Registry`, and everything else are
+  defined once in `src/types.mo` and re-exported from here. The actual
+  operations live in two sibling modules, both importable by their own
+  subpath: `src/table.mo` (`mo:duel-game-core/table`), the single-table
+  primitive, and `src/registry.mo` (`mo:duel-game-core/registry`), the
+  multi-table router built on top of it. `src/ws.mo`
+  (`mo:duel-game-core/ws`) is a separately-imported, but MANDATORY,
+  module layered on top of both — never merged into `lib.mo` purely to
+  confine its `ic-websocket-cdk` dependency (see the root `CLAUDE.md`'s
+  toolchain note), not because wiring it is optional. `src/actor_mixin.mo`
+  (`mo:duel-game-core/actor_mixin`) supplies the four `ws_*` Candid
+  methods plus the idle-sweep timer, `include`d in the host actor
+  alongside it — see "Real-time push" above.
 - `test/FakeGame.mo` is a deliberately trivial `Spec` used only by the
   test suites and benchmarks to exercise the engine — it is not a real
   game and ships no rendering.

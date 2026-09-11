@@ -11,13 +11,18 @@ concrete to copy — it is **not** part of either package itself.
   via `spec() : TP.Spec<State, Action>`, where `TP` is
   `mo:duel-game-core` (imported from `../../backend` — see
   `mops.toml`).
-- **`src/Host.mo`** — the host actor: forwards every call to the
-  engine with `Time.now()` and `Rules.spec()`, wired exactly as
+- **`src/Host.mo`** — the host actor: forwards every call to a
+  `TP.Registry<Rules.State, Rules.Action>` (built with `Registry.new`
+  from `mo:duel-game-core/registry`; a multi-table lobby — anyone may
+  open a table, open or access-code protected — not a single fixed
+  board; see `mo:duel-game-core`'s own doc header) with
+  `Time.now()` and `Rules.spec()`, wired exactly as
   `../../backend/README.md`'s example shows. Deploy target. `status` is
   the only plain Candid method on this actor (a `query`, side-effect-free
-  — see `../../CLAUDE.md`'s architecture rule 8); `join`/`submit`/
-  `rematch`/`leave`/`reset`/`ackEnded` have NO plain Candid method at
-  all — they're reachable exclusively through `mo:duel-game-core/Ws`'s
+  — see `../../CLAUDE.md`'s architecture rule 8); `createTable`/
+  `joinTable`/`submit`/`rematch`/`leave`/`reset`/`ackEnded` have NO plain
+  Candid method at all — they're reachable exclusively through
+  `mo:duel-game-core/ws`'s
   `ws_message`, which is what `frontend/app.js` actually talks to
   (`duel-game-core/ws.js`'s `GatewayWs`, a real `ic-websocket-cdk` client
   that self-registers each tab as its own Gateway, not client-side
@@ -25,10 +30,10 @@ concrete to copy — it is **not** part of either package itself.
   close-detection-driven disappearance handling, AND to close the race a
   plain update call would otherwise open (two independent update calls
   have no guaranteed relative processing order once both are in flight —
-  see `../../backend/src/Ws.mo`'s doc header). `status` and `Ws.attach`
+  see `../../backend/src/ws.mo`'s doc header). `status` and `Ws.attach`
   are wired directly in `Host.mo`; the four `ws_*` Candid methods
   (including `ws_message`) plus the idle-sweep timer come from a single
-  `include ActorMixin<system>(ws, ...)` (`mo:duel-game-core/ActorMixin`)
+  `include ActorMixin<system>(ws, ...)` (`mo:duel-game-core/actor_mixin`)
   — no per-game `ws_message` declaration needed, since its `msgType`
   parameter is a plain `Blob`, not a type generic over this game's
   `State`/`Action`. See `../../backend/README.md`'s "Real-time push" section
@@ -69,13 +74,14 @@ concrete to copy — it is **not** part of either package itself.
   principal, gameIdlTypes: plugin.idlTypes })` for the real push
   transport `start()` requires (see `../../frontend/README.md`'s
   "Real-time push" section) — this game's own code never touches
-  `mo:duel-game-core/Ws`'s protocol directly (`duel-game-core/ws/
+  `mo:duel-game-core/ws`'s protocol directly (`duel-game-core/ws/
   gateway-*.js` does, registering this tab as its own WS Gateway) or
   imports any third-party library itself; `index.html`'s import map
   resolves `duel-game-core`'s own `@icp-sdk/core/candid`/`cborg` dependencies
   (bare specifiers a raw browser can't resolve on its own — see that
   file's comment) — and calls `start({ plugin, ws })` — every screen
-  that's the same for every game (lobby, staging, rematch, busy
+  that's the same for every game (the multi-table lobby — create a
+  table, browse open ones, join by code — staging, rematch, busy
   countdown, debrief chrome, session identity, push) comes from the npm
   package. There is no polling fallback anywhere in this stack any more —
   `ws` is required, `start()` throws without one, and the backend has no
@@ -88,11 +94,12 @@ concrete to copy — it is **not** part of either package itself.
 
 ## Toolchain
 
-- moc **1.11.2** (mops toolchain), node/npm for the frontend.
+- moc **1.11.2** (mops toolchain, pinned in `mops.toml`), node/npm for
+  the frontend.
 - Motoko dependencies: `duel-game-core` (path dependency on
   `../../backend` — see `mops.toml`), `core` (mo:core), and
   `ic-websocket-cdk` (only because `src/Host.mo` opts into
-  `mo:duel-game-core/Ws` — see `../../CLAUDE.md`'s toolchain note). Never
+  `mo:duel-game-core/ws` — see `../../CLAUDE.md`'s toolchain note). Never
   import `mo:base` directly in this game's own code — it's the legacy
   library; `ic-websocket-cdk` pulling it in transitively is a
   documented, contained exception, not license to import it yourself.
@@ -126,7 +133,7 @@ concrete to copy — it is **not** part of either package itself.
   an import map, and this repo doesn't give it one for that). What DOES
   need `index.html`'s import map: `duel-game-core/ws.js` (see
   `../../../CLAUDE.md`'s toolchain note) talks to
-  `mo:duel-game-core/Ws`'s real `ic-websocket-cdk` protocol, and pulls
+  `mo:duel-game-core/ws`'s real `ic-websocket-cdk` protocol, and pulls
   in `@icp-sdk/core/candid`/`cborg` transitively through
   `duel-game-core`'s own `package.json` (a normal `npm install` picks
   them up — nothing to add here) — resolved in the browser via THAT
@@ -191,12 +198,12 @@ that file first. Two rules specific to this example:
    instead and re-run `mops install` here.
 2. **The generic screens live in `../../frontend` and are never
    vendored here either.** `duel007-plugin.js` supplies ONLY
-   `idlTypes`/`seatLabel`/`renderBoard`/`renderActions`; the lobby,
-   staging, rematch, busy, debrief chrome, and the `#endedByOther`
-   notice all come from `duel-game-core/render.js` and `app.js`. If a
-   screen looks wrong, check whether the fix belongs in
-   `../../frontend/render.js` (every game) or `duel007-plugin.js` (just
-   this one).
+   `idlTypes`/`seatLabel`/`renderBoard`/`renderActions`; the multi-table
+   lobby (create/browse/join), staging, rematch, busy, debrief chrome,
+   and the `#endedByOther` notice all come from `duel-game-core/render.js`
+   and `app.js`. If a screen looks wrong, check whether the fix belongs
+   in `../../frontend/render.js` (every game) or `duel007-plugin.js`
+   (just this one).
 
 ## Game-rule notes (src/Duel007Rules.mo)
 

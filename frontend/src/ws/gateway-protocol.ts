@@ -24,7 +24,7 @@
 
 import { IDL } from "@icp-sdk/core/candid";
 import { buildEngineTypes, type BuildGameTypes, type EngineTypes } from "../idl.js";
-import type { EngineErr, View, WsRequest } from "../types.js";
+import type { EngineErr, Status, WsRequest } from "../types.js";
 
 export interface ClientKey {
   client_principal: unknown;
@@ -56,7 +56,7 @@ export type ProtocolAction =
   | { kind: "close"; reason: string }
   | {
       kind: "message";
-      payload: { view: View } | { err: EngineErr };
+      payload: { view: Status } | { err: EngineErr };
       reqId: bigint | null;
     }
   | { kind: "unknown" };
@@ -117,7 +117,7 @@ export class GatewayProtocol {
 
   /// Builds the outer `WebsocketMessage` record for the CDK's own
   /// keep-alive reply — sent in response to every `#AckMessage` the
-  /// canister's periodic timer pushes (see `../../backend/src/Ws.mo`'s
+  /// canister's periodic timer pushes (see `../../backend/src/ws.mo`'s
   /// doc header on the resulting disappearance-detection floor).
   buildKeepAliveReply(
     clientKey: ClientKey | null,
@@ -164,7 +164,7 @@ export class GatewayProtocol {
   ///   {kind: "ack", lastIncomingSequenceNum}           — reply with a keep-alive
   ///   {kind: "close", reason}                          — canister evicted us
   ///   {kind: "message", payload: {view: V} | {err: E}, reqId} — an
-  ///     app-level push; `reqId` (a BigInt, or `null`) is `Ws.mo`'s
+  ///     app-level push; `reqId` (a BigInt, or `null`) is `ws.mo`'s
   ///     echoed-back correlation token — `null` means this is an
   ///     unsolicited broadcast (the OTHER seat acted), not a reply to
   ///     anything THIS connection asked for — see `gateway-client.js`'s
@@ -201,7 +201,7 @@ export class GatewayProtocol {
         envelope.content,
       );
       if ("view" in msg) {
-        const v = msg.view as { reqId: [bigint] | []; view: View };
+        const v = msg.view as { reqId: [bigint] | []; view: Status };
         const reqId = v.reqId.length ? v.reqId[0] : null;
         return { kind: "message", payload: { view: v.view }, reqId };
       }
