@@ -289,4 +289,26 @@ ignore ok(reg11c.createTable(spec, LATER, "a", #p1, #open), "a (never left/acked
 ignore ok(reg11c.createTable(spec, LATER, "b", #p1, #open), "b (never left/acked their own debrief) can still create again too");
 Debug.print("11c. a debrief expiring pre-acked doesn't lock either participant out either OK");
 
+// ── 12. createTable rejects a `#code("")` table — regression: it used to
+//          be accepted with no validation, producing a table unlisted
+//          (protected) AND unjoinable by anyone (joinTable sends no code
+//          at all whenever its own code field is empty, so an empty
+//          stored code could never be matched) — the creator's own seat
+//          would then just sit there until it expired into N1 ─────────
+let reg12 = fresh();
+expectErr(reg12.createTable(spec, T0, "a", #p1, #code("")), "an empty access code should be rejected");
+switch (reg12.status(T0, "a")) {
+  case (#browsing _) {};
+  case (_) Runtime.trap("a rejected createTable must not leave a leftover at-a-table mapping behind");
+};
+// a real code still works fine, including right after the rejection —
+// the bad attempt above left nothing stale in `bySession`.
+let idOk = ok(reg12.createTable(spec, T0, "a", #p1, #code("real-code")), "a creates a table with a real code");
+switch (reg12.joinTable(spec, T0, "b", idOk, #p2, null)) {
+  case (#err(#badCode)) {};
+  case (_) Runtime.trap("no code on a real protected table should still be #badCode");
+};
+ignore ok(reg12.joinTable(spec, T0, "b", idOk, #p2, ?"real-code"), "the real code joins it fine");
+Debug.print("12. createTable rejects an empty access code instead of producing an unjoinable table OK");
+
 Debug.print("ALL LOBBY CHECKS PASSED");

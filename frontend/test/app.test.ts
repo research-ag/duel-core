@@ -311,6 +311,27 @@ test("the create-table form's live input survives an unrelated push mid-fill (re
   });
 });
 
+test("clicking 'create table' with Protected chosen but no code entered shows a friendly error and never dispatches (regression: an empty access code makes an unjoinable table)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: browsing() } });
+
+  const radios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
+  radios.find((r) => r.value === "open")!.checked = false;
+  radios.find((r) => r.value === "code")!.checked = true;
+  // create-code is left blank — the exact bug repro.
+
+  const seatBtn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
+  click(els.screen, seatBtn!);
+
+  assert.equal(ws.requests.length, 0, "an empty access code must never even be sent to the engine");
+  assert.equal(els.error.textContent, "Enter an access code, or choose Open.");
+  assert.equal(els.error.hidden, false);
+  assert.equal(seatBtn!.disabled, false, "the button must not be left stuck spinning/disabled");
+});
+
 test("a submit action button round-trips its data-act JSON verbatim", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();

@@ -156,7 +156,10 @@ module {
     // garbage-collected (see `Lobby.gcIfQuiesced`'s own doc).
     #noSuchTable;
     // `Lobby.joinTable` targeted a `#code`-protected table with a
-    // missing or wrong `code`.
+    // missing or wrong `code`, or `Lobby.createTable` itself was asked
+    // for a `#code("")` table — an empty code can never be supplied
+    // back to `joinTable` to match it, so that table would otherwise be
+    // unreachable by construction.
     #badCode;
   };
 

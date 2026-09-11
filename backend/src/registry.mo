@@ -188,9 +188,15 @@ module {
   };
 
   /// Create a fresh table and seat `session` in `seat` on it. Rejects
-  /// with `#wrongPhase` if `session` already has unfinished business
-  /// at another table (a live seat, an open debrief, an unacked
-  /// `#endedByOther` notice) — leave/ack that first.
+  /// with `#badCode` for a `#code("")` visibility — an empty access code
+  /// isn't just pointless, it's unreachable BY CONSTRUCTION: `joinTable`
+  /// below sends no code at all whenever its own code field is empty, so
+  /// an empty stored code could never be matched — the table would sit
+  /// protected and staged forever with nobody, not even a friend told
+  /// the table number, able to join it. Rejects with `#wrongPhase` if
+  /// `session` already has unfinished business at another table (a live
+  /// seat, an open debrief, an unacked `#endedByOther` notice) — leave/
+  /// ack that first.
   public func createTable<S, M>(
     self : Registry<S, M>,
     spec : T.Spec<S, M>,
@@ -199,6 +205,10 @@ module {
     seat : T.Seat,
     visibility : T.TableVisibility,
   ) : T.Res<T.TableId> {
+    switch (visibility) {
+      case (#code c) { if (c.size() == 0) return #err(#badCode) };
+      case (#open) {};
+    };
     releaseIfStale(self, session, now);
     if (alreadyAtATable(self, session)) {
       return #err(#wrongPhase("you are already at another table"));

@@ -787,11 +787,25 @@ export function start<S>({
     const dispatch = () => {
       beginButtonLoading(b);
       if (b.dataset.createTable) {
+        // An empty access code is accepted by the browser's own form
+        // validation (there is none) but is unreachable by construction
+        // once created — see registry.mo's `createTable` doc, which
+        // rejects it too; catching it here, the same way the join-by-code
+        // id below is, avoids the round trip and gives a message that
+        // actually names the problem instead of the engine's own
+        // `#badCode` (worded for a REJECTED JOIN, not a table that was
+        // never creatable in the first place).
+        const visibility = readCreateVisibility();
+        if ("code" in visibility && visibility.code.length === 0) {
+          endButtonLoading();
+          showError("Enter an access code, or choose Open.");
+          return;
+        }
         // See the `data-join`-era comment this mirrors, below: disable
         // new-sid the moment the request goes out, not only once the
         // engine confirms the seat.
         if (newSidBtn) newSidBtn.disabled = true;
-        doCreateTable(b.dataset.createTable as SeatTag, readCreateVisibility());
+        doCreateTable(b.dataset.createTable as SeatTag, visibility);
       } else if (b.dataset.joinTable && b.dataset.joinTableId) {
         // An open-table row's own per-seat button — the id is baked into
         // its own dataset by render.js, and an open table never needs a
