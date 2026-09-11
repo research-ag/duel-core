@@ -563,6 +563,29 @@ test("the new-sid button re-enables after a rejected join request", async () => 
   assert.equal(els["new-sid"].disabled, false, "must not stay stuck disabled after a failed join");
 });
 
+test("call() recovers if ws.request() throws synchronously instead of rejecting (regression: no guard around the correlated request path — carried-forward finding 07/N7)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, doc, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({ data: { view: browsing() } });
+  // A misbehaving (or simply different — DuelWs.request is a
+  // caller-supplied surface, not just the bundled GatewayWs) transport
+  // that throws instead of returning a rejected promise — exactly the
+  // shape `sendWs()`'s own try/catch already guards against for `send`.
+  ws.request = () => {
+    throw new Error("boom");
+  };
+
+  const btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
+  click(els.screen, btn!);
+
+  assert.equal(els.error.textContent, "Call failed: boom");
+  assert.equal(els.error.hidden, false);
+  assert.equal(doc.body.classList.contains("working"), false, "must not stay stuck spinning");
+  assert.equal(btn!.disabled, false, "must not stay stuck disabled");
+});
+
 test("the new-sid button stays disabled through an unrelated push arriving mid-join (regression: rival's move landing first briefly re-enables new-sid)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();

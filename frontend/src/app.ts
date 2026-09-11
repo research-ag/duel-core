@@ -550,15 +550,27 @@ export function start<S>({
     lastReq = req;
     document.body.classList.add("working");
     if (canCorrelate) {
-      ws.request!(sid, req).then(
-        (payload) => settleCall(req, payload),
-        (e: Error) => {
-          inFlight = false;
-          document.body.classList.remove("working");
-          endButtonLoading();
-          showError(`Call failed: ${e.message ?? e}`);
-        },
-      );
+      // A well-behaved `request()` (the bundled `GatewayWs`'s own) always
+      // returns a promise, never throws synchronously — but `DuelWs.request`
+      // is a caller-supplied surface (see this file's own header: any
+      // WebSocket-shaped mock is fair game, not just `GatewayWs`), so
+      // nothing here can assume that. `sendWs()` beside this guards its
+      // own transport call (`ws.send`) with exactly this same shape;
+      // without the matching guard here, a `request()` that threw
+      // synchronously would escape uncaught, leaving `inFlight`/the
+      // spinner stuck forever with no error shown at all — worse than the
+      // rejection case below, which `onRejected` already handles fine.
+      const onRejected = (e: Error) => {
+        inFlight = false;
+        document.body.classList.remove("working");
+        endButtonLoading();
+        showError(`Call failed: ${e.message ?? e}`);
+      };
+      try {
+        ws.request!(sid, req).then((payload) => settleCall(req, payload), onRejected);
+      } catch (e) {
+        onRejected(e as Error);
+      }
     } else {
       sendWs(req);
     }
