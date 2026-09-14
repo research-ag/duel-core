@@ -9,7 +9,7 @@ import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
 let spec = Rules.spec();
-let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, #open, "test"); // 60s
+let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 20_000_000_000, #open, "test"); // 60s idle, 20s claim-win
 var now : Int = 1_000_000_000_000;
 func tick() : Int { now += 1_000_000_000; now }; // +1s
 
@@ -163,5 +163,30 @@ switch (t.status(now, "dave")) {
   case (_) Runtime.trap("dave's notice must survive carol's ack");
 };
 Debug.print("7. active-game takeover: #endedByOther + per-player ack OK");
+
+// ── 8. Claim a win, short of the full idle eviction ─────────────────────────
+// "eve" is currently alone in staging (from step 7); "frank" fills the
+// other seat, "eve" moves, "frank" goes quiet. Once the (shorter)
+// claim-win window elapses — well short of the 60s idle eviction — "eve"
+// may claim the win outright instead of waiting frank out.
+ignore ok(t.join(spec, tick(), "frank", #p2), "frank joins eve");
+let g8 = genOf(now, "eve");
+ignore ok(t.submit(spec, tick(), "eve", g8, turnOf(now, "eve"), #gather), "eve moves; frank goes quiet");
+switch (t.claimWin(now, "eve", g8)) {
+  case (#err(#notOverdue _)) {};
+  case (_) Runtime.trap("the claim window hasn't elapsed yet");
+};
+now += 21_000_000_000; // past the 20s claim window, short of the 60s idle timeout
+ok(t.claimWin(now, "eve", g8), "eve claims the overdue win");
+switch (t.status(now, "frank")) {
+  case (#debrief d) {
+    switch (d.end) {
+      case (#claimed(#p1)) {};
+      case (_) Runtime.trap("frank should see eve's (p1's) claimed win");
+    };
+  };
+  case (_) Runtime.trap("frank should share eve's claimed-win debrief");
+};
+Debug.print("8. claim a win once overdue, short of the full idle eviction OK");
 
 Debug.print("ALL SIM CHECKS PASSED");

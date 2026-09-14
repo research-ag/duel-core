@@ -17,11 +17,13 @@ type Tbl = TP.Table<Rules.State, Rules.Action>;
 let spec = Rules.spec();
 
 let TIMEOUT : Int = 60_000_000_000; // 60 s
+let CLAIM_TIMEOUT : Int = 20_000_000_000; // 20 s
 let T0 : Int = 1_000_000_000_000;
 let SOON : Int = T0 + 1_000_000_000; // +1 s — still fresh
 let LATER : Int = T0 + 61_000_000_000; // +61 s — past the timeout
+let CLAIMABLE : Int = T0 + 21_000_000_000; // +21 s — past the claim window, still short of TIMEOUT
 
-func fresh() : Tbl = Table.new<Rules.State, Rules.Action>(TIMEOUT, #open, "test");
+func fresh() : Tbl = Table.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT, #open, "test");
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
@@ -694,5 +696,91 @@ switch (ok(t.join(spec, SOON, "c", #p2), "an unrelated outsider takes the now-op
   case (_) Runtime.trap("the declined seat should be open to anyone immediately");
 };
 Debug.print("22. #awaitingRematch can be declined, freeing the seat immediately OK");
+
+// ── 23. claimWin: refused before you've submitted your own move ───────────
+t := gameOf(T0);
+switch (t.claimWin(T0, "a", genOf(t, T0, "a"))) {
+  case (#err(#wrongPhase _)) {};
+  case (_) Runtime.trap("a hasn't moved yet — nothing to claim");
+};
+Debug.print("23. claimWin before submitting: #wrongPhase OK");
+
+// ── 24. claimWin: refused before the claim window has elapsed ─────────────
+t := gameOf(T0);
+let g24 = genOf(t, T0, "a");
+ignore ok(t.submit(spec, T0, "a", g24, turnOf(t, T0, "a"), #gather), "a moves, b doesn't");
+switch (t.claimWin(SOON, "a", g24)) {
+  case (#err(#notOverdue n)) { assert n.secondsLeft == 19 };
+  case (_) Runtime.trap("the claim window hasn't elapsed yet");
+};
+switch (t.status(SOON, "a")) {
+  case (#inGame g) {
+    assert not g.claimWinAvailable;
+    assert g.secondsUntilClaimable == 19;
+    assert g.claimTimeoutSecs == 20;
+  };
+  case (_) Runtime.trap("a should still be in the game");
+};
+Debug.print("24. claimWin before overdue: #notOverdue, status agrees OK");
+
+// ── 25. claimWin: succeeds once overdue — credits the claimant, leaves the
+//         game state exactly as it was (the opponent's move never came) ───
+t := gameOf(T0);
+let g25 = genOf(t, T0, "a");
+ignore ok(t.submit(spec, T0, "a", g25, turnOf(t, T0, "a"), #gather), "a moves, b doesn't");
+switch (t.status(CLAIMABLE, "a")) {
+  case (#inGame g) assert g.claimWinAvailable;
+  case (_) Runtime.trap("a should still be in the game, now claimable");
+};
+ok(t.claimWin(CLAIMABLE, "a", g25), "a claims the overdue win");
+switch (t.status(CLAIMABLE, "a")) {
+  case (#debrief d) {
+    switch (d.end) {
+      case (#claimed(#p1)) {};
+      case (_) Runtime.trap("expected a's (p1's) claim");
+    };
+    // a's own #gather never actually resolved either — only PENDING moves
+    // apply when both sides are in; the game state is exactly what it was
+    // when this round started.
+    assert d.finalGame.p1 == 0;
+    assert d.turns == 0;
+  };
+  case (_) Runtime.trap("a should be in a claimed debrief");
+};
+switch (t.status(CLAIMABLE, "b")) {
+  case (#debrief d) {
+    switch (d.end) {
+      case (#claimed(#p1)) {};
+      case (_) Runtime.trap("b should see the same claimed ending");
+    };
+  };
+  case (_) Runtime.trap("b should share the same debrief");
+};
+Debug.print("25. claimWin once overdue: shared #claimed debrief, game state untouched OK");
+
+// ── 26. claimWin: gated the same way every other mutation is — an
+//         outsider, an empty/debrief board, and a stale gen are all
+//         refused ──────────────────────────────────────────────────────────
+t := gameOf(T0);
+let g26 = genOf(t, T0, "a");
+ignore ok(t.submit(spec, T0, "a", g26, turnOf(t, T0, "a"), #gather), "a moves, b doesn't");
+switch (t.claimWin(CLAIMABLE, "zz", g26)) {
+  case (#err(#notSeated)) {};
+  case (_) Runtime.trap("an outsider cannot claim someone else's game");
+};
+switch (t.claimWin(CLAIMABLE, "a", g26 + 1)) {
+  case (#err(#stale)) {};
+  case (_) Runtime.trap("a stale gen must be rejected, not replayed");
+};
+switch (fresh().claimWin(T0, "a", 0)) {
+  case (#err(#wrongPhase _)) {};
+  case (_) Runtime.trap("nothing to claim on an empty board");
+};
+let dbg26 = debriefOf(T0);
+switch (dbg26.claimWin(T0, "a", genOf(dbg26, T0, "a"))) {
+  case (#err(#wrongPhase _)) {};
+  case (_) Runtime.trap("nothing to claim once the game already finished on its own");
+};
+Debug.print("26. claimWin gating: outsider / stale gen / wrong phase OK");
 
 Debug.print("ALL ENGINE CHECKS PASSED");

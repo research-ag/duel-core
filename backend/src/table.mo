@@ -11,8 +11,9 @@ module {
 
   public type Table<S, M> = T.Table<S, M>;
 
-  public func new<S, M>(idleTimeoutNs : Int, visibility : T.TableVisibility, createdBy : T.SessionId) : Table<S, M> = {
+  public func new<S, M>(idleTimeoutNs : Int, claimTimeoutNs : Int, visibility : T.TableVisibility, createdBy : T.SessionId) : Table<S, M> = {
     idleTimeoutNs;
+    claimTimeoutNs;
     visibility;
     createdBy;
     var phase = #empty;
@@ -23,10 +24,24 @@ module {
 
   public func isExpired<S, M>(self : Table<S, M>, since : Int, now : Int) : Bool = now - since >= self.idleTimeoutNs;
 
-  public func secsLeft<S, M>(self : Table<S, M>, since : Int, now : Int) : Nat {
-    let left = self.idleTimeoutNs - (now - since);
+  /// Whether an opponent's move has stayed pending long enough (past
+  /// `claimTimeoutNs`, since `since` — the round's own `lastActivity`)
+  /// that the player waiting on it may `claimWin`. A separate clock from
+  /// `isExpired`/`idleTimeoutNs`: this one is about handing the WAITING
+  /// player a choice well before the board is simply reclaimed out from
+  /// under both of them.
+  public func claimOverdue<S, M>(self : Table<S, M>, since : Int, now : Int) : Bool = now - since >= self.claimTimeoutNs;
+
+  func secsLeftFor(timeoutNs : Int, since : Int, now : Int) : Nat {
+    let left = timeoutNs - (now - since);
     if (left <= 0) { 0 } else { left.toNat() / 1_000_000_000 };
   };
+
+  public func secsLeft<S, M>(self : Table<S, M>, since : Int, now : Int) : Nat = secsLeftFor(self.idleTimeoutNs, since, now);
+
+  /// Countdown to `claimOverdue` turning true — the claim-win analogue of
+  /// `secsLeft`.
+  public func claimSecsLeft<S, M>(self : Table<S, M>, since : Int, now : Int) : Nat = secsLeftFor(self.claimTimeoutNs, since, now);
 
   /// The table's own configured idle timeout, in whole seconds — constant
   /// for the table's lifetime. Handed to a client alongside a live
@@ -34,6 +49,9 @@ module {
   /// own warning threshold instead of a host hardcoding a copy of this
   /// number in its UI.
   public func idleTimeoutSecs<S, M>(self : Table<S, M>) : Nat = self.idleTimeoutNs.toNat() / 1_000_000_000;
+
+  /// Same, for the claim-win window.
+  public func claimTimeoutSecs<S, M>(self : Table<S, M>) : Nat = self.claimTimeoutNs.toNat() / 1_000_000_000;
 
   /// Like `Debrief.seat`, but a session that already acknowledged THIS
   /// debrief (via `leave` — see its own doc) no longer counts as a
@@ -374,6 +392,52 @@ module {
     };
   };
 
+  /// Claim victory when your opponent's move is overdue: you've submitted
+  /// this round's move, they haven't, and `claimTimeoutNs` has elapsed
+  /// since (`claimOverdue`, against the round's own `lastActivity` —
+  /// nothing else can touch that timestamp while the round stays this
+  /// lopsided, since a resolve would already have moved the phase on).
+  /// Ends the match the same way `leave` does — a shared debrief, `gen`
+  /// -checked the same way (see `leave`'s own doc for why a stale replay
+  /// would otherwise be dangerous) — except the ending credits the
+  /// claimant instead of nobody (`#claimed`, not `#aborted`), and the
+  /// game itself is left exactly as `spec.resolve` last returned it:
+  /// nothing about `pending1`/`pending2`/`game` is touched, since the
+  /// opponent's move never actually arrived to resolve against. A purely
+  /// optional escape hatch, never automatic — nothing here or in `sweep`
+  /// ever calls this on a player's behalf; they keep the choice to give
+  /// their opponent more time instead.
+  public func claimWin<S, M>(self : Table<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> {
+    switch (self.checkGen(gen)) {
+      case (?e) return #err(e);
+      case null {};
+    };
+    switch (self.phase) {
+      case (#active g) {
+        let mySeat = switch (getSessionSeat(g, session)) {
+          case (?s) s;
+          case null return #err(#notSeated);
+        };
+        let (myPending, oppPending) = switch (mySeat) {
+          case (#p1) (g.pending1, g.pending2);
+          case (#p2) (g.pending2, g.pending1);
+        };
+        if (Option.isNull(myPending)) {
+          return #err(#wrongPhase("submit your own move before you can claim a win"));
+        };
+        if (Option.isSome(oppPending)) {
+          return #err(#wrongPhase("your opponent already moved"));
+        };
+        if (not self.claimOverdue(g.lastActivity, now)) {
+          return #err(#notOverdue { secondsLeft = self.claimSecsLeft(g.lastActivity, now) });
+        };
+        self.enterDebrief(now, g.p1, g.p2, #claimed(mySeat), g.turn, g.game);
+        #ok(());
+      };
+      case (_) #err(#wrongPhase("no game is running"));
+    };
+  };
+
   /// Leave. From your own staging: the board empties. From a staging that
   /// holds the OPEN seat reserved for you (i.e. you're looking at
   /// `#awaitingRematch`): declines the rematch — frees just your
@@ -601,15 +665,20 @@ module {
       case (#active g) {
         switch (getSessionSeat(g, session)) {
           case (?mySeat) {
+            let youSubmitted = Option.isSome(switch (mySeat) { case (#p1) g.pending1; case (#p2) g.pending2 });
+            let oppSubmitted = Option.isSome(switch (mySeat) { case (#p1) g.pending2; case (#p2) g.pending1 });
             #inGame {
               seat = mySeat;
               game = g.game;
               turn = g.turn;
-              youSubmitted = Option.isSome(switch (mySeat) { case (#p1) g.pending1; case (#p2) g.pending2 });
-              oppSubmitted = Option.isSome(switch (mySeat) { case (#p1) g.pending2; case (#p2) g.pending1 });
+              youSubmitted;
+              oppSubmitted;
               gen = self.gen;
               secondsUntilIdleReset = self.secsLeft(g.lastActivity, now);
               idleTimeoutSecs = self.idleTimeoutSecs();
+              claimWinAvailable = youSubmitted and not oppSubmitted and self.claimOverdue(g.lastActivity, now);
+              secondsUntilClaimable = self.claimSecsLeft(g.lastActivity, now);
+              claimTimeoutSecs = self.claimTimeoutSecs();
             };
           };
           case null {

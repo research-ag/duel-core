@@ -12,7 +12,7 @@ persistent actor {
   // A lobby of tables, not one fixed board — anyone may open a new table
   // (open, or access-code protected) and the same canister routes every
   // move to the right one. See `mo:duel-game-core`'s own doc header.
-  let registry = Registry.new<Rules.State, Rules.Action>(60_000_000_000); // 60 s idle timeout, shared by every table
+  let registry = Registry.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000); // 60s idle timeout, 15s claim-win window, shared by every table
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Time.now(), sid);

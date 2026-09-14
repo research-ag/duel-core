@@ -13,6 +13,12 @@
 ///   • a finished game puts BOTH players in a #debrief (win / lose / draw)
 ///   • a player may LEAVE early: both players get a special debrief
 ///     (`end = #aborted seat`) instead of the game silently vanishing
+///   • once your own move has sat pending against your opponent's silence
+///     for longer than `claimTimeoutNs`, you may — optionally, never
+///     automatically — CLAIM the win outright (`end = #claimed seat`)
+///     instead of waiting out the much longer full-board idle eviction; a
+///     shorter, independent clock from `idleTimeoutNs`, meant to give the
+///     waiting player a real choice well before that
 ///   • during the debrief, either previous player can request a REMATCH,
 ///     reusing the SAME table; two simultaneous rematch requests converge
 ///     race-free (see below), the reserved partner may DECLINE it instead
@@ -47,17 +53,19 @@
 /// two sibling modules, both built on those same types:
 ///
 ///   • `./table` (`mo:duel-game-core/table`) — the low-level, single-table
-///     primitive: `Table.new(idleTimeoutNs, visibility, createdBy)` plus
-///     `.join`/`.submit`/`.rematch`/`.leave`/`.reset`/`.ackEnded`/`.status`/
-///     `.sweep` on the `Table<S, M>` it returns (Motoko's dot-notation call
-///     sugar — these are plain functions taking the table as their first
-///     argument). A game that genuinely wants exactly one fixed board, with
-///     no lobby of its own, can use this directly instead of `Registry`.
+///     primitive: `Table.new(idleTimeoutNs, claimTimeoutNs, visibility,
+///     createdBy)` plus `.join`/`.submit`/`.rematch`/`.leave`/`.reset`/
+///     `.claimWin`/`.ackEnded`/`.status`/`.sweep` on the `Table<S, M>` it
+///     returns (Motoko's dot-notation call sugar — these are plain
+///     functions taking the table as their first argument). A game that
+///     genuinely wants exactly one fixed board, with no lobby of its own,
+///     can use this directly instead of `Registry`.
 ///   • `./registry` (`mo:duel-game-core/registry`) — a thin router layered
-///     on top of `Table`: `Registry.new(idleTimeoutNs)` plus
-///     `.createTable`/`.listTables`/`.joinTable`/`.submit`/`.rematch`/
-///     `.leave`/`.reset`/`.ackEnded`/`.status`/`.sweep` on the `Registry<S,
-///     M>` it returns. Every one of `Registry`'s mutating operations except
+///     on top of `Table`: `Registry.new(idleTimeoutNs, claimTimeoutNs)`
+///     plus `.createTable`/`.listTables`/`.joinTable`/`.submit`/
+///     `.rematch`/`.leave`/`.reset`/`.claimWin`/`.ackEnded`/`.status`/
+///     `.sweep` on the `Registry<S, M>` it returns. Every one of
+///     `Registry`'s mutating operations except
 ///     `createTable`/`joinTable` just resolves the caller's own current
 ///     table (a `SessionId -> TableId` mapping it keeps) and delegates
 ///     straight into the matching `Table` operation above — no game logic
@@ -68,7 +76,8 @@
 /// ── How a host actor wires it ──────────────────────────────────────────────
 ///
 /// Every mutating operation (`Registry.createTable`/`joinTable`/`submit`/
-/// `rematch`/`leave`/`reset`/`ackEnded`) is driven EXCLUSIVELY through
+/// `rematch`/`leave`/`reset`/`claimWin`/`ackEnded`) is driven EXCLUSIVELY
+/// through
 /// `mo:duel-game-core/ws`'s `ws_message` — there is no plain Candid method
 /// for any of them, and no fallback: a direct update call is exactly the
 /// race a WS-only transport exists to close (two independent update calls
@@ -86,7 +95,7 @@
 ///
 ///   persistent actor {
 ///     let registry : TP.Registry<Rules.State, Rules.Action> =
-///       Registry.new(60_000_000_000); // 60 s idle timeout, per table
+///       Registry.new(60_000_000_000, 15_000_000_000); // 60s idle timeout, 15s claim-win window, per table
 ///
 ///     public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
 ///       registry.status(Time.now(), sid);
@@ -126,9 +135,13 @@
 ///   3. SERVER-SIDE LEGALITY. The engine calls `spec.validate` on every
 ///      submitted move for BOTH players — a game plugged in here cannot be
 ///      cheated by a client bypassing UI button states.
-///   4. NO SILENT ENDINGS. Aborting yields a shared #aborted debrief; an idle
-///      takeover records the evicted players so `status` shows them
-///      #endedByOther until they acknowledge (`ackEnded` / any re-entry) —
+///   4. NO SILENT ENDINGS. Aborting yields a shared #aborted debrief; an
+///      overdue opponent may instead be claimed as a win (`#claimed seat`,
+///      via `claimWin` — the submitter's own optional choice, never
+///      automatic, once the opponent's move has sat pending past
+///      `claimTimeoutNs`); an idle takeover records the evicted players so
+///      `status` shows them #endedByOther until they acknowledge
+///      (`ackEnded` / any re-entry) —
 ///      or, failing that (nobody plausibly still coming back to look), until
 ///      `Table.pruneEnded` drops the notice on its own during a later
 ///      `sweep`, so one participant who never returns can't pin the notice,
@@ -143,8 +156,9 @@
 ///      `Registry` layer, leaving also returns the session to "browsing" —
 ///      see `Registry.leave`'s own doc for the one deliberate exception: the
 ///      abort itself, which still shows the leaver their own debrief.)
-///   6. REPLAY-SAFE. `submit`/`leave`/`reset` all take a `gen` (and, for
-///      `submit`, `turn`) the caller must have last observed via `status`;
+///   6. REPLAY-SAFE. `submit`/`leave`/`reset`/`claimWin` all take a `gen`
+///      (and, for `submit`, `turn`) the caller must have last observed via
+///      `status`;
 ///      a mismatch against the table's CURRENT `Table.gen`/round comes back
 ///      `#stale` instead of being applied. This closes a real class of bug:
 ///      a client can't always tell whether a mutating call it believes

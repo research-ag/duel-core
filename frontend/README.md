@@ -207,7 +207,7 @@ to check — a documented trade-off, not an oversight.
 
 **There is no plain-polling fallback.** A canister built on this
 framework has no `createTable`/`joinTable`/`submit`/`rematch`/`leave`/
-`reset`/`ackEnded` Candid method to poll in the first place — the ONLY
+`reset`/`claimWin`/`ackEnded` Candid method to poll in the first place — the ONLY
 way to mutate game
 state is `mo:duel-game-core/ws`'s `ws_message` (see
 `../backend/src/ws.mo`'s doc header for why: a direct update call is

@@ -59,11 +59,15 @@ to stay a pure `Status -> HTML string` renderer).
    of whatever the shared poller's next tick happens to deliver.
 4. `renderBoard`/`renderActions` can be near-stubs (return a short
    status note, or even `''`) once the real UI lives elsewhere — the
-   turn counter, "opponent is deciding"/"locked in", and verdict banner
-   around them are still real and correct (driven by the engine's own
-   `youSubmitted`/`oppSubmitted`/`turn`, not by your plugin), so this
-   still functions as a lightweight, always-accurate status HUD even
-   though your rich UI never provides it any data.
+   turn counter, "opponent is deciding"/"locked in", verdict banner, and
+   the claim-win warnings — the "Claim the win" control once YOUR
+   opponent's move has sat pending long enough, and its mirror image
+   ("your opponent can claim the win in Ns") once it's YOU who's sitting
+   on the overdue move (see the main `SKILL.md`'s "Claim a win") — around
+   them are still real and correct (driven by the engine's own
+   `youSubmitted`/`oppSubmitted`/`turn`/`claimWinAvailable`, not by your
+   plugin), so this still functions as a lightweight, always-accurate
+   status HUD even though your rich UI never provides it any data.
 5. To reach a verdict, your rich UI should NOT rely on `renderBoard`
    telling it the round advanced — listen to the shared `ws`'s own
    `message` event (step 3) and detect the round boundary yourself

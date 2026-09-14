@@ -21,6 +21,7 @@ module {
 
   public type Registry<S, M> = {
     idleTimeoutNs : Int;
+    claimTimeoutNs : Int;
     var tables : Map.Map<TableId, Table<S, M>>;
     // This session's current table, if any — cleared once `leave`/
     // `reset`/`ackEnded` returns them to "browsing". Absent = browsing the lobby.
@@ -82,6 +83,10 @@ module {
   public type End = {
     #finished : Verdict;
     #aborted : Seat; // this seat left early — both players see it
+    // this seat claimed victory: they'd submitted their move, the
+    // opponent hadn't, and `claimTimeoutNs` elapsed since — see
+    // `Table.claimWin`'s own doc.
+    #claimed : Seat;
   };
 
   public type Debrief<S> = {
@@ -114,6 +119,14 @@ module {
   /// The caller-owned, stable session state. One per global board.
   public type Table<S, M> = {
     idleTimeoutNs : Int;
+    // How long a submitted move may sit pending against an opponent's
+    // silence before its own submitter may claim the win outright — see
+    // `Table.claimWin`'s own doc. Independent of `idleTimeoutNs` (which
+    // governs the much longer, no-visitor-required full-board eviction
+    // sweep still runs regardless) and normally set well below it, so a
+    // player stuck waiting on a truly gone opponent has a real choice to
+    // make before the board is simply reclaimed out from under them.
+    claimTimeoutNs : Int;
     visibility : TableVisibility;
     createdBy : SessionId;
 
@@ -146,6 +159,10 @@ module {
     #wrongPhase : Text;
     #reserved : { secondsLeft : Nat }; // open seat is held for a rematch partner
     #notIdle : { secondsLeft : Nat }; // takeover/reset not allowed yet
+    // `claimWin` called before `claimTimeoutNs` has elapsed since the
+    // caller's own move went in with the opponent's still pending — see
+    // `Table.claimWin`'s own doc.
+    #notOverdue : { secondsLeft : Nat };
     // `submit`/`leave`/`reset` carried a `gen` (or, for `submit`, `turn`)
     // that no longer matches the table's current one — see `Table.gen`'s
     // own doc. The caller's fix is always the same regardless of cause:
@@ -218,6 +235,21 @@ module {
       // them down on its own wall clock is what makes them look alive.
       secondsUntilIdleReset : Nat;
       idleTimeoutSecs : Nat;
+      // Whether you may `claimWin` right now: you've submitted this
+      // round's move, your opponent hasn't, and `claimTimeoutNs` has
+      // elapsed since — already fully decided here, same as every other
+      // View field, so a host's UI never has to reconstruct this gate
+      // itself from `youSubmitted`/`oppSubmitted`/a raw countdown.
+      claimWinAvailable : Bool;
+      // Countdown to `claimWinAvailable` turning true, ticking down the
+      // same way `secondsUntilIdleReset` does — meaningful only while
+      // `youSubmitted` and not `oppSubmitted`; harmless (just unused) for
+      // a host's UI otherwise, same as that pattern's own `#stagingYou`
+      // analogue (`secondsUntilReclaimable`).
+      secondsUntilClaimable : Nat;
+      // This table's own configured claim-win window, in whole seconds —
+      // constant for the table's lifetime, mirroring `idleTimeoutSecs`.
+      claimTimeoutSecs : Nat;
     };
     #debrief : {
       seat : Seat;

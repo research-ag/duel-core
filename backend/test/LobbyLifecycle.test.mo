@@ -15,7 +15,7 @@ import TP "../src/lib";
 import Registry "../src/registry";
 
 let spec = Rules.spec();
-let reg = Registry.new<Rules.State, Rules.Action>(60_000_000_000); // 60s
+let reg = Registry.new<Rules.State, Rules.Action>(60_000_000_000, 20_000_000_000); // 60s idle, 20s claim-win
 var now : Int = 1_000_000_000_000;
 func tick() : Int { now += 1_000_000_000; now }; // +1s
 

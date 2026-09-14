@@ -439,6 +439,133 @@ test("declining a rematch invite (Decline, from #awaitingRematch) sends its own 
   assert.deepEqual(ws.requests[0]!.req, { leave: { gen: 7n } });
 });
 
+test("clicking 'Claim the win' sends claimWin with the last-observed gen", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  ws.onmessage!({
+    data: {
+      view: atTable({
+        inGame: {
+          seat: { p1: null },
+          game: { n: 0 },
+          turn: 4n,
+          youSubmitted: true,
+          oppSubmitted: false,
+          gen: 3n,
+          secondsUntilIdleReset: 40n,
+          idleTimeoutSecs: 60n,
+          claimWinAvailable: true,
+          secondsUntilClaimable: 0n,
+          claimTimeoutSecs: 20n,
+        },
+      }),
+    },
+  });
+
+  const btn = els.screen.querySelectorAll("button").find((b) => "claimWin" in b.dataset);
+  assert.ok(btn, "expected a rendered Claim the win button");
+  click(els.screen, btn!);
+  assert.equal(ws.requests.length, 1);
+  assert.deepEqual(ws.requests[0]!.req, { claimWin: { gen: 3n } });
+});
+
+test("the 'Claim the win' button reveals itself locally once the countdown reaches zero, without waiting for a fresh push (regression: button never appeared)", async () => {
+  mock.timers.enable({ apis: ["setInterval", "Date"] });
+  try {
+    const { start } = await import("../src/app.js");
+    const { els, ws } = setup();
+    start({ plugin, ws });
+
+    ws.onmessage!({
+      data: {
+        view: atTable({
+          inGame: {
+            seat: { p1: null },
+            game: { n: 0 },
+            turn: 4n,
+            youSubmitted: true,
+            oppSubmitted: false,
+            gen: 5n,
+            secondsUntilIdleReset: 40n,
+            idleTimeoutSecs: 60n,
+            // Not yet claimable as of this push — nothing changes it
+            // server-side until the NEXT push, which (per the engine's
+            // own push model) only ever arrives off a mutation or the
+            // idle sweep, neither of which fires just because 3s passed.
+            claimWinAvailable: false,
+            secondsUntilClaimable: 3n,
+            claimTimeoutSecs: 20n,
+          },
+        }),
+      },
+    });
+
+    const btn = els.screen.querySelectorAll("button").find((b) => "claimWin" in b.dataset);
+    assert.ok(btn, "expected a rendered Claim the win button");
+    assert.equal(btn!.hidden, true, "must start hidden — not yet claimable as of the last push");
+
+    // No fresh push arrives — only the local ticker should reveal it.
+    mock.timers.tick(3000);
+    assert.equal(btn!.hidden, false, "should reveal itself once the local countdown reaches zero");
+
+    click(els.screen, btn!);
+    assert.equal(ws.requests.length, 1);
+    assert.deepEqual(ws.requests[0]!.req, { claimWin: { gen: 5n } });
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test("the still-deciding player never gets a Claim button of their own — not initially, and not once the claim window has fully elapsed (only the 'atRisk' warning text, covered in render.test.ts, is theirs)", async () => {
+  // The claim-win countdown TEXT itself (`<p class="countdown">`, unlike
+  // the `<button>` this fake DOM parses — see fake-dom.ts's own doc) isn't
+  // observable through this harness; its wording and threshold gating for
+  // both the "waiting" and "atRisk" roles are covered directly against
+  // renderView()'s own HTML output in render.test.ts instead. This test
+  // covers what this harness CAN see: that the still-deciding player's
+  // own view never renders (or locally reveals) a Claim button, since
+  // only the player who actually submitted can claim.
+  mock.timers.enable({ apis: ["setInterval", "Date"] });
+  try {
+    const { start } = await import("../src/app.js");
+    const { els, ws } = setup();
+    start({ plugin, ws });
+
+    ws.onmessage!({
+      data: {
+        view: atTable({
+          inGame: {
+            seat: { p1: null },
+            game: { n: 0 },
+            turn: 4n,
+            youSubmitted: false, // THIS seat hasn't moved
+            oppSubmitted: true, // the opponent has
+            gen: 5n,
+            secondsUntilIdleReset: 40n,
+            idleTimeoutSecs: 60n,
+            claimWinAvailable: false, // always false from this seat's own view
+            secondsUntilClaimable: 3n,
+            claimTimeoutSecs: 20n, // threshold = min(15, 10) = 10 — 3s is already inside it
+          },
+        }),
+      },
+    });
+
+    const claimBtn = () => els.screen.querySelectorAll("button").find((b) => "claimWin" in b.dataset);
+    assert.equal(claimBtn(), undefined, "no Claim button for the still-deciding player from the start");
+
+    // No fresh push arrives — same as the waiting player's own local
+    // reveal, this must stay driven by the local clock, and here that
+    // means staying absent the whole time, not eventually appearing.
+    mock.timers.tick(3000);
+    assert.equal(claimBtn(), undefined, "still no Claim button once the claim window has locally elapsed");
+  } finally {
+    mock.timers.reset();
+  }
+});
+
 test("the new-sid button rotates sid and re-sends #status", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();

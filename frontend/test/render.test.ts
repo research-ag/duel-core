@@ -1,6 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionAttr, DUEL_IDLE_WARNING_ID, DUEL_RECLAIM_WARNING_ID, errText, esc, renderView, tag, val } from "../src/render.js";
+import {
+  actionAttr,
+  DUEL_IDLE_WARNING_ID,
+  DUEL_RECLAIM_WARNING_ID,
+  DUEL_CLAIM_WARNING_ID,
+  DUEL_CLAIM_BUTTON_ID,
+  claimWarningThreshold,
+  errText,
+  esc,
+  renderView,
+  tag,
+  val,
+} from "../src/render.js";
 import type { GamePlugin, View } from "../src/types.js";
 
 const plugin: GamePlugin<{ turn: string }> = {
@@ -11,6 +23,16 @@ const plugin: GamePlugin<{ turn: string }> = {
   renderBoard: (game) => `<div class="board-state">${esc(JSON.stringify(game))}</div>`,
   renderActions: () => `<button ${actionAttr({ pass: null })}>Pass</button>`,
 };
+
+/// Whether the claim-win button's own `<button id="duel-claim-button" ...>`
+/// tag carries `hidden` — attribute order inside that tag isn't fixed
+/// (`id` always comes first, `hidden` only when present, appended last),
+/// so a fixed-adjacency string match on the raw HTML would be brittle;
+/// this pulls out the button's own opening tag first and checks it there.
+function claimButtonHidden(html: string): boolean {
+  const tagMatch = new RegExp(`<button id="${DUEL_CLAIM_BUTTON_ID}"[^>]*>`).exec(html);
+  return tagMatch !== null && /\bhidden\b/.test(tagMatch[0]);
+}
 
 test("tag/val unwrap a single-key variant object", () => {
   assert.equal(tag({ p1: null }), "p1");
@@ -56,6 +78,10 @@ test("errText: variants carrying a countdown", () => {
   assert.equal(
     errText({ notIdle: { secondsLeft: 7n } }),
     "The board is in use — 7s until it can be taken over.",
+  );
+  assert.equal(
+    errText({ notOverdue: { secondsLeft: 4n } }),
+    "Your opponent hasn't gone quiet long enough yet — 4s left before you can claim the win.",
   );
 });
 
@@ -177,6 +203,9 @@ test("renderView: inGame shows the turn counter (1-indexed) and delegates board/
         gen: 1n,
         secondsUntilIdleReset: 60n,
         idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 20n,
+        claimTimeoutSecs: 20n,
       },
     },
     plugin,
@@ -200,6 +229,9 @@ test("renderView: inGame hides actions and shows the waiting note once submitted
         gen: 1n,
         secondsUntilIdleReset: 60n,
         idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 20n,
+        claimTimeoutSecs: 20n,
       },
     },
     plugin,
@@ -207,6 +239,10 @@ test("renderView: inGame hides actions and shows the waiting note once submitted
   assert.match(html, /◉ Opponent has locked in/);
   assert.match(html, /Move locked in/);
   assert.doesNotMatch(html, /Pass/);
+  // Both submitted (a synthetic, never-observed engine state — the round
+  // would already have resolved) — the claim-win UI is for the WAITING
+  // player specifically, so it must not appear here either.
+  assert.doesNotMatch(html, /data-claim-win/);
 });
 
 test("renderView: inGame shows the idle-reset warning once within threshold, for the player still deciding", () => {
@@ -221,6 +257,9 @@ test("renderView: inGame shows the idle-reset warning once within threshold, for
         gen: 1n,
         secondsUntilIdleReset: 10n,
         idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 20n,
+        claimTimeoutSecs: 20n,
       },
     },
     plugin,
@@ -241,11 +280,168 @@ test("renderView: inGame hides the idle-reset warning for a player who already l
         gen: 1n,
         secondsUntilIdleReset: 5n,
         idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 15n,
+        claimTimeoutSecs: 20n,
       },
     },
     plugin,
   );
   assert.match(html, new RegExp(`id="${DUEL_IDLE_WARNING_ID}" hidden`));
+});
+
+test("claimWarningThreshold: min(15s, claimTimeoutSecs / 2)", () => {
+  assert.equal(claimWarningThreshold(20n), 10n); // 20/2=10, below the 15s cap
+  assert.equal(claimWarningThreshold(60n), 15n); // 60/2=30, clamped to 15s
+  assert.equal(claimWarningThreshold(4n), 2n);
+});
+
+test("renderView: inGame keeps the claim-win countdown quiet until within its own threshold (min(15s, claimTimeoutSecs/2))", () => {
+  // claimTimeoutSecs = 20 → threshold = min(15, 10) = 10. 15s left is
+  // still well outside that — the countdown must stay hidden (regression:
+  // it used to show, and tick down, for the ENTIRE claim window).
+  const farOut = renderView<{ turn: string }>(
+    {
+      inGame: {
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: true,
+        oppSubmitted: false,
+        gen: 1n,
+        secondsUntilIdleReset: 40n,
+        idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 15n,
+        claimTimeoutSecs: 20n,
+      },
+    },
+    plugin,
+  );
+  assert.match(farOut, new RegExp(`id="${DUEL_CLAIM_WARNING_ID}" hidden`));
+  assert.ok(claimButtonHidden(farOut));
+
+  // 8s left is within the same 10s threshold — now it shows, ticking.
+  const withinThreshold = renderView<{ turn: string }>(
+    {
+      inGame: {
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: true,
+        oppSubmitted: false,
+        gen: 1n,
+        secondsUntilIdleReset: 40n,
+        idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 8n,
+        claimTimeoutSecs: 20n,
+      },
+    },
+    plugin,
+  );
+  assert.match(withinThreshold, /Your opponent hasn't moved\. You'll be able to claim the win in 8s/);
+  assert.doesNotMatch(withinThreshold, new RegExp(`id="${DUEL_CLAIM_WARNING_ID}" hidden`));
+  // Still not claimable yet — the button itself stays hidden.
+  assert.ok(claimButtonHidden(withinThreshold));
+});
+
+test("renderView: inGame offers the Claim the win button once the claim window has elapsed", () => {
+  const html = renderView<{ turn: string }>(
+    {
+      inGame: {
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: true,
+        oppSubmitted: false,
+        gen: 1n,
+        secondsUntilIdleReset: 40n,
+        idleTimeoutSecs: 60n,
+        claimWinAvailable: true,
+        secondsUntilClaimable: 0n,
+        claimTimeoutSecs: 20n,
+      },
+    },
+    plugin,
+  );
+  assert.match(html, /data-claim-win/);
+  assert.ok(!claimButtonHidden(html));
+  assert.match(html, new RegExp(`id="${DUEL_CLAIM_WARNING_ID}" hidden`));
+});
+
+test("renderView: inGame warns the STILL-DECIDING player that their opponent could claim the win (the 'atRisk' mirror of the waiting player's own countdown) — no button of their own", () => {
+  // Same clock, opposite seat: you haven't submitted, your opponent has.
+  const withinThreshold = renderView<{ turn: string }>(
+    {
+      inGame: {
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: false,
+        oppSubmitted: true,
+        gen: 1n,
+        secondsUntilIdleReset: 40n,
+        idleTimeoutSecs: 60n,
+        claimWinAvailable: false, // always false from THIS seat's own view — only the submitter can claim
+        secondsUntilClaimable: 8n,
+        claimTimeoutSecs: 20n, // threshold = min(15, 10) = 10 — 8s is inside it
+      },
+    },
+    plugin,
+  );
+  assert.match(withinThreshold, /You haven't moved yet\. Your opponent can claim the win in 8s if you don't\./);
+  assert.doesNotMatch(withinThreshold, new RegExp(`id="${DUEL_CLAIM_WARNING_ID}" hidden`));
+  assert.doesNotMatch(withinThreshold, /data-claim-win/); // never a button for this seat
+
+  // Far outside the threshold — stays quiet, same as the waiting player's
+  // own countdown does.
+  const farOut = renderView<{ turn: string }>(
+    {
+      inGame: {
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: false,
+        oppSubmitted: true,
+        gen: 1n,
+        secondsUntilIdleReset: 40n,
+        idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 15n,
+        claimTimeoutSecs: 20n,
+      },
+    },
+    plugin,
+  );
+  assert.match(farOut, new RegExp(`id="${DUEL_CLAIM_WARNING_ID}" hidden`));
+
+  // Once the window has fully elapsed, the warning — unlike the waiting
+  // player's own, which steps aside for the Claim button — keeps reading
+  // "now" instead of disappearing: this player has no button to hand off
+  // to, only their own next move (or the opponent's eventual click) ends
+  // the wait.
+  const overdue = renderView<{ turn: string }>(
+    {
+      inGame: {
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: false,
+        oppSubmitted: true,
+        gen: 1n,
+        secondsUntilIdleReset: 40n,
+        idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 0n,
+        claimTimeoutSecs: 20n,
+      },
+    },
+    plugin,
+  );
+  assert.match(overdue, /Your opponent can claim the win now if you don't\./);
+  assert.doesNotMatch(overdue, new RegExp(`id="${DUEL_CLAIM_WARNING_ID}" hidden`));
+  assert.doesNotMatch(overdue, /data-claim-win/);
 });
 
 test("renderView: debrief — win/lose/draw wording from the acting seat's own point of view", () => {
@@ -302,6 +498,36 @@ test("renderView: debrief — aborted wording distinguishes who walked away", ()
     plugin,
   );
   assert.match(oppLeft, /Your opponent walked away/);
+});
+
+test("renderView: debrief — claimed wording distinguishes who claimed the overdue win", () => {
+  const youClaimed = renderView<{ turn: string }>(
+    {
+      debrief: {
+        seat: { p1: null },
+        turns: 1n,
+        finalGame: { turn: "x" },
+        end: { claimed: { p1: null } },
+        gen: 1n,
+      },
+    },
+    plugin,
+  );
+  assert.match(youClaimed, /You win — your opponent didn't move in time/);
+
+  const oppClaimed = renderView<{ turn: string }>(
+    {
+      debrief: {
+        seat: { p1: null },
+        turns: 1n,
+        finalGame: { turn: "x" },
+        end: { claimed: { p2: null } },
+        gen: 1n,
+      },
+    },
+    plugin,
+  );
+  assert.match(oppClaimed, /You lose — you didn't move in time/);
 });
 
 test("renderView: debrief pluralizes 'round(s)' correctly", () => {

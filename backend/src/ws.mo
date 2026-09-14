@@ -143,11 +143,12 @@ module {
   /// a table (see `TP.SessionStatus`), so there's no separate "list
   /// tables" request to send.
   ///
-  /// `#submit`/`#leave`/`#reset` carry the `gen` (and, for `#submit`,
-  /// `turn`) the client last observed via `View` — see `TP.Table.gen`'s
-  /// own doc for why: it's what lets `Registry.submit`/`leave`/`reset`
-  /// reject a stale replay (most commonly a client-side resend of a call
-  /// whose original attempt secretly already landed — see
+  /// `#submit`/`#leave`/`#reset`/`#claimWin` carry the `gen` (and, for
+  /// `#submit`, `turn`) the client last observed via `View` — see
+  /// `TP.Table.gen`'s own doc for why: it's what lets
+  /// `Registry.submit`/`leave`/`reset`/`claimWin` reject a stale replay
+  /// (most commonly a client-side resend of a call whose original attempt
+  /// secretly already landed — see
   /// `../../frontend/src/ws/gateway-client.ts`'s resend-queue doc) as
   /// `#stale` instead of silently applying it to whatever match/round is
   /// current by the time it's processed. `#createTable`/`#joinTable`/
@@ -160,6 +161,11 @@ module {
     #rematch;
     #leave : { gen : Nat };
     #reset : { gen : Nat };
+    // Claim the win when the opponent's move has sat pending past this
+    // table's own `claimTimeoutNs` — see `TP.Table.claimWin`'s own doc.
+    // Purely optional: a client is never required to send this even once
+    // `View.inGame.claimWinAvailable` turns true.
+    #claimWin : { gen : Nat };
     #ackEnded;
     #status;
   };
@@ -496,8 +502,8 @@ module {
           remember(hub, sid, args.client_principal);
           let now = Time.now();
           // This session's table BEFORE the request runs — the only way
-          // `submit`/`rematch`/`leave`/`reset`/`ackEnded` (none of which
-          // hand back a `TableId` of their own) can tell `afterMutation`
+          // `submit`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded`
+          // (none of which hand back a `TableId` of their own) can tell `afterMutation`
           // which table's own occupants to also reach. `createTable`/
           // `joinTable` don't need it: they return their own id directly.
           let priorId = Map.get(registry.bySession, Text.compare, sid);
@@ -519,6 +525,14 @@ module {
             };
             case (#submit { gen; turn; move }) {
               switch (registry.submit(spec, now, sid, gen, turn, move)) {
+                case (#ok _) {
+                  await* afterMutation(now, sid, reqId, priorId, false);
+                };
+                case (#err e) { await* pushTo(sid, #err({ reqId; err = e })) };
+              };
+            };
+            case (#claimWin { gen }) {
+              switch (registry.claimWin(now, sid, gen)) {
                 case (#ok _) {
                   await* afterMutation(now, sid, reqId, priorId, false);
                 };

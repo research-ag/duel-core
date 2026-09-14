@@ -9,8 +9,8 @@
 // `../backend/src/ws.mo`'s doc header for the resulting detection
 // floor), not client-side polling wearing a push-shaped interface. There
 // is no plain-polling fallback: a canister built on this package has no
-// join/submit/rematch/leave/reset/ackEnded Candid method to poll in the
-// first place — `mo:duel-game-core/ws` is mandatory, not opt-in (see
+// join/submit/rematch/leave/reset/claimWin/ackEnded Candid method to
+// poll in the first place — `mo:duel-game-core/ws` is mandatory, not opt-in (see
 // `../backend/src/ws.mo`'s doc header).
 //
 // Usage:

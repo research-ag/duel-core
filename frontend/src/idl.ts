@@ -82,7 +82,7 @@ export function buildEngineTypes({
     p2Wins: IDL.Null,
     draw: IDL.Null,
   });
-  const End = IDL.Variant({ finished: Verdict, aborted: Seat });
+  const End = IDL.Variant({ finished: Verdict, aborted: Seat, claimed: Seat });
   const Err = IDL.Variant({
     seatTaken: IDL.Null,
     notSeated: IDL.Null,
@@ -91,6 +91,9 @@ export function buildEngineTypes({
     wrongPhase: IDL.Text,
     reserved: IDL.Record({ secondsLeft: IDL.Nat }),
     notIdle: IDL.Record({ secondsLeft: IDL.Nat }),
+    // A claimWin sent before the opponent's move has sat pending long
+    // enough — see lib.mo's Table.claimWin doc.
+    notOverdue: IDL.Record({ secondsLeft: IDL.Nat }),
     // A submit/leave/reset carried a stale gen/turn — see lib.mo's
     // Table.gen doc and gateway-client.ts's `_isRetryAmbiguousError`.
     stale: IDL.Null,
@@ -142,6 +145,9 @@ export function buildEngineTypes({
       gen: IDL.Nat,
       secondsUntilIdleReset: IDL.Nat,
       idleTimeoutSecs: IDL.Nat,
+      claimWinAvailable: IDL.Bool,
+      secondsUntilClaimable: IDL.Nat,
+      claimTimeoutSecs: IDL.Nat,
     }),
     debrief: IDL.Record({
       seat: Seat,
@@ -251,6 +257,9 @@ export function buildEngineTypes({
     rematch: IDL.Null,
     leave: IDL.Record({ gen: IDL.Nat }),
     reset: IDL.Record({ gen: IDL.Nat }),
+    // Claim the win once inGame's own claimWinAvailable is true — see
+    // this file's End/InGameView-mirroring comments above.
+    claimWin: IDL.Record({ gen: IDL.Nat }),
     ackEnded: IDL.Null,
     status: IDL.Null,
   });
@@ -286,8 +295,8 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
     const t = buildEngineTypes({ IDL, Action, State });
 
     return IDL.Service({
-      // No createTable/joinTable/submit/rematch/leave/reset/ackEnded here
-      // — mutation goes exclusively through ws_message below (see this
+      // No createTable/joinTable/submit/rematch/leave/reset/claimWin/
+      // ackEnded here — mutation goes exclusively through ws_message below (see this
       // file's header and `../backend/src/ws.mo`'s doc header for why
       // there's no fallback).
       status: IDL.Func([IDL.Text], [t.Status], ["query"]),

@@ -83,6 +83,8 @@ export function errText(e: EngineErr): string {
       return `That seat is held for a rematch — ${(v as { secondsLeft: bigint }).secondsLeft}s left.`;
     case "notIdle":
       return `The board is in use — ${(v as { secondsLeft: bigint }).secondsLeft}s until it can be taken over.`;
+    case "notOverdue":
+      return `Your opponent hasn't gone quiet long enough yet — ${(v as { secondsLeft: bigint }).secondsLeft}s left before you can claim the win.`;
     case "noSuchTable":
       return "That table doesn't exist any more.";
     case "badCode":
@@ -300,6 +302,50 @@ export function idleWarningText(secondsUntilIdleReset: bigint): string {
   return `Still thinking? This game will be interrupted ${when} if nobody moves.`;
 }
 
+// The claim clock — `secondsUntilClaimable`/`claimWinAvailable` describe
+// the SAME table-wide clock (time since whichever move went in first this
+// round) from either seat's own point of view, so which of two roles a
+// player is in decides both the wording and whether a button belongs
+// next to it:
+//   - "waiting": YOUR OWN move is locked in and the opponent's is
+//     overdue — offers to claim the win outright instead of waiting them
+//     out.
+//   - "atRisk": the OPPONENT's move is locked in and yours is overdue —
+//     the mirror image, so the still-deciding player can see they're
+//     about to lose by forfeit if they don't act, not just find out after
+//     the fact. No button here; only the "waiting" opponent can actually
+//     claim.
+// These, and the idle-reset warning above (for a player still deciding
+// with NEITHER move overdue in the claim sense — just running long), are
+// mutually exclusive by construction (`youSubmitted`/`oppSubmitted` can't
+// both true — the round would already have resolved) so at most one of
+// the three ever shows at once.
+export const DUEL_CLAIM_WARNING_ID = "duel-claim-warning";
+export const DUEL_CLAIM_BUTTON_ID = "duel-claim-button";
+
+// Quiet below the threshold, same idea as `renderStagingYou`'s reclaim
+// warning — a normal short wait for the opponent's move doesn't carry a
+// running countdown the whole time, only once it's actually close.
+export function claimWarningThreshold(claimTimeoutSecs: bigint): bigint {
+  const half = claimTimeoutSecs / 2n;
+  return half < 15n ? half : 15n;
+}
+
+export function claimWarningText(secondsUntilClaimable: bigint): string {
+  const when = secondsUntilClaimable <= 0n ? "now" : `in ${secondsUntilClaimable}s`;
+  return `Your opponent hasn't moved. You'll be able to claim the win ${when} if they still haven't.`;
+}
+
+// The "atRisk" counterpart to `claimWarningText` above — same clock, the
+// OTHER player's own point of view. Deliberately has no "any moment now"-
+// style button to pair with it: only the WAITING player (the one who
+// actually submitted) can claim; this player's only way out is to submit
+// their own move before that happens.
+export function atRiskWarningText(secondsUntilClaimable: bigint): string {
+  const when = secondsUntilClaimable <= 0n ? "now" : `in ${secondsUntilClaimable}s`;
+  return `You haven't moved yet. Your opponent can claim the win ${when} if you don't.`;
+}
+
 function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
   const mySeat = tag(v.seat) as SeatTag;
   const oppSeat: SeatTag = mySeat === "p1" ? "p2" : "p1";
@@ -311,6 +357,9 @@ function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
   // between pushes either.
   const idleWarningHidden =
     v.youSubmitted || v.secondsUntilIdleReset > idleWarningThreshold(v.idleTimeoutSecs);
+  const claimRole: "waiting" | "atRisk" | null = v.youSubmitted
+    ? (v.oppSubmitted ? null : "waiting")
+    : (v.oppSubmitted ? "atRisk" : null);
 
   return `
     <div class="turnbar">
@@ -326,6 +375,29 @@ function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
         : `<div class="actions">${plugin.renderActions(v.game, mySeat)}</div>`
     }
     <p class="countdown" id="${DUEL_IDLE_WARNING_ID}"${idleWarningHidden ? " hidden" : ""}>${idleWarningText(v.secondsUntilIdleReset)}</p>
+    ${
+      claimRole === null
+        ? ""
+        : (() => {
+            // "waiting": once claimable, the countdown text steps aside
+            // for the button below it — showing both would be redundant.
+            // "atRisk" has no button to step aside for, so the text just
+            // keeps reading "now" for as long as the opponent hasn't
+            // actually clicked it (or the player finally moves).
+            const text =
+              claimRole === "waiting"
+                ? claimWarningText(v.secondsUntilClaimable)
+                : atRiskWarningText(v.secondsUntilClaimable);
+            const claimTextHidden =
+              (claimRole === "waiting" && v.claimWinAvailable) ||
+              v.secondsUntilClaimable > claimWarningThreshold(v.claimTimeoutSecs);
+            const button =
+              claimRole === "waiting"
+                ? `\n           <p><button id="${DUEL_CLAIM_BUTTON_ID}" data-claim-win class="primary"${v.claimWinAvailable ? "" : " hidden"}>Claim the win — your opponent hasn't moved</button></p>`
+                : "";
+            return `<p class="countdown" id="${DUEL_CLAIM_WARNING_ID}"${claimTextHidden ? " hidden" : ""}>${text}</p>${button}`;
+          })()
+    }
     <p><button data-leave data-confirm="Forfeit this game? Your opponent will win." class="ghost">Forfeit</button></p>`;
 }
 
@@ -334,7 +406,8 @@ function renderDebrief<S>(v: DebriefView<S>, plugin: GamePlugin<S>): string {
   const oppSeat: SeatTag = mySeat === "p1" ? "p2" : "p1";
   let title: string;
   let cls: string;
-  if (tag(v.end) === "finished") {
+  const endTag = tag(v.end);
+  if (endTag === "finished") {
     const verdict = tag(val(v.end) as object);
     if (verdict === "draw") {
       title = "It's a draw";
@@ -344,6 +417,15 @@ function renderDebrief<S>(v: DebriefView<S>, plugin: GamePlugin<S>): string {
       cls = "win";
     } else {
       title = "You lose";
+      cls = "lose";
+    }
+  } else if (endTag === "claimed") {
+    const claimant = tag(val(v.end) as object);
+    if (claimant === mySeat) {
+      title = "You win — your opponent didn't move in time";
+      cls = "win";
+    } else {
+      title = "You lose — you didn't move in time";
       cls = "lose";
     }
   } else {

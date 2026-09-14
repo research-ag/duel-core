@@ -59,6 +59,11 @@ import {
   DUEL_RECLAIM_WARNING_ID,
   RECLAIM_WARNING_SECS,
   reclaimWarningText,
+  DUEL_CLAIM_WARNING_ID,
+  DUEL_CLAIM_BUTTON_ID,
+  claimWarningText,
+  atRiskWarningText,
+  claimWarningThreshold,
   waitingText,
 } from "./render.js";
 import type { DuelWs, EngineErr, GamePlugin, InGameView, Seat, SeatTag, StagingYouView, Visibility, WsPayload, WsRequest } from "./types.js";
@@ -157,6 +162,58 @@ function makeCountdownTicker(elId: string) {
       // test runner, an SSR pass) that outlives this instance without an
       // explicit teardown. `unref` doesn't exist on a browser's
       // `setInterval` handle at all, so this is a no-op there.
+      (timer as unknown as { unref?: () => void }).unref?.();
+    }
+    tick();
+  }
+
+  return { sync };
+}
+
+/// Like `makeCountdownTicker`, but toggles ONLY `elId`'s `hidden`
+/// attribute off a local countdown to zero — never `textContent`, so
+/// it's safe to point at an element with real child markup (a button)
+/// instead of a plain text node, which `makeCountdownTicker`'s own
+/// `textContent` write would otherwise destroy. Exists specifically for
+/// `renderInGame`'s "Claim the win" button: `View.inGame.claimWinAvailable`
+/// only ever updates on a push, and nothing else causes one on a bare
+/// tick of the clock (see backend/src/ws.mo's `sweepAndPush` doc) — so
+/// without this, the button could stay invisible for a long time after
+/// the claim window genuinely opened, even with the countdown right next
+/// to it already reading "now" (a real reported bug, not hypothetical).
+/// Revealing it a moment early off the LOCAL clock is harmless: the
+/// engine re-validates against its own clock on the actual click and
+/// simply rejects it as `#notOverdue` if it truly hasn't elapsed yet.
+function makeVisibilityTicker(elId: string) {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let baseline: { secs: bigint; atMs: number } | undefined;
+
+  function stop(): void {
+    if (timer !== undefined) {
+      clearInterval(timer);
+      timer = undefined;
+    }
+    baseline = undefined;
+  }
+
+  function tick(): void {
+    if (!baseline) return;
+    if (typeof document === "undefined") return;
+    const el = document.getElementById(elId);
+    if (!el) return; // screen moved on without going through stop()
+    const elapsed = BigInt(Math.max(0, Math.floor((Date.now() - baseline.atMs) / 1000)));
+    const remaining = baseline.secs > elapsed ? baseline.secs - elapsed : 0n;
+    el.hidden = remaining > 0n;
+  }
+
+  function sync(next: { secs: bigint } | null): void {
+    if (next === null) {
+      stop();
+      return;
+    }
+    baseline = { secs: next.secs, atMs: Date.now() };
+    if (timer === undefined) {
+      timer = setInterval(tick, 1000);
       (timer as unknown as { unref?: () => void }).unref?.();
     }
     tick();
@@ -462,17 +519,21 @@ export function start<S>({
     return req !== null && ("createTable" in req || "joinTable" in req) && "wrongPhase" in err;
   }
 
-  // Mirror of isStaleJoin for `submit`/`leave`/`reset`: each stamps the
-  // `gen` (and, for `submit`, `turn`) it read off `lastStatus` at click
-  // time (see genOf/turnOf below) — see backend/src/lib.mo's `Table.gen`
-  // doc for why the engine can reject that as `#stale` instead of
-  // applying it (most commonly a resend whose original attempt secretly
-  // already landed, moving the match/round on before the resend was
-  // processed — see ws/gateway-client.ts's `_isRetryAmbiguousError` doc).
-  // Same treatment as a stale join: resync silently rather than surface
-  // an error the user can't act on.
+  // Mirror of isStaleJoin for `submit`/`leave`/`reset`/`claimWin`: each
+  // stamps the `gen` (and, for `submit`, `turn`) it read off `lastStatus`
+  // at click time (see genOf/turnOf below) — see backend/src/lib.mo's
+  // `Table.gen` doc for why the engine can reject that as `#stale` instead
+  // of applying it (most commonly a resend whose original attempt
+  // secretly already landed, moving the match/round on before the resend
+  // was processed — see ws/gateway-client.ts's `_isRetryAmbiguousError`
+  // doc). Same treatment as a stale join: resync silently rather than
+  // surface an error the user can't act on.
   function isStaleMutation(req: WsRequest | null, err: EngineErr): boolean {
-    return req !== null && ("submit" in req || "leave" in req || "reset" in req) && "stale" in err;
+    return (
+      req !== null &&
+      ("submit" in req || "leave" in req || "reset" in req || "claimWin" in req) &&
+      "stale" in err
+    );
   }
 
   // `gen`/`turn` a real client must stamp onto `submit`/`leave`/`reset` —
@@ -585,6 +646,7 @@ export function start<S>({
   const doRematch = () => call({ rematch: null });
   const doLeave = () => call({ leave: { gen: genOf(lastStatus) } });
   const doReset = () => call({ reset: { gen: genOf(lastStatus) } });
+  const doClaimWin = () => call({ claimWin: { gen: genOf(lastStatus) } });
   const doAck = () => call({ ackEnded: null });
 
   // ---------------------------------------------------------------------
@@ -629,6 +691,7 @@ export function start<S>({
     if ("rematch" in b.dataset) return "rematch";
     if ("leave" in b.dataset) return "leave";
     if ("reset" in b.dataset) return "reset";
+    if ("claimWin" in b.dataset) return "claim-win";
     if ("ack" in b.dataset) return "ack";
     return "";
   }
@@ -858,6 +921,7 @@ export function start<S>({
       else if ("rematch" in b.dataset) doRematch();
       else if ("leave" in b.dataset) doLeave();
       else if ("reset" in b.dataset) doReset();
+      else if ("claimWin" in b.dataset) doClaimWin();
       else if ("ack" in b.dataset) doAck();
     };
     if (b.dataset.confirm) showConfirm(b.dataset.confirm, dispatch);
@@ -893,6 +957,8 @@ export function start<S>({
   // id so patching one never touches the other.
   const idleTicker = makeCountdownTicker(DUEL_IDLE_WARNING_ID);
   const reclaimTicker = makeCountdownTicker(DUEL_RECLAIM_WARNING_ID);
+  const claimTicker = makeCountdownTicker(DUEL_CLAIM_WARNING_ID);
+  const claimButtonTicker = makeVisibilityTicker(DUEL_CLAIM_BUTTON_ID);
   const waitTicker = makeTableWaitTicker(screenEl);
 
   // Re-baselines off a FRESH `#inGame` push (a real submit/leave/etc.
@@ -931,6 +997,45 @@ export function start<S>({
       hidden: (secondsLeft) => secondsLeft > RECLAIM_WARNING_SECS,
       text: reclaimWarningText,
     });
+  }
+
+  // Same idea, for the claim clock — re-baselines off a fresh `#inGame`
+  // push (a submit resets the engine's own idle/claim clocks too, so
+  // THIS push's own `secondsUntilClaimable` is the new source of truth).
+  // Drives BOTH sides of it off the exact same underlying number (see
+  // render.ts's own doc on the "waiting"/"atRisk" roles): the player who
+  // submitted sees their own claim countdown (and, once it elapses, the
+  // button — `claimButtonTicker`, revealed locally the same way
+  // `syncIdleTick` never waits for a push either); the player still
+  // deciding sees the mirror-image warning that THEY could lose by
+  // forfeit, with no button of their own to reveal. Stops ticking
+  // entirely for any other phase, or once the round moves on and neither
+  // role applies any more (both submitted — resolved already — or
+  // neither has).
+  function syncClaimTick(status: unknown): void {
+    const inGame = inGameView(status);
+    const role: "waiting" | "atRisk" | null = !inGame
+      ? null
+      : inGame.youSubmitted
+        ? (inGame.oppSubmitted ? null : "waiting")
+        : (inGame.oppSubmitted ? "atRisk" : null);
+    if (!inGame || role === null) {
+      claimTicker.sync(null);
+      claimButtonTicker.sync(null);
+      return;
+    }
+    const threshold = claimWarningThreshold(inGame.claimTimeoutSecs);
+    claimTicker.sync({
+      secs: inGame.secondsUntilClaimable,
+      hidden: (secondsLeft) =>
+        (role === "waiting" && secondsLeft <= 0n) || secondsLeft > threshold,
+      text: role === "waiting" ? claimWarningText : atRiskWarningText,
+    });
+    if (role === "waiting") {
+      claimButtonTicker.sync({ secs: inGame.secondsUntilClaimable });
+    } else {
+      claimButtonTicker.sync(null);
+    }
   }
 
   // The create-table form's radio/code choice, and the "Have a code?"
@@ -1010,6 +1115,7 @@ export function start<S>({
     if (savedForm) restoreCreateFormState(savedForm);
     syncIdleTick(status);
     syncReclaimTick(status);
+    syncClaimTick(status);
     waitTicker.sync();
     // Freshly created buttons start out with whatever disabled state
     // render.js baked into the markup — reapply any still-pending

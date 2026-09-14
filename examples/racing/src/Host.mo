@@ -10,7 +10,7 @@ import Rules "RacingRules";
 
 persistent actor {
 
-  let registry = Registry.new<Rules.State, Rules.Action>(60_000_000_000); // 60 s idle timeout, shared by every table
+  let registry = Registry.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000); // 60s idle timeout, 15s claim-win window, shared by every table
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Time.now(), sid);

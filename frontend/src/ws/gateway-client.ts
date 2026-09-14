@@ -310,8 +310,8 @@ export class GatewayWs extends EventTarget implements DuelWs {
   /// sequence number, since both are stale after a reconnect — the next
   /// time this connection is confirmed open again (see `_handle()`'s
   /// "open" case's own doc). Safe to retry: every mutating request this
-  /// package sends (`join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`)
-  /// is already gated by the engine's own idempotent/legality checks (see
+  /// package sends (`join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
+  /// `ackEnded`) is already gated by the engine's own idempotent/legality checks (see
   /// `../../backend/src/lib.mo`'s architecture rule 4), so a resend that
   /// turns out to race an original attempt that secretly DID land just
   /// comes back as a harmless `#err` instead of a corrupting duplicate.
@@ -529,7 +529,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
   /// WebSocket-compatible, fire-and-forget send. Accepts exactly the
   /// shape `app.js` sends: `{ req: { sid, req } }`, where `req` mirrors
   /// `Ws.Request<M>` on the backend (`{join}`/`{submit}`/`{rematch}`/
-  /// `{leave}`/`{reset}`/`{ackEnded}`/`{status}`). The eventual result
+  /// `{leave}`/`{reset}`/`{claimWin}`/`{ackEnded}`/`{status}`). The eventual result
   /// only ever surfaces as a `message`/`error` event, same as a real
   /// WebSocket — use `request()` instead if you need this specific
   /// call's own response.

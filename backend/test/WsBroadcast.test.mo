@@ -31,7 +31,7 @@ let spec = Rules.spec();
 let TIMEOUT : Int = 60_000_000_000; // 60 s
 let T0 : Int = 1_000_000_000_000;
 
-func fresh() : Reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT);
+func fresh() : Reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT, TIMEOUT);
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;

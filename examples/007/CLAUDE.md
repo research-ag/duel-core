@@ -20,7 +20,7 @@ concrete to copy — it is **not** part of either package itself.
   `../../backend/README.md`'s example shows. Deploy target. `status` is
   the only plain Candid method on this actor (a `query`, side-effect-free
   — see `../../CLAUDE.md`'s architecture rule 8); `createTable`/
-  `joinTable`/`submit`/`rematch`/`leave`/`reset`/`ackEnded` have NO plain
+  `joinTable`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded` have NO plain
   Candid method at all — they're reachable exclusively through
   `mo:duel-game-core/ws`'s
   `ws_message`, which is what `frontend/app.js` actually talks to

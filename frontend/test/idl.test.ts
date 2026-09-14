@@ -38,7 +38,7 @@ test("makeIdlFactory produces a Service with status + the four ws_* methods, no 
     [...names].sort(),
     ["status", "ws_close", "ws_get_messages", "ws_message", "ws_open"].sort(),
   );
-  for (const forbidden of ["join", "submit", "rematch", "leave", "reset", "ackEnded"]) {
+  for (const forbidden of ["join", "submit", "rematch", "leave", "reset", "claimWin", "ackEnded"]) {
     assert.ok(!names.includes(forbidden), `service must not expose a plain "${forbidden}" method`);
   }
 });
@@ -57,6 +57,9 @@ test("View round-trips through Candid encode/decode for a game's own State shape
       gen: 1n,
       secondsUntilIdleReset: 60n,
       idleTimeoutSecs: 60n,
+      claimWinAvailable: false,
+      secondsUntilClaimable: 20n,
+      claimTimeoutSecs: 20n,
     },
   };
   const bytes = IDL.encode([t.View], [view]);
@@ -77,6 +80,19 @@ test("WsRequest round-trips a game's own Action through the submit variant", () 
   assert.deepEqual(decoded, req);
 });
 
+test("WsRequest round-trips the claimWin variant", () => {
+  const { Action, State } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, State });
+
+  const req = { claimWin: { gen: 1n } };
+  const bytes = IDL.encode([t.WsRequest], [req]);
+  const [decoded] = IDL.decode(
+    [t.WsRequest],
+    bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes),
+  );
+  assert.deepEqual(decoded, req);
+});
+
 test("Err round-trips every variant shape", () => {
   const { Action, State } = sampleGameTypes({ IDL });
   const t = buildEngineTypes({ IDL, Action, State });
@@ -89,6 +105,7 @@ test("Err round-trips every variant shape", () => {
     { wrongPhase: "game is over" },
     { reserved: { secondsLeft: 9n } },
     { notIdle: { secondsLeft: 1n } },
+    { notOverdue: { secondsLeft: 5n } },
     { stale: null },
   ]) {
     const bytes = IDL.encode([t.Err], [err]);

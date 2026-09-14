@@ -19,7 +19,7 @@ import Rules "__RULES_MODULE__";
 
 persistent actor {
   let registry : TP.Registry<Rules.State, Rules.Action> =
-    Registry.new(__IDLE_TIMEOUT_NS__); // idle takeover window, per table
+    Registry.new(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // idle takeover window, claim-win window, per table
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Time.now(), sid);

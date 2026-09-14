@@ -235,13 +235,18 @@ sketch line with real code from your Step 2 design:
 ## Step 4 — Write the host actor
 
 Read `templates/Host.mo.template` and write `src/Host.mo`, filling in
-only `__RULES_MODULE__` (must match Step 3's module name/import path)
-and `__IDLE_TIMEOUT_NS__` (nanoseconds; `60_000_000_000` = 60s is a
+only `__RULES_MODULE__` (must match Step 3's module name/import path),
+`__IDLE_TIMEOUT_NS__` (nanoseconds; `60_000_000_000` = 60s is a
 reasonable default — how long an abandoned table sits before a third
-party may reclaim it; shared by every table this game's players open).
+party may reclaim it; shared by every table this game's players open),
+and `__CLAIM_TIMEOUT_NS__` (nanoseconds; a SEPARATE, normally much
+shorter window — `15_000_000_000` = 15s is a reasonable default — how
+long a player's own submitted move may sit pending against their
+opponent's silence before that player may optionally claim the win
+outright instead of waiting the opponent out; see "Claim a win" below).
 Nothing else in this file should change between games — do not hand-roll
-`createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`
-as plain Candid methods on this actor. `mo:duel-game-core/ws` (wired here
+`createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
+`ackEnded` as plain Candid methods on this actor. `mo:duel-game-core/ws` (wired here
 via `Ws.attach` + `ActorMixin`) is the *only* way a client can mutate
 game state; a direct update call bypassing it reopens exactly the
 ordering race a single WS channel exists to close (see
@@ -253,6 +258,24 @@ full reasoning). `status` is the one exception, staying a plain
 multi-table lobby (open tables browsable by anyone, protected ones
 joinable by id + access code) for free, with zero code of your own
 beyond this template.
+
+**Claim a win.** Once a player's own move has sat pending for at least
+`__CLAIM_TIMEOUT_NS__` against their opponent's silence, the engine
+offers that player a "Claim the win" control — the generic `#inGame`
+screen (`duel-game-core/render.js`, wired by `app.js`) renders it
+automatically, with its own countdown, once `View.inGame.claimWinAvailable`
+turns true; nothing in `GamePlugin` needs to know about it. It's the
+waiting player's own optional choice — never automatic, and they may
+just as well leave it alone and keep waiting. This is a separate,
+normally much shorter clock than the idle takeover: `claimTimeoutNs`
+governs when the STILL-SEATED, waiting player may end the match
+themselves, while `idleTimeoutNs` governs when a THIRD PARTY may reclaim
+a table both players have gone quiet on. The still-deciding OPPONENT
+gets the mirror-image warning on the exact same clock — "your opponent
+can claim the win in Ns if you don't move" — so they can see the loss
+coming and act, not just find out about it after the fact; they never
+get a claim button of their own, since only the player who actually
+submitted may claim.
 
 ## Step 5 — Write the rules unit tests
 
@@ -394,7 +417,7 @@ here automates an actual two-tab playthrough.
 ## Common pitfalls (all specific to the rules-only workflow)
 
 - **Don't add a plain Candid method for `createTable`/`joinTable`/
-  `submit`/`rematch`/`leave`/`reset`/`ackEnded`**, "just to test with
+  `submit`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded`**, "just to test with
   `dfx canister call`" or similar — `Host.mo`'s template deliberately has
   none. Every
   mutation goes through `mo:duel-game-core/ws`'s `ws_message`, wired by

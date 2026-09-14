@@ -28,8 +28,9 @@ module {
 
   public type Registry<S, M> = T.Registry<S, M>;
 
-  public func new<S, M>(idleTimeoutNs : Int) : Registry<S, M> = {
+  public func new<S, M>(idleTimeoutNs : Int, claimTimeoutNs : Int) : Registry<S, M> = {
     idleTimeoutNs;
+    claimTimeoutNs;
     var tables = Map.empty<T.TableId, T.Table<S, M>>();
     var bySession = Map.empty<T.SessionId, T.TableId>();
     var tableIdNonce = 1;
@@ -214,7 +215,7 @@ module {
       return #err(#wrongPhase("you are already at another table"));
     };
     let id = self.tableIdNonce;
-    let t = Table.new<S, M>(self.idleTimeoutNs, visibility, session);
+    let t = Table.new<S, M>(self.idleTimeoutNs, self.claimTimeoutNs, visibility, session);
     switch (t.join(spec, now, session, seat)) {
       case (#err e) #err(e); // unreachable on a brand-new table; kept for exhaustiveness
       case (#ok _) {
@@ -271,6 +272,8 @@ module {
   ) : T.Res<T.SubmitOk> = withTable<S, M, T.SubmitOk>(self, session, func(t) = t.submit(spec, now, session, gen, turn, move));
 
   public func rematch<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.Res<T.RematchOk> = withTable<S, M, T.RematchOk>(self, session, func(t) = t.rematch(spec, now, session));
+
+  public func claimWin<S, M>(self : Registry<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(self, session, func(t) = t.claimWin(now, session, gen));
 
   /// Whether a `leave`/`reset` call about to run against `t` is the
   /// ABORT case — leaving a live game — rather than a plain staging

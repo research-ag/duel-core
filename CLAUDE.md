@@ -18,19 +18,23 @@ top.
   operations live in two sibling modules, each importable by its own
   subpath: `backend/src/table.mo` (`mo:duel-game-core/table`) is the
   low-level, single-table primitive (`Table.new` plus
-  `join`/`submit`/`rematch`/`leave`/`reset`/`ackEnded`/`status`/`sweep`
-  on the table it returns); `backend/src/registry.mo`
+  `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded`/
+  `status`/`sweep` on the table it returns); `backend/src/registry.mo`
   (`mo:duel-game-core/registry`) is the multi-table router built on top
-  of it (`Registry.new` plus the same seven caller-facing operations,
+  of it (`Registry.new` plus the same eight caller-facing operations,
   routed to the right table, plus `createTable`/`listTables`/`sweep`).
   Any number of tables run independently and simultaneously
   (`TP.Registry`, created with `Registry.new`); a table can be `#open`
   (browsable/joinable by anyone) or protected with an access code
-  (joinable only by id + code, shared with a friend out of band).
-  `Registry`'s own operations
+  (joinable only by id + code, shared with a friend out of band). Once a
+  player's own move has sat pending against their opponent's silence for
+  longer than a second, independent, normally much shorter timeout
+  (`claimTimeoutNs`), `claimWin` lets that player optionally end the
+  match by claiming the win outright instead of waiting the opponent out
+  — never automatic. `Registry`'s own operations
   (`createTable`/`listTables`/`joinTable`/`submit`/`rematch`/`leave`/
-  `reset`/`ackEnded`/`status`/`sweep`) delegate straight into the
-  matching `Table` operation — no game logic or legality is
+  `reset`/`claimWin`/`ackEnded`/`status`/`sweep`) delegate straight into
+  the matching `Table` operation — no game logic or legality is
   reimplemented at this layer; a game that genuinely wants exactly one
   fixed board with no lobby of its own can use `Table` directly instead.
   See [`backend/README.md`](backend/README.md) for the `Spec<S, M>`
@@ -42,7 +46,7 @@ top.
   actually talks to (not an unused reference add-on) — is the ONLY way a
   client can mutate game state at all. None of `Registry`'s
   `createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/
-  `ackEnded` is exposed as a plain Candid method on a host actor; a
+  `claimWin`/`ackEnded` is exposed as a plain Candid method on a host actor; a
   direct update call bypassing `ws.mo` is exactly the race a single,
   ordered WS channel exists to close (two independent update calls have
   no guaranteed relative processing order once both are in flight).
@@ -324,7 +328,15 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
    `Registry` layer a rematch reuses the SAME `TableId` — it never
    allocates a new table.
 7. **No silent endings.** `leave` from an active game produces a shared
-   `#aborted` debrief for both players. An idle takeover of an ACTIVE game
+   `#aborted` debrief for both players. `claimWin` offers a third,
+   entirely optional ending: once a player's own move has sat pending
+   against their opponent's silence for longer than `claimTimeoutNs` (a
+   separate, normally much shorter clock than `idleTimeoutNs` — checked
+   the same `gen`-bound way `submit`/`leave`/`reset` are, and never
+   called automatically by `sweep` or anywhere else), that player
+   may credit themselves the win (`#claimed seat`) instead of waiting the
+   opponent out; declining to click it just leaves the round pending.
+   An idle takeover of an ACTIVE game
    records evicted players in `lastEnded` so `status` shows `#endedByOther`
    until they `ackEnded`; takeover of an expired DEBRIEF marks them
    pre-acked (they already saw their debrief) — this asymmetry is
@@ -361,7 +373,7 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
 11. **`ws.mo` reimplements no game logic, and is the sole entry point for
     mutation.** Every WebSocket request dispatches to `registry.mo`'s own
     `Registry` operations (`createTable`, `joinTable`, `submit`, ...)
-    directly — none of those seven operations is ALSO exposed as a plain
+    directly — none of those eight operations is ALSO exposed as a plain
     Candid method on a host actor (only `status` is, being
     side-effect-free). There is no second transport for the same calls to
     (dis)agree with; a game that ever adds a plain mutating Candid method

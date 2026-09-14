@@ -20,7 +20,7 @@ let T0 : Int = 1_000_000_000_000;
 let SOON : Int = T0 + 1_000_000_000;   // +1 s — still fresh
 let LATER : Int = T0 + 61_000_000_000; // +61 s — past the timeout
 
-func fresh() : Tbl = Table.new<Rules.State, Rules.Action>(TIMEOUT, #open, "test");
+func fresh() : Tbl = Table.new<Rules.State, Rules.Action>(TIMEOUT, TIMEOUT, #open, "test");
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;

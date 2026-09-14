@@ -20,7 +20,10 @@ export type Seat = { p1: null } | { p2: null };
 
 export type Verdict = { p1Wins: null } | { p2Wins: null } | { draw: null };
 
-export type End = { finished: Verdict } | { aborted: Seat };
+/// `claimed`: this seat claimed the win because the opponent's move sat
+/// pending past the table's own claim-win window — see
+/// `InGameView.claimWinAvailable`'s own doc.
+export type End = { finished: Verdict } | { aborted: Seat } | { claimed: Seat };
 
 /// Every engine-level `Err` variant (see errText() in render.ts) — never
 /// a game's own `illegalMove` reason text, which the engine already
@@ -33,6 +36,9 @@ export type EngineErr =
   | { wrongPhase: string }
   | { reserved: { secondsLeft: bigint } }
   | { notIdle: { secondsLeft: bigint } }
+  // A `claimWin` sent before the opponent's move has sat pending long
+  // enough — see lib.mo's `Table.claimWin` doc.
+  | { notOverdue: { secondsLeft: bigint } }
   // A `submit`/`leave`/`reset` carried a `gen` (or, for `submit`, `turn`)
   // that no longer matches the table's current one — see lib.mo's
   // `Table.gen` doc. Handled the same way as `alreadySubmitted` (see
@@ -126,6 +132,19 @@ export interface InGameView<S = unknown> {
   /// for the table's lifetime. Lets the UI derive its own warning
   /// threshold instead of a game hardcoding a copy of this number.
   idleTimeoutSecs: bigint;
+  /// Whether you may claim the win right now: you've submitted this
+  /// round's move, your opponent hasn't, and the table's own
+  /// `claimTimeoutNs` has elapsed since — already fully decided by the
+  /// engine (see lib.mo's `Table.claimWin` doc), never derived here from
+  /// the other fields.
+  claimWinAvailable: boolean;
+  /// Countdown to `claimWinAvailable` turning true — meaningful only
+  /// while `youSubmitted` and not `oppSubmitted`; ticks down the same way
+  /// `secondsUntilIdleReset` does.
+  secondsUntilClaimable: bigint;
+  /// This table's own configured claim-win window, in whole seconds —
+  /// constant for the table's lifetime, mirroring `idleTimeoutSecs`.
+  claimTimeoutSecs: bigint;
 }
 
 export interface DebriefView<S = unknown> {
@@ -179,6 +198,9 @@ export type WsRequest<A = unknown> =
   | { rematch: null }
   | { leave: { gen: bigint } }
   | { reset: { gen: bigint } }
+  // Claim the win once `InGameView.claimWinAvailable` is true — purely
+  // optional, never required or automatic.
+  | { claimWin: { gen: bigint } }
   | { ackEnded: null }
   | { status: null };
 

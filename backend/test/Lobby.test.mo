@@ -18,10 +18,12 @@ type Reg = TP.Registry<Rules.State, Rules.Action>;
 let spec = Rules.spec();
 
 let TIMEOUT : Int = 60_000_000_000; // 60 s
+let CLAIM_TIMEOUT : Int = 20_000_000_000; // 20 s
 let T0 : Int = 1_000_000_000_000;
 let LATER : Int = T0 + 61_000_000_000; // +61 s — past the timeout
+let CLAIMABLE : Int = T0 + 21_000_000_000; // +21 s — past the claim window
 
-func fresh() : Reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT);
+func fresh() : Reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT);
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
@@ -328,5 +330,37 @@ switch (reg12.joinTable(spec, T0, "b", idOk, #p2, null)) {
 };
 ignore ok(reg12.joinTable(spec, T0, "b", idOk, #p2, ?"real-code"), "the real code joins it fine");
 Debug.print("12. createTable rejects an empty access code instead of producing an unjoinable table OK");
+
+// ── 13. claimWin routes to the acting session's own table only, and is
+//          gated by ITS OWN table's `claimTimeoutNs` exactly like `submit` ─
+let reg13 = fresh();
+let idW1 = ok(reg13.createTable(spec, T0, "a", #p1, #open), "a creates table 1");
+ignore ok(reg13.joinTable(spec, T0, "b", idW1, #p2, null), "b joins table 1; game live");
+let idW2 = ok(reg13.createTable(spec, T0, "q", #p1, #open), "q creates a second, unrelated table");
+ignore ok(reg13.joinTable(spec, T0, "r", idW2, #p2, null), "r joins table 2; game live too");
+let g13 = genOf(reg13, T0, "a");
+ignore ok(reg13.submit(spec, T0, "a", g13, turnOf(reg13, T0, "a"), #gather), "a moves on table 1; b goes quiet");
+switch (reg13.claimWin(T0, "a", g13)) {
+  case (#err(#notOverdue _)) {};
+  case (_) Runtime.trap("table 1's own claim window hasn't elapsed yet");
+};
+switch (reg13.claimWin(CLAIMABLE, "q", genOf(reg13, T0, "q"))) {
+  case (#err(#wrongPhase _)) {};
+  case (_) Runtime.trap("q never submitted a move — nothing for q to claim on table 2");
+};
+ok(reg13.claimWin(CLAIMABLE, "a", g13), "a claims the overdue win on table 1");
+switch (atTableView(reg13, CLAIMABLE, "a")) {
+  case (#debrief d) switch (d.end) {
+    case (#claimed(#p1)) {};
+    case (_) Runtime.trap("a's claim should credit p1");
+  };
+  case (_) Runtime.trap("a should be in a claimed debrief");
+};
+// Table 2 (q vs r) is completely unaffected by table 1's claim.
+switch (atTableView(reg13, CLAIMABLE, "r")) {
+  case (#inGame _) {};
+  case (_) Runtime.trap("table 2 should still be live, untouched by table 1's claim");
+};
+Debug.print("13. claimWin routes per-table and is gated per-table OK");
 
 Debug.print("ALL LOBBY CHECKS PASSED");
