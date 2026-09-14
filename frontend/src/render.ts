@@ -393,7 +393,7 @@ function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
               v.secondsUntilClaimable > claimWarningThreshold(v.claimTimeoutSecs);
             const button =
               claimRole === "waiting"
-                ? `\n           <p><button id="${DUEL_CLAIM_BUTTON_ID}" data-claim-win class="primary"${v.claimWinAvailable ? "" : " hidden"}>Claim the win — your opponent hasn't moved</button></p>`
+                ? `\n           <p><button id="${DUEL_CLAIM_BUTTON_ID}" data-claim-win class="primary"${v.claimWinAvailable ? "" : " hidden"}>Claim the win</button></p>`
                 : "";
             return `<p class="countdown" id="${DUEL_CLAIM_WARNING_ID}"${claimTextHidden ? " hidden" : ""}>${text}</p>${button}`;
           })()
