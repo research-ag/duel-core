@@ -17,16 +17,10 @@
 // has no guarantee of landing before the new page's own `ws_open` does)
 // must not be allowed to erase the fresher registration.
 //
-// The mirror direction matters just as much: the SAME principal
-// switching to a DIFFERENT sid on one still-live connection (an in-place
-// "new sid"/identity swap — no reload, no reconnect — see `frontend/
-// app.ts`'s `newSidBtn` handler). Test 16 covers the real bug this used
-// to leave open: the abandoned sid's own `bySid` entry lingered forever,
-// so `ws.mo`'s lobby-broadcast fan-out (`afterMutation`, which walks
-// every `bySid` key) kept treating it as a second, genuinely-browsing
-// session sharing that connection — delivering it a stale, unsolicited
-// push that landed on the SAME tab right after its own create/join
-// reply and stomped the correct staging/in-game view back to the lobby.
+// Test 16 covers the mirror case: the SAME principal switching to a
+// DIFFERENT sid on one still-live connection (an in-place "new sid" swap,
+// no reconnect) — the old sid's `bySid` entry must also be scrubbed, or
+// it lingers and gets mistaken for a second browsing session.
 // Run: moc -r --package core <core/src> --package ic-websocket-cdk <cdk/src> ... test/Hub.test.mo
 import Ws "../src/Ws";
 import Map "mo:core/Map";
@@ -340,17 +334,8 @@ do {
 };
 
 // ── 16. remember(): the SAME principal switching to a DIFFERENT sid (an
-//       in-place "new sid"/identity swap on one live connection — no
-//       reconnect, unlike tests 2/7's reload scenarios) must scrub the
-//       OLD sid's own `bySid` entry, not just repoint `byPrincipal`.
-//       Before the fix, `bySid["sid-1"]` stayed pointed at PA forever,
-//       so a later lobby-broadcast fan-out (`ws.mo`'s `afterMutation`,
-//       which walks every `bySid` key to reach every genuinely browsing
-//       session) would treat the abandoned "sid-1" as a second, real
-//       browsing session sharing this exact connection — delivering it
-//       an unsolicited, stale push that landed on the SAME tab right
-//       after "sid-2"'s own correct reply and stomped it back to the
-//       lobby view.
+//       in-place "new sid" swap, no reconnect) must scrub the OLD sid's
+//       own `bySid` entry, not just repoint `byPrincipal`.
 // ────────────────────────────────────────────────────────────────────
 do {
   let hub = Ws.createHub();

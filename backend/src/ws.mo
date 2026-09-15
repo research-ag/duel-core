@@ -301,27 +301,13 @@ module {
   /// not just `bySid`'s — see `forget`'s own doc for the bug leaving it
   /// dangling produces.
   ///
-  /// The mirror case also has to be handled here: the SAME principal
-  /// switching to a DIFFERENT sid on one live connection — a "play as
-  /// someone else"/new-sid swap, which deliberately does NOT reconnect
-  /// (the WS-layer principal is fixed for a whole page load; only the
-  /// app-level sid changes — see `frontend/app.ts`'s `newSidBtn` handler
-  /// and `identity.ts`'s own doc on why the fallback principal must stay
-  /// stable across such an in-place swap). Without scrubbing the OLD
-  /// sid's own `bySid` entry here too, it lingers forever pointing at
-  /// this same, still-live `p` — and every later `afterMutation`'s
-  /// `broadcastLobby` fan-out (see `attach`'s own doc), which walks every
-  /// key of `bySid` to reach every genuinely browsing session, treats
-  /// that stale sid as ANOTHER real browsing session on this exact
-  /// connection: `pushStatus` resolves it against `registry.status` for
-  /// the abandoned sid (still `#browsing`, since it never seated
-  /// anywhere) and delivers that unsolicited push to `p` — the SAME tab
-  /// that just finished its own create/join — landing right after that
-  /// call's own correlated, correct reply and overwriting it, since nothing
-  /// about `#view` push ordering favors a correlated reply over an
-  /// unrelated one arriving in the same batch. A real, observed bug: the
-  /// creating/joining tab's own screen falling right back to the lobby
-  /// list a moment after correctly showing the staging/in-game view.
+  /// Also handles the mirror case: the SAME principal rebinding to a
+  /// DIFFERENT sid (a "new sid" swap, which reuses the live connection
+  /// rather than reconnecting). Without scrubbing the OLD sid's `bySid`
+  /// entry here too, it lingers and `afterMutation`'s `broadcastLobby`
+  /// fan-out later mistakes it for a second real browsing session on the
+  /// same connection, pushing that tab an unsolicited stale status right
+  /// after its own correct reply and clobbering it.
   ///
   /// Exposed (not just called internally) so it's unit-testable against
   /// `Hub`'s two maps directly, without needing a full `IcWebSocketCdk`
