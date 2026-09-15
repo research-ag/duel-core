@@ -324,7 +324,7 @@ and `core` as dependencies, simply `mops test` from that directory.
 ## Step 6 — Write the frontend GamePlugin
 
 Read `templates/plugin.js.template` and write
-`frontend/<game>-plugin.js`. This is the only game-specific frontend
+`frontend/src/<game>-plugin.js`. This is the only game-specific frontend
 code — everything else (the multi-table lobby — create a table,
 open or access-code protected, browse open ones, join by code — staging,
 rematch, busy countdown, debrief chrome, the turn counter, "opponent is
@@ -353,14 +353,18 @@ npm package itself, via `render.js`/`app.js`.
   the REAL `validate` for both seats on every submission regardless), so
   keep the two in sync but never rely on this half alone.
 
-Then copy `templates/index.html.template` → `frontend/index.html` and
-`templates/app.js.template` → `frontend/app.js`, filling in
+Then copy `templates/index.html.template` → `frontend/src/index.html`
+and `templates/app.js.template` → `frontend/src/app.js`, filling in
 `__GAME_TITLE__`, `__PLUGIN_FILE__`, and `__IDLE_TIMEOUT_SECONDS__`
 (match Step 4's timeout). Neither file should need any other change —
 they build the actor, build a real-time-push `ws` over it
 (`connectWs()`, required — there is no polling fallback, and no plain
 mutating Candid method to poll in the first place), and hand off to the
-generic `start({ plugin, ws })`.
+generic `start({ plugin, ws })`. `app.js` is esbuild's bundle entry point
+(see Step 7's `build.js.template`) — every dependency it and
+`duel-game-core` need (`@icp-sdk/core`, `@icp-sdk/auth`, `cborg`) is
+resolved from `node_modules` and inlined at build time, so the deployed
+page loads nothing from a CDN and needs no import map.
 
 Every player is a plain, anonymous, self-generated `sid` by default —
 this template makes no distinction between players beyond that, and
@@ -380,7 +384,7 @@ framework-based client wholesale rather than writing a plugin from
 scratch) — this skill's templates assume it does, which covers the
 large majority of rules-described games (anything you'd naturally
 describe as "pick a move each round"). For the richer case, read
-`references/rich-ui.md` before writing `frontend/app.js`: it covers
+`references/rich-ui.md` before writing `frontend/src/app.js`: it covers
 running your own persistent-DOM UI alongside the generic screens,
 sharing one `ws` connection between the two, and de-frameworking an
 existing client (Angular/React/etc.) down to the plain logic underneath.
@@ -395,6 +399,7 @@ the paths shown:
 | `mops.toml.template` | `mops.toml` | `__GAME_SLUG__` (dependency line already resolved in Step 1) |
 | `package.json.template` | `frontend/package.json` | `__GAME_SLUG__` (dependency value already resolved in Step 1) |
 | `.npmrc.template` | `frontend/.npmrc` | (none — copy verbatim) |
+| `build.js.template` | `frontend/build.js` | `__PLUGIN_FILE__` (in its header comment only — the entry point itself is always `src/app.js`) |
 | `icp.yaml.template` | `icp.yaml` | (none, unless you rename the canisters) |
 
 Build/test the whole thing:
@@ -405,8 +410,8 @@ mops install
 mops test                              # runs test/RulesUnit.test.mo (and any other *.test.mo)
 
 # Frontend
-cd frontend && npm install && cd ..
-node --check frontend/app.js frontend/<game>-plugin.js
+cd frontend && npm install --legacy-peer-deps && npm run build && cd ..
+node --check frontend/dist/app.js
 
 # Deploy (icp-cli; `icp network start` must be running for the local env)
 icp deploy                             # local  → prints a *.localhost URL
@@ -415,9 +420,10 @@ icp deploy --network ic                # mainnet — spends cycles
 
 The asset-canister recipe in `icp.yaml.template` must stay **v2.3.0 or
 newer** (v2.1.0 uses a sync step icp-cli 1.x rejects outright). Run
-`npm install` inside `frontend/` before deploying — `icp deploy` does
-not do this for you, and the page 404s on
-`/node_modules/duel-game-core/*.js` without it.
+`npm install && npm run build` inside `frontend/` before deploying —
+`icp deploy` does not do this for you, and `frontend/dist/` (esbuild's
+bundled output, what `icp.yaml` actually deploys) won't exist without
+it.
 
 Play both seats by opening the deployed URL in two separate browser
 tabs (each tab is its own session automatically) — create a table in

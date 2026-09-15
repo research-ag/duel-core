@@ -51,11 +51,12 @@ concrete to copy — it is **not** part of either package itself.
   `FooTest.mo` is silently skipped, so keep the suffix when adding
   suites.
 - **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as
-  canister `backend` and `frontend/` as an asset canister.
-- **`frontend/`** — vanilla-JS web client, no bundler/build step (uses
-  `@icp-sdk/core` from esm.sh; `duel-game-core` fetched locally via
-  `npm install`, see below). `duel007-plugin.js` is the whole
-  game-specific surface: it implements the `GamePlugin` contract
+  canister `backend` and `frontend/dist` (esbuild's bundled output —
+  see this file's "Build & test" section, NOT `frontend/` itself) as an asset canister.
+- **`frontend/`** — vanilla-JS web client (no framework), bundled with
+  esbuild (`npm run build`, see this file's "Build & test" section); `duel-game-core`
+  is fetched locally via `npm install`, see below. `duel007-plugin.js` is
+  the whole game-specific surface: it implements the `GamePlugin` contract
   (`idlTypes`, `seatLabel`, `renderBoard`, `renderActions`) from
   `../../frontend/README.md`. `app.js` calls `duel-game-core/identity.js`'s
   `resolveIdentity()` to get this tab's own identity/`session` in one
@@ -74,22 +75,24 @@ concrete to copy — it is **not** part of either package itself.
   plugin.idlTypes })` for the real push transport `start()` requires —
   this game's own code never touches `mo:duel-game-core/ws`'s protocol
   directly (`duel-game-core/ws/gateway-*.js` does, registering this tab
-  as its own WS Gateway) or imports any third-party library itself;
-  `index.html`'s import map resolves `duel-game-core`'s own
-  `@icp-sdk/core/candid`/`@icp-sdk/core/identity`/`@icp-sdk/auth/client`/`cborg`
-  dependencies (bare specifiers a raw browser can't resolve on its own —
-  see that file's comment) — and calls `start({ plugin, ws, session })`,
+  as its own WS Gateway) — and calls `start({ plugin, ws, session })`,
   which also wires the header's `duel-auth-btn` (login/logout) entirely
   on its own — every screen that's the same for every game (the
   multi-table lobby — create a table, browse open ones, join by code —
   staging, rematch, busy countdown, debrief chrome, session identity,
-  push) comes from the npm package. There is no polling fallback anywhere
-  in this stack any more — `ws` is required, `start()` throws without
-  one, and the backend has no plain mutating Candid method to poll in the
-  first place (see `../../CLAUDE.md`). `style.css`
+  push) comes from the npm package. `app.js` is esbuild's bundle
+  entrypoint (see `frontend/build.js`): every dependency it and
+  `duel-game-core` need — `@icp-sdk/core`, `@icp-sdk/auth`, `cborg` — is
+  resolved from `node_modules` and inlined into `dist/app.js` at build
+  time, so the deployed page loads nothing from a CDN and needs no import
+  map. There is no polling fallback anywhere in this stack any more —
+  `ws` is required, `start()` throws without one, and the backend has no
+  plain mutating Candid method to poll in the first place (see
+  `../../CLAUDE.md`). `style.css`
   here holds only 007-specific visuals (narration box, agent stat panels,
-  resource pips), layered on top of `node_modules/duel-game-core/style.css`
-  (loaded first in `index.html`), which supplies the page chrome and the
+  resource pips), layered on top of `duel-game-core.css` (a copy of
+  `duel-game-core`'s own `style.css`, placed in `dist/` by `build.js`,
+  loaded first in `index.html`), which supplies the page chrome and the
   CSS custom properties this file reuses.
 
 ## Toolchain
@@ -106,14 +109,20 @@ concrete to copy — it is **not** part of either package itself.
   `duel-game-core` re-exports nothing of `core`'s own surface, so
   `src/Host.mo`'s direct `mo:core/Time` import needs `core` listed here
   too, same as any real game repo would.
-- The frontend's direct npm dependency is `duel-game-core` itself, pulled
-  in as a `file:../../../frontend` dependency (see
-  `frontend/package.json`). `frontend/.npmrc` sets `install-links=true`
-  so `npm install` COPIES those files into `node_modules/duel-game-core`
-  instead of the default symlink — this is a static asset canister with
-  no build step, so whatever lands in `node_modules/` is what gets
-  served, byte for byte, and a symlink may not survive an asset-sync
-  step. `npm install` is the only "build" this frontend ITSELF needs,
+- The frontend's npm dependencies (`frontend/package.json`) split by
+  what needs them: `duel-game-core` (`file:../../../frontend`) is the
+  one `app.js` itself needs, pulled in bundled via `duel-game-core/
+  app.js`/`idl.js`/`ws.js`/`identity.js`/`ic-env.js`/`render.js` (its
+  `package.json` `exports` map, not an on-disk `dist/` path); `@icp-sdk/
+  core` is `app.js`'s own direct dependency, for `Actor`/`HttpAgent`.
+  esbuild bundles both, plus everything `duel-game-core` itself needs
+  transitively (`@icp-sdk/auth`, `cborg`) into a single `dist/app.js` —
+  see `frontend/build.js`. `frontend/.npmrc`
+  sets `install-links=true` so `npm install` COPIES `duel-game-core`
+  into `node_modules/duel-game-core` instead of the default symlink —
+  esbuild needs real files there to bundle from at build time, and a
+  symlink may not survive later tooling either. `npm install` (then
+  `npm run build`) is the only "build" this frontend ITSELF needs,
   exactly as `mops install` is for the backend — but `duel-game-core`
   is TypeScript now and ships from its own `dist/` (gitignored,
   build-generated): `../../../frontend` must have been built
@@ -126,22 +135,8 @@ concrete to copy — it is **not** part of either package itself.
   fast direct `rsync` copy in the common case; a full
   `node_modules`+lockfile reinstall only if `frontend/package.json`'s
   own `dependencies` changed) — do this proactively after any change
-  there, not just when asked to deploy. `app.js` imports
-  `duel-game-core`'s own modules by their on-disk path under
-  `node_modules/duel-game-core/dist/...` (not a bare `duel-game-core/
-  ws.js`-style specifier — the browser has no such resolution without
-  an import map, and this repo doesn't give it one for that). What DOES
-  need `index.html`'s import map: `duel-game-core/ws.js` (see
-  `../../../CLAUDE.md`'s toolchain note) talks to
-  `mo:duel-game-core/ws`'s real `ic-websocket-cdk` protocol, and
-  `duel-game-core/identity.js` (Internet Identity login) — pull in
-  `@icp-sdk/core/candid`/`@icp-sdk/core/identity`/`@icp-sdk/auth/client`/
-  `cborg` transitively through `duel-game-core`'s own `package.json` (a
-  normal `npm install --legacy-peer-deps` picks them up — see this file's
-  own "Build & test" section for why the flag is needed — nothing to add
-  here) — resolved in the browser via THAT import map, since bare
-  specifiers deep inside a COPIED `node_modules/duel-game-core` file have
-  no other way to resolve.
+  there, not just when asked to deploy, and re-run `npm run build` HERE
+  too afterward so `dist/app.js` picks up the change.
 
 ## Build & test
 
@@ -163,12 +158,13 @@ mops test Rules            # ...so this matches Rules AND RulesUnit
 ```bash
 # Frontend: build duel-game-core first (its dist/ is what npm install
 # actually copies — see this file's own note above), fetch the local
-# duel-game-core npm package, then sanity-check every JS module parses
-# (no DOM needed to import):
+# duel-game-core npm package, then esbuild-bundle this frontend and
+# sanity-check the bundled output parses (no DOM needed to import):
 (cd ../../frontend && npm run build)
 cd frontend
 npm install --legacy-peer-deps    # see ../../../frontend/README.md's note on @icp-sdk/auth's peer range
-node --check app.js duel007-plugin.js
+npm run build                     # esbuild bundle → frontend/dist/ (icp.yaml deploys THIS, not frontend/ itself)
+node --check dist/app.js
 ```
 
 Deploy (icp-cli; `icp network start` must be running for the local env):
@@ -179,9 +175,9 @@ icp deploy                 # local  → http://frontend.local.localhost:8000/
 icp deploy --network ic    # mainnet — spends cycles
 ```
 
-Run `npm install` inside `frontend/` before deploying — `icp deploy`
-does not do this for you, and the page 404s on
-`/node_modules/duel-game-core/*.js` without it.
+Run `npm install && npm run build` inside `frontend/` before deploying —
+`icp deploy` does not do this for you, and `frontend/dist/` won't exist
+(or will be stale) without it.
 
 The asset-canister recipe must be **v2.3.0 or newer**: v2.1.0 syncs with
 an `assets` step that icp-cli 1.x rejects ("no longer supports the

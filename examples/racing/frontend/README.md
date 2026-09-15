@@ -3,13 +3,15 @@
 A plain-TypeScript client — no framework — bundled with [esbuild](https://esbuild.github.io/).
 It has two independent halves that share one page and one canister session:
 
-- **`duel-app.js` + `duel-racing-plugin.js`** (`src/duel/`, copied byte-for-byte
-  into the build, never bundled) — build the actor and a push-shaped `ws`
-  over it, then hand off to `duel-game-core`'s generic session/render
-  wiring: lobby, staging, rematch, busy countdown, debrief. This is the
-  *only* game-specific piece that package needs (a `GamePlugin`), exactly
-  like the `examples/007` frontend. See `duel-racing-plugin.js`'s own
-  header comment.
+- **`duel-app.js` + `duel-racing-plugin.js`** (`src/duel/`, esbuild-bundled
+  into `dist/duel-app.js` — `duel-racing-plugin.js` is pulled in via
+  `duel-app.js`'s own import, not a separate entry point) — build the
+  actor and a push-shaped `ws` over it, then hand off to
+  `duel-game-core`'s generic session/render wiring: lobby, staging,
+  rematch, busy countdown, debrief. This is the *only* game-specific
+  piece that package needs (a `GamePlugin`), exactly like the
+  `examples/007` frontend. See `duel-racing-plugin.js`'s own header
+  comment.
 - **`src/main.ts`** — the actual 3D race (Three.js), wired by hand (no DI
   framework — see its header comment for the construction order) from the
   gameplay/physics/rendering modules under `src/app/modules/gameplay/`.
@@ -27,16 +29,18 @@ npm install --legacy-peer-deps   # see the peer-dependency note below
 npm run build                    # esbuild bundle → dist/
 ```
 
-`dist/` is esbuild's output (bundled `main.js` + copied `index.html` /
-`style.css` / `favicon.ico` / `duel-app.js` / `duel-racing-plugin.js` /
-`assets/` / `node_modules/duel-game-core/` — see `build.js`'s copy list)
-— this is what `icp.yaml` deploys as the `frontend` asset canister. It is
-not checked in; run `npm run build` before `icp deploy`, same as
-`examples/007/frontend` needs `npm install` first.
+`dist/` is esbuild's output (bundled `main.js` and `duel-app.js`, plus
+copied `index.html` / `style.css` / `favicon.ico` / `assets/` /
+`duel-game-core.css` — see `build.js`) — this is what `icp.yaml` deploys
+as the `frontend` asset canister, and it carries no `node_modules`
+directory: every dependency (`@icp-sdk/core`, `@icp-sdk/auth`, `cborg`,
+`three`, `rxjs`, ...) is resolved and inlined into the two bundles at
+build time. It is not checked in; run `npm run build` before
+`icp deploy`, same as `examples/007/frontend` needs.
 
-`npm run watch` rebuilds `main.js` on change (`esbuild --watch`); it does
-not re-copy the static files, so re-run `npm run build` if you touch
-`duel-app.js`, `duel-racing-plugin.js`, `index.html`, or `style.css`.
+`npm run watch` rebuilds both `main.js` and `duel-app.js` on change
+(`esbuild --watch`); it does not re-copy the static files, so re-run
+`npm run build` if you touch `index.html` or `style.css`.
 
 `npm run typecheck` runs `tsc --noEmit` — esbuild itself only transpiles,
 it does not type-check, so this is the real compile-time safety net.

@@ -1,12 +1,12 @@
 // The only "build" this frontend needs: bundle src/main.ts (and every TS
 // module it imports — the whole gameplay/physics/rendering tree, plus
-// three/rxjs/@gg-web-engine/point-in-polygon from node_modules) into one
-// dist/main.js, then copy everything else static-asset-canister-style.
-//
-// duel-app.js and duel-racing-plugin.js are NOT bundled — they're plain,
-// dependency-free ESM that import @icp-sdk/core/agent from esm.sh and
-// duel-game-core by its on-disk path at runtime (see duel-app.js's own
-// comments), same as the 007 example's frontend. They're just copied.
+// three/rxjs/@gg-web-engine/point-in-polygon from node_modules) into
+// dist/main.js, and separately bundle src/duel/duel-app.js (which pulls
+// in duel-racing-plugin.js and every duel-game-core/@icp-sdk module it
+// imports) into dist/duel-app.js — two independent bundles sharing the
+// same page, exactly as index.html loads them. Then copy everything else
+// static-asset-canister-style. The deployed asset canister carries only
+// this dist/ output — no node_modules directory of any kind.
 import * as esbuild from 'esbuild';
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
 
@@ -16,32 +16,41 @@ const outdir = 'dist';
 rmSync(outdir, { recursive: true, force: true });
 mkdirSync(outdir, { recursive: true });
 
-const buildOptions = {
-  entryPoints: ['src/main.ts'],
-  bundle: true,
-  outfile: `${outdir}/main.js`,
-  format: 'esm',
-  target: 'es2020',
-  sourcemap: true,
-  logLevel: 'info',
-};
+const builds = [
+  {
+    entryPoints: ['src/main.ts'],
+    bundle: true,
+    outfile: `${outdir}/main.js`,
+    format: 'esm',
+    target: 'es2022',
+    sourcemap: true,
+    logLevel: 'info',
+  },
+  {
+    entryPoints: ['src/duel/duel-app.js'],
+    bundle: true,
+    outfile: `${outdir}/duel-app.js`,
+    format: 'esm',
+    target: 'es2022',
+    sourcemap: true,
+    logLevel: 'info',
+  },
+];
 
 if (watch) {
-  const ctx = await esbuild.context(buildOptions);
-  await ctx.watch();
+  const ctxs = await Promise.all(builds.map((b) => esbuild.context(b)));
+  await Promise.all(ctxs.map((ctx) => ctx.watch()));
   console.log('watching for changes...');
 } else {
-  await esbuild.build(buildOptions);
+  await Promise.all(builds.map((b) => esbuild.build(b)));
 }
 
 for (const [from, to] of [
   ['src/index.html', `${outdir}/index.html`],
   ['src/style.css', `${outdir}/style.css`],
   ['src/favicon.ico', `${outdir}/favicon.ico`],
-  ['src/duel/duel-app.js', `${outdir}/duel-app.js`],
-  ['src/duel/duel-racing-plugin.js', `${outdir}/duel-racing-plugin.js`],
   ['src/assets', `${outdir}/assets`],
-  ['node_modules/duel-game-core', `${outdir}/node_modules/duel-game-core`],
+  ['node_modules/duel-game-core/style.css', `${outdir}/duel-game-core.css`],
 ]) {
   cpSync(from, to, { recursive: true });
 }

@@ -1,5 +1,5 @@
 /* 007-duel-specific visuals, layered on top of
- * node_modules/duel-game-core/style.css (loaded first — see index.html),
+ * duel-game-core.css (loaded first — see index.html),
  * which already supplies the page chrome (header, buttons, lobby seats,
  * turnbar, verdict banner, ...) and the CSS custom properties used below.
  */

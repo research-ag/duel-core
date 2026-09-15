@@ -10,26 +10,24 @@
 // ../app/modules/gameplay/game-communication/utils/duel-actor.ts and
 // game-communication/services/lobby-connection.service.ts.
 //
-// Uses @icp-sdk/core loaded from esm.sh — no build step required for
-// THIS file; `duel-game-core` itself is fetched once via `npm install`
-// (see package.json / .npmrc) since it has no CDN distribution, and is
-// imported below by its plain on-disk path, under `dist/` — that's
-// where duel-game-core's own compiled output lands (its source is
-// TypeScript now; see ../../../../CLAUDE.md's "After touching anything
-// under frontend/" section — `npm run build` there has to run BEFORE
-// this example's own `npm install`, since this repo's `allow-scripts`
-// gate blocks duel-game-core's own `prepare` script from doing it
-// automatically) — the browser has no bare "duel-game-core/..."
-// specifier resolution without an import map. This
-// file is copied byte-for-byte into the build output (see build.js's
-// cpSync list), same as `duel-racing-plugin.js`.
+// This file is bundled by esbuild (see ../build.js) into dist/duel-app.js,
+// so every import below — @icp-sdk/core and duel-game-core alike —
+// resolves normally from node_modules at build time and ships as one
+// self-contained bundle; the deployed asset canister carries no
+// node_modules directory of its own. `duel-game-core` itself is fetched
+// once via `npm install` (see package.json / .npmrc) — its own dist/ is
+// what these imports resolve against (its source is TypeScript; see
+// ../../../../CLAUDE.md's "After touching anything under frontend/"
+// section — `npm run build` there has to run BEFORE this example's own
+// `npm install`, since this repo's `allow-scripts` gate blocks
+// duel-game-core's own `prepare` script from doing it automatically).
 
-import { Actor, HttpAgent } from 'https://esm.sh/@icp-sdk/core@6.1.0/agent';
-import { makeIdlFactory } from './node_modules/duel-game-core/dist/idl.js';
-import { start } from './node_modules/duel-game-core/dist/app.js';
-import { connectWs } from './node_modules/duel-game-core/dist/ws.js';
-import { resolveIdentity } from './node_modules/duel-game-core/dist/identity.js';
-import { readIcEnv, deriveHost } from './node_modules/duel-game-core/dist/ic-env.js';
+import { Actor, HttpAgent } from '@icp-sdk/core/agent';
+import { makeIdlFactory } from 'duel-game-core/idl.js';
+import { start } from 'duel-game-core/app.js';
+import { connectWs } from 'duel-game-core/ws.js';
+import { resolveIdentity } from 'duel-game-core/identity.js';
+import { readIcEnv, deriveHost } from 'duel-game-core/ic-env.js';
 import { plugin } from './duel-racing-plugin.js';
 
 // `window.duelActorReady` / `window.__resolveDuelActor` are set up by an

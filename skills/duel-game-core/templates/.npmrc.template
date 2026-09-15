@@ -1,6 +1,4 @@
-# Static asset canister, no build step of its own: whatever lands in
-# node_modules/ is served byte-for-byte to the browser. A plain `file:`
-# dependency installs as a symlink by default, which an asset-sync step
-# may not follow — install-links forces npm to copy the real files
-# instead, so `npm install` is the only "build" this frontend needs.
+# esbuild needs real files to bundle from, not a symlink an asset-sync
+# step may not follow — install-links forces npm to copy duel-game-core
+# into node_modules/duel-game-core instead of the default symlink.
 install-links=true

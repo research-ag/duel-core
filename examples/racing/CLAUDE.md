@@ -127,33 +127,24 @@ first to complete the lap wins.
   needs `core` listed here too, same as any real game repo would.
 - `frontend/`'s npm dependencies (`frontend/package.json`) split by which
   half of the app needs them: `duel-game-core` (`file:../../../frontend`)
-  is the one `duel-app.js` itself needs; `@gg-web-engine/core`,
-  `@gg-web-engine/three`, `point-in-polygon`, `rxjs`, and `three` are for
-  the actual 3D race (`main.ts` and everything under
-  `src/app/modules/gameplay/`), esbuild-bundled into `dist/main.js`.
-  `duel-app.js` imports `duel-game-core/ws.js` and `duel-game-core/
-  identity.js` by their on-disk `./node_modules/duel-game-core/dist/*.js`
-  path (see `../../CLAUDE.md`'s toolchain note — `duel-game-core` is
-  TypeScript now, and ships from its own `dist/`, gitignored, built by
-  `npm run build` THERE, not here), which respectively talk to
-  `mo:duel-game-core/ws`'s real `ic-websocket-cdk` protocol and Internet
-  Identity's `AuthClient`, and pull in `@icp-sdk/core/candid`/
-  `@icp-sdk/core/identity`/`@icp-sdk/auth/client`/`cborg` transitively
-  through `duel-game-core`'s own `package.json` — a normal `npm install
-  --legacy-peer-deps` here resolves them into `node_modules/` like any
-  other dependency (see `../../frontend/README.md`'s note on why the
-  flag is needed; no import map needed for THIS example's bundled
-  `main.js`, since esbuild resolves `node_modules` normally;
-  `duel-app.js` itself is copied as-is rather than bundled, though —
-  build.js also copies the whole `node_modules/duel-game-core` tree
-  alongside it so that on-disk import keeps resolving once deployed — so
-  `src/index.html` still carries the same import map `examples/007`
-  needs — see that file's comment — for `duel-game-core/ws/gateway-*.js`'s
-  and `duel-game-core/identity.js`'s OWN bare specifiers
-  (`@icp-sdk/core/candid`, `@icp-sdk/core/principal`,
-  `@icp-sdk/core/identity`, `@icp-sdk/auth/client`, `cborg`) to resolve
-  in the browser once those copied-as-is files pull them in
-  transitively).
+  and `@icp-sdk/core` are what `duel-app.js` itself needs;
+  `@gg-web-engine/core`, `@gg-web-engine/three`, `point-in-polygon`,
+  `rxjs`, and `three` are for the actual 3D race (`main.ts` and
+  everything under `src/app/modules/gameplay/`). `build.js` runs esbuild
+  twice — once bundling `main.ts` into `dist/main.js`, once bundling
+  `src/duel/duel-app.js` (which imports `duel-game-core/ws.js` and
+  `duel-game-core/identity.js` — its `package.json` `exports` map, not an
+  on-disk path — see `../../CLAUDE.md`'s toolchain note: `duel-game-core`
+  is TypeScript now, and ships from its own `dist/`, gitignored, built by
+  `npm run build` THERE, not here) into `dist/duel-app.js`. Both bundles
+  pull in everything they need — `@icp-sdk/core` directly, `@icp-sdk/auth`
+  and `cborg` transitively through `duel-game-core`'s own `package.json`
+  — from `node_modules` at build time (a normal `npm install
+  --legacy-peer-deps` resolves them there like any other dependency; see
+  `../../frontend/README.md`'s note on why the flag is needed). Neither
+  bundle needs an import map: esbuild inlines every one of those
+  dependencies directly into `dist/main.js`/`dist/duel-app.js`, so the
+  deployed page loads nothing from a CDN.
 - **Gotcha:** `frontend/.npmrc` sets `install-links=true` (same reasoning
   as `examples/007`'s — see its `CLAUDE.md`), so `duel-game-core` is
   COPIED into `node_modules/duel-game-core`, not symlinked. A plain `npm

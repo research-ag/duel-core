@@ -7,7 +7,7 @@
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="preconnect" href="https://fonts.gstatic.com">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="node_modules/duel-game-core/style.css">
+  <link rel="stylesheet" href="duel-game-core.css">
   <link rel="stylesheet" href="style.css">
   <!--
     Sets up window.duelActorReady/duelWsReady synchronously, before either
@@ -63,24 +63,11 @@
     <p>Loading track…</p>
   </div>
 
-  <!--
-    Bare-specifier resolution for duel-game-core/ws/gateway-*.js's own
-    dependencies (see ../../../frontend/README.md's "Real-time push"
-    section / ../../../CLAUDE.md rule 10) — duel-app.js is copied
-    as-is (see build.js), not esbuild-bundled, so it has no
-    node_modules resolution of its own, same as the 007 example.
-  -->
-  <script type="importmap">
-    {
-      "imports": {
-        "@icp-sdk/core/candid": "https://esm.sh/@icp-sdk/core@6.1.0/candid",
-        "@icp-sdk/core/principal": "https://esm.sh/@icp-sdk/core@6.1.0/principal",
-        "@icp-sdk/core/identity": "https://esm.sh/@icp-sdk/core@6.1.0/identity",
-        "@icp-sdk/auth/client": "https://esm.sh/@icp-sdk/auth@8.0.3/client?deps=@icp-sdk/core@6.1.0",
-        "cborg": "https://esm.sh/cborg@4.5.8"
-      }
-    }
-  </script>
+  <!-- duel-app.js is esbuild's bundle of src/duel/duel-app.js (see
+       build.js) — every dependency it and duel-game-core itself need
+       (@icp-sdk/core, @icp-sdk/auth, cborg) is resolved and inlined at
+       build time, so no import map or bare-specifier resolution is
+       needed here. -->
   <script type="module" src="duel-app.js"></script>
   <script type="module" src="main.js"></script>
 </body>

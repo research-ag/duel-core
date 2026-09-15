@@ -11,7 +11,7 @@
 // `../../../src/RacingRules.mo` exactly, and this plugin's own
 // `LAPS_TO_WIN` must match that module's constant of the same name.
 
-import { esc } from './node_modules/duel-game-core/dist/render.js';
+import { esc } from 'duel-game-core/render.js';
 
 // The raw `lap` field (below) counts wrap-boundary crossings of the track,
 // not real laps driven — the starting grid sits right before the track's

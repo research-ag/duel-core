@@ -4,19 +4,18 @@
 // GamePlugin to use — everything else (the multi-table lobby, staging,
 // rematch, debrief chrome) lives in the npm package.
 //
-// No build step: @icp-sdk/core is loaded from esm.sh; duel-game-core
-// itself is fetched via `npm install` (see package.json/.npmrc) and
-// imported below by its on-disk dist/ path. `agent` and `identity` are
-// both submodules of the SAME `@icp-sdk/core` package, so pinning one
-// exact version on both esm.sh URLs is enough to keep them mutually
-// consistent.
+// This file is bundled by esbuild (see ../build.js) into dist/app.js, so
+// every import below — @icp-sdk/core and duel-game-core alike — resolves
+// normally from node_modules at build time and ships as one self-
+// contained bundle; the deployed asset canister carries no node_modules
+// directory of its own.
 
-import { Actor, HttpAgent } from "https://esm.sh/@icp-sdk/core@6.1.0/agent";
-import { Ed25519KeyIdentity } from "https://esm.sh/@icp-sdk/core@6.1.0/identity";
-import { makeIdlFactory } from "./node_modules/duel-game-core/dist/idl.js";
-import { start } from "./node_modules/duel-game-core/dist/app.js";
-import { connectWs } from "./node_modules/duel-game-core/dist/ws.js";
-import { readIcEnv, deriveHost } from "./node_modules/duel-game-core/dist/ic-env.js";
+import { Actor, HttpAgent } from "@icp-sdk/core/agent";
+import { Ed25519KeyIdentity } from "@icp-sdk/core/identity";
+import { makeIdlFactory } from "duel-game-core/idl.js";
+import { start } from "duel-game-core/app.js";
+import { connectWs } from "duel-game-core/ws.js";
+import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
 import { plugin } from "./__PLUGIN_FILE__";
 
 const env = readIcEnv();

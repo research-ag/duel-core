@@ -86,9 +86,10 @@ choose beyond a table and a seat), plain TypeScript with no framework:
   instead (that's the whole point of logging in), which reintroduces
   this exact race as a known, documented trade-off; see
   `../../../frontend/README.md`'s "Real-time push" section.
-  `duel-app.js` loads `Actor`/`HttpAgent` from `@icp-sdk/core@6.1.0/agent`
-  on esm.sh; `resolveIdentity()` (in `duel-game-core/identity.js`) is
-  what actually loads `Ed25519KeyIdentity`/`AuthClient` now, so this file
+  `duel-app.js` imports `Actor`/`HttpAgent` from `@icp-sdk/core/agent`
+  (a plain npm dependency, esbuild-bundled into `dist/duel-app.js` — see
+  `../CLAUDE.md`); `resolveIdentity()` (in `duel-game-core/identity.js`)
+  is what actually loads `Ed25519KeyIdentity`/`AuthClient`, so this file
   itself no longer imports `@icp-sdk/core/identity` directly.
 - `lobby-connection.service.ts`'s `init()` fires an immediate `status`
   `request()` the moment `getDuelWs()` resolves, ahead of the shared

@@ -7,7 +7,7 @@
 // of that module's `validate` (disabled buttons only — the server is the
 // only real legality gate, CLAUDE.md architecture rule 4).
 
-import { actionAttr, esc } from "./node_modules/duel-game-core/dist/render.js";
+import { actionAttr, esc } from "duel-game-core/render.js";
 
 const SEAT_NAME = { p1: "__P1_NAME__", p2: "__P2_NAME__" };
 

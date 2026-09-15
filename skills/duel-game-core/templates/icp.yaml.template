@@ -12,4 +12,7 @@ canisters:
       # v2.3.0 is the first plugin-based release — use it or newer.
       type: "@dfinity/asset-canister@v2.3.0"
       configuration:
-        dir: frontend
+        # `npm run build` (from frontend/) must run first — see
+        # frontend/README.md. dist/ is esbuild's bundled output, not
+        # checked in.
+        dir: frontend/dist
