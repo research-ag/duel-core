@@ -126,6 +126,7 @@ test("onmessage: a pushed status renders via the plugin", async () => {
     data: {
       view: atTable({
         inGame: {
+          mode: { simultaneous: null },
           seat: { p1: null },
           game: { n: 7 },
           turn: 0n,
@@ -449,6 +450,7 @@ test("clicking 'Claim the win' sends claimWin with the last-observed gen", async
     data: {
       view: atTable({
         inGame: {
+          mode: { simultaneous: null },
           seat: { p1: null },
           game: { n: 0 },
           turn: 4n,
@@ -483,6 +485,7 @@ test("the 'Claim the win' button reveals itself locally once the countdown reach
       data: {
         view: atTable({
           inGame: {
+            mode: { simultaneous: null },
             seat: { p1: null },
             game: { n: 0 },
             turn: 4n,
@@ -538,6 +541,7 @@ test("the still-deciding player never gets a Claim button of their own — not i
       data: {
         view: atTable({
           inGame: {
+            mode: { simultaneous: null },
             seat: { p1: null },
             game: { n: 0 },
             turn: 4n,
@@ -589,6 +593,7 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
     atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n, visibility: { open: null } } }),
     atTable({
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { n: 0 },
         turn: 0n,

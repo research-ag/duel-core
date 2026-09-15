@@ -20,7 +20,14 @@ func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
 
 // ── 1. init() is a clean slate, and spec() hands out the same rules ────────
 let s0 = R.init();
-let sp = R.spec();
+// For a #simultaneous game (this template's default — both seats act
+// every round). For a #alternating game instead, unwrap that arm here —
+// `case (#alternating s) s` — since its own `resolve` takes just the ONE
+// seat on turn (see references/alternating-turn-games.md).
+let sp = switch (R.spec()) {
+  case (#simultaneous s) s;
+  case (#alternating _) Runtime.trap("expected a #simultaneous spec");
+};
 let s1 = sp.init();
 // assert <fields of s1 match your fresh-state expectations>;
 Debug.print("1. init + spec wiring OK");

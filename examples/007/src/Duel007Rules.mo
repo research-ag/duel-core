@@ -35,9 +35,9 @@ module {
   /// One agent's standing. Immutable record — `resolve` builds new ones.
   public type AgentStats = {
     ammo : Nat;
-    shieldHits : Nat;   // absorbed hits; 3 = broken
-    mirrors : Nat;      // uses remaining
-    charge : Nat;       // consecutive loads toward the laser
+    shieldHits : Nat; // absorbed hits; 3 = broken
+    mirrors : Nat; // uses remaining
+    charge : Nat; // consecutive loads toward the laser
   };
 
   public type Round = {
@@ -47,8 +47,8 @@ module {
   };
 
   public type State = {
-    p1 : AgentStats;    // BOND
-    p2 : AgentStats;    // SILVA
+    p1 : AgentStats; // BOND
+    p2 : AgentStats; // SILVA
     lastRound : ?Round;
   };
 
@@ -56,7 +56,7 @@ module {
 
   let SHIELD_CAPACITY : Nat = 3; // 3rd absorb breaks it
   let START_MIRRORS : Nat = 3;
-  let LASER_CHARGE : Nat = 5;    // consecutive loads for a laser
+  let LASER_CHARGE : Nat = 5; // consecutive loads for a laser
 
   public func agentName(seat : TP.Seat) : Text = switch (seat) {
     case (#p1) "BOND";
@@ -106,8 +106,7 @@ module {
 
   /// Immediate, defense-independent effects of one agent's action:
   /// ammo/charge/mirror bookkeeping + opening narration.
-  func applyAction(me : AgentStats, a : Action, laser : Bool, name : Text)
-    : (AgentStats, Text) {
+  func applyAction(me : AgentStats, a : Action, laser : Bool, name : Text) : (AgentStats, Text) {
     switch (a) {
       case (#load) (
         { me with ammo = me.ammo + 1; charge = me.charge + 1 },
@@ -118,7 +117,10 @@ module {
         name # " raises shield. ",
       );
       case (#mirror) (
-        { me with mirrors = if (me.mirrors > 0) me.mirrors - 1 else 0; charge = 0 },
+        {
+          me with mirrors = if (me.mirrors > 0) me.mirrors - 1 else 0;
+          charge = 0;
+        },
         name # " deploys mirror. ",
       );
       case (#shoot) {
@@ -136,9 +138,9 @@ module {
   /// Outcome of one shot travelling from shooter to defender.
   type ShotResult = {
     #defenderDies;
-    #shooterDies;        // mirrored back
-    #absorbed;           // shield held
-    #absorbedAndBroke;   // 3rd absorb
+    #shooterDies; // mirrored back
+    #absorbed; // shield held
+    #absorbedAndBroke; // 3rd absorb
   };
 
   func resolveShot(defender : AgentStats, defense : Action, laser : Bool) : ShotResult {
@@ -155,8 +157,10 @@ module {
   };
 
   /// Both moves are in (already validated). Pure: State in, State + verdict out.
-  public func resolve(s : State, a1 : Action, a2 : Action)
-    : { state : State; verdict : ?TP.Verdict } {
+  public func resolve(s : State, a1 : Action, a2 : Action) : {
+    state : State;
+    verdict : ?TP.Verdict;
+  } {
 
     let laser1 = hasLaser(s.p1) and a1 == #shoot;
     let laser2 = hasLaser(s.p2) and a2 == #shoot;
@@ -174,17 +178,12 @@ module {
       // Simultaneous fire — both projectiles are in the air; nobody defends.
       alive1 := false;
       alive2 := false;
-      narration #= if (laser1 and laser2)
-        "Both agents fire LASERS — mutual annihilation."
-      else
-        "Both agents fire simultaneously — standoff. Nobody walks away.";
+      narration #= if (laser1 and laser2) "Both agents fire LASERS — mutual annihilation." else "Both agents fire simultaneously — standoff. Nobody walks away.";
     } else if (a1 == #shoot) {
       switch (resolveShot(p2, a2, laser1)) {
         case (#defenderDies) {
           alive2 := false;
-          narration #= if (laser1)
-            "The laser pierces every defense — " # agentName(#p2) # " is eliminated!"
-          else agentName(#p2) # " is eliminated!";
+          narration #= if (laser1) "The laser pierces every defense — " # agentName(#p2) # " is eliminated!" else agentName(#p2) # " is eliminated!";
         };
         case (#shooterDies) {
           alive1 := false;
@@ -203,9 +202,7 @@ module {
       switch (resolveShot(p1, a1, laser2)) {
         case (#defenderDies) {
           alive1 := false;
-          narration #= if (laser2)
-            "The laser pierces every defense — " # agentName(#p1) # " is eliminated!"
-          else agentName(#p1) # " is eliminated!";
+          narration #= if (laser2) "The laser pierces every defense — " # agentName(#p1) # " is eliminated!" else agentName(#p1) # " is eliminated!";
         };
         case (#shooterDies) {
           alive2 := false;
@@ -223,11 +220,7 @@ module {
     };
     // No shots → nothing else happens this round.
 
-    let verdict : ?TP.Verdict =
-      if (alive1 and alive2) null
-      else if (alive1) ?#p1Wins
-      else if (alive2) ?#p2Wins
-      else ?#draw;
+    let verdict : ?TP.Verdict = if (alive1 and alive2) null else if (alive1) ?#p1Wins else if (alive2) ?#p2Wins else ?#draw;
 
     {
       state = {
@@ -243,7 +236,8 @@ module {
 
   /// Hand this to every duel-game-core engine call. Built fresh per call —
   /// function values are never stored, so upgrades stay trivial.
-  public func spec() : TP.Spec<State, Action> = {
+  /// `#simultaneous`: both agents act every round.
+  public func spec() : TP.Spec<State, Action> = #simultaneous {
     init;
     validate;
     resolve;

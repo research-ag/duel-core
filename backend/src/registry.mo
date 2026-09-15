@@ -273,7 +273,7 @@ module {
 
   public func rematch<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.Res<T.RematchOk> = withTable<S, M, T.RematchOk>(self, session, func(t) = t.rematch(spec, now, session));
 
-  public func claimWin<S, M>(self : Registry<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(self, session, func(t) = t.claimWin(now, session, gen));
+  public func claimWin<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(self, session, func(t) = t.claimWin(spec, now, session, gen));
 
   /// Whether a `leave`/`reset` call about to run against `t` is the
   /// ABORT case — leaving a live game — rather than a plain staging
@@ -334,10 +334,10 @@ module {
     returnToLobby(self, session);
   };
 
-  public func status<S, M>(self : Registry<S, M>, now : Int, session : T.SessionId) : T.SessionStatus<S> {
+  public func status<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.SessionStatus<S> {
     switch (self.bySession.get(session)) {
       case (?id) switch (self.tables.get(id)) {
-        case (?t) #atTable({ id; view = t.status(now, session) });
+        case (?t) #atTable({ id; view = t.status(spec, now, session) });
         case null #browsing({ tables = listTables(self, now) }); // stale mapping onto an already-GC'd table
       };
       case null #browsing({ tables = listTables(self, now) });

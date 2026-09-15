@@ -69,7 +69,13 @@ const plugin = {
 Only `renderBoard` and `renderActions` return markup for *your* game;
 everything else (turn counter, "opponent is deciding" / "locked in"
 messages, verdict banner, rematch/leave/forfeit buttons) is handled by
-`render.js`'s generic chrome around them.
+`render.js`'s generic chrome around them — including for a backend game
+built in the engine's `#alternating` (strictly turn-based) mode instead
+of the default `#simultaneous` one: `render.js` reads `InGameView.mode`
+and adjusts that same chrome's wording ("Your turn"/"Opponent's turn"
+instead of "locked in"/"deciding") automatically, with no `GamePlugin`
+changes required either way — `renderActions` is still only ever called
+while it's legal for `mySeat` to move, in both modes.
 
 ## Wiring it up
 

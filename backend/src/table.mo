@@ -43,6 +43,16 @@ module {
   /// `secsLeft`.
   public func claimSecsLeft<S, M>(self : Table<S, M>, since : Int, now : Int) : Nat = secsLeftFor(self.claimTimeoutNs, since, now);
 
+  /// Whose turn it is on an `#alternating`-mode table, given the match's
+  /// own round counter (`Active.turn`, already bumped once per resolved
+  /// round) — p1 always moves first (`turn == 0`), then it alternates.
+  /// Derived, never stored: an `#alternating` game's own `S` never needs
+  /// a turn flag of its own, and neither does `Active` — one fewer place
+  /// for the two to drift out of sync. Meaningless for a `#simultaneous`
+  /// table (both seats may submit any round); callers only ever consult
+  /// this inside an `#alternating` arm.
+  public func toMove(turn : Nat) : T.Seat = if (turn % 2 == 0) #p1 else #p2;
+
   /// The table's own configured idle timeout, in whole seconds — constant
   /// for the table's lifetime. Handed to a client alongside a live
   /// countdown (see `#inGame`'s own doc in types.mo) so it can derive its
@@ -161,6 +171,15 @@ module {
     self.phase := #staging { seat; session; reservedFor; since = now };
   };
 
+  /// `Spec.init`, regardless of which mode arm the game supplied — `init`
+  /// itself is identical in shape either way, so this is the one place
+  /// that reaches past the mode tag without any other mode-specific
+  /// behavior to dispatch on.
+  func initOf<S, M>(spec : T.Spec<S, M>) : S = switch (spec) {
+    case (#simultaneous simSpec) simSpec.init();
+    case (#alternating turnSpec) turnSpec.init();
+  };
+
   public func startGame<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, st : T.Staging, joiner : T.SessionId) {
     let (p1, p2) = switch (st.seat) {
       case (#p1) (st.session, joiner);
@@ -169,7 +188,7 @@ module {
     self.phase := #active {
       p1;
       p2;
-      game = spec.init();
+      game = initOf(spec);
       pending1 = null;
       pending2 = null;
       turn = 0;
@@ -338,43 +357,93 @@ module {
           case (?s) s;
           case null return #err(#notSeated);
         };
-        let myPending = switch (mySeat) {
-          case (#p1) g.pending1;
-          case (#p2) g.pending2;
-        };
-        switch (myPending) {
-          case (?_) return #err(#alreadySubmitted);
-          case null {};
-        };
-        switch (spec.validate(g.game, mySeat, move)) {
-          case (?why) return #err(#illegalMove(why));
-          case null {};
-        };
+        switch (spec) {
 
-        let g2 : T.Active<S, M> = {
-          p1 = g.p1;
-          p2 = g.p2;
-          game = g.game;
-          pending1 = switch (mySeat) { case (#p1) ?move; case (#p2) g.pending1 };
-          pending2 = switch (mySeat) { case (#p2) ?move; case (#p1) g.pending2 };
-          turn = g.turn;
-          lastActivity = now;
-        };
-        self.phase := #active(g2);
+          // ── #simultaneous: unchanged behavior from before `Spec` grew
+          // a mode — stage this seat's move, resolve the round only
+          // once both are in.
+          case (#simultaneous simSpec) {
+            let myPending = switch (mySeat) {
+              case (#p1) g.pending1;
+              case (#p2) g.pending2;
+            };
+            switch (myPending) {
+              case (?_) return #err(#alreadySubmitted);
+              case null {};
+            };
+            switch (simSpec.validate(g.game, mySeat, move)) {
+              case (?why) return #err(#illegalMove(why));
+              case null {};
+            };
 
-        switch (g2.pending1, g2.pending2) {
-          case (?m1, ?m2) {
-            let r = spec.resolve(g2.game, m1, m2);
-            let turns = g2.turn + 1;
+            let g2 : T.Active<S, M> = {
+              p1 = g.p1;
+              p2 = g.p2;
+              game = g.game;
+              pending1 = switch (mySeat) {
+                case (#p1) ?move;
+                case (#p2) g.pending1;
+              };
+              pending2 = switch (mySeat) {
+                case (#p2) ?move;
+                case (#p1) g.pending2;
+              };
+              turn = g.turn;
+              lastActivity = now;
+            };
+            self.phase := #active(g2);
+
+            switch (g2.pending1, g2.pending2) {
+              case (?m1, ?m2) {
+                let r = simSpec.resolve(g2.game, m1, m2);
+                let turns = g2.turn + 1;
+                switch (r.verdict) {
+                  case (?v) {
+                    self.enterDebrief(now, g2.p1, g2.p2, #finished(v), turns, r.state);
+                    #ok(#gameEnded { verdict = v; turns });
+                  };
+                  case null {
+                    self.phase := #active {
+                      p1 = g2.p1;
+                      p2 = g2.p2;
+                      game = r.state;
+                      pending1 = null;
+                      pending2 = null;
+                      turn = turns;
+                      lastActivity = now;
+                    };
+                    #ok(#roundResolved(turns));
+                  };
+                };
+              };
+              case (_) #ok(#waiting);
+            };
+          };
+
+          // ── #alternating: only the seat currently `toMove` may submit
+          // (`Err.#notYourTurn` otherwise); their move resolves
+          // IMMEDIATELY — there is no second seat's move to wait on, so
+          // `pending1`/`pending2` stay `null` throughout. An alternating
+          // game never has a "round in progress" the way a simultaneous
+          // one does.
+          case (#alternating turnSpec) {
+            if (mySeat != toMove(g.turn)) return #err(#notYourTurn);
+            switch (turnSpec.validate(g.game, mySeat, move)) {
+              case (?why) return #err(#illegalMove(why));
+              case null {};
+            };
+
+            let r = turnSpec.resolve(g.game, mySeat, move);
+            let turns = g.turn + 1;
             switch (r.verdict) {
               case (?v) {
-                self.enterDebrief(now, g2.p1, g2.p2, #finished(v), turns, r.state);
+                self.enterDebrief(now, g.p1, g.p2, #finished(v), turns, r.state);
                 #ok(#gameEnded { verdict = v; turns });
               };
               case null {
                 self.phase := #active {
-                  p1 = g2.p1;
-                  p2 = g2.p2;
+                  p1 = g.p1;
+                  p2 = g.p2;
                   game = r.state;
                   pending1 = null;
                   pending2 = null;
@@ -385,29 +454,32 @@ module {
               };
             };
           };
-          case (_) #ok(#waiting);
         };
       };
       case (_) #err(#wrongPhase("no game is running"));
     };
   };
 
-  /// Claim victory when your opponent's move is overdue: you've submitted
-  /// this round's move, they haven't, and `claimTimeoutNs` has elapsed
-  /// since (`claimOverdue`, against the round's own `lastActivity` —
-  /// nothing else can touch that timestamp while the round stays this
-  /// lopsided, since a resolve would already have moved the phase on).
-  /// Ends the match the same way `leave` does — a shared debrief, `gen`
-  /// -checked the same way (see `leave`'s own doc for why a stale replay
-  /// would otherwise be dangerous) — except the ending credits the
-  /// claimant instead of nobody (`#claimed`, not `#aborted`), and the
-  /// game itself is left exactly as `spec.resolve` last returned it:
+  /// Claim victory when your opponent is overdue, and `claimTimeoutNs` has
+  /// elapsed since (`claimOverdue`, against the round's own
+  /// `lastActivity` — nothing else can touch that timestamp while the
+  /// round stays lopsided, since a resolve would already have moved the
+  /// phase on). Who counts as "overdue" depends on `spec`'s own mode:
+  /// `#simultaneous` — you've submitted this round's move and they
+  /// haven't; `#alternating` — it's currently their turn and yours has
+  /// passed, i.e. you're NOT `toMove` (the seat whose own turn it is may
+  /// never claim — they're the one holding up the game, not waiting on
+  /// it). Ends the match the same way `leave` does — a shared debrief,
+  /// `gen`-checked the same way (see `leave`'s own doc for why a stale
+  /// replay would otherwise be dangerous) — except the ending credits
+  /// the claimant instead of nobody (`#claimed`, not `#aborted`), and
+  /// the game itself is left exactly as `spec.resolve` last returned it:
   /// nothing about `pending1`/`pending2`/`game` is touched, since the
   /// opponent's move never actually arrived to resolve against. A purely
   /// optional escape hatch, never automatic — nothing here or in `sweep`
   /// ever calls this on a player's behalf; they keep the choice to give
   /// their opponent more time instead.
-  public func claimWin<S, M>(self : Table<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> {
+  public func claimWin<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> {
     switch (self.checkGen(gen)) {
       case (?e) return #err(e);
       case null {};
@@ -418,15 +490,24 @@ module {
           case (?s) s;
           case null return #err(#notSeated);
         };
-        let (myPending, oppPending) = switch (mySeat) {
-          case (#p1) (g.pending1, g.pending2);
-          case (#p2) (g.pending2, g.pending1);
-        };
-        if (Option.isNull(myPending)) {
-          return #err(#wrongPhase("submit your own move before you can claim a win"));
-        };
-        if (Option.isSome(oppPending)) {
-          return #err(#wrongPhase("your opponent already moved"));
+        switch (spec) {
+          case (#simultaneous _) {
+            let (myPending, oppPending) = switch (mySeat) {
+              case (#p1) (g.pending1, g.pending2);
+              case (#p2) (g.pending2, g.pending1);
+            };
+            if (Option.isNull(myPending)) {
+              return #err(#wrongPhase("submit your own move before you can claim a win"));
+            };
+            if (Option.isSome(oppPending)) {
+              return #err(#wrongPhase("your opponent already moved"));
+            };
+          };
+          case (#alternating _) {
+            if (mySeat == toMove(g.turn)) {
+              return #err(#wrongPhase("it's your turn to move — only the waiting player may claim"));
+            };
+          };
         };
         if (not self.claimOverdue(g.lastActivity, now)) {
           return #err(#notOverdue { secondsLeft = self.claimSecsLeft(g.lastActivity, now) });
@@ -473,7 +554,12 @@ module {
           // decline: clear just the reservation — the requester's own
           // staging survives, immediately open to anyone (see this
           // function's own doc).
-          self.phase := #staging { seat = st.seat; session = st.session; reservedFor = null; since = st.since };
+          self.phase := #staging {
+            seat = st.seat;
+            session = st.session;
+            reservedFor = null;
+            since = st.since;
+          };
           #ok(());
         } else { #err(#notSeated) };
       };
@@ -619,7 +705,12 @@ module {
   };
 
   /// The one truthful, per-caller status view. Pure — safe as a query.
-  public func status<S, M>(self : Table<S, M>, now : Int, session : T.SessionId) : T.View<S> {
+  /// Takes `spec` (unlike most read-only helpers here) only because the
+  /// seated `#active` branch needs to know this table's own `Mode` to
+  /// report `View.#inGame.mode`/`youSubmitted`/`oppSubmitted` correctly
+  /// — still just data and pure functions, so this stays exactly as
+  /// side-effect-free as before.
+  public func status<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.View<S> {
     switch (self.phase) {
 
       case (#empty) {
@@ -665,12 +756,33 @@ module {
       case (#active g) {
         switch (getSessionSeat(g, session)) {
           case (?mySeat) {
-            let youSubmitted = Option.isSome(switch (mySeat) { case (#p1) g.pending1; case (#p2) g.pending2 });
-            let oppSubmitted = Option.isSome(switch (mySeat) { case (#p1) g.pending2; case (#p2) g.pending1 });
+            // `#simultaneous`: whether each seat has locked in THIS
+            // round's move. `#alternating`: whether it's currently on
+            // you/the opponent to move — derived from `toMove`, never
+            // from `pending1`/`pending2` (always `null` in this mode).
+            // Either way, "you're the WAITING seat" reduces to the same
+            // `youSubmitted and not oppSubmitted` expression below, so
+            // `claimWinAvailable` needs no mode-specific formula of its
+            // own — see `Spec`'s own doc in types.mo for why.
+            let mode : T.Mode = switch (spec) {
+              case (#simultaneous _) #simultaneous;
+              case (#alternating _) #alternating;
+            };
+            let (youSubmitted, oppSubmitted) = switch (spec) {
+              case (#simultaneous _) (
+                Option.isSome(switch (mySeat) { case (#p1) g.pending1; case (#p2) g.pending2 }),
+                Option.isSome(switch (mySeat) { case (#p1) g.pending2; case (#p2) g.pending1 }),
+              );
+              case (#alternating _) {
+                let onTurn = mySeat == toMove(g.turn);
+                (not onTurn, onTurn);
+              };
+            };
             #inGame {
               seat = mySeat;
               game = g.game;
               turn = g.turn;
+              mode;
               youSubmitted;
               oppSubmitted;
               gen = self.gen;

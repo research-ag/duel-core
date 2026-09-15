@@ -27,7 +27,10 @@ func nearFinish() : R.CarState = {
 func idleCar() : R.CarState = { nearFinish() with lap = 0 };
 
 // ── 1. spec() hands out the same rules as calling the module directly ──────
-let sp = R.spec();
+let sp = switch (R.spec()) {
+  case (#simultaneous s) s;
+  case (#alternating _) Runtime.trap("racing is a #simultaneous game");
+};
 let s1 = sp.init();
 assert s1.p1.lap == 0 and s1.p2.lap == 0;
 switch (sp.validate(s1, #p1, { l = 999.0; c = 0.0 })) {

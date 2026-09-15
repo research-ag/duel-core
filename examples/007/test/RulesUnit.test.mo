@@ -35,7 +35,10 @@ switch (s0.lastRound) {
   case null {};
   case (?_) Runtime.trap("a fresh game has no previous round");
 };
-let sp = R.spec();
+let sp = switch (R.spec()) {
+  case (#simultaneous s) s;
+  case (#alternating _) Runtime.trap("007 is a #simultaneous game");
+};
 let s1 = sp.init();
 assert s1.p1.mirrors == 3 and s1.p2.mirrors == 3;
 switch (sp.validate(s1, #p1, #shoot)) {
@@ -86,14 +89,14 @@ Debug.print("4. laser vs laser draw OK");
 
 // ── 5. Laser vs a normal shot → both die (the shot was already in flight) ──
 s := R.init();
-s := round(s, #load, #load);   // p2: ammo 1, charge 1
+s := round(s, #load, #load); // p2: ammo 1, charge 1
 s := round(s, #load, #shield); // p2's streak breaks; p1 keeps loading
 s := round(s, #load, #load);
 s := round(s, #load, #load);
 s := round(s, #load, #load);
 assert s.p1.charge == 5; // p1 is charged
 assert s.p2.charge == 3; // p2 is not
-assert s.p2.ammo == 4;   // …but p2 can still fire a normal shot
+assert s.p2.ammo == 4; // …but p2 can still fire a normal shot
 let mixed = R.resolve(s, #shoot, #shoot);
 switch (mixed.verdict) {
   case (?#draw) {};

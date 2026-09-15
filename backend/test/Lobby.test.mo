@@ -34,7 +34,7 @@ func expectErr<T>(r : TP.Res<T>, msg : Text) = switch (r) {
   case (#err _) ();
 };
 
-func atTableView(reg : Reg, at : Int, session : Text) : TP.View<Rules.State> = switch (reg.status(at, session)) {
+func atTableView(reg : Reg, at : Int, session : Text) : TP.View<Rules.State> = switch (reg.status(spec, at, session)) {
   case (#atTable v) v.view;
   case (#browsing _) Runtime.trap("expected " # session # " to be at a table");
 };
@@ -57,7 +57,7 @@ func turnOf(reg : Reg, at : Int, session : Text) : Nat = switch (atTableView(reg
 let reg = fresh();
 let id1 = ok(reg.createTable(spec, T0, "a", #p1, #open), "a creates a table");
 assert id1 == 1;
-switch (reg.status(T0, "a")) {
+switch (reg.status(spec, T0, "a")) {
   case (#atTable v) {
     assert v.id == id1;
     switch (v.view) {
@@ -142,7 +142,7 @@ Debug.print("5. submit routes to the acting session's own table only OK");
 
 // ── 6. leave returns the session to browsing and GCs an empty table ───────
 ignore ok(reg.leave(T0, "z", genOf(reg, T0, "z")), "z (alone, staging id2) leaves");
-switch (reg.status(T0, "z")) {
+switch (reg.status(spec, T0, "z")) {
   case (#browsing _) {};
   case (_) Runtime.trap("z should be back to browsing");
 };
@@ -167,7 +167,7 @@ switch (atTableView(reg, LATER, "a")) {
   case (_) Runtime.trap("a (evicted) should see #endedByOther");
 };
 reg.ackEnded("a");
-switch (reg.status(LATER, "a")) {
+switch (reg.status(spec, LATER, "a")) {
   case (#browsing _) {};
   case (_) Runtime.trap("acking #endedByOther should return a to browsing");
 };
@@ -188,7 +188,9 @@ ignore ok(reg8.joinTable(spec, T0, "b", idG, #p2, null), "b joins; game live");
 let VANISH = T0 + TIMEOUT + 1_000_000_000; // a/b's own game goes idle
 reg8.sweep(VANISH); // the periodic timer frees it with nobody visiting
 var ghostSeen = false;
-for (r in reg8.listTables(VANISH).values()) { if (r.id == idG) ghostSeen := true };
+for (r in reg8.listTables(VANISH).values()) {
+  if (r.id == idG) ghostSeen := true;
+};
 assert ghostSeen; // freed, but not GC'd — a/b are still owed their notice
 // c and d play an entirely separate, cleanly-finished game on the same
 // freed board — same id, since ids are only ever handed out fresh.
@@ -200,13 +202,15 @@ ignore ok(reg8.leave(VANISH, "c", cGen), "c forfeits (leave from the live game)"
 ignore ok(reg8.leave(VANISH, "c", cGen), "c also acks their own shared debrief");
 ignore ok(reg8.leave(VANISH, "d", dGen), "d acks the shared debrief too");
 ghostSeen := false;
-for (r in reg8.listTables(VANISH).values()) { if (r.id == idG) ghostSeen := true };
+for (r in reg8.listTables(VANISH).values()) {
+  if (r.id == idG) ghostSeen := true;
+};
 assert ghostSeen; // a/b's still-unacked notice blocks GC even after c/d's clean finish
 // long after: a/b were never coming back — the notice goes stale and is pruned
 let LONG_AFTER = VANISH + TIMEOUT * 10 + 1_000_000_000;
 reg8.sweep(LONG_AFTER);
 for (r in reg8.listTables(LONG_AFTER).values()) { assert r.id != idG }; // finally GC'd
-switch (reg8.status(LONG_AFTER, "a")) {
+switch (reg8.status(spec, LONG_AFTER, "a")) {
   case (#browsing _) {}; // the stale notice is gone quietly, not shown forever either
   case (_) Runtime.trap("a's ancient, never-acked notice should have expired quietly");
 };
@@ -225,7 +229,7 @@ ignore ok(reg9.submit(spec, T0, "b", genOf(reg9, T0, "b"), turnOf(reg9, T0, "b")
 ignore ok(reg9.submit(spec, T0, "a", genOf(reg9, T0, "a"), turnOf(reg9, T0, "a"), #attack), "a attacks");
 ignore ok(reg9.submit(spec, T0, "b", genOf(reg9, T0, "b"), turnOf(reg9, T0, "b"), #gather), "b gathers again; a wins, both land in debrief");
 ignore ok(reg9.leave(T0, "a", genOf(reg9, T0, "a")), "a returns to the lobby first");
-switch (reg9.status(T0, "a")) {
+switch (reg9.status(spec, T0, "a")) {
   case (#browsing _) {};
   case (_) Runtime.trap("a should be back to browsing after their own leave");
 };
@@ -258,7 +262,7 @@ let declineGen = switch (atTableView(reg10, T0, "b")) {
   case (_) Runtime.trap("b should see the invitation");
 };
 ignore ok(reg10.leave(T0, "b", declineGen), "b declines");
-switch (reg10.status(T0, "b")) {
+switch (reg10.status(spec, T0, "b")) {
   case (#browsing _) {};
   case (_) Runtime.trap("declining should return b to browsing, not strand them either");
 };
@@ -317,7 +321,7 @@ Debug.print("11c. a debrief expiring pre-acked doesn't lock either participant o
 //          would then just sit there until it expired into N1 ─────────
 let reg12 = fresh();
 expectErr(reg12.createTable(spec, T0, "a", #p1, #code("")), "an empty access code should be rejected");
-switch (reg12.status(T0, "a")) {
+switch (reg12.status(spec, T0, "a")) {
   case (#browsing _) {};
   case (_) Runtime.trap("a rejected createTable must not leave a leftover at-a-table mapping behind");
 };
@@ -340,15 +344,15 @@ let idW2 = ok(reg13.createTable(spec, T0, "q", #p1, #open), "q creates a second,
 ignore ok(reg13.joinTable(spec, T0, "r", idW2, #p2, null), "r joins table 2; game live too");
 let g13 = genOf(reg13, T0, "a");
 ignore ok(reg13.submit(spec, T0, "a", g13, turnOf(reg13, T0, "a"), #gather), "a moves on table 1; b goes quiet");
-switch (reg13.claimWin(T0, "a", g13)) {
+switch (reg13.claimWin(spec, T0, "a", g13)) {
   case (#err(#notOverdue _)) {};
   case (_) Runtime.trap("table 1's own claim window hasn't elapsed yet");
 };
-switch (reg13.claimWin(CLAIMABLE, "q", genOf(reg13, T0, "q"))) {
+switch (reg13.claimWin(spec, CLAIMABLE, "q", genOf(reg13, T0, "q"))) {
   case (#err(#wrongPhase _)) {};
   case (_) Runtime.trap("q never submitted a move — nothing for q to claim on table 2");
 };
-ok(reg13.claimWin(CLAIMABLE, "a", g13), "a claims the overdue win on table 1");
+ok(reg13.claimWin(spec, CLAIMABLE, "a", g13), "a claims the overdue win on table 1");
 switch (atTableView(reg13, CLAIMABLE, "a")) {
   case (#debrief d) switch (d.end) {
     case (#claimed(#p1)) {};

@@ -1,0 +1,44 @@
+/* Checkers-specific visuals only — page chrome (header, buttons, the
+   generic lobby/staging/debrief screens) comes from duel-game-core.css,
+   loaded first in index.html. */
+
+.cb-board {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(8, minmax(0, 1fr));
+  width: min(420px, 90vw);
+  aspect-ratio: 1 / 1;
+  margin: 1rem auto;
+  border: 2px solid var(--border, #333);
+}
+
+.cb-square {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(1rem, 4vw, 1.8rem);
+  line-height: 1;
+  user-select: none;
+}
+
+.cb-light {
+  background: var(--panel, #e8e0d0);
+}
+
+.cb-dark {
+  background: var(--muted-bg, #6b4a34);
+}
+
+.cb-piece.cb-p1 {
+  color: #c0392b;
+  text-shadow: 0 0 1px #000;
+}
+
+.cb-piece.cb-p2 {
+  color: #1c1c1c;
+  text-shadow: 0 0 1px #fff;
+}
+
+.cb-piece.cb-king {
+  font-weight: bold;
+}

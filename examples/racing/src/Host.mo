@@ -13,7 +13,7 @@ persistent actor {
   let registry = Registry.new<Rules.State, Rules.Action>(300_000_000_000, 45_000_000_000); // 300s idle timeout, 45s claim-win window, shared by every table
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
-    registry.status(Time.now(), sid);
+    registry.status(Rules.spec(), Time.now(), sid);
   };
 
   transient let wsHub : Ws.Hub = Ws.createHub();

@@ -123,15 +123,24 @@ Read the rules text fully before writing any code. Then answer these
 questions from it — this is the actual design work, and the only part
 of this skill that requires judgment rather than copying a template:
 
-1. **What does one round look like?** The engine resolves the instant
-   BOTH seats have submitted one move each (`join`/`submit`/`resolve` —
-   see the backend README's "Interface" section). This fits not just
-   games where both players act at once by nature (rock-paper-scissors,
-   simultaneous card reveals, a duel), but also a classically
-   alternating-turn game (chess, tic-tac-toe): give `Action` a `#pass`
-   case, put "whose turn it is" in `State`, and have `validate` reject
-   any move but `#pass` from the seat not on turn. `resolve` then
-   applies only the on-turn seat's real move and flips the turn.
+1. **What does one round look like — do both seats act at once, or do
+   they take turns?** The engine supports both natively, chosen by which
+   arm your `spec()` builds:
+   - **`#simultaneous`** (the common case — rock-paper-scissors,
+     simultaneous card reveals, a duel): the round resolves the instant
+     BOTH seats have submitted one move each; `resolve : (State, Action,
+     Action) -> ...` takes both. This is what
+     `templates/Rules.mo.template` is written for — use it as-is.
+   - **`#alternating`** (chess, checkers, tic-tac-toe — seats take turns
+     in order): the round resolves the instant the ONE seat on turn
+     submits; `resolve : (State, Seat, Action) -> ...` takes just that
+     seat and move, and the engine tracks whose turn it is on its own —
+     your `State` never needs a turn flag (the same trap as the "Every
+     phase needs no special handling from you" pitfall near the end of
+     this file, just for a different field). Read
+     `references/alternating-turn-games.md` before writing `Rules.mo` for
+     this case; `examples/checkers/src/CheckersRules.mo` is a complete
+     worked example.
 2. **`Action` must be a raw decision, never a value the server could
    derive.** If your rules description mentions a computed quantity (a
    damage number, a checksum, a result) that's a function of `State`
@@ -275,7 +284,11 @@ gets the mirror-image warning on the exact same clock — "your opponent
 can claim the win in Ns if you don't move" — so they can see the loss
 coming and act, not just find out about it after the fact; they never
 get a claim button of their own, since only the player who actually
-submitted may claim.
+submitted may claim. In a `#alternating` game this reads the same way
+from a different angle: "submitted" means "waiting on the other seat's
+turn," so only the seat NOT currently on turn ever sees the claim
+control — the on-turn seat gets the mirror-image warning instead, same
+as above.
 
 ## Step 5 — Write the rules unit tests
 

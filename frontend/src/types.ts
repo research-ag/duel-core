@@ -18,6 +18,11 @@ export type SeatTag = "p1" | "p2";
 
 export type Seat = { p1: null } | { p2: null };
 
+/// Whether a table resolves a round from both seats at once
+/// (`#simultaneous`) or one seat at a time, in turn (`#alternating`) —
+/// see `InGameView.mode`'s own doc.
+export type Mode = { simultaneous: null } | { alternating: null };
+
 export type Verdict = { p1Wins: null } | { p2Wins: null } | { draw: null };
 
 /// `claimed`: this seat claimed the win because the opponent's move sat
@@ -32,6 +37,10 @@ export type EngineErr =
   | { seatTaken: null }
   | { notSeated: null }
   | { alreadySubmitted: null }
+  // A `submit` on a `#alternating` table from the seat NOT currently on
+  // turn — see lib.mo's `Table.toMove` doc. Never produced for a
+  // `#simultaneous` table.
+  | { notYourTurn: null }
   | { illegalMove: string }
   | { wrongPhase: string }
   | { reserved: { secondsLeft: bigint } }
@@ -123,6 +132,16 @@ export interface InGameView<S = unknown> {
   seat: Seat;
   game: S;
   turn: bigint;
+  /// This table's own mode, constant for its lifetime — lets `render.ts`
+  /// show turn-accurate copy ("Your turn" vs "Opponent has locked in")
+  /// without a separate lookup.
+  mode: Mode;
+  /// `#simultaneous`: whether you/the opponent has locked in a move THIS
+  /// round. `#alternating`: whether it's currently on you/the opponent
+  /// to move (exactly one of the two is true at any time). Either way,
+  /// "you're the WAITING seat" — the one who may `claimWin` — is
+  /// precisely `youSubmitted && !oppSubmitted`, so `claimWinAvailable`
+  /// below needs no mode-specific formula of its own.
   youSubmitted: boolean;
   oppSubmitted: boolean;
   /// Stamp onto a later `submit`/`leave`/`reset`.

@@ -1,0 +1,11 @@
+[package]
+name = "duel-checkers"
+version = "0.1.0"
+description = "checkers — reference #alternating game built on duel-game-core"
+
+[dependencies]
+duel-game-core = "../../backend"
+core = "2.6.1"
+
+[toolchain]
+moc = "1.11.2"

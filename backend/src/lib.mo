@@ -98,7 +98,7 @@
 ///       Registry.new(60_000_000_000, 15_000_000_000); // 60s idle timeout, 15s claim-win window, per table
 ///
 ///     public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
-///       registry.status(Time.now(), sid);
+///       registry.status(Rules.spec(), Time.now(), sid);
 ///     };
 ///
 ///     // ...wire Ws.attach (dispatches every request straight into
@@ -176,10 +176,17 @@
 ///      rather than applying a stale payload, so a replay of any of them is
 ///      already either a no-op or a pre-existing, harmless error.
 ///
-/// Alternating-turn games: this engine is simultaneous-reveal. Model strictly
-/// alternating games with a pass-move convention — include a #pass move, have
-/// `validate` force the off-turn player to #pass (track whose turn in `S`),
-/// and let `resolve` apply the single real move.
+/// `Spec<S, M>` is tagged by `Mode`, so a game picks its own shape:
+/// `#simultaneous` (both seats submit every round; `resolve` takes both
+/// moves at once — everything described above) or `#alternating` (seats
+/// take turns in order; `resolve` takes just the one on-turn seat's
+/// move, and the engine tracks whose turn it is on its own, from the
+/// match's own round counter — a game's `S` never needs a turn flag of
+/// its own). Idle takeover and claim-a-win both still apply to an
+/// `#alternating` table exactly as described above, with one
+/// restriction: only the seat currently WAITING on the other's turn may
+/// claim — the seat whose own turn it is can't, since they're the one
+/// holding up the game, not the one waiting on it.
 /// ═══════════════════════════════════════════════════════════════════════════
 
 import Array "mo:core/Array"; // enables [T].concat dot notation
@@ -199,6 +206,7 @@ module {
   public type SessionId = T.SessionId;
   public type Seat = T.Seat;
   public type Verdict = T.Verdict;
+  public type Mode = T.Mode;
   public type Registry<S, M> = T.Registry<S, M>;
   public type TableSummary = T.TableSummary;
   public type SessionStatus<S> = T.SessionStatus<S>;

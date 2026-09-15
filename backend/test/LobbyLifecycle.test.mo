@@ -24,7 +24,7 @@ func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
 };
 
-func atTableView(session : Text) : TP.View<Rules.State> = switch (reg.status(now, session)) {
+func atTableView(session : Text) : TP.View<Rules.State> = switch (reg.status(spec, now, session)) {
   case (#atTable v) v.view;
   case (#browsing _) Runtime.trap("expected " # session # " to be at a table");
 };
@@ -83,7 +83,7 @@ switch (ok(reg.submit(spec, tick(), "bob", genOf("bob"), turnOf("bob"), #gather)
 };
 ignore ok(reg.rematch(spec, tick(), "alice"), "alice requests a rematch on A");
 ignore ok(reg.rematch(spec, tick(), "bob"), "bob accepts — A restarts under the SAME table id");
-switch (reg.status(now, "alice")) {
+switch (reg.status(spec, now, "alice")) {
   case (#atTable v) {
     assert v.id == tableA; // the rematch reuses the same table, not a new one
     switch (v.view) {
@@ -126,12 +126,12 @@ switch (atTableView("alice")) {
   case (_) Runtime.trap("A should still be live, untouched by B's abort");
 };
 ignore ok(reg.leave(tick(), "carol", genOf("carol")), "carol acks her own debrief");
-switch (reg.status(now, "carol")) {
+switch (reg.status(spec, now, "carol")) {
   case (#browsing _) {};
   case (_) Runtime.trap("carol should now be back to browsing");
 };
 ignore ok(reg.leave(tick(), "dave", genOf("dave")), "dave acks too — table B is now fully quiesced");
-switch (reg.status(now, "dave")) {
+switch (reg.status(spec, now, "dave")) {
   case (#browsing _) {};
   case (_) Runtime.trap("dave should now be back to browsing");
 };

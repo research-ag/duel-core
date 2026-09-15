@@ -33,6 +33,7 @@ export type BuildGameTypes = (args: { IDL: typeof IDLNS }) => {
 /// name — see the return type below for the full list.
 export interface EngineTypes {
   Seat: IDLNS.Type;
+  Mode: IDLNS.Type;
   Verdict: IDLNS.Type;
   End: IDLNS.Type;
   Err: IDLNS.Type;
@@ -77,6 +78,12 @@ export function buildEngineTypes({
   State: IDLNS.Type;
 }): EngineTypes {
   const Seat = IDL.Variant({ p1: IDL.Null, p2: IDL.Null });
+  // Whether this table resolves a round from both seats at once
+  // (`#simultaneous`) or one seat at a time, in turn (`#alternating`) —
+  // see lib.mo's `Spec`/`Mode` doc. Carried on `InGameView` so the
+  // generic chrome (render.ts's `renderInGame`) can show turn-accurate
+  // copy without a separate lookup.
+  const Mode = IDL.Variant({ simultaneous: IDL.Null, alternating: IDL.Null });
   const Verdict = IDL.Variant({
     p1Wins: IDL.Null,
     p2Wins: IDL.Null,
@@ -87,6 +94,10 @@ export function buildEngineTypes({
     seatTaken: IDL.Null,
     notSeated: IDL.Null,
     alreadySubmitted: IDL.Null,
+    // A submit on a #alternating table from the seat NOT currently on
+    // turn — see lib.mo's `Table.toMove` doc. Never produced for a
+    // #simultaneous table.
+    notYourTurn: IDL.Null,
     illegalMove: IDL.Text,
     wrongPhase: IDL.Text,
     reserved: IDL.Record({ secondsLeft: IDL.Nat }),
@@ -144,6 +155,7 @@ export function buildEngineTypes({
       seat: Seat,
       game: State,
       turn: IDL.Nat,
+      mode: Mode,
       youSubmitted: IDL.Bool,
       oppSubmitted: IDL.Bool,
       gen: IDL.Nat,
@@ -282,7 +294,7 @@ export function buildEngineTypes({
   });
 
   return {
-    Seat, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
+    Seat, Mode, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
     ClientKey, WsResult, CanisterWsOpenArguments, CanisterWsCloseArguments,
     WebsocketMessage, CanisterWsMessageArguments,
     CanisterWsGetMessagesArguments, CanisterOutputMessage,
