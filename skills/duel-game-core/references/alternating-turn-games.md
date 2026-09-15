@@ -69,18 +69,36 @@ hides the claim button from the on-turn seat automatically.
 
 ## The frontend needs no special handling either
 
-`GamePlugin.renderBoard`/`renderActions` work exactly the same way for
-an alternating game as a simultaneous one — `renderActions` is still
-"only ever called while it's legal for THIS seat to move" (the generic
-chrome hides it automatically on the seat's own off-turn screen, the same
+`GamePlugin.renderBoard`/`renderActions` work the same way for an
+alternating game as a simultaneous one — `renderActions` is still "only
+ever called while it's legal for THIS seat to move" (the generic chrome
+hides it automatically on the seat's own off-turn screen, the same
 mechanism that hides it during a simultaneous round after that seat has
-already locked in a move). The one thing worth knowing: a board game
-whose moves are `{from; to}` coordinate pairs (rather than a small fixed
-set like `#load`/`#shoot`) usually means `renderActions` enumerates every
-legal destination for every one of the mover's own pieces and renders one
-button per legal move (mirroring `validate`, the same "cosmetic legality
-mirror" pattern Step 6 already describes) — see
-`examples/checkers/frontend/src/checkers-plugin.js` for a worked example
-of that enumeration. This still fits the plain-button model; it doesn't
-need `references/rich-ui.md`'s drag-and-drop/canvas escape hatch unless
-your own game's UI genuinely can't be expressed as a list of buttons.
+already locked in a move). `renderBoard` additionally receives a 4th,
+optional `yourTurn` parameter mirroring that same signal — a game whose
+own board rendering needs to know whether it's currently interactive
+(see below) reads it there; a game that keeps `renderActions`' own
+separate button panel (the common case) can ignore it entirely.
+
+A board game whose moves are `{from; to}` coordinate pairs (rather than
+a small fixed set like `#load`/`#shoot`) often reads more naturally as
+click-to-select than as a flat button list: click one of your own
+movable pieces to select it, click one of ITS destinations to either
+finish the move or, for a capture that keeps going, advance the
+selection and highlight the next leg — building a multi-jump chain up
+one click at a time. This still fits the framework's plain-button model
+underneath: the click that actually FINISHES a move is rendered as a
+real `<button data-act=...>` (`render.js`'s own `actionAttr()`), so the
+generic click handling in `app.js` submits it completely unchanged; only
+the intermediate "select this piece" / "continue this chain" clicks are
+purely local UI state (a plain `<div data-sq=...>`, handled by the
+game's own small `document.addEventListener("click", ...)`, gated by
+`renderBoard`'s `yourTurn`) that never reaches the engine at all. See
+`examples/checkers/frontend/src/checkers-plugin.js` for a complete
+worked example — its own move-generation functions
+(`stepTargets`/`jumpTargets`) mirror `validate`, the same "cosmetic
+legality mirror" pattern Step 6 already describes, just used to decide
+what the board highlights as clickable instead of which buttons to
+render. This still doesn't need `references/rich-ui.md`'s drag-and-drop/
+canvas escape hatch unless your own game's UI genuinely can't be
+expressed as clickable board squares at all.

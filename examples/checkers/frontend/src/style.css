@@ -19,6 +19,58 @@
   font-size: clamp(1rem, 4vw, 1.8rem);
   line-height: 1;
   user-select: none;
+  position: relative;
+}
+
+/* A `<button>` square (a move- or chain-finishing click — see
+   checkers-plugin.js's own header) needs its default browser chrome
+   stripped so it looks identical to the plain `<div>` squares around
+   it. */
+button.cb-square {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  /* `all: unset` resets `position` to its initial `static` too (it's
+     not an inherited property) — without re-asserting `relative` here,
+     a terminal (button) target square loses the positioning context
+     `.cb-target::after` below needs, and its `inset: 32%` circle
+     anchors to the next positioned ancestor up instead (in practice,
+     nothing closer than the viewport) — a huge circle instead of a
+     small dot on the square itself. */
+  position: relative;
+}
+
+.cb-selectable,
+.cb-selected,
+.cb-target {
+  cursor: pointer;
+}
+
+.cb-selectable {
+  box-shadow: inset 0 0 0 3px #2ecc71;
+}
+
+.cb-selected {
+  box-shadow: inset 0 0 0 3px #f1c40f;
+}
+
+/* A reachable destination — whether it finishes the move or just
+   continues a capture chain — gets the same small marker dot; only
+   whether it's a <button> or a <div> (see checkers-plugin.js)
+   determines what a click on it actually does. */
+.cb-target::after {
+  content: "";
+  position: absolute;
+  inset: 32%;
+  border-radius: 50%;
+  background: rgba(46, 204, 113, 0.65);
 }
 
 .cb-light {

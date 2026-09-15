@@ -64,14 +64,30 @@ either package itself.
   `duel-game-core` is fetched locally via `npm install`, see below.
   `checkers-plugin.js` is the whole game-specific surface: it implements
   the `GamePlugin` contract (`idlTypes`, `seatLabel`, `renderBoard`,
-  `renderActions`) from `../../frontend/README.md`. `renderBoard` draws
-  a plain 8x8 grid straight from `State.board`; `renderActions`
-  enumerates every currently legal move for the seat to move (mirroring
-  `CheckersRules.mo`'s own move generation and mandatory-capture rule)
-  and renders one button per legal `#move`/`#jump` — a flat list, not
-  drag-and-drop, which is enough to stay within the framework's plain
-  `actionAttr()`-button model (see
-  `../../skills/duel-game-core/references/alternating-turn-games.md`).
+  `renderActions`) from `../../frontend/README.md`. Interaction is
+  click-to-select, not a button list: `renderBoard` draws the 8x8 grid
+  from `State.board` and, while `yourTurn` (its own 4th parameter — see
+  `GamePlugin`'s doc in `duel-game-core/render.js`), highlights every
+  one of the mover's own pieces that has a legal move; clicking one
+  highlights its own legal destinations, clicking one of those either
+  finishes the move (rendered as a real `<button data-act=...>`, so
+  `app.js`'s own generic click handling submits it unchanged) or, for a
+  capture that can keep going, advances the selection and highlights the
+  next leg (a plain, non-submitting `<div data-sq=...>`), so a
+  multi-jump chain is built up one click at a time — mirroring
+  `CheckersRules.mo`'s own move generation and mandatory-capture rule
+  throughout, the same "cosmetic legality mirror" every `GamePlugin`
+  is (see Architecture rule 3 below). All of this selection state lives
+  in a local, module-level variable in `checkers-plugin.js` alone — no
+  backend change, and the `Action` finally submitted is exactly the same
+  `#move`/`#jump` shape as always. The board is drawn flipped 180° for
+  Red's own view (`renderBoard`'s own `flip`) so each player always sees
+  their own side at the bottom, regardless of seat.
+  `renderActions` itself returns nothing (an empty string) — everything
+  happens by clicking the board. See
+  `../../skills/duel-game-core/references/alternating-turn-games.md` for
+  the general pattern a board game's interaction usually takes on this
+  framework.
   The generic chrome (`duel-game-core/render.js`) already shows
   turn-accurate copy ("Your turn"/"Opponent's turn") for an
   `#alternating` table with zero plugin-side work. `app.js` calls
@@ -186,14 +202,16 @@ read that file first. Rules specific to this example:
    `app.js`. If a screen looks wrong, check whether the fix belongs in
    `../../frontend/src/render.ts` (every game) or `checkers-plugin.js`
    (just this one).
-3. **`renderActions` and `CheckersRules.mo`'s own move generation are
-   two independent implementations of the same rules** — one in
-   Motoko (authoritative), one in JS (cosmetic, for building the button
-   list). If they ever disagree, `CheckersRules.mo` is correct and the
-   plugin has a display bug; the engine calls the REAL `validate` on
-   every submission regardless of what buttons were shown. Keep both in
-   sync when the rules change, the same way `duel007-plugin.js`'s
-   `legal()` mirrors `Duel007Rules.mo`'s `validate`.
+3. **`checkers-plugin.js`'s own `stepTargets`/`jumpTargets` and
+   `CheckersRules.mo`'s own move generation are two independent
+   implementations of the same rules** — one in Motoko (authoritative),
+   one in JS (cosmetic, for deciding what the click-to-select UI
+   highlights as legal). If they ever disagree, `CheckersRules.mo` is
+   correct and the plugin has a display bug; the engine calls the REAL
+   `validate` on every submission regardless of what the board showed as
+   clickable. Keep both in sync when the rules change, the same way
+   `duel007-plugin.js`'s `legal()` mirrors `Duel007Rules.mo`'s
+   `validate`.
 
 ## Game-rule notes (src/CheckersRules.mo)
 

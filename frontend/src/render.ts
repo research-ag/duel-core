@@ -8,9 +8,14 @@
 //
 //   {
 //     seatLabel(seatTag) => string,                         // "White" / "Black"
-//     renderBoard(gameState, mySeat, oppSeat) => htmlString,
+//     renderBoard(gameState, mySeat, oppSeat, yourTurn?) => htmlString,
 //     renderActions(gameState, mySeat) => htmlString,        // buttons; see actionAttr()
 //   }
+//
+// `yourTurn` (only present in an #inGame render, undefined for a
+// debrief's final-state one) is a convenience for a game that puts its
+// own interaction directly on the board (clickable squares) instead of
+// `renderActions`' own separate panel — see GamePlugin's own doc.
 //
 // Everything in this module is a pure function to an HTML string: no
 // DOM, no network, no globals. That's what makes it testable outside a
@@ -381,7 +386,7 @@ function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
             : "○ Opponent is deciding"
       }</span>
     </div>
-    <div class="board">${plugin.renderBoard(v.game, mySeat, oppSeat)}</div>
+    <div class="board">${plugin.renderBoard(v.game, mySeat, oppSeat, !v.youSubmitted)}</div>
     ${
       v.youSubmitted
         ? `<p class="waiting">${alternating ? "Waiting for your opponent's turn…" : "Move locked in — waiting for your opponent…"}</p>`

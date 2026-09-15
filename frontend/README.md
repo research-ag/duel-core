@@ -51,7 +51,11 @@ const plugin = {
   // Full board markup for one game state, from `mySeat`'s point of view.
   // Called for both the live game and a finished debrief's final state —
   // render whatever makes sense in each case from `gameState` alone.
-  renderBoard(gameState, mySeat, oppSeat) {
+  // `yourTurn` (true/false during a live game, undefined for a debrief)
+  // is only there for a game that puts its own interaction directly on
+  // the board — a plugin that keeps `renderActions`' own separate panel
+  // can ignore it entirely, same as this one does.
+  renderBoard(gameState, mySeat, oppSeat, yourTurn) {
     return `<pre>${JSON.stringify(gameState, null, 2)}</pre>`;
   },
 

@@ -202,7 +202,22 @@ export interface GamePlugin<S = unknown> {
   /// `{ IDL }` the Candid tooling passes to an idlFactory.
   idlTypes(args: { IDL: typeof IDL }): { Action: IDL.Type; State: IDL.Type };
   seatLabel(seat: SeatTag): string;
-  renderBoard(gameState: S, mySeat: SeatTag, oppSeat: SeatTag): string;
+  /// `yourTurn` is `true` while `mySeat` currently has a move to make
+  /// (mirrors whether `renderActions` gets called this same render —
+  /// see its own doc), `false` while waiting on the opponent, and
+  /// `undefined` for a finished debrief's final-state render (no turn to
+  /// speak of). Only present so a game whose own interaction lives ON
+  /// the board itself (clickable squares, e.g.) — rather than in a
+  /// separate `renderActions` panel — can gate that interactivity
+  /// correctly; a plugin that keeps board and actions strictly separate
+  /// (the common case, and every OTHER existing example) can ignore
+  /// this parameter entirely.
+  renderBoard(gameState: S, mySeat: SeatTag, oppSeat: SeatTag, yourTurn?: boolean): string;
+  /// Called only while `mySeat` currently has a move to make (never
+  /// while waiting on the opponent, never for a debrief) — see
+  /// `renderBoard`'s own `yourTurn` doc for the mirror-image signal
+  /// there. May return an empty string if a game puts all of its
+  /// interaction directly on the board instead of a separate panel.
   renderActions(gameState: S, mySeat: SeatTag): string;
 }
 
