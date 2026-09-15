@@ -67,6 +67,12 @@ import {
   waitingText,
 } from "./render.js";
 import type { DuelWs, EngineErr, GamePlugin, InGameView, Seat, SeatTag, StagingYouView, Visibility, WsPayload, WsRequest } from "./types.js";
+// Type-only — erased at compile time, so this adds no runtime import (and
+// no dependency) to app.js itself; see identity.ts's own header for why
+// that matters. A game that wants the real thing imports `resolveIdentity`
+// from "duel-game-core/identity.js" itself and hands the result in here
+// as `session`.
+import type { ResolvedIdentity } from "./identity.js";
 
 const $ = (id: string): HTMLElement | null => document.getElementById(id);
 
@@ -288,6 +294,12 @@ export interface StartOptions<S = unknown> {
   newSidBtnId?: string;
   screenElId?: string;
   errorElId?: string;
+  // A resolved identity from `duel-game-core/identity.js`'s
+  // `resolveIdentity()` — see this file's own "Session identity" section
+  // below. Omit entirely for today's default: a plain, anonymous,
+  // self-generated per-tab `sid`, unchanged.
+  session?: ResolvedIdentity;
+  authBtnId?: string;
 }
 
 /// Boots the generic session/click wiring against `ws`, using `plugin`
@@ -300,6 +312,10 @@ export interface StartOptions<S = unknown> {
 ///   screenElId   - id of the element `renderStatus` output is written into (default "screen")
 ///   errorElId    - id of the element transient errors are shown in (default "error")
 ///   ws           - WebSocket-like transport (see the file header)
+///   session      - a `resolveIdentity()` result (duel-game-core/identity.js);
+///                  omit for a plain, self-generated anonymous sid (default)
+///   authBtnId    - id of a login/logout button, wired only when `session` is
+///                  given (default "duel-auth-btn")
 export function start<S>({
   plugin,
   ws,
@@ -307,6 +323,8 @@ export function start<S>({
   newSidBtnId = "new-sid",
   screenElId = "screen",
   errorElId = "error",
+  session,
+  authBtnId = "duel-auth-btn",
 }: StartOptions<S>): void {
   if (!plugin) throw new Error("start(): `plugin` is required");
   if (!ws) throw new Error("start(): `ws` is required");
@@ -323,26 +341,89 @@ export function start<S>({
   if (!screenEl) throw new Error(`start(): no element with id "${screenElId}"`);
 
   // ---------------------------------------------------------------------
-  // Session identity. sessionStorage is per-tab, so tab #2 is player #2.
-  // `?sid=` wins, so you can pin an identity across reloads if you want.
+  // Session identity. With no `session` given: sessionStorage is per-tab,
+  // so tab #2 is player #2, and `?sid=` wins so you can pin an identity
+  // across reloads if you want — unchanged from before `session` existed.
+  // With a `session` (see `duel-game-core/identity.js`'s `resolveIdentity()`):
+  // its own `sid` is used instead, and — only once `session.isLoggedIn` —
+  // "new sid" is permanently disabled, since a real login isn't meant to
+  // be randomized away. `randomSid`/the inline sessionStorage calls below
+  // deliberately duplicate `identity.ts`'s own identical anonymous-sid
+  // logic rather than importing it: importing anything from `identity.ts`
+  // here would pull `@icp-sdk/auth` into every game that loads app.js,
+  // even one that never passes `session` at all — see identity.ts's own
+  // header and the root CLAUDE.md's rule 10.
   // ---------------------------------------------------------------------
 
-  const urlSid = new URLSearchParams(location.search).get("sid");
-  if (urlSid) sessionStorage.setItem("sid", urlSid);
-  if (!sessionStorage.getItem("sid")) sessionStorage.setItem("sid", randomSid());
+  if (!session) {
+    const urlSid = new URLSearchParams(location.search).get("sid");
+    if (urlSid) sessionStorage.setItem("sid", urlSid);
+    if (!sessionStorage.getItem("sid")) sessionStorage.setItem("sid", randomSid());
+  }
 
-  let sid = sessionStorage.getItem("sid") as string;
+  let sid = session ? session.sid : (sessionStorage.getItem("sid") as string);
   const sidEl = $(sidElId);
   if (sidEl) sidEl.textContent = sid;
   const newSidBtn = $(newSidBtnId) as HTMLButtonElement | null;
   if (newSidBtn) {
-    newSidBtn.addEventListener("click", () => {
-      if (newSidBtn.disabled) return;
-      sid = randomSid();
-      sessionStorage.setItem("sid", sid);
-      if (sidEl) sidEl.textContent = sid;
-      refresh();
+    if (session?.isLoggedIn) {
+      // Not just disabled — a real login isn't a per-tab identity at all,
+      // so offering the button (even greyed out) reads as "this should
+      // still do something." Hidden for good; there's nothing later that
+      // un-hides it (isLoggedIn can't change without a reload).
+      newSidBtn.disabled = true;
+      newSidBtn.hidden = true;
+    } else {
+      newSidBtn.addEventListener("click", () => {
+        if (newSidBtn.disabled) return;
+        sid = randomSid();
+        sessionStorage.setItem("sid", sid);
+        if (sidEl) sidEl.textContent = sid;
+        refresh();
+      });
+    }
+  }
+
+  // Login/logout — wired only when a `session` was actually handed in;
+  // left untouched (whatever markup/label a game gave it, if anything)
+  // otherwise. Static for the page's lifetime: logging in or out always
+  // reloads (see `ResolvedIdentity.login`/`logout`'s own doc), so there's
+  // no later state to re-render this against.
+  const authBtn = $(authBtnId) as HTMLButtonElement | null;
+  // True while THIS button's own login/logout call is in flight — checked
+  // by `setNewSidDisabled` below so an unrelated re-sync (a push landing
+  // mid-flight) can't re-enable it out from under its own pending action,
+  // the same guard `joinPending`/`pendingButtonKey` give the rest of the
+  // page's buttons.
+  let authActionPending = false;
+  if (authBtn && session) {
+    authBtn.textContent = session.isLoggedIn ? "Log out" : "Log in with Internet Identity";
+    authBtn.disabled = false;
+    authBtn.addEventListener("click", () => {
+      if (authBtn.disabled) return;
+      authActionPending = true;
+      authBtn.disabled = true;
+      const verb = session.isLoggedIn ? "Log out" : "Log in";
+      (session.isLoggedIn ? session.logout() : session.login()).catch((e: Error) => {
+        authActionPending = false;
+        // Resync to whatever the shared new-sid/auth state currently is
+        // instead of blindly re-enabling — e.g. a seat taken while this
+        // login attempt was in flight should leave both buttons disabled.
+        authBtn.disabled = newSidBtn?.disabled ?? false;
+        showError(`${verb} failed: ${e?.message ?? e}`);
+      });
     });
+  }
+
+  // Single choke point for "new sid"'s disabled state — also mirrors it
+  // onto `authBtn` (Login/Logout), since a swapped-away-from or
+  // in-progress identity is exactly as unsafe to touch mid-seat/mid-join/
+  // mid-disconnect as randomizing the sid itself is. Skipped for `authBtn`
+  // while its OWN action is in flight (see `authActionPending` above) —
+  // that state already keeps it disabled on its own terms.
+  function setNewSidDisabled(disabled: boolean): void {
+    if (newSidBtn) newSidBtn.disabled = disabled;
+    if (authBtn && session && !authActionPending) authBtn.disabled = disabled;
   }
 
   // A status counts as "seated" when this sid still holds a seat at a
@@ -411,11 +492,11 @@ export function start<S>({
   const syncNewSidBtn = (): void => {
     if (!newSidBtn) return;
     if (joinPending()) {
-      newSidBtn.disabled = true;
+      setNewSidDisabled(true);
       return;
     }
     if (lastStatus === undefined) return;
-    newSidBtn.disabled = isSeated(lastStatus);
+    setNewSidDisabled(isSeated(lastStatus));
   };
 
   // ---------------------------------------------------------------------
@@ -465,7 +546,7 @@ export function start<S>({
       el.hidden = false;
       $("duel-reload")?.addEventListener("click", () => location.reload());
     }
-    if (newSidBtn) newSidBtn.disabled = true;
+    setNewSidDisabled(true);
     applyLoadingState();
   }
 
@@ -879,13 +960,13 @@ export function start<S>({
         // See the `data-join`-era comment this mirrors, below: disable
         // new-sid the moment the request goes out, not only once the
         // engine confirms the seat.
-        if (newSidBtn) newSidBtn.disabled = true;
+        setNewSidDisabled(true);
         doCreateTable(b.dataset.createTable as SeatTag, visibility);
       } else if (b.dataset.joinTable && b.dataset.joinTableId) {
         // An open-table row's own per-seat button — the id is baked into
         // its own dataset by render.js, and an open table never needs a
         // code.
-        if (newSidBtn) newSidBtn.disabled = true;
+        setNewSidDisabled(true);
         doJoinTable(BigInt(b.dataset.joinTableId), b.dataset.joinTable as SeatTag, []);
       } else if (b.dataset.joinTableByCode) {
         // The "join by code" mini-form — table number and code are live
@@ -915,7 +996,7 @@ export function start<S>({
         }
         const codeEl = $("joinbycode-code") as HTMLInputElement | null;
         const code = codeEl?.value ?? "";
-        if (newSidBtn) newSidBtn.disabled = true;
+        setNewSidDisabled(true);
         doJoinTable(id, b.dataset.joinTableByCode as SeatTag, code ? [code] : []);
       } else if (b.dataset.act) doSubmit(JSON.parse(b.dataset.act));
       else if ("rematch" in b.dataset) doRematch();
@@ -1107,7 +1188,7 @@ export function start<S>({
     // table filling up, e.g.) can land mid-flight showing THIS sid still
     // unseated — that must not re-enable new-sid while this sid's own
     // create/join is still outstanding (see joinPending's own doc).
-    if (newSidBtn) newSidBtn.disabled = joinPending() || isSeated(status);
+    setNewSidDisabled(joinPending() || isSeated(status));
     if (deepEqual(status, lastStatus)) return;
     lastStatus = status;
     const savedForm = captureCreateFormState();

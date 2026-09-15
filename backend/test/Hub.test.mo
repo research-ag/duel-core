@@ -279,4 +279,53 @@ do {
   Debug.print("12. a reconnect racing finishClose's own prune keeps its bumped generation OK");
 };
 
+// ── 13. sidForPrincipal(): a pure, deterministic mapping — same principal
+//       always yields the same sid, and it lands in the reserved
+//       namespace (see this module's own doc header).
+// ────────────────────────────────────────────────────────────────────
+do {
+  let sidA = Ws.sidForPrincipal(PA);
+  if (sidA != Ws.sidForPrincipal(PA)) {
+    Runtime.trap("13a: sidForPrincipal must be deterministic for the same principal");
+  };
+  if (not Text.startsWith(sidA, #text (Ws.PRINCIPAL_SID_PREFIX))) {
+    Runtime.trap("13b: sidForPrincipal's own output must fall in its reserved namespace");
+  };
+  if (sidA == Ws.sidForPrincipal(PB)) {
+    Runtime.trap("13c: distinct principals must not collide");
+  };
+  Debug.print("13. sidForPrincipal() is a pure, collision-free, namespaced mapping OK");
+};
+
+// ── 14. isAuthorizedSid(): the reserved namespace is enforced — only the
+//       OWNING principal's own request may use its own principal-bound
+//       sid; any other caller (even one already remembered under some
+//       other, unrelated sid) is rejected.
+// ────────────────────────────────────────────────────────────────────
+do {
+  let sid = Ws.sidForPrincipal(PA);
+  if (not Ws.isAuthorizedSid(sid, PA)) {
+    Runtime.trap("14a: the owning principal must be authorized for its own sid");
+  };
+  if (Ws.isAuthorizedSid(sid, PB)) {
+    Runtime.trap("14b: a different principal must be rejected for someone else's reserved sid");
+  };
+  Debug.print("14. isAuthorizedSid() enforces the reserved namespace's own owner OK");
+};
+
+// ── 15. isAuthorizedSid(): a sid OUTSIDE the reserved namespace (the
+//       ordinary, plain/anonymous case) is authorized for ANY principal —
+//       the fully decoupled trust model this module always had must stay
+//       unchanged for it.
+// ────────────────────────────────────────────────────────────────────
+do {
+  if (not Ws.isAuthorizedSid("plain-agent-42", PA)) {
+    Runtime.trap("15a: a plain sid must be authorized regardless of principal");
+  };
+  if (not Ws.isAuthorizedSid("plain-agent-42", PB)) {
+    Runtime.trap("15b: ...for ANY principal, not just one");
+  };
+  Debug.print("15. isAuthorizedSid() leaves plain, non-reserved sids fully decoupled OK");
+};
+
 Debug.print("ALL HUB CHECKS PASSED");

@@ -178,6 +178,12 @@ module {
     // back to `joinTable` to match it, so that table would otherwise be
     // unreachable by construction.
     #badCode;
+    // A `ws.mo` request claimed a `SessionId` in the reserved
+    // principal-bound namespace (see `Ws.sidForPrincipal`'s own doc) that
+    // doesn't match the caller's own authenticated principal — never
+    // produced by `Table`/`Registry` themselves, only by `Ws.onMessage`'s
+    // own guard, before the request ever reaches either.
+    #unauthorized;
   };
 
   public type Res<T> = { #ok : T; #err : Err };

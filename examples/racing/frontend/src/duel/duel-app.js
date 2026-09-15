@@ -24,15 +24,11 @@
 // file is copied byte-for-byte into the build output (see build.js's
 // cpSync list), same as `duel-racing-plugin.js`.
 
-// `agent` and `identity` are both submodules of the SAME `@icp-sdk/core`
-// package, so pinning one exact version on both esm.sh URLs is enough to
-// keep them mutually consistent — no separate cross-package version-pin
-// trick needed the way independently versioned packages would require.
 import { Actor, HttpAgent } from 'https://esm.sh/@icp-sdk/core@6.1.0/agent';
-import { Ed25519KeyIdentity } from 'https://esm.sh/@icp-sdk/core@6.1.0/identity';
 import { makeIdlFactory } from './node_modules/duel-game-core/dist/idl.js';
 import { start } from './node_modules/duel-game-core/dist/app.js';
 import { connectWs } from './node_modules/duel-game-core/dist/ws.js';
+import { resolveIdentity } from './node_modules/duel-game-core/dist/identity.js';
 import { readIcEnv, deriveHost } from './node_modules/duel-game-core/dist/ic-env.js';
 import { plugin } from './duel-racing-plugin.js';
 
@@ -56,25 +52,27 @@ if (!canisterId) {
 }
 
 const host = deriveHost();
-// A fresh, throwaway Ed25519 identity generated on EVERY page load —
-// deliberately NOT anonymous, and deliberately NOT derived from/stable
-// across this tab's own sid either (an earlier version of this file
-// derived it from `sid` so it stayed the same across a reload — reverted
-// after that turned out to actively cause a persistent "Connection
-// closed" banner / `ws_message: Client with principal ... doesn't have
-// an open connection", see below).
+
+// This tab's own identity — a real, permanent Internet Identity login if
+// one's already active, otherwise a fresh, throwaway, non-anonymous
+// identity plus a plain, self-generated driver id, both exactly as this
+// game always used before it had a login option at all. See
+// duel-game-core/README.md's "Logging in with Internet Identity" section
+// for the full mechanism; the rest of this comment explains WHY the
+// throwaway fallback must stay throwaway rather than something simpler.
 //
-// This game has no login (see ../../CLAUDE.md: no auth, players are
-// told apart by seat/sid, never by principal — the engine's own identity
-// is the client-chosen `sid`, decoupled from IC principal on purpose,
-// see ../../../../backend/src/ws.mo's doc header), so
-// `HttpAgent.create()` with no `identity` would sign every call,
-// including ws_open, as the anonymous principal — and
-// `ic-websocket-cdk`'s `ws_open` hard-rejects an anonymous caller
-// ("Anonymous principal is not allowed"), so the WS handshake, and with
-// it the whole app (there's no polling fallback), never came up. Any
-// real, non-anonymous identity fixes that; a FRESH one every load is the
-// right choice specifically BECAUSE of a real bug in
+// `ic-websocket-cdk`'s `ws_open` hard-rejects the anonymous principal
+// outright ("Anonymous principal is not allowed"), so an anonymous
+// session (no login) can't just build `agent` with `HttpAgent.create({
+// host })` and nothing else — the WS handshake, and with it the whole
+// app (there's no polling fallback), never comes up. `resolveIdentity()`
+// generates a FRESH throwaway Ed25519 identity every page load for that
+// case — deliberately NOT derived from/stable across this tab's own
+// `sid` either (an earlier version of this file derived it from `sid` so
+// it stayed the same across a reload — reverted after that turned out to
+// actively cause a persistent "Connection closed" banner /
+// `ws_message: Client with principal ... doesn't have an open
+// connection", see below) — specifically BECAUSE of a real bug in
 // `ic-websocket-cdk@0.4.1`'s own bookkeeping: `remove_client` (in its
 // `State.mo`) deletes its principal->client_key lookup by PRINCIPAL
 // ALONE, not scoped to the exact client_key being removed. A plain page
@@ -92,9 +90,10 @@ const host = deriveHost();
 // player identity (`sid`) already persists across reload regardless,
 // completely independent of this principal, so nothing player-visible
 // is lost by NOT also pinning the WS-layer principal.
+const session = await resolveIdentity();
 const agent = await HttpAgent.create({
   host,
-  identity: Ed25519KeyIdentity.generate(),
+  identity: session.identity,
   shouldFetchRootKey: /localhost|127\.0\.0\.1/.test(host),
 });
 const idlFactory = makeIdlFactory(plugin.idlTypes);
@@ -119,8 +118,7 @@ window.__resolveDuelActor(actor);
 // lobby-connection.service.ts shares this EXACT client for the actual
 // race instead of running a second independent one — `GatewayWs`
 // extends EventTarget for exactly this, see its own header.
-const principal = await agent.getPrincipal();
-const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
+const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
 window.__resolveDuelWs(ws);
 
-start({ plugin, ws });
+start({ plugin, ws, session });

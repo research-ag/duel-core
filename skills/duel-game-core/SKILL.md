@@ -362,6 +362,18 @@ they build the actor, build a real-time-push `ws` over it
 mutating Candid method to poll in the first place), and hand off to the
 generic `start({ plugin, ws })`.
 
+Every player is a plain, anonymous, self-generated `sid` by default —
+this template makes no distinction between players beyond that, and
+nothing in Steps 2–5 needs to either. A game that also wants real,
+permanent player identity — someone logged in via Internet Identity,
+playing in the very same lobby as anonymous players with zero rules
+changes — swaps in `duel-game-core/identity.js`'s `resolveIdentity()`
+instead of this template's own throwaway-identity block, and passes its
+result as `start({ plugin, ws, session })`; see
+`frontend/README.md`'s "Logging in with Internet Identity" section (in
+the `duel-game-core` npm package) for the exact, complete pattern —
+nothing further to design here.
+
 **If your game's whole UI genuinely doesn't fit buttons and text** (a
 canvas, drag-and-drop, a 3D scene, or you're porting an existing
 framework-based client wholesale rather than writing a plugin from

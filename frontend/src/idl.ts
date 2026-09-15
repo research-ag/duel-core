@@ -103,6 +103,10 @@ export function buildEngineTypes({
     // joinTable targeted a code-protected table with a missing or
     // wrong code.
     badCode: IDL.Null,
+    // The request's sid claimed the reserved principal-bound namespace
+    // but didn't match the caller's own authenticated principal — see
+    // ws.mo's onMessage guard / identity.ts's sidForPrincipal.
+    unauthorized: IDL.Null,
   });
   // No JoinOk/SubmitOk/RematchOk here: those were only ever the result
   // types of the plain join/submit/rematch Candid methods, which don't

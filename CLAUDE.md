@@ -159,18 +159,25 @@ point when working in this repo.
   Benchmarking requires `[toolchain] pocket-ic` and `wasm-opt` pinned in
   `mops.toml` (already done) — `mops bench` fails outright without them.
 - `app.js`, `render.js`, `idl.js`, and `ic-env.js` — everything but
-  `frontend/ws/gateway-*.js` — have no npm dependencies at all, full
-  stop: `app.js`'s `start()` takes an already-constructed IC `actor`
-  (and a WebSocket-like `ws`, required) from its caller (see
-  `frontend/README.md`), so it never hardcodes an agent-loading
-  strategy. `frontend/ws.js` builds that `ws` FOR the caller — a
-  `GatewayWs` speaking `backend/src/ws.mo`'s real `ic-websocket-cdk`
-  protocol, no external relay library, no Gateway URL, nothing to load
-  from a CDN — but `gateway-*.js` itself is the one documented, narrow
-  exception: it depends on `@icp-sdk/core` (Candid encode/decode) and
-  `cborg` (CBOR-decoding `ws_get_messages`' certified envelope) — see
-  rule 10. Don't let a real npm dependency creep into ANY OTHER file in
-  this package.
+  `frontend/ws/gateway-*.js` and `frontend/identity.js` — have no npm
+  dependencies at all, full stop: `app.js`'s `start()` takes an
+  already-constructed IC `actor` (and a WebSocket-like `ws`, required)
+  from its caller (see `frontend/README.md`), so it never hardcodes an
+  agent-loading strategy. `frontend/ws.js` builds that `ws` FOR the
+  caller — a `GatewayWs` speaking `backend/src/ws.mo`'s real
+  `ic-websocket-cdk` protocol, no external relay library, no Gateway URL,
+  nothing to load from a CDN — but `gateway-*.js` itself is one
+  documented, narrow exception: it depends on `@icp-sdk/core` (Candid
+  encode/decode) and `cborg` (CBOR-decoding `ws_get_messages`' certified
+  envelope) — see rule 10. `frontend/identity.js` is the second such
+  exception: it depends on `@icp-sdk/auth` (Internet Identity's
+  `AuthClient`) and `@icp-sdk/core/identity`, confined there for the
+  identical reason — a game that never imports it (the default,
+  anonymous-only path) pulls in neither dependency; `app.js` only ever
+  imports its TYPES (erased at compile time, so no runtime import
+  results), never its implementation — see that file's own doc header.
+  Don't let a real npm dependency creep into ANY OTHER file in this
+  package.
 
 ## Build & test
 
@@ -204,7 +211,7 @@ mops bench
 # ships; there is no bare frontend/app.js etc. any more to check
 # directly, and no DOM needed to import the compiled output either:
 (cd frontend && npm run build)
-node --check frontend/dist/app.js frontend/dist/render.js frontend/dist/idl.js frontend/dist/ic-env.js frontend/dist/ws.js frontend/dist/ws/gateway-client.js frontend/dist/ws/gateway-transport.js frontend/dist/ws/gateway-protocol.js
+node --check frontend/dist/app.js frontend/dist/render.js frontend/dist/idl.js frontend/dist/ic-env.js frontend/dist/ws.js frontend/dist/identity.js frontend/dist/ws/gateway-client.js frontend/dist/ws/gateway-transport.js frontend/dist/ws/gateway-protocol.js
 ```
 
 With mops installed, `<path-to-core/src>` is typically
@@ -262,9 +269,20 @@ too, not just `node_modules/duel-game-core`:
 
 ```bash
 cd frontend && npm run build && cd ..
-cd examples/007/frontend    && rm -rf node_modules package-lock.json && npm install
+cd examples/007/frontend    && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
 cd examples/racing/frontend && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
 ```
+
+`--legacy-peer-deps` is required for BOTH examples now (007 didn't
+previously need it): `frontend/package.json`'s own `@icp-sdk/auth`
+dependency (added for `identity.js`, see rule 10 below) declares a peer
+dependency on `@icp-sdk/core@^5`, one major behind the `@icp-sdk/core@^6.1.0`
+this package (and both examples) actually use — `identity.ts`'s own actual
+surface (`Identity`/`Principal`'s structural methods) is stable across
+that skew, but plain `npm install` still refuses to resolve the conflicting
+peer ranges without this flag. A plain `npm install` inside `frontend/`
+itself (before running its own `npm run build`) needs
+`--legacy-peer-deps` for the same reason.
 
 `frontend/package.json` also declares a `prepare` script (`npm run
 build`) — npm normally runs a `file:` dependency's `prepare` script the
@@ -365,11 +383,18 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
     always builds) depends on `@icp-sdk/core` (Candid encode/decode of
     the message content blob) and `cborg` (CBOR-decoding
     `ws_get_messages`' certified envelope) — confined there for the same
-    reason `ic-websocket-cdk` is confined to `backend/src/ws.mo`: every
-    OTHER file in this package (`app.js`, `render.js`, `idl.js`,
-    `ic-env.js`) stays dependency-free. `start()` itself stays exactly as
-    transport-agnostic as before — a caller may still hand it any
-    WebSocket-shaped mock (e.g. for tests) instead of a real `GatewayWs`.
+    reason `ic-websocket-cdk` is confined to `backend/src/ws.mo`.
+    `frontend/identity.js` is a second such exception, for the identical
+    reason: it depends on `@icp-sdk/auth` and `@icp-sdk/core/identity` to
+    supply Internet Identity login (see `frontend/README.md`'s "Logging
+    in with Internet Identity"), and a game that never imports it pulls
+    in neither — `app.js` only ever imports its TYPES, erased at compile
+    time. Every OTHER file in this package (`app.js`, `render.js`,
+    `idl.js`, `ic-env.js`) stays dependency-free. `start()` itself stays
+    exactly as transport-agnostic as before — a caller may still hand it
+    any WebSocket-shaped mock (e.g. for tests) instead of a real
+    `GatewayWs`, and passing no `session` option leaves player identity
+    exactly as self-generated and anonymous as it always was.
 11. **`ws.mo` reimplements no game logic, and is the sole entry point for
     mutation.** Every WebSocket request dispatches to `registry.mo`'s own
     `Registry` operations (`createTable`, `joinTable`, `submit`, ...)

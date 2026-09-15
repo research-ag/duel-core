@@ -27,12 +27,27 @@
 /// ── What it does ────────────────────────────────────────────────────────
 ///
 /// The engine's identity is a client-chosen `SessionId` (Text), decoupled
-/// from any IC principal on purpose (see `../README.md`/`../../frontend`'s
+/// from any IC principal by default (see `../README.md`/`../../frontend`'s
 /// `sid` — one per browser tab). A WebSocket connection, however, is keyed
 /// by the caller's principal (each browser tab signs with its own identity,
 /// generated or supplied by `ic-websocket-js`). `Hub` bridges the two: it
 /// learns `sid <-> principal` from the `sid` every inbound `Msg` carries,
 /// and forgets it on `ws_close`.
+///
+/// A game MAY opt a session into a real, non-spoofable identity instead —
+/// e.g. a player who logged in via Internet Identity — by using a `sid` of
+/// the form `sidForPrincipal(p)` (below): a pure, permanent function of
+/// `p`, so nothing needs to be allocated or stored to "issue" it — the
+/// first login already produces it, and it can never change so long as the
+/// same login resolves to the same principal. This module is what makes
+/// that binding real rather than a naming convention: `onMessage` (below)
+/// rejects any inbound `sid` in that reserved namespace whose principal
+/// doesn't match `args.client_principal` with `#unauthorized`, before the
+/// request ever reaches `Hub`/`Registry`. A `sid` NOT in that namespace
+/// keeps the fully decoupled, client-asserted trust model described above,
+/// unchanged — the two kinds of session sit at the very same tables, since
+/// `Table`/`Registry` never look at a `SessionId` beyond comparing it for
+/// equality.
 ///
 /// Every mutating request re-uses `Registry`'s own routed operations
 /// (`createTable`, `joinTable`, `submit`, ...) with `Time.now()` —
@@ -201,6 +216,40 @@ module {
   public type Codec<S, M> = {
     encode : (Msg<S, M>) -> Blob;
     decode : (Blob) -> ?Msg<S, M>;
+  };
+
+  // ────────────────────────── principal-bound identity ────────────────────
+
+  /// Reserved `SessionId` namespace for a real, non-spoofable identity —
+  /// see this module's own doc header. Never used internally by `Table`/
+  /// `Registry`, which treat every `SessionId` as opaque text; this prefix
+  /// only ever matters to `onMessage`'s own guard, below.
+  public let PRINCIPAL_SID_PREFIX : Text = "ii:";
+
+  /// The permanent player id for principal `p` — a pure function, so it's
+  /// "issued" for free the first time `p` ever logs in (nothing to
+  /// allocate or store) and can never change for as long as the same login
+  /// keeps resolving to the same principal. A frontend deriving a session's
+  /// `sid` this way (see `../../frontend/src/identity.ts`'s
+  /// `sidForPrincipal`, which MUST compute the identical value) gets that
+  /// guarantee automatically; `isAuthorizedSid` below is what makes it
+  /// non-spoofable rather than just a naming convention.
+  public func sidForPrincipal(p : Principal.Principal) : TP.SessionId {
+    PRINCIPAL_SID_PREFIX # Principal.toText(p);
+  };
+
+  /// Whether `sid` is legal for a request arriving over a connection
+  /// authenticated as `p`. A `sid` outside the reserved namespace is
+  /// always authorized — the plain, client-asserted trust model this
+  /// module always had is unchanged for it. A `sid` inside the reserved
+  /// namespace is authorized only if it's exactly `sidForPrincipal(p)` —
+  /// anything else is an attempt to claim an identity that isn't this
+  /// caller's own. Pulled out as its own pure function (mirroring
+  /// `rematchOpenedLobby`'s own doc on why) so it's unit-testable without
+  /// the `IcWebSocketCdk` actor machinery `onMessage` itself needs.
+  public func isAuthorizedSid(sid : TP.SessionId, p : Principal.Principal) : Bool {
+    if (not Text.startsWith(sid, #text PRINCIPAL_SID_PREFIX)) return true;
+    Text.equal(sid, sidForPrincipal(p));
   };
 
   // ────────────────────────── sid <-> principal bridge ────────────────────
@@ -499,6 +548,22 @@ module {
     ) : async* () {
       switch (codec.decode(args.message)) {
         case (?#req { sid; req; reqId }) {
+          if (not isAuthorizedSid(sid, args.client_principal)) {
+            // `sid` claims the reserved principal-bound namespace but
+            // doesn't belong to this connection's own authenticated
+            // principal — reject before `remember` (which would otherwise
+            // bind this sid to a principal it was never legitimately
+            // issued to) or `Registry` ever see it. Sent straight to
+            // `args.client_principal`, not via `pushTo`/`sid` — `pushTo`
+            // resolves ITS target principal from `hub.bySid[sid]`, exactly
+            // the mapping this caller just failed to prove ownership of.
+            ignore await* IcWebSocketCdk.send(
+              wsState,
+              args.client_principal,
+              codec.encode(#err({ reqId; err = #unauthorized })),
+            );
+            return;
+          };
           remember(hub, sid, args.client_principal);
           let now = Time.now();
           // This session's table BEFORE the request runs — the only way

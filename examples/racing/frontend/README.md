@@ -23,7 +23,7 @@ It has two independent halves that share one page and one canister session:
 ## Build
 
 ```bash
-npm install --legacy-peer-deps   # see the rxjs peer-dependency note below
+npm install --legacy-peer-deps   # see the peer-dependency note below
 npm run build                    # esbuild bundle → dist/
 ```
 
@@ -41,10 +41,13 @@ not re-copy the static files, so re-run `npm run build` if you touch
 `npm run typecheck` runs `tsc --noEmit` — esbuild itself only transpiles,
 it does not type-check, so this is the real compile-time safety net.
 
-The `--legacy-peer-deps` flag works around a pre-existing peer-dependency
-mismatch: `@gg-web-engine/three` pins `rxjs@7.8.1` as a peer while this
-project (like most current rxjs users) is on `7.8.2`. They're
-API-compatible; this is just npm's strict peer resolution being strict.
+The `--legacy-peer-deps` flag works around two pre-existing peer-dependency
+mismatches, neither a real incompatibility: `@gg-web-engine/three` pins
+`rxjs@7.8.1` as a peer while this project (like most current rxjs users)
+is on `7.8.2`; and `duel-game-core` (via `identity.js`) depends on
+`@icp-sdk/auth`, which itself declares a peer dependency on
+`@icp-sdk/core@^5` — one major behind the `@icp-sdk/core@^6.1.0` this
+project actually uses (see `../../../frontend/README.md`'s own note).
 
 ## What lives where
 

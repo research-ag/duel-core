@@ -57,36 +57,36 @@ concrete to copy — it is **not** part of either package itself.
   `npm install`, see below). `duel007-plugin.js` is the whole
   game-specific surface: it implements the `GamePlugin` contract
   (`idlTypes`, `seatLabel`, `renderBoard`, `renderActions`) from
-  `../../frontend/README.md`. `app.js` builds the actor and this tab's
-  own `principal` — a FRESH Ed25519 identity generated on every page load
-  (`Ed25519KeyIdentity.generate()`, no seed), not the plain anonymous
-  identity `HttpAgent.create({ host })` defaults to. This game has no
-  login, but `ic-websocket-cdk`'s `ws_open` hard-rejects an anonymous
-  caller outright, so building `agent` with no `identity` at all breaks
-  the WS handshake completely (there's no polling fallback) — see
-  `../../frontend/README.md`'s "Real-time push" section for why, and for
-  why the identity must NOT be derived from `sid` to stay stable across a
-  reload (a real, reachable `ic-websocket-cdk@0.4.1` cleanup bug — a
-  stale close from an old, same-principal registration can erase a new,
-  perfectly-live one's own lookup entry — makes that actively worse than
-  a fresh keypair every load, not better). Then calls
-  `duel-game-core/ws.js`'s `connectWs({ actor,
-  principal, gameIdlTypes: plugin.idlTypes })` for the real push
-  transport `start()` requires (see `../../frontend/README.md`'s
-  "Real-time push" section) — this game's own code never touches
-  `mo:duel-game-core/ws`'s protocol directly (`duel-game-core/ws/
-  gateway-*.js` does, registering this tab as its own WS Gateway) or
-  imports any third-party library itself; `index.html`'s import map
-  resolves `duel-game-core`'s own `@icp-sdk/core/candid`/`cborg` dependencies
-  (bare specifiers a raw browser can't resolve on its own — see that
-  file's comment) — and calls `start({ plugin, ws })` — every screen
-  that's the same for every game (the multi-table lobby — create a
-  table, browse open ones, join by code — staging, rematch, busy
-  countdown, debrief chrome, session identity, push) comes from the npm
-  package. There is no polling fallback anywhere in this stack any more —
-  `ws` is required, `start()` throws without one, and the backend has no
-  plain mutating Candid method to poll in the first place (see
-  `../../CLAUDE.md`). `style.css`
+  `../../frontend/README.md`. `app.js` calls `duel-game-core/identity.js`'s
+  `resolveIdentity()` to get this tab's own identity/`session` in one
+  call: a real, permanent Internet Identity login if one's already
+  active, otherwise a fresh, throwaway `Ed25519KeyIdentity` (no seed) —
+  never the plain anonymous identity `HttpAgent.create({ host })`
+  defaults to, since `ic-websocket-cdk`'s `ws_open` hard-rejects an
+  anonymous caller outright (there's no polling fallback). See
+  `../../frontend/README.md`'s "Logging in with Internet Identity" and
+  "Real-time push" sections for the full mechanism, including why a
+  throwaway identity must NOT be derived from `sid` to stay stable across
+  a reload (a real, reachable `ic-websocket-cdk@0.4.1` cleanup bug), and
+  the trade-off a genuinely stable, login-derived principal reintroduces
+  on purpose. Then calls `duel-game-core/ws.js`'s
+  `connectWs({ actor, principal: session.principal, gameIdlTypes:
+  plugin.idlTypes })` for the real push transport `start()` requires —
+  this game's own code never touches `mo:duel-game-core/ws`'s protocol
+  directly (`duel-game-core/ws/gateway-*.js` does, registering this tab
+  as its own WS Gateway) or imports any third-party library itself;
+  `index.html`'s import map resolves `duel-game-core`'s own
+  `@icp-sdk/core/candid`/`@icp-sdk/core/identity`/`@icp-sdk/auth/client`/`cborg`
+  dependencies (bare specifiers a raw browser can't resolve on its own —
+  see that file's comment) — and calls `start({ plugin, ws, session })`,
+  which also wires the header's `duel-auth-btn` (login/logout) entirely
+  on its own — every screen that's the same for every game (the
+  multi-table lobby — create a table, browse open ones, join by code —
+  staging, rematch, busy countdown, debrief chrome, session identity,
+  push) comes from the npm package. There is no polling fallback anywhere
+  in this stack any more — `ws` is required, `start()` throws without
+  one, and the backend has no plain mutating Candid method to poll in the
+  first place (see `../../CLAUDE.md`). `style.css`
   here holds only 007-specific visuals (narration box, agent stat panels,
   resource pips), layered on top of `node_modules/duel-game-core/style.css`
   (loaded first in `index.html`), which supplies the page chrome and the
@@ -133,12 +133,15 @@ concrete to copy — it is **not** part of either package itself.
   an import map, and this repo doesn't give it one for that). What DOES
   need `index.html`'s import map: `duel-game-core/ws.js` (see
   `../../../CLAUDE.md`'s toolchain note) talks to
-  `mo:duel-game-core/ws`'s real `ic-websocket-cdk` protocol, and pulls
-  in `@icp-sdk/core/candid`/`cborg` transitively through
-  `duel-game-core`'s own `package.json` (a normal `npm install` picks
-  them up — nothing to add here) — resolved in the browser via THAT
-  import map, since bare specifiers deep inside a COPIED
-  `node_modules/duel-game-core` file have no other way to resolve.
+  `mo:duel-game-core/ws`'s real `ic-websocket-cdk` protocol, and
+  `duel-game-core/identity.js` (Internet Identity login) — pull in
+  `@icp-sdk/core/candid`/`@icp-sdk/core/identity`/`@icp-sdk/auth/client`/
+  `cborg` transitively through `duel-game-core`'s own `package.json` (a
+  normal `npm install --legacy-peer-deps` picks them up — see this file's
+  own "Build & test" section for why the flag is needed — nothing to add
+  here) — resolved in the browser via THAT import map, since bare
+  specifiers deep inside a COPIED `node_modules/duel-game-core` file have
+  no other way to resolve.
 
 ## Build & test
 
@@ -164,7 +167,7 @@ mops test Rules            # ...so this matches Rules AND RulesUnit
 # (no DOM needed to import):
 (cd ../../frontend && npm run build)
 cd frontend
-npm install
+npm install --legacy-peer-deps    # see ../../../frontend/README.md's note on @icp-sdk/auth's peer range
 node --check app.js duel007-plugin.js
 ```
 

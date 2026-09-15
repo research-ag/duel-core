@@ -33,6 +33,7 @@
       <span class="label">Driver ID</span>
       <code id="sid">…</code>
       <button id="new-sid" title="Play as a different driver">new</button>
+      <button id="duel-auth-btn"></button>
     </div>
   </header>
   <p id="error" class="error" hidden></p>
@@ -74,6 +75,8 @@
       "imports": {
         "@icp-sdk/core/candid": "https://esm.sh/@icp-sdk/core@6.1.0/candid",
         "@icp-sdk/core/principal": "https://esm.sh/@icp-sdk/core@6.1.0/principal",
+        "@icp-sdk/core/identity": "https://esm.sh/@icp-sdk/core@6.1.0/identity",
+        "@icp-sdk/auth/client": "https://esm.sh/@icp-sdk/auth@8.0.3/client?deps=@icp-sdk/core@6.1.0",
         "cborg": "https://esm.sh/cborg@4.5.8"
       }
     }

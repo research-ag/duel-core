@@ -50,7 +50,12 @@ export type EngineErr =
   | { noSuchTable: null }
   // `joinTable` targeted a code-protected table with a missing or
   // wrong code.
-  | { badCode: null };
+  | { badCode: null }
+  // The request's `sid` claimed the reserved principal-bound namespace
+  // (see `identity.ts`'s `sidForPrincipal`) but didn't match the caller's
+  // own authenticated principal — see `ws.mo`'s `onMessage` guard. Never
+  // produced for a plain, non-`"ii:"` sid.
+  | { unauthorized: null };
 
 /// A table's numeric id — assigned sequentially, never reused even once
 /// a table is garbage-collected (see registry.mo's `Registry`).

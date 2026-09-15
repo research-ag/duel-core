@@ -89,6 +89,8 @@ export function errText(e: EngineErr): string {
       return "That table doesn't exist any more.";
     case "badCode":
       return "Wrong (or missing) access code for that table.";
+    case "unauthorized":
+      return "This session belongs to a different signed-in identity.";
     default:
       return t;
   }

@@ -337,10 +337,33 @@ client-side FIFO match-next-message-to-oldest-pending-request scheme let
 an opponent's broadcast steal the slot meant for this connection's own
 reply, silently hanging the real one forever. `Hub` is the other half of
 the bridge: the engine's identity is a client-chosen `SessionId`
-(`Text`), decoupled from any IC principal on purpose, but a WebSocket
+(`Text`), decoupled from any IC principal by default, but a WebSocket
 connection is keyed by principal — `Hub` learns the `sid <-> principal`
 pairing from the `sid` every inbound message carries, and forgets it on
 `ws_close`.
+
+**Player identity: anonymous and logged-in players, treated equally.**
+`Table`/`Registry` never look at a `SessionId` beyond comparing it for
+equality, so an anonymous, client-chosen id (today's default — an "agent
+id"/"racer id" a game's own frontend makes up) and a real, permanently
+identified player (someone who logged in via Internet Identity) already sit
+at the very same tables with no special-casing anywhere in the engine. The
+only piece a real login needs beyond that is non-spoofability — nothing
+should let one caller claim another's identity — and `Ws` is where that's
+enforced, since it's already the layer bridging `sid` to a caller's
+authenticated principal. `Ws.sidForPrincipal(p)` is a pure, permanent
+function of a principal (`"ii:" # Principal.toText(p)` — the exact prefix
+is `Ws.PRINCIPAL_SID_PREFIX`): a logged-in player's id is "issued" for free
+at their first login (nothing to allocate or store) and can never change
+for as long as the same login keeps resolving to the same principal.
+`onMessage` rejects any inbound `sid` in that reserved namespace whose
+principal doesn't match the connection's own `args.client_principal` with
+`Err.#unauthorized`, before the request ever reaches `Hub` or `Registry` —
+a `sid` outside that namespace keeps the fully decoupled, client-asserted
+trust model unchanged. See `../frontend/README.md`'s "Logging in with
+Internet Identity" section for the matching frontend half
+(`duel-game-core/identity.js`'s `resolveIdentity()`, which computes the
+identical `sidForPrincipal` value).
 
 **Replay safety.** `#submit`/`#leave`/`#reset`/`#claimWin` each carry a
 `gen : Nat` (and `#submit` additionally a `turn : Nat`) — the match

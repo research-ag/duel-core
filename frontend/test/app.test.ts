@@ -67,6 +67,7 @@ function setup(opts: { withRequest?: boolean } = {}) {
   const els = {
     sid: new FakeElement(),
     "new-sid": new FakeElement(),
+    "duel-auth-btn": new FakeElement(),
     error: new FakeElement(),
     screen: new FakeElement(),
   };
@@ -885,4 +886,212 @@ test("ws.onclose shows a persistent reload prompt and disables every button on t
   ws.onerror!({ error: new Error("boom") });
   assert.match(els.error.innerHTML, /Connection closed/);
   assert.doesNotMatch(els.error.innerHTML, /boom/);
+});
+
+// ── `session` (a resolveIdentity() result — see identity.ts) ───────────
+// A minimal stand-in mirroring exactly the fields app.ts itself reads —
+// not identity.ts's real `ResolvedIdentity` (importing that would pull
+// `@icp-sdk/auth` into this test for no reason; see identity.ts's own
+// header on why app.ts never does that at runtime either).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- app.ts
+// never reads either field itself (see identity.ts); `any` sidesteps
+// needing a real @icp-sdk/core Identity/Principal here.
+interface FakeSession {
+  identity: any;
+  principal: any;
+  sid: string;
+  isLoggedIn: boolean;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+}
+
+function fakeSession(overrides: Partial<FakeSession> = {}): FakeSession {
+  return {
+    identity: {}, // app.ts never reads this field itself — see identity.ts
+    principal: {}, // ...or this one; both just pass through to connectWs()
+    sid: "ii:abc",
+    isLoggedIn: true,
+    login: async () => {},
+    logout: async () => {},
+    ...overrides,
+  };
+}
+
+test("a logged-in session's sid is used directly, and new-sid is permanently disabled AND hidden", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  const session = fakeSession({ sid: "ii:abc123", isLoggedIn: true });
+  start({ plugin, ws, session });
+
+  assert.equal(els.sid.textContent, "ii:abc123");
+  assert.equal(els["new-sid"].disabled, true);
+  assert.equal(els["new-sid"].hidden, true, "a logged-in identity isn't a per-tab thing to switch away from");
+  els["new-sid"].dispatch("click", {});
+  assert.equal(ws.sent.length, 0, "a disabled new-sid must never dispatch");
+});
+
+test("an anonymous session's sid is used, and new-sid still rotates it as usual", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  const session = fakeSession({ sid: "anon-1", isLoggedIn: false });
+  start({ plugin, ws, session });
+
+  assert.equal(els.sid.textContent, "anon-1");
+  assert.equal(els["new-sid"].disabled, false);
+  assert.equal(els["new-sid"].hidden, false);
+  els["new-sid"].dispatch("click", {});
+  assert.notEqual(els.sid.textContent, "anon-1");
+  assert.equal(ws.sent[0]!.sid, els.sid.textContent);
+});
+
+test("with no session passed, duel-auth-btn is left untouched (default, backward-compatible behavior)", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws });
+
+  assert.equal(els["duel-auth-btn"].textContent, "");
+  els["duel-auth-btn"].dispatch("click", {});
+  assert.equal(ws.sent.length, 0, "an unwired button must do nothing");
+});
+
+test("duel-auth-btn: labeled and wired to session.login() while anonymous", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  let loginCalled = false;
+  const session = fakeSession({
+    isLoggedIn: false,
+    login: async () => {
+      loginCalled = true;
+    },
+  });
+  start({ plugin, ws, session });
+
+  assert.match(els["duel-auth-btn"].textContent, /Log in/);
+  assert.equal(els["duel-auth-btn"].disabled, false);
+  els["duel-auth-btn"].dispatch("click", {});
+  assert.equal(loginCalled, true);
+});
+
+test("duel-auth-btn: labeled and wired to session.logout() while logged in", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  let logoutCalled = false;
+  const session = fakeSession({
+    isLoggedIn: true,
+    logout: async () => {
+      logoutCalled = true;
+    },
+  });
+  start({ plugin, ws, session });
+
+  assert.match(els["duel-auth-btn"].textContent, /Log out/);
+  els["duel-auth-btn"].dispatch("click", {});
+  assert.equal(logoutCalled, true);
+});
+
+test("duel-auth-btn: a failed login re-enables the button and shows an error, without touching the persistent-disconnect banner", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  const session = fakeSession({
+    isLoggedIn: false,
+    login: () => Promise.reject(new Error("popup closed")),
+  });
+  start({ plugin, ws, session });
+
+  els["duel-auth-btn"].dispatch("click", {});
+  assert.equal(els["duel-auth-btn"].disabled, true, "disabled immediately, before the rejection settles");
+  await Promise.resolve().then(() => Promise.resolve()); // let the rejection's .catch() run
+  assert.equal(els["duel-auth-btn"].disabled, false, "re-enabled once the failed attempt settles");
+  assert.match(els.error.textContent, /Log in failed/);
+});
+
+test("duel-auth-btn: a second click while a login is in flight is ignored", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  let calls = 0;
+  const session = fakeSession({
+    isLoggedIn: false,
+    login: () => {
+      calls++;
+      return new Promise<void>(() => {}); // never settles
+    },
+  });
+  start({ plugin, ws, session });
+
+  els["duel-auth-btn"].dispatch("click", {});
+  els["duel-auth-btn"].dispatch("click", {});
+  assert.equal(calls, 1, "a disabled button must not dispatch a second login attempt");
+});
+
+test("duel-auth-btn is disabled together with new-sid once the session holds a seat, and re-enabled once it doesn't", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  const session = fakeSession({ isLoggedIn: true });
+  start({ plugin, ws, session });
+
+  ws.onmessage!({
+    data: {
+      view: atTable({
+        stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n, visibility: { open: null } },
+      }),
+    },
+  });
+  assert.equal(els["new-sid"].disabled, true);
+  assert.equal(els["duel-auth-btn"].disabled, true, "auth button must follow new-sid's disabled state");
+
+  ws.onmessage!({ data: { view: browsing() } });
+  assert.equal(els["new-sid"].disabled, false);
+  assert.equal(els["duel-auth-btn"].disabled, false, "auth button must re-enable once no longer seated");
+});
+
+test("duel-auth-btn is disabled the instant a create-table request is dispatched, same as new-sid", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  const session = fakeSession({ isLoggedIn: false });
+  start({ plugin, ws, session });
+
+  ws.onmessage!({ data: { view: browsing() } });
+  assert.equal(els["duel-auth-btn"].disabled, false);
+
+  const createBtn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable);
+  assert.ok(createBtn, "expected a create-table button on the browsing screen");
+  click(els.screen, createBtn!);
+  assert.equal(els["new-sid"].disabled, true);
+  assert.equal(els["duel-auth-btn"].disabled, true);
+});
+
+test("duel-auth-btn stays disabled through the persistent disconnected state, same as every other button", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  const session = fakeSession({ isLoggedIn: false });
+  start({ plugin, ws, session });
+
+  ws.onmessage!({ data: { view: browsing() } });
+  assert.equal(els["duel-auth-btn"].disabled, false);
+
+  ws.onclose!();
+  assert.equal(els["new-sid"].disabled, true);
+  assert.equal(els["duel-auth-btn"].disabled, true);
+});
+
+test("a login attempt still in flight is not re-enabled by an unrelated seated/unseated resync", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  let resolveLogin!: () => void;
+  const session = fakeSession({
+    isLoggedIn: false,
+    login: () => new Promise<void>((resolve) => (resolveLogin = resolve)),
+  });
+  start({ plugin, ws, session });
+
+  ws.onmessage!({ data: { view: browsing() } });
+  els["duel-auth-btn"].dispatch("click", {});
+  assert.equal(els["duel-auth-btn"].disabled, true, "disabled the instant the click fired");
+
+  // An unrelated push arrives while the login is still pending — must not
+  // re-enable a button whose own action hasn't settled yet.
+  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, waitingSecs: 0n }]) } });
+  assert.equal(els["duel-auth-btn"].disabled, true, "must stay disabled while its own login is still pending");
+
+  resolveLogin();
 });

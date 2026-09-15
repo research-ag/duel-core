@@ -107,6 +107,7 @@ test("Err round-trips every variant shape", () => {
     { notIdle: { secondsLeft: 1n } },
     { notOverdue: { secondsLeft: 5n } },
     { stale: null },
+    { unauthorized: null },
   ]) {
     const bytes = IDL.encode([t.Err], [err]);
     const [decoded] = IDL.decode(

@@ -14,6 +14,7 @@
         <span class="label">Agent ID</span>
         <code id="sid">…</code>
         <button id="new-sid" title="Play as a different agent">new</button>
+        <button id="duel-auth-btn"></button>
       </div>
     </header>
 
@@ -26,19 +27,29 @@
     <footer>
       <p class="muted">
         Your Agent ID is per browser tab — open a second tab to play the
-        other seat. An idle board can be taken over after 60&nbsp;seconds.
+        other seat — unless you log in with Internet Identity, which gives
+        you the same Agent ID everywhere, permanently. An idle board can be
+        taken over after 60&nbsp;seconds.
       </p>
     </footer>
 
     <!--
-      Bare-specifier resolution for duel-game-core/ws/gateway-*.js's own
-      dependencies (see ../../../frontend/README.md's "Real-time push"
-      section / ../../../CLAUDE.md rule 10) — the browser has no
-      node_modules resolution of its own, so these three need mapping
-      the same way app.js loads @icp-sdk/core/agent from a full esm.sh URL
-      directly (that one's a bare specifier deep inside a COPIED
-      node_modules/duel-game-core file, so it can't use the same
-      full-URL trick app.js does).
+      Bare-specifier resolution for duel-game-core/ws/gateway-*.js's and
+      duel-game-core/identity.js's own dependencies (see
+      ../../../frontend/README.md's "Real-time push"/"Logging in with
+      Internet Identity" sections / ../../../CLAUDE.md rule 10) — the
+      browser has no node_modules resolution of its own, so these need
+      mapping the same way app.js loads @icp-sdk/core/agent from a full
+      esm.sh URL directly (those are bare specifiers deep inside a COPIED
+      node_modules/duel-game-core file, so they can't use the same
+      full-URL trick app.js does). `@icp-sdk/auth`'s own esm.sh build
+      pins `?deps=@icp-sdk/core@6.1.0` so it resolves against the EXACT
+      same `@icp-sdk/core` build every other entry here uses, instead of
+      esm.sh independently bundling the older `@icp-sdk/core@^5` range
+      `@icp-sdk/auth`'s own package.json declares as a peer dependency
+      (see ../../../frontend/README.md's `--legacy-peer-deps` note) — two
+      different `@icp-sdk/core` copies in the same page risks a `Principal`
+      from one not comparing equal to a `Principal` from the other.
 
       INLINE ON PURPOSE, and the CSP knows it by content hash, not
       'unsafe-inline': .ic-assets.json5's script-src has no
@@ -67,6 +78,8 @@
         "imports": {
           "@icp-sdk/core/candid": "https://esm.sh/@icp-sdk/core@6.1.0/candid",
           "@icp-sdk/core/principal": "https://esm.sh/@icp-sdk/core@6.1.0/principal",
+          "@icp-sdk/core/identity": "https://esm.sh/@icp-sdk/core@6.1.0/identity",
+          "@icp-sdk/auth/client": "https://esm.sh/@icp-sdk/auth@8.0.3/client?deps=@icp-sdk/core@6.1.0",
           "cborg": "https://esm.sh/cborg@4.5.8"
         }
       }
