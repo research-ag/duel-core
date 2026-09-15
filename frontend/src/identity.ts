@@ -64,10 +64,25 @@ function randomSid(): string {
 /// always used before this module existed; kept here (not app.ts) so
 /// `resolveIdentity()`'s anonymous branch and `start()`'s own "new sid"
 /// button both go through the one copy of it.
+///
+/// A stored value inside the reserved `PRINCIPAL_SID_PREFIX` ("ii:")
+/// namespace is never adopted here, even if present — `start()` writes
+/// exactly that value into `sessionStorage["sid"]` while a real login is
+/// active (so code outside `start()`'s own closures, e.g. a second bundle
+/// sharing the same session, can read the true active sid — see
+/// `app.ts`'s own doc on this), and that leftover value survives a
+/// logout's reload. An anonymous, freshly-generated throwaway identity
+/// can never legitimately own an "ii:"-namespaced sid (only the matching
+/// principal can, per `isAuthorizedSid` on the backend), so treating that
+/// leftover as "already set" here would hand this session a sid the
+/// backend is guaranteed to reject as belonging to someone else —
+/// exactly what surfaced as "This session belongs to ..." right after
+/// clicking "Log out".
 export function resolveAnonymousSid(): string {
   const urlSid = new URLSearchParams(location.search).get(SID_STORAGE_KEY);
   if (urlSid) sessionStorage.setItem(SID_STORAGE_KEY, urlSid);
-  if (!sessionStorage.getItem(SID_STORAGE_KEY)) {
+  const stored = sessionStorage.getItem(SID_STORAGE_KEY);
+  if (!stored || stored.startsWith(PRINCIPAL_SID_PREFIX)) {
     sessionStorage.setItem(SID_STORAGE_KEY, randomSid());
   }
   return sessionStorage.getItem(SID_STORAGE_KEY) as string;

@@ -299,15 +299,47 @@ module {
   /// own doc on why, a real `ic-websocket-cdk@0.4.1` bookkeeping quirk).
   /// Cleans up the OLD principal's own `byPrincipal` entry right here,
   /// not just `bySid`'s — see `forget`'s own doc for the bug leaving it
-  /// dangling produces. Exposed (not just called internally) so it's
-  /// unit-testable against `Hub`'s two maps directly, without needing a
-  /// full `IcWebSocketCdk` actor. Always bumps `generation`, even when
-  /// `p` is unchanged from before — see `Hub.generation`'s own doc.
+  /// dangling produces.
+  ///
+  /// The mirror case also has to be handled here: the SAME principal
+  /// switching to a DIFFERENT sid on one live connection — a "play as
+  /// someone else"/new-sid swap, which deliberately does NOT reconnect
+  /// (the WS-layer principal is fixed for a whole page load; only the
+  /// app-level sid changes — see `frontend/app.ts`'s `newSidBtn` handler
+  /// and `identity.ts`'s own doc on why the fallback principal must stay
+  /// stable across such an in-place swap). Without scrubbing the OLD
+  /// sid's own `bySid` entry here too, it lingers forever pointing at
+  /// this same, still-live `p` — and every later `afterMutation`'s
+  /// `broadcastLobby` fan-out (see `attach`'s own doc), which walks every
+  /// key of `bySid` to reach every genuinely browsing session, treats
+  /// that stale sid as ANOTHER real browsing session on this exact
+  /// connection: `pushStatus` resolves it against `registry.status` for
+  /// the abandoned sid (still `#browsing`, since it never seated
+  /// anywhere) and delivers that unsolicited push to `p` — the SAME tab
+  /// that just finished its own create/join — landing right after that
+  /// call's own correlated, correct reply and overwriting it, since nothing
+  /// about `#view` push ordering favors a correlated reply over an
+  /// unrelated one arriving in the same batch. A real, observed bug: the
+  /// creating/joining tab's own screen falling right back to the lobby
+  /// list a moment after correctly showing the staging/in-game view.
+  ///
+  /// Exposed (not just called internally) so it's unit-testable against
+  /// `Hub`'s two maps directly, without needing a full `IcWebSocketCdk`
+  /// actor. Always bumps `generation`, even when `p` is unchanged from
+  /// before — see `Hub.generation`'s own doc.
   public func remember(hub : Hub, sid : TP.SessionId, p : Principal.Principal) {
     switch (Map.get(hub.bySid, Text.compare, sid)) {
       case (?oldP) {
         if (Principal.notEqual(oldP, p)) {
           Map.remove(hub.byPrincipal, Principal.compare, oldP);
+        };
+      };
+      case null {};
+    };
+    switch (Map.get(hub.byPrincipal, Principal.compare, p)) {
+      case (?oldSid) {
+        if (Text.notEqual(oldSid, sid)) {
+          Map.remove(hub.bySid, Text.compare, oldSid);
         };
       };
       case null {};

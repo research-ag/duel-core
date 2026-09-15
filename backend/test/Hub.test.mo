@@ -16,6 +16,17 @@
 // OLD principal's belated `ws_close` (its own `pagehide`-driven goodbye
 // has no guarantee of landing before the new page's own `ws_open` does)
 // must not be allowed to erase the fresher registration.
+//
+// The mirror direction matters just as much: the SAME principal
+// switching to a DIFFERENT sid on one still-live connection (an in-place
+// "new sid"/identity swap — no reload, no reconnect — see `frontend/
+// app.ts`'s `newSidBtn` handler). Test 16 covers the real bug this used
+// to leave open: the abandoned sid's own `bySid` entry lingered forever,
+// so `ws.mo`'s lobby-broadcast fan-out (`afterMutation`, which walks
+// every `bySid` key) kept treating it as a second, genuinely-browsing
+// session sharing that connection — delivering it a stale, unsolicited
+// push that landed on the SAME tab right after its own create/join
+// reply and stomped the correct staging/in-game view back to the lobby.
 // Run: moc -r --package core <core/src> --package ic-websocket-cdk <cdk/src> ... test/Hub.test.mo
 import Ws "../src/Ws";
 import Map "mo:core/Map";
@@ -326,6 +337,29 @@ do {
     Runtime.trap("15b: ...for ANY principal, not just one");
   };
   Debug.print("15. isAuthorizedSid() leaves plain, non-reserved sids fully decoupled OK");
+};
+
+// ── 16. remember(): the SAME principal switching to a DIFFERENT sid (an
+//       in-place "new sid"/identity swap on one live connection — no
+//       reconnect, unlike tests 2/7's reload scenarios) must scrub the
+//       OLD sid's own `bySid` entry, not just repoint `byPrincipal`.
+//       Before the fix, `bySid["sid-1"]` stayed pointed at PA forever,
+//       so a later lobby-broadcast fan-out (`ws.mo`'s `afterMutation`,
+//       which walks every `bySid` key to reach every genuinely browsing
+//       session) would treat the abandoned "sid-1" as a second, real
+//       browsing session sharing this exact connection — delivering it
+//       an unsolicited, stale push that landed on the SAME tab right
+//       after "sid-2"'s own correct reply and stomped it back to the
+//       lobby view.
+// ────────────────────────────────────────────────────────────────────
+do {
+  let hub = Ws.createHub();
+  Ws.remember(hub, "sid-1", PA); // this tab's original sid
+  Ws.remember(hub, "sid-2", PA); // "new sid": same connection, fresh sid
+  expectSid(hub, "sid-2", ?PA, "16a: the new sid must resolve to the live principal");
+  expectPrincipal(hub, PA, ?"sid-2", "16b: byPrincipal must point at the new sid");
+  expectSid(hub, "sid-1", null, "16c: the abandoned sid's own bySid entry must be gone");
+  Debug.print("16. remember() on a same-connection sid swap scrubs the old sid's bySid entry OK");
 };
 
 Debug.print("ALL HUB CHECKS PASSED");

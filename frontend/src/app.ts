@@ -353,9 +353,23 @@ export function start<S>({
   // here would pull `@icp-sdk/auth` into every game that loads app.js,
   // even one that never passes `session` at all — see identity.ts's own
   // header and the root CLAUDE.md's rule 10.
+  //
+  // Either way, `sessionStorage["sid"]` is left holding the REAL active
+  // sid before this function does anything else observable (in particular
+  // before a game's own gameplay code — running in a second, independently
+  // loaded script — could possibly let the player act). A game whose own
+  // code needs this tab's sid outside of `start()`'s own callbacks (e.g. a
+  // second bundle sharing the same push connection, see
+  // `examples/racing/frontend/src/app/modules/gameplay/game-communication/
+  // utils/duel-actor.ts`) has exactly one place to read it from regardless
+  // of whether a `session` was passed — reading it live (not caching an
+  // early copy) still matters even with a `session`, since a stale cached
+  // read taken before this line would just be undefined instead of wrong.
   // ---------------------------------------------------------------------
 
-  if (!session) {
+  if (session) {
+    sessionStorage.setItem("sid", session.sid);
+  } else {
     const urlSid = new URLSearchParams(location.search).get("sid");
     if (urlSid) sessionStorage.setItem("sid", urlSid);
     if (!sessionStorage.getItem("sid")) sessionStorage.setItem("sid", randomSid());
