@@ -11,6 +11,8 @@ import { ViewportService } from '../../game-viewport/services/viewport.service';
 
 export class PlayerControlService {
 
+  private pendingClickSubscription: Subscription | null = null;
+
   public trajectorySelected: Observable<StepTrajectoryModel | null> =
     this.viewportService.subscribeOnMouseClick()
       .pipe(
@@ -99,11 +101,20 @@ export class PlayerControlService {
           filter(x => !!x),
         )
         .subscribe((traj) => {
+          this.pendingClickSubscription = null;
           clickSubscription.unsubscribe();
           this.gameStateService.isInSelectionState.next(false);
           resolve(traj as StepTrajectoryModel);
         });
+      this.pendingClickSubscription = clickSubscription;
     });
+  }
+
+  public cancelPendingSelection(): void {
+    if (this.pendingClickSubscription) {
+      this.pendingClickSubscription.unsubscribe();
+      this.pendingClickSubscription = null;
+    }
   }
 
 }

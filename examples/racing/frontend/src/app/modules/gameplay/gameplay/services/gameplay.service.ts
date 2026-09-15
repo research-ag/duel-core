@@ -85,6 +85,7 @@ export class GameplayService {
   // genuinely succeeded, every later init() call — retry or not — skips
   // straight to (re)trying loadMap() alone. See init()'s own doc.
   private sceneReady: boolean = false;
+  private activeAnimationSub: Subscription | null = null;
 
   constructor(
     private readonly gameStateService: GameStateService,
@@ -164,6 +165,8 @@ export class GameplayService {
   // leak the previous race's crash-recovery/skip state straight into the
   // new one.
   startRace(resumedAtStep: number = 0, youAlreadySubmitted: boolean = false) {
+    this.cancelActiveAnimation();
+    this.playerControlService.cancelPendingSelection();
     this.isWaitingPlayers = true;
     this.stepsCount = resumedAtStep;
     this.isFirstStepSinceStart = true;
@@ -464,12 +467,21 @@ export class GameplayService {
           }
           this.calculateCarPositionsOnRoad(Math.min(pastTime, 1));
           if (pastTime >= 1) {
+            this.activeAnimationSub = null;
             beforeRenderSub.unsubscribe();
             this.gameStateService.isInAnimationState.next(false);
             resolve();
           }
         });
+      this.activeAnimationSub = beforeRenderSub;
     });
+  }
+
+  private cancelActiveAnimation(): void {
+    if (this.activeAnimationSub) {
+      this.activeAnimationSub.unsubscribe();
+      this.activeAnimationSub = null;
+    }
   }
 
   setRaceResults(raceResults: any) {
