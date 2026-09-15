@@ -8,8 +8,8 @@
 ///
 /// Seats take turns in order (p1 moves first — see lib.mo's `Table.toMove`
 /// doc); there is no "whose turn" flag in `State` because the engine
-/// already tracks that. Seat mapping: #p1 = Red, starting on rows 5-7 and
-/// moving toward row 0; #p2 = Black, starting on rows 0-2 and moving
+/// already tracks that. Seat mapping: #p1 = Black, starting on rows 5-7 and
+/// moving toward row 0; #p2 = Red, starting on rows 0-2 and moving
 /// toward row 7. The board is 8x8, row-major (`index = row*8 + col`),
 /// only the dark squares (`(row+col)` odd) ever hold a piece.
 ///
@@ -30,8 +30,8 @@
 ///         The chain must be maximal: it's illegal to stop partway
 ///         through if the same piece could still capture again from
 ///         where it landed.
-///   KING  a man that reaches the far row (row 0 for Red, row 7 for
-///         Black) is promoted the instant it lands there.
+///   KING  a man that reaches the far row (row 0 for Black, row 7 for
+///         Red) is promoted the instant it lands there.
 ///   WIN   a seat with no legal move at all on their own turn (no pieces
 ///         left, or every piece blocked) loses.
 ///
@@ -112,7 +112,7 @@ module {
     case (#p1) #p2;
     case (#p2) #p1;
   };
-  // Red (#p1) marches toward row 0; Black (#p2) toward row 7.
+  // Black (#p1) marches toward row 0; Red (#p2) toward row 7.
   func forwardDelta(seat : TP.Seat) : Int = switch seat {
     case (#p1) -1;
     case (#p2) 1;
@@ -340,7 +340,7 @@ module {
 
   /// Hand this to every duel-game-core engine call. Built fresh per call —
   /// function values are never stored, so upgrades stay trivial.
-  /// `#alternating`: Red and Black take turns, one move per submission.
+  /// `#alternating`: Black and Red take turns, one move per submission.
   public func spec() : TP.Spec<State, Action> = #alternating {
     init;
     validate;

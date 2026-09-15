@@ -24,7 +24,7 @@ const DIAGS = [
   [-1, -1],
 ];
 
-const SEAT_NAME = { p1: "Red", p2: "Black" };
+const SEAT_NAME = { p1: "Black", p2: "Red" };
 const GLYPH = { manP1: "●", kingP1: "♛", manP2: "●", kingP2: "♛" };
 
 function idx(r, c) {

@@ -30,13 +30,13 @@
 }
 
 .cb-piece.cb-p1 {
-  color: #c0392b;
-  text-shadow: 0 0 1px #000;
+  color: #1c1c1c;
+  text-shadow: 0 0 1px #fff;
 }
 
 .cb-piece.cb-p2 {
-  color: #1c1c1c;
-  text-shadow: 0 0 1px #fff;
+  color: #c0392b;
+  text-shadow: 0 0 1px #000;
 }
 
 .cb-piece.cb-king {

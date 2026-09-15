@@ -13,7 +13,7 @@ either package itself.
   into the engine via `spec() : TP.Spec<State, Action>`, where `TP` is
   `mo:duel-game-core` (imported from `../../backend` — see `mops.toml`).
   `spec()` returns `#alternating { init; validate; resolve }` — seats
-  take turns in order (Red/#p1 moves first), and `State` carries no
+  take turns in order (Black/#p1 moves first), and `State` carries no
   "whose turn" flag of its own because the engine already tracks that
   (see `mo:duel-game-core`'s own `Spec`/`Mode` doc, and
   `../../skills/duel-game-core/references/alternating-turn-games.md`).
@@ -198,8 +198,8 @@ read that file first. Rules specific to this example:
 ## Game-rule notes (src/CheckersRules.mo)
 
 - Board: 8x8, row-major (`index = row*8 + col`), only dark squares
-  (`(row+col)` odd) ever hold a piece. Red (`#p1`) starts on rows 5-7
-  and moves toward row 0; Black (`#p2`) starts on rows 0-2 and moves
+  (`(row+col)` odd) ever hold a piece. Black (`#p1`) starts on rows 5-7
+  and moves toward row 0; Red (`#p2`) starts on rows 0-2 and moves
   toward row 7.
 - A man moves/captures diagonally FORWARD only; a king does either in
   any of the four diagonal directions.

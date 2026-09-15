@@ -40,11 +40,11 @@ func withPieces(pieces : [(Nat, Rules.Piece)]) : Rules.Board {
 
 let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000, #open, "test");
 
-// ── 1. join seats red/black, red moves first ────────────────────────────
-ignore ok(t.join(spec, now, "red", #p1), "red joins");
-switch (ok(t.join(spec, now, "black", #p2), "black joins")) {
+// ── 1. join seats black/red, black moves first ────────────────────────────
+ignore ok(t.join(spec, now, "black", #p1), "black joins");
+switch (ok(t.join(spec, now, "red", #p2), "red joins")) {
   case (#started _) {};
-  case (_) Runtime.trap("black's join should complete the pair and start the game");
+  case (_) Runtime.trap("red's join should complete the pair and start the game");
 };
 Debug.print("1. join OK");
 
@@ -57,17 +57,17 @@ func turnOf(session : Text) : Nat = switch (t.status(spec, now, session)) {
   case (#inGame v) v.turn;
   case (_) Runtime.trap("turnOf: " # session # " is not in an active game");
 };
-ignore ok(t.submit(spec, now, "red", genOf("red"), turnOf("red"), #move { from = idx(5, 0); to = idx(4, 1) }), "red opens");
-ignore ok(t.submit(spec, now, "black", genOf("black"), turnOf("black"), #move { from = idx(2, 1); to = idx(3, 2) }), "black replies");
-switch (t.status(spec, now, "red")) {
+ignore ok(t.submit(spec, now, "black", genOf("black"), turnOf("black"), #move { from = idx(5, 0); to = idx(4, 1) }), "black opens");
+ignore ok(t.submit(spec, now, "red", genOf("red"), turnOf("red"), #move { from = idx(2, 1); to = idx(3, 2) }), "red replies");
+switch (t.status(spec, now, "black")) {
   case (#inGame v) assert v.turn == 2;
-  case (_) Runtime.trap("red should be back on turn");
+  case (_) Runtime.trap("black should be back on turn");
 };
 Debug.print("2. opening moves through the real board OK");
 
 // ── 3. seed the board one legal capture from a finish, then play it for
-//      real: red's man at (4,3) jumps black's last remaining piece at
-//      (3,2), landing at (2,1) — black is left with zero pieces ────────
+//      real: black's man at (4,3) jumps red's last remaining piece at
+//      (3,2), landing at (2,1) — red is left with zero pieces ────────
 switch (t.phase) {
   case (#active g) {
     t.phase := #active {
@@ -79,19 +79,19 @@ switch (t.phase) {
 };
 switch (
   ok(
-    t.submit(spec, now, "red", genOf("red"), turnOf("red"), #jump { path = [idx(4, 3), idx(2, 1)] }),
-    "red's finishing capture",
+    t.submit(spec, now, "black", genOf("black"), turnOf("black"), #jump { path = [idx(4, 3), idx(2, 1)] }),
+    "black's finishing capture",
   )
 ) {
   case (#gameEnded r) { assert r.verdict == #p1Wins };
-  case (_) Runtime.trap("capturing black's last piece must end the match");
+  case (_) Runtime.trap("capturing red's last piece must end the match");
 };
-switch (t.status(spec, now, "black")) {
+switch (t.status(spec, now, "red")) {
   case (#debrief d) switch (d.end) {
     case (#finished(#p1Wins)) {};
     case (_) Runtime.trap("expected a #finished(#p1Wins) debrief");
   };
-  case (_) Runtime.trap("black should land in a shared debrief too");
+  case (_) Runtime.trap("red should land in a shared debrief too");
 };
 Debug.print("3. finishing capture ends the match through the real engine OK");
 
