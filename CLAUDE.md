@@ -25,9 +25,11 @@ particular game — that's supplied by whoever builds a game on top.
   of it (`Registry.new` plus the same eight caller-facing operations,
   routed to the right table, plus `createTable`/`listTables`/`sweep`).
   Any number of tables run independently and simultaneously
-  (`TP.Registry`, created with `Registry.new`); a table can be `#open`
-  (browsable/joinable by anyone) or protected with an access code
-  (joinable only by id + code, shared with a friend out of band). Once a
+  (`TP.Registry`, created with `Registry.new`); a table can be `#open` or
+  protected with an access code shared with a friend out of band — either
+  way it's browsable and shows who (if anyone) already holds a seat,
+  `#open` joinable outright and `#code` joinable only once the caller
+  also supplies the matching code. Once a
   player's own move has sat pending against their opponent's silence for
   longer than a second, independent, normally much shorter timeout
   (`claimTimeoutNs`), `claimWin` lets that player optionally end the

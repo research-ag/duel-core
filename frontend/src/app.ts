@@ -773,7 +773,6 @@ export function start<S>({
     if (b.dataset.joinTable && b.dataset.joinTableId) {
       return `jointable:${b.dataset.joinTableId}:${b.dataset.joinTable}`;
     }
-    if (b.dataset.joinTableByCode) return `jointable-code:${b.dataset.joinTableByCode}`;
     if (b.dataset.act) return `act:${b.dataset.act}`;
     if ("rematch" in b.dataset) return "rematch";
     if ("leave" in b.dataset) return "leave";
@@ -911,6 +910,60 @@ export function start<S>({
   });
 
   // ---------------------------------------------------------------------
+  // Access-code prompt, for a click on an open seat of a PROTECTED table
+  // row (render.js's renderTableRow marks such a seat button with a bare
+  // `data-protected`, the same idiom as `data-leave`/`data-reset`/... —
+  // see its own comment). A table's own id/seat are already baked into
+  // that button's dataset like any other row's seat button; only the
+  // code itself is live user input this modal collects before the click
+  // listener below actually dispatches `joinTable`. Same "build once,
+  // append to body" shape as the confirmation modal above, for the same
+  // reasons (survives `refresh()` replacing `screenEl.innerHTML`, isn't
+  // hidden by a game's own click-through overlay CSS).
+  // ---------------------------------------------------------------------
+
+  const codeOverlay = document.createElement("div");
+  codeOverlay.className = "duel-code-overlay";
+  codeOverlay.hidden = true;
+  codeOverlay.innerHTML = `
+    <div class="duel-code-box">
+      <p class="duel-code-msg">This table is protected — enter its access code to join.</p>
+      <input type="text" class="duel-code-input" placeholder="access code" />
+      <div class="duel-code-actions">
+        <button type="button" class="ghost" data-code-cancel>Cancel</button>
+        <button type="button" class="primary" data-code-join>Join</button>
+      </div>
+    </div>`;
+  document.body.appendChild(codeOverlay);
+  const codeInputEl = codeOverlay.querySelector(".duel-code-input") as HTMLInputElement;
+
+  let pendingCodeSubmit: ((code: string) => void) | null = null;
+
+  function showCodePrompt(onSubmit: (code: string) => void): void {
+    codeInputEl.value = "";
+    pendingCodeSubmit = onSubmit;
+    codeOverlay.hidden = false;
+    codeInputEl.focus?.();
+  }
+
+  function hideCodePrompt(): void {
+    codeOverlay.hidden = true;
+    pendingCodeSubmit = null;
+  }
+
+  codeOverlay.addEventListener("click", (ev) => {
+    const target = ev.target as HTMLElement;
+    if (target === codeOverlay || "codeCancel" in target.dataset) {
+      hideCodePrompt();
+    } else if ("codeJoin" in target.dataset) {
+      const fn = pendingCodeSubmit;
+      const code = codeInputEl.value;
+      hideCodePrompt();
+      if (fn) fn(code);
+    }
+  });
+
+  // ---------------------------------------------------------------------
   // The "create a table" form's visibility toggle: swaps the access-code
   // input's `hidden` state as the radio changes. A plain `change`
   // listener, delegated (like the click listener below) so it survives
@@ -941,6 +994,14 @@ export function start<S>({
     return { code: codeEl?.value ?? "" };
   };
 
+  // Set right before `dispatch()` runs for a protected table's seat
+  // button (see below) — `dispatch` itself is a zero-argument closure
+  // (shared with the plain confirm-modal flow), so the code the user just
+  // typed into `showCodePrompt` has nowhere else to ride along on. Read
+  // once by the `joinTable` branch below and cleared immediately after,
+  // so it can never leak into an unrelated later click.
+  let pendingJoinCode: string | null = null;
+
   // One delegated listener, so re-rendering never leaks handlers.
   screenEl.addEventListener("click", (ev) => {
     const target = ev.target as HTMLElement;
@@ -952,11 +1013,10 @@ export function start<S>({
         // An empty access code is accepted by the browser's own form
         // validation (there is none) but is unreachable by construction
         // once created — see registry.mo's `createTable` doc, which
-        // rejects it too; catching it here, the same way the join-by-code
-        // id below is, avoids the round trip and gives a message that
-        // actually names the problem instead of the engine's own
-        // `#badCode` (worded for a REJECTED JOIN, not a table that was
-        // never creatable in the first place).
+        // rejects it too; catching it here avoids the round trip and
+        // gives a message that actually names the problem instead of the
+        // engine's own `#badCode` (worded for a REJECTED JOIN, not a
+        // table that was never creatable in the first place).
         const visibility = readCreateVisibility();
         if ("code" in visibility && visibility.code.length === 0) {
           endButtonLoading();
@@ -969,41 +1029,16 @@ export function start<S>({
         setNewSidDisabled(true);
         doCreateTable(b.dataset.createTable as SeatTag, visibility);
       } else if (b.dataset.joinTable && b.dataset.joinTableId) {
-        // An open-table row's own per-seat button — the id is baked into
-        // its own dataset by render.js, and an open table never needs a
-        // code.
+        // A table row's own per-seat button — the id (and, for a
+        // protected row, the access code just collected by
+        // showCodePrompt below) is baked into its own dataset/
+        // pendingJoinCode by render.js/this same listener; an open
+        // table's seat never goes through pendingJoinCode at all, so it
+        // stays null and sends no code, exactly as before.
+        const code = pendingJoinCode;
+        pendingJoinCode = null;
         setNewSidDisabled(true);
-        doJoinTable(BigInt(b.dataset.joinTableId), b.dataset.joinTable as SeatTag, []);
-      } else if (b.dataset.joinTableByCode) {
-        // The "join by code" mini-form — table number and code are live
-        // user input, read from their own inputs at click time.
-        const idEl = $("joinbycode-id") as HTMLInputElement | null;
-        const idText = idEl?.value.trim() ?? "";
-        let id: bigint;
-        try {
-          id = BigInt(idText);
-        } catch {
-          endButtonLoading();
-          showError("Enter a valid table number.");
-          return;
-        }
-        // `BigInt("-1")` parses fine — it's a valid integer, just not a
-        // valid `TableId` (`nat` on the wire). The input's own `min="0"`
-        // is a hint, not a guarantee (a number input still hands back
-        // whatever was typed, negative sign included); left unchecked,
-        // this id reaches Candid's own `nat` encoder, which rejects it
-        // with its raw internal type dump — the engine's real errors
-        // never look like that (see errText's own doc) — straight into
-        // the error banner instead of a message anyone could act on.
-        if (id < 0n) {
-          endButtonLoading();
-          showError("Enter a valid table number.");
-          return;
-        }
-        const codeEl = $("joinbycode-code") as HTMLInputElement | null;
-        const code = codeEl?.value ?? "";
-        setNewSidDisabled(true);
-        doJoinTable(id, b.dataset.joinTableByCode as SeatTag, code ? [code] : []);
+        doJoinTable(BigInt(b.dataset.joinTableId), b.dataset.joinTable as SeatTag, code ? [code] : []);
       } else if (b.dataset.act) doSubmit(JSON.parse(b.dataset.act));
       else if ("rematch" in b.dataset) doRematch();
       else if ("leave" in b.dataset) doLeave();
@@ -1012,7 +1047,15 @@ export function start<S>({
       else if ("ack" in b.dataset) doAck();
     };
     if (b.dataset.confirm) showConfirm(b.dataset.confirm, dispatch);
-    else dispatch();
+    else if ("protected" in b.dataset) {
+      // An open seat on a protected table row — collect the access code
+      // before dispatching the same `joinTable` request an open row's
+      // seat sends directly (see render.js's `renderTableRow`).
+      showCodePrompt((code) => {
+        pendingJoinCode = code;
+        dispatch();
+      });
+    } else dispatch();
   });
 
   // ---------------------------------------------------------------------
@@ -1125,25 +1168,22 @@ export function start<S>({
     }
   }
 
-  // The create-table form's radio/code choice, and the "Have a code?"
-  // mini-form's own two fields, are all plain live user input —
-  // renderBrowsing() has no way to bake any of it into its own markup, so
-  // a redraw always starts every one of them back at their defaults
-  // (`open`, all four fields blank). An unrelated push (someone else's
-  // table opening or closing, e.g.) landing mid-fill must not silently
-  // revert "Protected" to "Open" and clear whatever code was typed — the
-  // very next click would then publish a table its own creator meant to
-  // keep private, with no warning at all (see the 007 retest's "a lobby
-  // refresh silently discards Protected" finding). Captured right before
-  // `renderIfChanged` overwrites `screenEl.innerHTML` below and reapplied
-  // right after — the same idiom `applyLoadingState` already uses to
-  // survive a redraw landing mid-flight, just for form input instead of a
-  // button's loading state.
+  // The create-table form's radio/code choice is plain live user input —
+  // renderBrowsing() has no way to bake it into its own markup, so a
+  // redraw always starts it back at its default (`open`, code blank). An
+  // unrelated push (someone else's table opening or closing, e.g.)
+  // landing mid-fill must not silently revert "Protected" to "Open" and
+  // clear whatever code was typed — the very next click would then
+  // publish a table its own creator meant to keep private, with no
+  // warning at all (see the 007 retest's "a lobby refresh silently
+  // discards Protected" finding). Captured right before `renderIfChanged`
+  // overwrites `screenEl.innerHTML` below and reapplied right after — the
+  // same idiom `applyLoadingState` already uses to survive a redraw
+  // landing mid-flight, just for form input instead of a button's loading
+  // state.
   interface CreateFormState {
     visibility: string; // the checked radio's own `value` ("open" or "code")
     code: string;
-    joinId: string;
-    joinCode: string;
   }
 
   // Arrow-function consts, not `function` declarations — same reason as
@@ -1158,8 +1198,6 @@ export function start<S>({
     return {
       visibility: radio.value,
       code: ($("create-code") as HTMLInputElement | null)?.value ?? "",
-      joinId: ($("joinbycode-id") as HTMLInputElement | null)?.value ?? "",
-      joinCode: ($("joinbycode-code") as HTMLInputElement | null)?.value ?? "",
     };
   };
 
@@ -1183,10 +1221,6 @@ export function start<S>({
       codeEl.value = saved.code;
       codeEl.hidden = saved.visibility !== "code"; // mirrors the `change` listener above
     }
-    const joinIdEl = $("joinbycode-id") as HTMLInputElement | null;
-    if (joinIdEl) joinIdEl.value = saved.joinId;
-    const joinCodeEl = $("joinbycode-code") as HTMLInputElement | null;
-    if (joinCodeEl) joinCodeEl.value = saved.joinCode;
   };
 
   const renderIfChanged = (status: unknown): void => {

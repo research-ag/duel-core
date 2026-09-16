@@ -178,14 +178,19 @@ export function buildEngineTypes({
   // ── The multi-table lobby (mo:duel-game-core's `Registry`) ─────────────
   // `TableId` is a plain `Nat`, never reused even once a table is
   // garbage-collected. `Visibility` (declared above, alongside `View`) —
-  // a `#code` table is never listed by `listTables`/`Status.browsing`,
-  // reachable only by id + the matching code, both shared with a friend
-  // out of band.
+  // a `#code` table is listed by `listTables`/`Status.browsing` just like
+  // an open one, flagged `protected`, but never carries its own code
+  // there (that stays known only to its own occupant's `#stagingYou`
+  // view) — a browsing visitor still needs the code itself, shared with a
+  // friend out of band, before `joinTable` actually seats them.
   const TableId = IDL.Nat;
   const TableSummary = IDL.Record({
     id: TableId,
     p1Open: IDL.Bool,
     p2Open: IDL.Bool,
+    p1Session: IDL.Opt(IDL.Text),
+    p2Session: IDL.Opt(IDL.Text),
+    protected: IDL.Bool,
     waitingSecs: IDL.Nat,
   });
   // The per-caller lobby-scoped screen `status` (and every `#view` push)

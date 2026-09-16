@@ -264,9 +264,10 @@ full reasoning). `status` is the one exception, staying a plain
 `query` — it's side-effect-free. Your `Host.mo` wires a
 `TP.Registry<State, Action>` (built with `Registry.new`, from
 `mo:duel-game-core/registry`), not a bare `TP.Table` — this game gets a
-multi-table lobby (open tables browsable by anyone, protected ones
-joinable by id + access code) for free, with zero code of your own
-beyond this template.
+multi-table lobby for free, with zero code of your own beyond this
+template: every table is browsable, open ones joinable outright and
+protected ones (flagged as such in the listing) joinable once the caller
+also supplies the matching access code.
 
 **Claim a win.** Once a player's own move has sat pending for at least
 `__CLAIM_TIMEOUT_NS__` against their opponent's silence, the engine
@@ -338,9 +339,10 @@ and `core` as dependencies, simply `mops test` from that directory.
 
 Read `templates/plugin.js.template` and write
 `frontend/src/<game>-plugin.js`. This is the only game-specific frontend
-code — everything else (the multi-table lobby — create a table,
-open or access-code protected, browse open ones, join by code — staging,
-rematch, busy countdown, debrief chrome, the turn counter, "opponent is
+code — everything else (the multi-table lobby — create a table, open or
+access-code protected; browse and join both kinds, a protected row
+flagged as such and prompting for its code on click — staging, rematch,
+busy countdown, debrief chrome, the turn counter, "opponent is
 deciding"/"locked in", the verdict banner) is generic and comes from the
 npm package itself, via `render.js`/`app.js`.
 

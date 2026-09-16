@@ -70,15 +70,32 @@ export type EngineErr =
 /// a table is garbage-collected (see registry.mo's `Registry`).
 export type TableId = bigint;
 
-/// `open` tables are discoverable via a `browsing` status; a `code`
-/// table is never listed — reachable only by its `TableId` AND its
-/// code, both shared with a friend out of band.
+/// Both `open` and `code` tables are discoverable via a `browsing`
+/// status (see `TableSummary.protected`) — a `code` table's own code is
+/// never part of that listing though, only ever echoed back to its own
+/// occupant (see `StagingYouView.visibility`); joining one needs the code
+/// itself, shared with a friend out of band.
 export type Visibility = { open: null } | { code: string };
 
 export interface TableSummary {
   id: TableId;
   p1Open: boolean;
   p2Open: boolean;
+  /// Whichever session currently holds a NOT-open seat — `[]` for an
+  /// open seat, or for a seat with nobody in particular to name (an
+  /// idle-reclaimable board reports both seats open instead — see
+  /// registry.mo's `Registry.openness` doc). Lets a browsing visitor see
+  /// who they'd be facing before joining. The Candid `opt text` array
+  /// shape (`[] | [string]`), not a bare `null` — same convention as
+  /// every other `opt` field this package's IDL declares (e.g.
+  /// `WsRequest.joinTable.code`); a plain `null` here doesn't decode from
+  /// nor encode into `IDL.Opt(IDL.Text)` at all.
+  p1Session: [] | [string];
+  p2Session: [] | [string];
+  /// Whether this table needs an access code to join — never the code
+  /// itself, which stays known only to the table's own occupant (see
+  /// `StagingYouView.visibility`).
+  protected: boolean;
   waitingSecs: bigint;
 }
 

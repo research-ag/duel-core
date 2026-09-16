@@ -47,9 +47,14 @@ func turnOf(session : Text) : Nat = switch (atTableView(session)) {
 let tableA = ok(reg.createTable(spec, tick(), "alice", #p1, #open), "alice opens table A");
 let tableB = ok(reg.createTable(spec, tick(), "carol", #p1, #code("friends-only")), "carol opens protected table B");
 assert tableA != tableB;
-// Table A is listed (open, one seat free); table B is not (protected).
+// Both tables are listed, one seat free each — table B flagged protected.
 switch (reg.listTables(now)) {
-  case (rows) { assert rows.size() == 1; assert rows[0].id == tableA };
+  case (rows) {
+    assert rows.size() == 2;
+    for (r in rows.values()) {
+      assert (r.id == tableA and not r.protected) or (r.id == tableB and r.protected);
+    };
+  };
 };
 ignore ok(reg.joinTable(spec, tick(), "bob", tableA, #p2, null), "bob joins table A");
 ignore ok(reg.joinTable(spec, tick(), "dave", tableB, #p2, ?"friends-only"), "dave joins table B with the code");

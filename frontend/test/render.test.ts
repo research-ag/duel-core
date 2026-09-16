@@ -9,11 +9,14 @@ import {
   claimWarningThreshold,
   errText,
   esc,
+  PLAYER_ID_MAX_LEN,
+  renderStatus,
   renderView,
   tag,
+  truncatePlayerId,
   val,
 } from "../src/render.js";
-import type { GamePlugin, View } from "../src/types.js";
+import type { GamePlugin, Status, TableSummary, View } from "../src/types.js";
 
 const plugin: GamePlugin<{ turn: string }> = {
   idlTypes: () => {
@@ -105,6 +108,80 @@ test("renderView: lobby shows the reset button only when resetAvailable", () => 
     plugin,
   );
   assert.match(html, /data-reset/);
+});
+
+test("truncatePlayerId: leaves a short id untouched and flags nothing to truncate", () => {
+  const short = "abc123";
+  assert.deepEqual(truncatePlayerId(short), { text: short, truncated: false });
+  // Exactly at the limit is still untouched — only strictly LONGER ids
+  // get truncated.
+  const exact = "a".repeat(PLAYER_ID_MAX_LEN);
+  assert.deepEqual(truncatePlayerId(exact), { text: exact, truncated: false });
+});
+
+test("truncatePlayerId: cuts a long id to PLAYER_ID_MAX_LEN plus an ellipsis, and flags it", () => {
+  const long = "ii:abcdefghijklmnopqrstuvwxyz";
+  const { text, truncated } = truncatePlayerId(long);
+  assert.equal(truncated, true);
+  assert.equal(text, `${long.slice(0, PLAYER_ID_MAX_LEN)}…`);
+});
+
+function browsingStatus(tables: TableSummary[]): Status<{ turn: string }> {
+  return { browsing: { tables } };
+}
+
+test("renderStatus: browsing lists a protected table alongside open ones, flagged and never leaking its code", () => {
+  const html = renderStatus(
+    browsingStatus([
+      { id: 1n, p1Open: false, p2Open: true, p1Session: ["alice"], p2Session: [], protected: false, waitingSecs: 2n },
+      { id: 2n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 5n },
+    ]),
+    plugin,
+  );
+  assert.match(html, /Table #1/);
+  assert.match(html, /Table #2/);
+  // Only table 2 is flagged protected — table 1's own row carries no
+  // badge at all.
+  assert.doesNotMatch(html.split("Table #2")[0]!, /protected-badge/);
+  assert.match(html, /protected-badge/);
+  assert.match(html, /Protected/);
+  // The old "Have a code?" mini-form is gone for good.
+  assert.doesNotMatch(html, /Have a code/);
+  assert.doesNotMatch(html, /joinbycode/);
+});
+
+test("renderStatus: browsing marks a protected row's open seat with data-protected, so app.js knows to prompt for the code; an open table's own seats never carry it", () => {
+  const html = renderStatus(
+    browsingStatus([
+      { id: 2n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 0n },
+      { id: 3n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n },
+    ]),
+    plugin,
+  );
+  assert.match(html, /data-join-table-id="2" data-join-table="p2" data-protected/);
+  assert.doesNotMatch(html, /data-join-table-id="3"[^>]*data-protected/);
+});
+
+test("renderStatus: browsing shows a taken seat's occupant id, truncated with a tooltip past PLAYER_ID_MAX_LEN", () => {
+  const longId = "ii:abcdefghijklmnopqrstuvwxyz";
+  const html = renderStatus(
+    browsingStatus([
+      { id: 5n, p1Open: false, p2Open: true, p1Session: [longId], p2Session: [], protected: false, waitingSecs: 0n },
+    ]),
+    plugin,
+  );
+  const { text } = truncatePlayerId(longId);
+  assert.match(html, new RegExp(`seat-occupant" title="${longId}">${text}`));
+});
+
+test("renderStatus: browsing shows a short occupant id verbatim, with no tooltip", () => {
+  const html = renderStatus(
+    browsingStatus([
+      { id: 6n, p1Open: false, p2Open: true, p1Session: ["bob"], p2Session: [], protected: false, waitingSecs: 0n },
+    ]),
+    plugin,
+  );
+  assert.match(html, /<span class="seat-occupant">bob<\/span>/);
 });
 
 test("renderView: busy shows the takeover countdown", () => {

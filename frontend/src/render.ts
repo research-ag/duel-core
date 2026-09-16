@@ -124,12 +124,14 @@ function renderLobby(v: LobbyView, plugin: GamePlugin): string {
 
 // ---------------------------------------------------------------------
 // The lobby-of-tables screen (`Status.browsing` — nobody's created or
-// joined a table yet). Three parts: a "create a table" form (seat +
-// open/protected visibility), the browsable list of open tables (each
-// row its own per-seat join buttons), and a "join by code" mini-form for
-// a table a friend shared out of band (never listed, since it's
-// protected). See app.ts's click delegation for how each button's
-// dataset is read back into a `createTable`/`joinTable` request.
+// joined a table yet). Two parts: a "create a table" form (seat +
+// open/protected visibility) and the browsable list of tables — open
+// AND protected alike, a protected row just flagged as such. Clicking an
+// open seat on a protected row prompts for its access code (app.ts's
+// `showCodePrompt`) before dispatching the same `joinTable` request an
+// open row's seat button sends directly. See app.ts's click delegation
+// for how each button's dataset is read back into a `createTable`/
+// `joinTable` request.
 // ---------------------------------------------------------------------
 
 // Pure text formatter for a table row's waiting time — shared between the
@@ -141,18 +143,50 @@ export function waitingText(waitingSecs: bigint): string {
   return `waiting ${waitingSecs}s`;
 }
 
+/// Max length a player id shows at before this truncates it (with a
+/// trailing ellipsis) — a session id is client-chosen and can be
+/// arbitrarily long (a logged-in player's is a full principal, textually
+/// much longer than an anonymous, hand-rolled one), and a table row has
+/// no room to lay one out in full next to its own seat buttons.
+export const PLAYER_ID_MAX_LEN = 16;
+
+/// Truncates `id` to `PLAYER_ID_MAX_LEN` for inline display — `truncated`
+/// tells the caller whether to also attach the untruncated id as a
+/// tooltip (see `renderTableRow`'s own occupant markup): a short id that
+/// already fits needs no `title` attribute repeating itself on hover.
+export function truncatePlayerId(id: string): { text: string; truncated: boolean } {
+  if (id.length <= PLAYER_ID_MAX_LEN) return { text: id, truncated: false };
+  return { text: `${id.slice(0, PLAYER_ID_MAX_LEN)}…`, truncated: true };
+}
+
 function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
-  const seatBtn = (seat: SeatTag, open: boolean) => `
-    <button class="seat" data-join-table-id="${r.id}" data-join-table="${seat}" ${open ? "" : "disabled"}>
-      ${esc(plugin.seatLabel(seat))}
+  const seatBtn = (seat: SeatTag, open: boolean, occupantOpt: [] | [string]) => {
+    const occupantHtml = (() => {
+      if (open || occupantOpt.length === 0) return "";
+      const occupant = occupantOpt[0];
+      const { text, truncated } = truncatePlayerId(occupant);
+      const title = truncated ? ` title="${esc(occupant)}"` : "";
+      return `<span class="seat-occupant"${title}>${esc(text)}</span>`;
+    })();
+    // `data-protected` (bare — read via `"protected" in dataset`, same
+    // idiom as `data-leave`/`data-reset`/...) marks an OPEN seat on a
+    // protected table so app.ts's click delegation knows to prompt for
+    // the access code before dispatching the same `joinTable` request an
+    // open table's seat sends directly — irrelevant, but harmless, on a
+    // disabled (already-taken) seat.
+    return `
+    <button class="seat" data-join-table-id="${r.id}" data-join-table="${seat}"${r.protected ? " data-protected" : ""} ${open ? "" : "disabled"}>
+      <span class="seat-label">${esc(plugin.seatLabel(seat))}</span>
+      ${occupantHtml}
     </button>`;
+  };
   return `
     <div class="table-row">
-      <span class="table-id">Table #${r.id}</span>
+      <span class="table-id">Table #${r.id}${r.protected ? ` <span class="protected-badge" title="Requires an access code">🔒 Protected</span>` : ""}</span>
       <span class="muted" data-wait-base="${r.waitingSecs}">${waitingText(r.waitingSecs)}</span>
       <div class="table-row-seats">
-        ${seatBtn("p1", r.p1Open)}
-        ${seatBtn("p2", r.p2Open)}
+        ${seatBtn("p1", r.p1Open, r.p1Session)}
+        ${seatBtn("p2", r.p2Open, r.p2Session)}
       </div>
     </div>`;
 }
@@ -175,22 +209,12 @@ function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): stri
     </section>
 
     <section class="open-tables">
-      <h3>Open tables</h3>
+      <h3>Tables</h3>
       ${
         v.tables.length === 0
-          ? `<p class="muted">No open tables right now — start one above.</p>`
+          ? `<p class="muted">No tables right now — start one above.</p>`
           : v.tables.map((r) => renderTableRow(r, plugin)).join("")
       }
-    </section>
-
-    <section class="join-by-code">
-      <h3>Have a code?</h3>
-      <input type="number" id="joinbycode-id" placeholder="table #" min="0" step="1" />
-      <input type="text" id="joinbycode-code" placeholder="access code" />
-      <div class="seats">
-        <button class="seat ghost" data-join-table-by-code="p1">${esc(plugin.seatLabel("p1"))}</button>
-        <button class="seat ghost" data-join-table-by-code="p2">${esc(plugin.seatLabel("p2"))}</button>
-      </div>
     </section>`;
 }
 

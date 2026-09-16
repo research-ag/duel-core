@@ -85,7 +85,7 @@ test("send(): sid reaches the canister, and the push it triggers arrives via onm
 
 test("request(): resolves with its own correlated reply, unaffected by an interleaved broadcast", async (t) => {
   const canister = new FakeCanister();
-  const status: Status = { browsing: { tables: [{ id: 1n, p1Open: false, p2Open: true, waitingSecs: 0n }] } };
+  const status: Status = { browsing: { tables: [{ id: 1n, p1Open: false, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n }] } };
   canister.respond = () => ({ view: status });
   const ws = makeWs(t, canister);
   await waitFor(() => canister.opened);

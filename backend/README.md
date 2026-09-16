@@ -7,11 +7,14 @@ Computer. It solves the plumbing every simultaneous-reveal, turn-based
 2-player game needs — and knows nothing about any particular game's
 rules:
 
-- **Tables** — anyone may open a new table: `#open` (discoverable and
-  joinable by anyone browsing the lobby) or protected with an access
-  code (shared with a friend out of band, never listed). Any number of
-  tables run independently and simultaneously; a shared `Registry`
-  creates them and routes every session's calls to the right one.
+- **Tables** — anyone may open a new table: `#open` (joinable outright by
+  anyone browsing the lobby) or protected with an access code shared with
+  a friend out of band. Both are discoverable through the same browsable
+  table list — a protected table just flagged as such, so a visitor knows
+  a code is needed (and who, if anyone, already holds a seat) before
+  attempting to join it. Any number of tables run independently and
+  simultaneously; a shared `Registry` creates them and routes every
+  session's calls to the right one.
 - **Seating** — two players join a table (seats `#p1` / `#p2`); a third
   caller is turned away while a match is in progress on it.
 - **Rounds** — a `#simultaneous` game has each seated player submit one
