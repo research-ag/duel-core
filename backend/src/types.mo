@@ -19,6 +19,14 @@ module {
 
   public type Verdict = { #p1Wins; #p2Wins; #draw };
 
+  /// Whether a game resolves a round from both seats' moves at once
+  /// (`#simultaneous`) or one seat at a time, in order (`#alternating`).
+  /// A plain, Candid-friendly tag — never carries the game's own
+  /// functions (that's `Spec`, below); it exists purely so `View.#inGame`
+  /// can report it to a client (see `Spec`'s own doc for why `Spec`
+  /// itself can never be serialized).
+  public type Mode = { #simultaneous; #alternating };
+
   public type Registry<S, M> = {
     idleTimeoutNs : Int;
     claimTimeoutNs : Int;
@@ -48,17 +56,46 @@ module {
   // ────────────────────────── the game plug-in interface ─────────────────────
 
   /// What a game must supply. `S` = game state, `M` = a player's move.
-  /// All three functions must be pure (no shared state, no Time calls) —
-  /// the engine owns time and session state.
+  /// Every function in either arm must be pure (no shared state, no Time
+  /// calls) — the engine owns time and session state. Tagged by `Mode`:
+  /// a game picks exactly one arm and implements only its shape — there
+  /// is no "unused" function to stub out either way. Never stored (see
+  /// architecture rule 1); passed fresh on every engine call, same as
+  /// before this variant existed.
+  ///
+  /// `#simultaneous` resolves a round once BOTH seats have submitted —
+  /// `resolve` takes both moves at once, exactly as this type always
+  /// worked. `#alternating` resolves the instant the seat currently on
+  /// turn submits theirs — `resolve` takes that ONE seat and move; the
+  /// engine tracks whose turn it is on its own (from the match's own
+  /// round counter — see `Table.toMove`'s own doc), so a game's own `S`
+  /// never needs a turn flag of its own. See
+  /// `skills/duel-game-core/references/alternating-turn-games.md` (or,
+  /// in this repo, `examples/checkers/src/CheckersRules.mo`) for a
+  /// worked `#alternating` game.
   public type Spec<S, M> = {
-    /// Fresh game state for a new match.
-    init : () -> S;
-    /// null = legal; ?text = rejection reason (returned to the caller,
-    /// no move consumed).
-    validate : (S, Seat, M) -> ?Text;
-    /// Called once both moves are in. Returns the next state and, if the
-    /// game is over, the verdict.
-    resolve : (S, M, M) -> { state : S; verdict : ?Verdict };
+    #simultaneous : {
+      /// Fresh game state for a new match.
+      init : () -> S;
+      /// null = legal; ?text = rejection reason (returned to the caller,
+      /// no move consumed).
+      validate : (S, Seat, M) -> ?Text;
+      /// Called once both moves are in. Returns the next state and, if
+      /// the game is over, the verdict.
+      resolve : (S, M, M) -> { state : S; verdict : ?Verdict };
+    };
+    #alternating : {
+      /// Fresh game state for a new match.
+      init : () -> S;
+      /// null = legal; ?text = rejection reason (returned to the caller,
+      /// no move consumed). Called only for the seat currently on turn —
+      /// the engine itself rejects an off-turn submission before this
+      /// ever runs (`Err.#notYourTurn`).
+      validate : (S, Seat, M) -> ?Text;
+      /// Called the instant the on-turn seat's move is in. Returns the
+      /// next state and, if the game is over, the verdict.
+      resolve : (S, Seat, M) -> { state : S; verdict : ?Verdict };
+    };
   };
 
   // ────────────────────────── session phases ─────────────────────────────────
@@ -155,6 +192,10 @@ module {
     #seatTaken;
     #notSeated;
     #alreadySubmitted;
+    // `submit` on an `#alternating`-mode table from the seat NOT
+    // currently on turn (see `Table.toMove`'s own doc) — never produced
+    // for a `#simultaneous` table, where either seat may submit anytime.
+    #notYourTurn;
     #illegalMove : Text;
     #wrongPhase : Text;
     #reserved : { secondsLeft : Nat }; // open seat is held for a rematch partner
@@ -227,6 +268,17 @@ module {
       seat : Seat;
       game : S;
       turn : Nat;
+      // This table's own mode — lets a host's UI show turn-accurate
+      // copy ("Your turn" vs "Opponent has locked in") without a
+      // separate lookup. Constant for the table's lifetime.
+      mode : Mode;
+      // `#simultaneous`: whether you/the opponent has locked in a move
+      // THIS round (the round resolves once both are true). `#alternating`:
+      // whether it's currently on YOU/the OPPONENT to move — i.e. exactly
+      // one of the two is true at any time. Either way, "you're the
+      // WAITING seat" (the one who may `claimWin`) is precisely
+      // `youSubmitted and not oppSubmitted` — see `claimWinAvailable`
+      // below, whose formula is unchanged between modes because of this.
       youSubmitted : Bool;
       oppSubmitted : Bool;
       gen : Nat; // stamp onto a later `submit`/`leave`/`reset`

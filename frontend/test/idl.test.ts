@@ -49,6 +49,7 @@ test("View round-trips through Candid encode/decode for a game's own State shape
 
   const view = {
     inGame: {
+      mode: { simultaneous: null },
       seat: { p1: null },
       game: { hp: 10n },
       turn: 3n,

@@ -495,7 +495,7 @@ module {
     /// safe to call for any `sid`, seated or browsing: `Registry.status`
     /// itself resolves which of the two it currently is.
     func pushStatus(now : Int, sid : TP.SessionId, reqId : ?Nat64) : async* () {
-      await* pushTo(sid, #view({ reqId; view = registry.status(now, sid) }));
+      await* pushTo(sid, #view({ reqId; view = registry.status(spec, now, sid) }));
     };
 
     /// The fan-out every successful mutating request runs after itself.
@@ -615,7 +615,7 @@ module {
               };
             };
             case (#claimWin { gen }) {
-              switch (registry.claimWin(now, sid, gen)) {
+              switch (registry.claimWin(spec, now, sid, gen)) {
                 case (#ok _) {
                   await* afterMutation(now, sid, reqId, priorId, false);
                 };

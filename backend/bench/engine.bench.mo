@@ -87,7 +87,7 @@ module {
         case (2) {
           freshGame();
           while (i < n) {
-            ignore reg.status(0, "a");
+            ignore reg.status(spec, 0, "a");
             i += 1;
           };
           // Same abort/ack asymmetry as case (1) above — "a" must leave

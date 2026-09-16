@@ -8,9 +8,14 @@
 //
 //   {
 //     seatLabel(seatTag) => string,                         // "White" / "Black"
-//     renderBoard(gameState, mySeat, oppSeat) => htmlString,
+//     renderBoard(gameState, mySeat, oppSeat, yourTurn?) => htmlString,
 //     renderActions(gameState, mySeat) => htmlString,        // buttons; see actionAttr()
 //   }
+//
+// `yourTurn` (only present in an #inGame render, undefined for a
+// debrief's final-state one) is a convenience for a game that puts its
+// own interaction directly on the board (clickable squares) instead of
+// `renderActions`' own separate panel — see GamePlugin's own doc.
 //
 // Everything in this module is a pure function to an HTML string: no
 // DOM, no network, no globals. That's what makes it testable outside a
@@ -75,6 +80,8 @@ export function errText(e: EngineErr): string {
       return "You are not seated in this game.";
     case "alreadySubmitted":
       return "You have already moved this round.";
+    case "notYourTurn":
+      return "It's not your turn.";
     case "illegalMove":
       return v as string;
     case "wrongPhase":
@@ -351,12 +358,15 @@ export function atRiskWarningText(secondsUntilClaimable: bigint): string {
 function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
   const mySeat = tag(v.seat) as SeatTag;
   const oppSeat: SeatTag = mySeat === "p1" ? "p2" : "p1";
+  const alternating = "alternating" in v.mode;
   // A player who already locked in this round can't do anything more about
   // the idle clock — "Still thinking?" doesn't even apply to them, and the
   // one actually holding up the round (the opponent) is the one who needs
   // the nudge, not them. `app.ts`'s `syncIdleTick` mirrors this same
   // youSubmitted check so the local per-second tick doesn't un-hide it
-  // between pushes either.
+  // between pushes either. In `#alternating` mode this is exactly "it's
+  // not your turn" — see `InGameView.mode`'s own doc for why the same
+  // booleans mean the same thing (who's WAITING) in both modes.
   const idleWarningHidden =
     v.youSubmitted || v.secondsUntilIdleReset > idleWarningThreshold(v.idleTimeoutSecs);
   const claimRole: "waiting" | "atRisk" | null = v.youSubmitted
@@ -367,13 +377,19 @@ function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
     <div class="turnbar">
       <span>Round <strong>${v.turn + 1n}</strong></span>
       <span class="${v.oppSubmitted ? "locked" : "muted"}">${
-        v.oppSubmitted ? "◉ Opponent has locked in" : "○ Opponent is deciding"
+        alternating
+          ? v.oppSubmitted
+            ? "◉ Your turn"
+            : "○ Opponent's turn"
+          : v.oppSubmitted
+            ? "◉ Opponent has locked in"
+            : "○ Opponent is deciding"
       }</span>
     </div>
-    <div class="board">${plugin.renderBoard(v.game, mySeat, oppSeat)}</div>
+    <div class="board">${plugin.renderBoard(v.game, mySeat, oppSeat, !v.youSubmitted)}</div>
     ${
       v.youSubmitted
-        ? `<p class="waiting">Move locked in — waiting for your opponent…</p>`
+        ? `<p class="waiting">${alternating ? "Waiting for your opponent's turn…" : "Move locked in — waiting for your opponent…"}</p>`
         : `<div class="actions">${plugin.renderActions(v.game, mySeat)}</div>`
     }
     <p class="countdown" id="${DUEL_IDLE_WARNING_ID}"${idleWarningHidden ? " hidden" : ""}>${idleWarningText(v.secondsUntilIdleReset)}</p>

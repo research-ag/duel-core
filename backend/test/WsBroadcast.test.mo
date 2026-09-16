@@ -38,7 +38,7 @@ func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
 };
 
-func atTableView(reg : Reg, at : Int, session : Text) : TP.View<Rules.State> = switch (reg.status(at, session)) {
+func atTableView(reg : Reg, at : Int, session : Text) : TP.View<Rules.State> = switch (reg.status(spec, at, session)) {
   case (#atTable v) v.view;
   case (#browsing _) Runtime.trap("expected " # session # " to be at a table");
 };

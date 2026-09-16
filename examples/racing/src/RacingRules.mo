@@ -297,14 +297,22 @@ module {
   // `validate`) so a client — or, here, the test suites' autopilot — can
   // preview what's legal before submitting, the same way the frontend's
   // `currentStepArcProperties` does.
-  public func nextStepArea(speed : Float) : { minDistance : Float; maxDistance : Float; maxSteeringCurvature : Float } {
+  public func nextStepArea(speed : Float) : {
+    minDistance : Float;
+    maxDistance : Float;
+    maxSteeringCurvature : Float;
+  } {
     let maxDistance = distanceInUAM(speed, maxAcceleration(speed), 1.0);
     var minDistance = Float.max(0.0, distanceInUAM(speed, -maxDeceleration(speed), 1.0));
     if (Float.abs(speed) < 0.25) {
       // stationary (or nearly) — allow reversing ("back draft")
       minDistance := -maxDistance + Float.abs(speed);
     };
-    { minDistance; maxDistance; maxSteeringCurvature = steeringMaxCurvature(speed) };
+    {
+      minDistance;
+      maxDistance;
+      maxSteeringCurvature = steeringMaxCurvature(speed);
+    };
   };
 
   // ────────────────────────── Spec: init ──────────────────────────────────────
@@ -396,7 +404,10 @@ module {
   };
 
   /// Both moves are in (already validated). Pure: State in, State + verdict out.
-  public func resolve(s : State, a1 : Action, a2 : Action) : { state : State; verdict : ?TP.Verdict } {
+  public func resolve(s : State, a1 : Action, a2 : Action) : {
+    state : State;
+    verdict : ?TP.Verdict;
+  } {
     let p1 = stepCar(s.p1, a1);
     let p2 = stepCar(s.p2, a2);
     // `lap` counts wrap-boundary crossings, not real laps driven, and the
@@ -423,7 +434,8 @@ module {
 
   /// Hand this to every duel-game-core engine call. Built fresh per call —
   /// function values are never stored, so upgrades stay trivial.
-  public func spec() : TP.Spec<State, Action> = {
+  /// `#simultaneous`: both cars step every round.
+  public func spec() : TP.Spec<State, Action> = #simultaneous {
     init;
     validate;
     resolve;

@@ -1,10 +1,11 @@
 # duel-game-core — generic 2-player session engine + client
 
 Two independent, rules-agnostic packages, both named `duel-game-core`
-(one per registry), for building simultaneous-reveal, turn-based
-2-player games on the Internet Computer. Neither package knows anything
-about any particular game — that's supplied by whoever builds a game on
-top.
+(one per registry), for building 2-player games on the Internet Computer
+— either simultaneous-reveal (both seats act every round) or strictly
+alternating-turn (seats take turns in order), chosen per game via
+`Spec`'s own `Mode` tag. Neither package knows anything about any
+particular game — that's supplied by whoever builds a game on top.
 
 - **`backend/`** — the Motoko mops package (`duel-game-core`): the
   session engine (a multi-table lobby — table creation/discovery/join,
@@ -39,6 +40,13 @@ top.
   fixed board with no lobby of its own can use `Table` directly instead.
   See [`backend/README.md`](backend/README.md) for the `Spec<S, M>`
   contract a game implements and a full host-actor wiring example.
+  `Spec` is tagged by `Mode` (`#simultaneous`/`#alternating`) — a game
+  builds exactly one arm; an `#alternating` game's `resolve` takes just
+  the one seat currently on turn (the engine tracks whose turn it is on
+  its own), and `claimWin` in that mode is restricted to whichever seat
+  is currently waiting on the other's turn — see that same README's
+  "Alternating-turn games" section, and `examples/checkers/` below for a
+  full worked example.
   `backend/src/ws.mo` (`mo:duel-game-core/ws`) is a separate module
   layered on top of `table.mo`/`registry.mo`, never merged into `lib.mo`
   (see the toolchain note below), but MANDATORY, not optional: real-time
@@ -102,11 +110,20 @@ top.
   `ws.mo`'s `Hub` — the sid<->principal bridge behind the real-time push
   transport — in isolation, against its two maps directly, since the
   full `IcWebSocketCdk` actor machinery isn't exercisable in this
-  interpreter harness. All are plugged into `backend/test/FakeGame.mo` —
-  a deliberately trivial throwaway `Spec` that exists only to exercise
-  the engine; it is not a real game and ships no rendering. The
-  `*.test.mo` suffix is what `mops test` discovers — a file named
-  `FooTest.mo` is silently skipped, so keep the suffix when adding
+  interpreter harness. All of the above are plugged into
+  `backend/test/FakeGame.mo` — a deliberately trivial throwaway
+  `#simultaneous` `Spec` that exists only to exercise the engine; it is
+  not a real game and ships no rendering. `Alternating.test.mo` is the
+  `#alternating`-mode counterpart to `Engine.test.mo` — turn-order
+  enforcement (`Err.#notYourTurn`), immediate single-move resolution,
+  and claim-win gated to the waiting seat — plugged into
+  `backend/test/FakeTurnGame.mo`, the equally trivial `#alternating`
+  counterpart to `FakeGame.mo`; `Registry`'s own routing is mode-agnostic
+  and already covered generically by `Lobby.test.mo`/
+  `LobbyLifecycle.test.mo`, so there is no separate registry-level
+  alternating suite. The `*.test.mo` suffix is what `mops test`
+  discovers — a file named `FooTest.mo` is silently skipped, so keep the
+  suffix when adding
   suites.
 - **`backend/bench/*.bench.mo`** — `mops bench` suites. `engine.bench.mo`
   measures the engine's own overhead (not any game's `resolve` cost)
@@ -114,12 +131,16 @@ top.
   submitted round, and repeated `status` queries.
 
 This repo is the framework the two packages are built from, not a game
-itself — `examples/007/` and `examples/racing/` are reference games built
-on top of it (a pure rules module implementing `TP.Spec<S, M>` plus a
-thin host actor for the backend; a `GamePlugin` plus `index.html` and
-deploy config for the frontend), kept here to prove the packages are
-usable end to end and to give a new game something concrete to copy. A
-real game normally lives in its own repo, structured the same way.
+itself — `examples/007/`, `examples/racing/`, and `examples/checkers/`
+are reference games built on top of it (a pure rules module implementing
+`TP.Spec<S, M>` plus a thin host actor for the backend; a `GamePlugin`
+plus `index.html` and deploy config for the frontend), kept here to
+prove the packages are usable end to end and to give a new game
+something concrete to copy — `007` and `racing` are `#simultaneous`,
+`checkers` is `#alternating` (standard English draughts; see
+`examples/checkers/CLAUDE.md`), so between them every engine mode has a
+worked reference. A real game normally lives in its own repo, structured
+the same way.
 Building one — whether from scratch or by adapting an existing client —
 is a whole workflow with its own hard-won lessons: see the
 `duel-game-core` skill (`skills/duel-game-core/SKILL.md`) before
@@ -353,8 +374,12 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
    the same `gen`-bound way `submit`/`leave`/`reset` are, and never
    called automatically by `sweep` or anywhere else), that player
    may credit themselves the win (`#claimed seat`) instead of waiting the
-   opponent out; declining to click it just leaves the round pending.
-   An idle takeover of an ACTIVE game
+   opponent out; declining to click it just leaves the round pending. In
+   a `#alternating`-mode game the same rule reads the same way from a
+   different angle: only the seat currently NOT on turn (waiting on the
+   other's move) may `claimWin` — the on-turn seat gets `#wrongPhase`
+   instead, since they're the one holding up the game, not waiting on
+   it. An idle takeover of an ACTIVE game
    records evicted players in `lastEnded` so `status` shows `#endedByOther`
    until they `ackEnded`; takeover of an expired DEBRIEF marks them
    pre-acked (they already saw their debrief) — this asymmetry is

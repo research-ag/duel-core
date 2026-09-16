@@ -119,6 +119,7 @@ test("request(): a reply of #alreadySubmitted is reconciled into a fresh status 
       id: 1n,
       view: {
         inGame: {
+          mode: { simultaneous: null },
           seat: { p1: null },
           game: { hp: 3n },
           turn: 2n,
@@ -157,6 +158,7 @@ test("request(): a reply of #stale is reconciled into a fresh status view the sa
       id: 1n,
       view: {
         inGame: {
+          mode: { simultaneous: null },
           seat: { p1: null },
           game: { hp: 3n },
           turn: 3n,

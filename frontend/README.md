@@ -51,7 +51,11 @@ const plugin = {
   // Full board markup for one game state, from `mySeat`'s point of view.
   // Called for both the live game and a finished debrief's final state —
   // render whatever makes sense in each case from `gameState` alone.
-  renderBoard(gameState, mySeat, oppSeat) {
+  // `yourTurn` (true/false during a live game, undefined for a debrief)
+  // is only there for a game that puts its own interaction directly on
+  // the board — a plugin that keeps `renderActions`' own separate panel
+  // can ignore it entirely, same as this one does.
+  renderBoard(gameState, mySeat, oppSeat, yourTurn) {
     return `<pre>${JSON.stringify(gameState, null, 2)}</pre>`;
   },
 
@@ -69,7 +73,13 @@ const plugin = {
 Only `renderBoard` and `renderActions` return markup for *your* game;
 everything else (turn counter, "opponent is deciding" / "locked in"
 messages, verdict banner, rematch/leave/forfeit buttons) is handled by
-`render.js`'s generic chrome around them.
+`render.js`'s generic chrome around them — including for a backend game
+built in the engine's `#alternating` (strictly turn-based) mode instead
+of the default `#simultaneous` one: `render.js` reads `InGameView.mode`
+and adjusts that same chrome's wording ("Your turn"/"Opponent's turn"
+instead of "locked in"/"deciding") automatically, with no `GamePlugin`
+changes required either way — `renderActions` is still only ever called
+while it's legal for `mySeat` to move, in both modes.
 
 ## Wiring it up
 

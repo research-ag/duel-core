@@ -14,9 +14,12 @@ rules:
   creates them and routes every session's calls to the right one.
 - **Seating** — two players join a table (seats `#p1` / `#p2`); a third
   caller is turned away while a match is in progress on it.
-- **Rounds** — each seated player submits one move; once both are in, the
-  game's own `resolve` function runs and either continues the game or
-  ends it with a verdict.
+- **Rounds** — a `#simultaneous` game has each seated player submit one
+  move per round; once both are in, the game's own `resolve` function
+  runs and either continues the game or ends it with a verdict. An
+  `#alternating` game instead resolves the instant the one seat
+  currently on turn submits their move — there's no second move to wait
+  on (see "Design" below for both modes).
 - **Debrief** — a finished game puts BOTH players in a debrief (win /
   lose / draw), with the final game state attached.
 - **Early leave** — a player may leave mid-game; both players get a
@@ -88,7 +91,13 @@ all of them off one import. The two layers of actual operations are
 separate sibling modules, both built on those same types:
 
 - `Spec<S, M>` — the three pure functions a game implements: `init`,
-  `validate`, `resolve` (see Design).
+  `validate`, `resolve` (see Design). Tagged by `Mode`
+  (`#simultaneous`/`#alternating`) — a game builds exactly one arm,
+  `#simultaneous { init; validate; resolve }` (both seats act every
+  round — `resolve` takes both moves; the common case) or
+  `#alternating { init; validate; resolve }` (seats take turns —
+  `resolve` takes just the one seat on turn and their move). See
+  Design's "Alternating-turn games" section.
 - `src/table.mo` (`mo:duel-game-core/table`) — `Table<S, M>`, the stable
   session state for ONE board, and the low-level primitive `Registry`
   (below) is built from: `Table.new(idleTimeoutNs, claimTimeoutNs,
@@ -146,16 +155,26 @@ import TP "mo:duel-game-core";
 
 ### Example
 
-A game is a pure `Spec<S, M>`:
+A game is a pure `Spec<S, M>`, tagged by `Mode`:
 
 ```motoko
 public type Spec<S, M> = {
-  init : () -> S;
-  validate : (S, Seat, M) -> ?Text; // null = legal; ?text = rejection
-  resolve : (S, M, M) -> { state : S; verdict : ?Verdict };
+  #simultaneous : {
+    init : () -> S;
+    validate : (S, Seat, M) -> ?Text; // null = legal; ?text = rejection
+    resolve : (S, M, M) -> { state : S; verdict : ?Verdict }; // both moves at once
+  };
+  #alternating : {
+    init : () -> S;
+    validate : (S, Seat, M) -> ?Text;
+    resolve : (S, Seat, M) -> { state : S; verdict : ?Verdict }; // one seat, on turn
+  };
 };
 
 ```
+
+A game builds exactly one arm — see "Alternating-turn games" under
+Design for the `#alternating` case.
 
 A host actor forwards every call to the engine, supplying `Time.now()`
 and your `Spec` — but only `status` is a plain Candid method. Everything
@@ -178,7 +197,7 @@ persistent actor {
   let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(60_000_000_000, 15_000_000_000); // 60s idle timeout, 15s claim-win window, shared by every table
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
-    registry.status(Time.now(), sid);
+    registry.status(Rules.spec(), Time.now(), sid);
   };
 
   // Frees every abandoned table on its own — with only 2 players per
@@ -515,21 +534,37 @@ npx -y prettier --plugin prettier-plugin-motoko --check '**/*.{mo,json,md}'
 
 ## Design
 
-**Alternating-turn games:** this engine is simultaneous-reveal. Model a
-strictly-alternating game (chess, tic-tac-toe, ...) with a pass-move
-convention: include a `#pass` move, have `validate` force the off-turn
-player to `#pass` (track whose turn it is inside `S`), and let `resolve`
-apply only the one real move.
+**Alternating-turn games:** `Spec<S, M>` is tagged by `Mode`, so a game
+picks its own shape — `#simultaneous` (both seats submit every round;
+everything described in this section) or `#alternating` (seats take
+turns in order). A `#alternating` game's `resolve : (S, Seat, M) -> {
+state : S; verdict : ?Verdict }` takes just the one seat currently on
+turn and their move, and runs the instant that seat submits — there is
+no waiting on a second seat's move. The engine tracks whose turn it is
+on its own, from the match's own round counter (`p1` moves first, then
+it alternates every resolved round); a game's own `S` never needs a turn
+flag, and an off-turn submission is rejected by the engine itself
+(`Err.#notYourTurn`) before that game's `validate` ever runs. Idle
+takeover and claim-a-win both still apply exactly as described
+elsewhere in this file, with one restriction on the latter: only the
+seat currently WAITING on the other's turn may claim — the seat whose
+own turn it is can't, since they're the one holding up the game, not the
+one waiting on it.
 
 **Rule contract for `Spec<S, M>`:**
 
 - **Pure.** No actor, no shared functions, no storage, no `Time` calls.
   State transitions build new immutable records; they never mutate.
-- **`validate` is the only legality gate.** The engine calls it for BOTH
-  seats on every submission — a client bypassing disabled UI buttons
-  cannot cheat.
-- **`resolve` runs once both moves are in.** Return the next state and,
-  if the game just ended, a `?Verdict` (`#p1Wins` / `#p2Wins` / `#draw`).
+- **`validate` is the only legality gate.** In `#simultaneous` mode the
+  engine calls it separately for each seat's own submission over the
+  course of a round; in `#alternating` mode it's called once, for
+  whichever seat is currently on turn. Either way, a client bypassing
+  disabled UI buttons cannot cheat.
+- **`resolve` runs once the round's move(s) are ready.** For
+  `#simultaneous`, once both seats have submitted; for `#alternating`,
+  immediately once the on-turn seat's single move is validated. Return
+  the next state and, if the game just ended, a `?Verdict` (`#p1Wins` /
+  `#p2Wins` / `#draw`).
 
 **Claiming an overdue win:** once a player's own move has sat pending
 against their opponent's silence for at least `claimTimeoutNs` — a
@@ -543,7 +578,12 @@ in `sweep` or anywhere else ever calls it on a player's behalf, and a
 player who'd rather give their opponent more time just doesn't click it.
 A `claimWin` sent before the window has actually elapsed comes back
 `Err.#notOverdue { secondsLeft }`, the same shape `#notIdle` already
-uses elsewhere.
+uses elsewhere. In a `#alternating` game "a player's own move has sat
+pending against their opponent's silence" means the same thing from a
+different angle — it's currently the OTHER seat's turn and they haven't
+taken it — so only the seat NOT currently on turn may call `claimWin`;
+the on-turn seat gets `Err.#wrongPhase` instead, same as any other
+misuse.
 
 **Design guarantees** — each maps to a bug class commonly found in
 ad-hoc 2-player game backends. Stated here at the per-table primitive

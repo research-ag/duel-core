@@ -57,6 +57,12 @@ module {
     { state = { p1; p2 }; verdict };
   };
 
-  /// Hand this to every engine call under test.
-  public func spec() : TP.Spec<State, Action> = { init; validate; resolve };
+  /// Hand this to every engine call under test. `#simultaneous`: this
+  /// fixture exercises the engine's default, both-seats-every-round mode
+  /// — see FakeTurnGame.mo for the `#alternating` counterpart.
+  public func spec() : TP.Spec<State, Action> = #simultaneous {
+    init;
+    validate;
+    resolve;
+  };
 };

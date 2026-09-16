@@ -4,7 +4,15 @@
 /// No actor, no shared functions, no storage, no Time — just the rules.
 /// Plugs into the generic `duel-game-core` engine via `spec()`:
 ///
-///   TP.Spec<State, Action> = { init; validate; resolve }
+///   TP.Spec<State, Action> = #simultaneous { init; validate; resolve }
+///
+/// This template is for a `#simultaneous` game (both seats act every
+/// round — the common case). For a strictly alternating-turn game
+/// (chess, checkers, tic-tac-toe, ...) build `#alternating { init;
+/// validate; resolve }` instead, where `resolve : (State, TP.Seat,
+/// Action) -> ...` takes just the ONE seat currently on turn — see
+/// `references/alternating-turn-games.md` for the shape and a worked
+/// example.
 ///
 /// Seat mapping: #p1 = __P1_NAME__, #p2 = __P2_NAME__ (names only matter
 /// for narration/display, never for legality — the engine treats both
@@ -110,8 +118,9 @@ module {
 
   /// Hand this to every duel-game-core engine call. Built fresh per call
   /// — function values are never stored, so upgrades stay trivial
-  /// (CLAUDE.md architecture rule 1).
-  public func spec() : TP.Spec<State, Action> = {
+  /// (CLAUDE.md architecture rule 1). `#simultaneous`: both seats act
+  /// every round.
+  public func spec() : TP.Spec<State, Action> = #simultaneous {
     init;
     validate;
     resolve;

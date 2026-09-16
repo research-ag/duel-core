@@ -63,6 +63,7 @@ test("errText: fixed-text variants", () => {
   assert.equal(errText({ seatTaken: null }), "That seat is already taken.");
   assert.equal(errText({ notSeated: null }), "You are not seated in this game.");
   assert.equal(errText({ alreadySubmitted: null }), "You have already moved this round.");
+  assert.equal(errText({ notYourTurn: null }), "It's not your turn.");
   assert.equal(errText({ unauthorized: null }), "This session belongs to a different signed-in identity.");
 });
 
@@ -196,6 +197,7 @@ test("renderView: inGame shows the turn counter (1-indexed) and delegates board/
   const html = renderView<{ turn: string }>(
     {
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { turn: "x" },
         turn: 0n,
@@ -218,10 +220,61 @@ test("renderView: inGame shows the turn counter (1-indexed) and delegates board/
   assert.match(html, /data-confirm="Forfeit/);
 });
 
+test("renderView: inGame uses turn-accurate copy for an #alternating table", () => {
+  const html = renderView<{ turn: string }>(
+    {
+      inGame: {
+        mode: { alternating: null },
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 0n,
+        youSubmitted: false,
+        oppSubmitted: true,
+        gen: 1n,
+        secondsUntilIdleReset: 60n,
+        idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 20n,
+        claimTimeoutSecs: 20n,
+      },
+    },
+    plugin,
+  );
+  assert.match(html, /◉ Your turn/);
+  assert.doesNotMatch(html, /Opponent has locked in/);
+  assert.match(html, /Pass/); // it's this seat's turn — actions are shown
+});
+
+test("renderView: inGame shows the waiting-for-turn copy once it's the opponent's turn, #alternating", () => {
+  const html = renderView<{ turn: string }>(
+    {
+      inGame: {
+        mode: { alternating: null },
+        seat: { p1: null },
+        game: { turn: "x" },
+        turn: 1n,
+        youSubmitted: true,
+        oppSubmitted: false,
+        gen: 1n,
+        secondsUntilIdleReset: 60n,
+        idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 20n,
+        claimTimeoutSecs: 20n,
+      },
+    },
+    plugin,
+  );
+  assert.match(html, /○ Opponent's turn/);
+  assert.match(html, /Waiting for your opponent's turn…/);
+  assert.doesNotMatch(html, /Pass/); // not this seat's turn — actions are hidden
+});
+
 test("renderView: inGame hides actions and shows the waiting note once submitted", () => {
   const html = renderView<{ turn: string }>(
     {
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { turn: "x" },
         turn: 2n,
@@ -250,6 +303,7 @@ test("renderView: inGame shows the idle-reset warning once within threshold, for
   const html = renderView<{ turn: string }>(
     {
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { turn: "x" },
         turn: 0n,
@@ -273,6 +327,7 @@ test("renderView: inGame hides the idle-reset warning for a player who already l
   const html = renderView<{ turn: string }>(
     {
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { turn: "x" },
         turn: 0n,
@@ -304,6 +359,7 @@ test("renderView: inGame keeps the claim-win countdown quiet until within its ow
   const farOut = renderView<{ turn: string }>(
     {
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { turn: "x" },
         turn: 0n,
@@ -326,6 +382,7 @@ test("renderView: inGame keeps the claim-win countdown quiet until within its ow
   const withinThreshold = renderView<{ turn: string }>(
     {
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { turn: "x" },
         turn: 0n,
@@ -351,6 +408,7 @@ test("renderView: inGame offers the Claim the win button once the claim window h
   const html = renderView<{ turn: string }>(
     {
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { turn: "x" },
         turn: 0n,
@@ -376,6 +434,7 @@ test("renderView: inGame warns the STILL-DECIDING player that their opponent cou
   const withinThreshold = renderView<{ turn: string }>(
     {
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { turn: "x" },
         turn: 0n,
@@ -400,6 +459,7 @@ test("renderView: inGame warns the STILL-DECIDING player that their opponent cou
   const farOut = renderView<{ turn: string }>(
     {
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { turn: "x" },
         turn: 0n,
@@ -425,6 +485,7 @@ test("renderView: inGame warns the STILL-DECIDING player that their opponent cou
   const overdue = renderView<{ turn: string }>(
     {
       inGame: {
+        mode: { simultaneous: null },
         seat: { p1: null },
         game: { turn: "x" },
         turn: 0n,

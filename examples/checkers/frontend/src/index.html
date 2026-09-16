@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Checkers — Duel</title>
+    <link rel="stylesheet" href="/duel-game-core.css" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Checkers <span class="sub">— Duel</span></h1>
+      <div class="session">
+        <span class="label">Player ID</span>
+        <code id="sid">…</code>
+        <button id="new-sid" title="Play as a different player">new</button>
+        <button id="duel-auth-btn"></button>
+      </div>
+    </header>
+
+    <p id="error" class="error" hidden></p>
+
+    <main id="screen">
+      <p class="muted">Connecting to the board…</p>
+    </main>
+
+    <footer>
+      <p class="muted">
+        Standard English draughts — Black moves first, captures are
+        mandatory, and a man that reaches the far row becomes a king. Your
+        Player ID is per browser tab — open a second tab to play the other
+        seat — unless you log in with Internet Identity, which gives you
+        the same Player ID everywhere, permanently. An idle board can be
+        taken over after 60&nbsp;seconds.
+      </p>
+    </footer>
+
+    <!-- app.js is esbuild's bundle of src/app.js (see ../build.js) — every
+         dependency it and duel-game-core itself need (@icp-sdk/core,
+         @icp-sdk/auth, cborg) is resolved and inlined at build time, so
+         no import map or bare-specifier resolution is needed here. -->
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

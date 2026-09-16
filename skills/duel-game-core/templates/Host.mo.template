@@ -22,7 +22,7 @@ persistent actor {
     Registry.new(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // idle takeover window, claim-win window, per table
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
-    registry.status(Time.now(), sid);
+    registry.status(Rules.spec(), Time.now(), sid);
   };
 
   transient let wsHub : Ws.Hub = Ws.createHub();
