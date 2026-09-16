@@ -9,8 +9,8 @@
 /// This template is for a `#simultaneous` game (both seats act every
 /// round — the common case). For a strictly alternating-turn game
 /// (chess, checkers, tic-tac-toe, ...) build `#alternating { init;
-/// validate; resolve }` instead, where `resolve : (State, Seat, Action)
-/// -> ...` takes just the ONE seat currently on turn — see
+/// validate; resolve }` instead, where `resolve : (State, TP.Seat,
+/// Action) -> ...` takes just the ONE seat currently on turn — see
 /// `references/alternating-turn-games.md` for the shape and a worked
 /// example.
 ///

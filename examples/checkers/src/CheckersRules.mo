@@ -31,7 +31,8 @@
 ///         through if the same piece could still capture again from
 ///         where it landed.
 ///   KING  a man that reaches the far row (row 0 for Black, row 7 for
-///         Red) is promoted the instant it lands there.
+///         Red) is promoted once its full move — the whole capture
+///         chain, for a multi-jump — resolves and it ends there.
 ///   WIN   a seat with no legal move at all on their own turn (no pieces
 ///         left, or every piece blocked) loses.
 ///
@@ -249,21 +250,29 @@ module {
           case null return ?"There's no piece there.";
         };
 
-        // Walk the chain leg by leg, against the ORIGINAL board — a
-        // captured piece is tracked in `captured` (never actually
-        // removed here) so the same victim can't be jumped twice.
+        // Walk the chain leg by leg against a board updated after EACH
+        // leg (captured piece removed, prior square cleared, piece
+        // placed at the new landing square) — otherwise a later leg
+        // would be checked against the ORIGINAL board, which still
+        // shows the piece's own vacated squares as occupied and could
+        // wrongly reject a legal landing there. `captured` separately
+        // tracks victims so the same one can't be jumped twice.
         let captured = List.empty<Nat>();
+        var board = s.board;
         var cur = path[0];
         var k = 1;
         label chain loop {
           if (k >= path.size()) break chain;
           let next = path[k];
           let leg = Array.find<(Nat, Nat)>(
-            jumpTargets(s.board, piece, cur),
+            jumpTargets(board, piece, cur),
             func((mid, land)) = land == next and not List.contains<Nat>(captured, Nat.equal, mid),
           );
           switch (leg) {
-            case (?(mid, _)) List.add(captured, mid);
+            case (?(mid, _)) {
+              List.add(captured, mid);
+              board := setAt(setAt(setAt(board, mid, null), cur, null), next, ?piece);
+            };
             case null return ?"That's not a legal capture sequence.";
           };
           cur := next;
@@ -274,7 +283,7 @@ module {
         // module's own doc header on mid-chain promotion) may not still
         // have a capture available from where it ended up.
         let stillCapturing = Array.find<(Nat, Nat)>(
-          jumpTargets(s.board, piece, cur),
+          jumpTargets(board, piece, cur),
           func((mid, _)) = not List.contains<Nat>(captured, Nat.equal, mid),
         );
         switch (stillCapturing) {

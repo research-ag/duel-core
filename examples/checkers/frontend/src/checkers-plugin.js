@@ -228,7 +228,7 @@ function drawBoard(board, highlights, flip) {
         const action = targets.get(i);
         if (action) {
           tagName = "button";
-          extraAttrs = ` type="button" ${actionAttr(action)}`;
+          extraAttrs = ` type="button" data-sq="${i}" ${actionAttr(action)}`;
         } else {
           extraAttrs = ` data-sq="${i}"`;
         }

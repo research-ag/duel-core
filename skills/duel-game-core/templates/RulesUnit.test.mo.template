@@ -11,9 +11,20 @@ import TP "mo:duel-game-core"; // Verdict/Seat live in the engine, not the rules
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
-// Shorthand: run one round, trap if it ended unexpectedly.
+// Shorthand: run one round, trap if it ended unexpectedly. For a
+// #simultaneous game (this template's default — both seats act every
+// round).
 func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
   let r = R.resolve(s, a1, a2);
+  switch (r.verdict) { case null {}; case (?_) Runtime.trap("unexpected end") };
+  r.state;
+};
+
+// For a #alternating game instead, use this shorthand in place of
+// `round` above — its own `resolve` takes just the ONE seat on turn and
+// a single Action (see references/alternating-turn-games.md).
+func turnRound(s : R.State, seat : TP.Seat, a : R.Action) : R.State {
+  let r = R.resolve(s, seat, a);
   switch (r.verdict) { case null {}; case (?_) Runtime.trap("unexpected end") };
   r.state;
 };

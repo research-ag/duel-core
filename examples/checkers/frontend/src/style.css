@@ -47,6 +47,14 @@ button.cb-square {
   position: relative;
 }
 
+/* `all: unset` above also strips the browser's default focus ring —
+   restore one so keyboard users can still tell which target square is
+   focused. */
+button.cb-square:focus-visible {
+  outline: 3px solid var(--accent, #2ecc71);
+  outline-offset: -3px;
+}
+
 .cb-selectable,
 .cb-selected,
 .cb-target {

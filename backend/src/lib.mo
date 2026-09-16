@@ -8,8 +8,11 @@
 ///     any number of tables run independently and simultaneously; the
 ///     `Registry` (`./registry`, below) is what creates them and routes
 ///     every session's calls to the right one (seats #p1 / #p2 per table)
-///   • rounds: each seated player submits one move; when both are in, the
-///     game's `resolve` runs and either continues the game or ends it
+///   • rounds: a `#simultaneous` game has each seated player submit one
+///     move; when both are in, the game's `resolve` runs and either
+///     continues the game or ends it. An `#alternating` game instead
+///     resolves the instant the one on-turn seat submits a single move
+///     — see `Mode`'s own doc below for the full contract
 ///   • a finished game puts BOTH players in a #debrief (win / lose / draw)
 ///   • a player may LEAVE early: both players get a special debrief
 ///     (`end = #aborted seat`) instead of the game silently vanishing

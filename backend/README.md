@@ -14,9 +14,12 @@ rules:
   creates them and routes every session's calls to the right one.
 - **Seating** — two players join a table (seats `#p1` / `#p2`); a third
   caller is turned away while a match is in progress on it.
-- **Rounds** — each seated player submits one move; once both are in, the
-  game's own `resolve` function runs and either continues the game or
-  ends it with a verdict.
+- **Rounds** — a `#simultaneous` game has each seated player submit one
+  move per round; once both are in, the game's own `resolve` function
+  runs and either continues the game or ends it with a verdict. An
+  `#alternating` game instead resolves the instant the one seat
+  currently on turn submits their move — there's no second move to wait
+  on (see "Design" below for both modes).
 - **Debrief** — a finished game puts BOTH players in a debrief (win /
   lose / draw), with the final game state attached.
 - **Early leave** — a player may leave mid-game; both players get a
@@ -552,11 +555,16 @@ one waiting on it.
 
 - **Pure.** No actor, no shared functions, no storage, no `Time` calls.
   State transitions build new immutable records; they never mutate.
-- **`validate` is the only legality gate.** The engine calls it for BOTH
-  seats on every submission — a client bypassing disabled UI buttons
-  cannot cheat.
-- **`resolve` runs once both moves are in.** Return the next state and,
-  if the game just ended, a `?Verdict` (`#p1Wins` / `#p2Wins` / `#draw`).
+- **`validate` is the only legality gate.** In `#simultaneous` mode the
+  engine calls it separately for each seat's own submission over the
+  course of a round; in `#alternating` mode it's called once, for
+  whichever seat is currently on turn. Either way, a client bypassing
+  disabled UI buttons cannot cheat.
+- **`resolve` runs once the round's move(s) are ready.** For
+  `#simultaneous`, once both seats have submitted; for `#alternating`,
+  immediately once the on-turn seat's single move is validated. Return
+  the next state and, if the game just ended, a `?Verdict` (`#p1Wins` /
+  `#p2Wins` / `#draw`).
 
 **Claiming an overdue win:** once a player's own move has sat pending
 against their opponent's silence for at least `claimTimeoutNs` — a
