@@ -25,6 +25,7 @@ export function App() {
         actor={auth.actor}
         ownPrincipal={auth.principal}
         onEdit={(game) => setModal(game)}
+        onDeleted={reload}
       />
       {modal !== undefined && auth.actor && (
         <GameFormModal

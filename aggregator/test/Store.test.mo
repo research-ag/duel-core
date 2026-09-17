@@ -223,4 +223,25 @@ do {
 };
 Debug.print("7. listGames / listGamesByDeveloper / developerDisplayName OK");
 
+// ── deregisterGame ────────────────────────────────────────────────────────
+
+do {
+  let s = Store.empty();
+  ignore ok(Store.registerGame(s, DEV_A, T0, baseInput), "8 setup");
+
+  expectErr<()>(Store.deregisterGame(s, Principal.anonymous(), BACKEND_1), #anonymousCaller, "8a");
+  expectErr<()>(Store.deregisterGame(s, DEV_A, FRONTEND_1), #noSuchGame, "8b: id must be the backendCanisterId");
+  expectErr<()>(Store.deregisterGame(s, DEV_B, BACKEND_1), #notOwner, "8c: only the developer who registered it may remove it");
+
+  if (Store.getGame(s, BACKEND_1) == null) Runtime.trap("8d: a failed deregister must not remove the game");
+
+  ok(Store.deregisterGame(s, DEV_A, BACKEND_1), "8e");
+  if (Store.getGame(s, BACKEND_1) != null) Runtime.trap("8f: the game must be gone after deregistering");
+  if (Store.getBanner(s, BACKEND_1) != null) Runtime.trap("8g: its banner must be gone too");
+  if (Store.listGames(s).size() != 0) Runtime.trap("8h: it must no longer be listed");
+
+  expectErr<()>(Store.deregisterGame(s, DEV_A, BACKEND_1), #noSuchGame, "8i: deregistering an already-removed game must not succeed twice");
+};
+Debug.print("8. deregisterGame OK");
+
 Debug.print("ALL STORE CHECKS PASSED");

@@ -8,7 +8,7 @@ export function Header({ auth, onRegister }: { auth: Auth; onRegister: () => voi
   return (
     <header>
       <h1>
-        <span>Aggregator</span> — game registry
+        <span>Duel Framework</span> Dashboard
       </h1>
       <div className="identity">
         {auth.loading ? (

@@ -11,12 +11,14 @@ export function GameGrid({
   actor,
   ownPrincipal,
   onEdit,
+  onDeleted,
 }: {
   games: GameView[];
   loading: boolean;
   actor: AggregatorActor | undefined;
   ownPrincipal: Principal | undefined;
   onEdit: (game: GameView) => void;
+  onDeleted: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [developer, setDeveloper] = useState<string>("all");
@@ -73,6 +75,7 @@ export function GameGrid({
               actor={actor}
               isOwner={ownPrincipal !== undefined && g.developer.toText() === ownPrincipal.toText()}
               onEdit={() => onEdit(g)}
+              onDeleted={onDeleted}
             />
           ))}
         </div>

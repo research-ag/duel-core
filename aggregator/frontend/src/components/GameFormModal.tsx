@@ -1,29 +1,10 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Principal } from "@icp-sdk/core/principal";
 
 import { useBanner } from "../hooks/useBanner";
 import type { AggregatorActor, BannerRequirements, Err, GameView } from "../types";
 import { errMessage, maybeToOpt, optToMaybe } from "../types";
-
-/// Reads `file`'s own pixel dimensions via a throwaway `<img>` — the same
-/// check `Store.mo`'s `Png.dimensions` enforces server-side (see
-/// Store.mo's own doc), done here purely so a wrong-size upload never
-/// even reaches the network.
-function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Could not read that file as an image."));
-    };
-    img.src = url;
-  });
-}
+import { ImageCropper } from "./ImageCropper";
 
 export function GameFormModal({
   actor,
@@ -47,10 +28,12 @@ export function GameFormModal({
   const [customDomain, setCustomDomain] = useState(existing ? (optToMaybe(existing.customDomain) ?? "") : "");
   const [bannerFile, setBannerFile] = useState<File | undefined>(undefined);
   const [bannerPreview, setBannerPreview] = useState<string | undefined>(undefined);
+  const [cropSrc, setCropSrc] = useState<string | undefined>(undefined);
   const [requirements, setRequirements] = useState<BannerRequirements | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const existingBannerUrl = useBanner(actor, existing?.backendCanisterId);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void actor.getBannerRequirements().then(setRequirements);
@@ -62,6 +45,22 @@ export function GameFormModal({
     setBannerPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [bannerFile]);
+
+  function pickFile(file: File | undefined) {
+    if (!file) return;
+    setCropSrc(URL.createObjectURL(file));
+  }
+
+  function closeCropper() {
+    if (cropSrc) URL.revokeObjectURL(cropSrc);
+    setCropSrc(undefined);
+    if (bannerInputRef.current) bannerInputRef.current.value = "";
+  }
+
+  function applyCrop(file: File) {
+    setBannerFile(file);
+    closeCropper();
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -79,16 +78,9 @@ export function GameFormModal({
 
     let bannerBytes: Uint8Array | undefined;
     if (bannerFile) {
-      if (requirements) {
-        const { width, height } = await readImageDimensions(bannerFile);
-        if (BigInt(width) !== requirements.width || BigInt(height) !== requirements.height) {
-          setError(`Banner must be exactly ${requirements.width}x${requirements.height} pixels (got ${width}x${height}).`);
-          return;
-        }
-        if (BigInt(bannerFile.size) > requirements.maxBytes) {
-          setError(`Banner must be at most ${requirements.maxBytes} bytes.`);
-          return;
-        }
+      if (requirements && BigInt(bannerFile.size) > requirements.maxBytes) {
+        setError(`Banner must be at most ${requirements.maxBytes} bytes.`);
+        return;
       }
       bannerBytes = new Uint8Array(await bannerFile.arrayBuffer());
     } else if (!isEdit) {
@@ -129,101 +121,121 @@ export function GameFormModal({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{isEdit ? "Edit game" : "Register a game"}</h2>
-        <form onSubmit={(e) => void handleSubmit(e)}>
-          <div className="field">
-            <label htmlFor="title">Title</label>
-            <input id="title" type="text" maxLength={60} value={title} onChange={(e) => setTitle(e.target.value)} required />
-          </div>
-
-          <div className="field">
-            <label htmlFor="description">Description</label>
-            <textarea
-              id="description"
-              rows={3}
-              maxLength={500}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="backend">Backend canister id</label>
-            <input
-              id="backend"
-              type="text"
-              value={backendCanisterId}
-              onChange={(e) => setBackendCanisterId(e.target.value)}
-              disabled={isEdit}
-              required
-              placeholder="e.g. ryjl3-tyaaa-aaaaa-aaaba-cai"
-            />
-            {isEdit && <span className="hint">The backend canister id can't be changed after registration.</span>}
-          </div>
-
-          <div className="field">
-            <label htmlFor="frontend">Frontend canister id</label>
-            <input
-              id="frontend"
-              type="text"
-              value={frontendCanisterId}
-              onChange={(e) => setFrontendCanisterId(e.target.value)}
-              required
-              placeholder="e.g. rno2w-sqaaa-aaaaa-aaacq-cai"
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="domain">Custom domain (optional)</label>
-            <input
-              id="domain"
-              type="url"
-              value={customDomain}
-              onChange={(e) => setCustomDomain(e.target.value)}
-              placeholder="https://mygame.example.com"
-            />
-            <span className="hint">
-              Leave blank to use https://&lt;frontend-canister-id&gt;.icp.net
-            </span>
-          </div>
-
-          <div className="field">
-            <label htmlFor="banner">
-              Banner{" "}
-              {requirements
-                ? `(PNG, exactly ${requirements.width}x${requirements.height}px, max ${Math.round(Number(requirements.maxBytes) / 1024)} KB)`
-                : "(PNG)"}
-            </label>
-            <input
-              id="banner"
-              type="file"
-              accept="image/png"
-              onChange={(e) => setBannerFile(e.target.files?.[0])}
-              required={!isEdit}
-            />
-            {(bannerPreview ?? existingBannerUrl) && (
-              <span
-                className="banner-preview"
-                style={{ backgroundImage: `url(${bannerPreview ?? existingBannerUrl})` }}
+    <Fragment>
+      <div className="modal-backdrop">
+        <div className="modal">
+          <h2>{isEdit ? "Edit game" : "Register a game"}</h2>
+          <form onSubmit={(e) => void handleSubmit(e)}>
+            <div className="field">
+              <label htmlFor="title">Title</label>
+              <input
+                id="title"
+                type="text"
+                maxLength={60}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
               />
-            )}
-            {isEdit && <span className="hint">Leave empty to keep the current banner.</span>}
-          </div>
+            </div>
 
-          {error && <p className="error">{error}</p>}
+            <div className="field">
+              <label htmlFor="description">Description</label>
+              <textarea
+                id="description"
+                rows={3}
+                maxLength={500}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </div>
 
-          <div className="modal-actions">
-            <button type="button" onClick={onClose} disabled={saving}>
-              Cancel
-            </button>
-            <button type="submit" className="primary" disabled={saving}>
-              {saving ? "Saving…" : isEdit ? "Save changes" : "Register"}
-            </button>
-          </div>
-        </form>
+            <div className="field">
+              <label htmlFor="backend">Backend canister id</label>
+              <input
+                id="backend"
+                type="text"
+                value={backendCanisterId}
+                onChange={(e) => setBackendCanisterId(e.target.value)}
+                disabled={isEdit}
+                required
+                placeholder="e.g. ryjl3-tyaaa-aaaaa-aaaba-cai"
+              />
+              {isEdit && <span className="hint">The backend canister id can't be changed after registration.</span>}
+            </div>
+
+            <div className="field">
+              <label htmlFor="frontend">Frontend canister id</label>
+              <input
+                id="frontend"
+                type="text"
+                value={frontendCanisterId}
+                onChange={(e) => setFrontendCanisterId(e.target.value)}
+                required
+                placeholder="e.g. rno2w-sqaaa-aaaaa-aaacq-cai"
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="domain">Custom domain (optional)</label>
+              <input
+                id="domain"
+                type="url"
+                value={customDomain}
+                onChange={(e) => setCustomDomain(e.target.value)}
+                placeholder="https://mygame.example.com"
+              />
+              <span className="hint">
+                Leave blank to use https://&lt;frontend-canister-id&gt;.icp.net
+              </span>
+            </div>
+
+            <div className="field">
+              <label htmlFor="banner">
+                Banner{" "}
+                {requirements
+                  ? `(PNG, exactly ${requirements.width}x${requirements.height}px, max ${Math.round(Number(requirements.maxBytes) / 1024)} KB)`
+                  : "(PNG)"}
+              </label>
+              <input
+                ref={bannerInputRef}
+                id="banner"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(e) => pickFile(e.target.files?.[0])}
+                disabled={!requirements}
+              />
+              {(bannerPreview ?? existingBannerUrl) && (
+                <span
+                  className="banner-preview"
+                  style={{ backgroundImage: `url(${bannerPreview ?? existingBannerUrl})` }}
+                />
+              )}
+              {isEdit && <span className="hint">Leave empty to keep the current banner.</span>}
+            </div>
+
+            {error && <p className="error">{error}</p>}
+
+            <div className="modal-actions">
+              <button type="button" onClick={onClose} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" className="primary" disabled={saving}>
+                {saving ? "Saving…" : isEdit ? "Save changes" : "Register"}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+
+      {cropSrc && requirements && (
+        <ImageCropper
+          imageSrc={cropSrc}
+          targetWidth={Number(requirements.width)}
+          targetHeight={Number(requirements.height)}
+          onCancel={closeCropper}
+          onCropped={applyCrop}
+        />
+      )}
+    </Fragment>
   );
 }

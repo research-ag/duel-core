@@ -17,16 +17,22 @@ independent Candid interface — no `ws.mo`, no `Registry`, no `Spec`.
   banner upload to recover its pixel width/height, without pulling in a
   full image-decoding library. Pure, independently testable.
 - **`src/Store.mo`** — every mutating/validating operation
-  (`setDisplayName`, `registerGame`, `updateGame`, plus the read paths)
-  as plain functions over an explicit `State` (two `mo:core/Map`s: by
-  principal for profiles, by backend-canister-principal for games). No
-  `Time` import — `now` is a parameter, same discipline `../backend`'s
-  own engine modules follow, so this module runs under a plain
-  interpreter test with no actor at all. A game is keyed by its own
+  (`setDisplayName`, `registerGame`, `updateGame`, `deregisterGame`, plus
+  the read paths) as plain functions over an explicit `State` (two
+  `mo:core/Map`s: by principal for profiles, by backend-canister-principal
+  for games). No `Time` import — `now` is a parameter, same discipline
+  `../backend`'s own engine modules follow, so this module runs under a
+  plain interpreter test with no actor at all. A game is keyed by its own
   `backendCanisterId`, which is therefore immutable and doubles as its
   `GameId` — there's no separate incrementing id to keep in sync with
   it, and registering the same backend canister twice is rejected
-  outright rather than silently reassigning ownership.
+  outright rather than silently reassigning ownership. `deregisterGame`
+  gates on the same ownership check `updateGame` uses (`existing.developer
+  == caller`, else `#notOwner`) and reuses `updateGame`'s own
+  `#noSuchGame`/`#notOwner` `Err` arms rather than adding new ones — it
+  removes the game (and, since the banner lives on the same record, its
+  banner) from the registry outright; it has no effect on the game's own
+  backend/frontend canisters, which this product never controls.
 - **`src/Main.mo`** — the thin host actor: owns the one `Store.State`,
   reads `msg.caller`/`Time.now()`, and forwards to `Store.mo`. Unlike
   `../backend`'s own `Registry`, every mutating method here is a plain,
@@ -40,8 +46,10 @@ independent Candid interface — no `ws.mo`, no `Registry`, no `Spec`.
 - **`test/Store.test.mo`** — interpreter-run suite (`moc -r`, same style
   as `../backend/test/*.test.mo`) covering `Png.dimensions` and every
   `Store.mo` entry point: anonymous-caller rejection, validation errors,
-  ownership gating on edit, the immutable `backendCanisterId`/developer
-  fields, and `developerDisplayName` resolution.
+  ownership gating on edit and deregistration, the immutable
+  `backendCanisterId`/developer fields, `developerDisplayName`
+  resolution, and that a deregistered game (and its banner) is actually
+  gone from every read path afterward.
 - **`icp.yaml`** — icp-cli manifest; deploys `src/Main.mo` as canister
   `backend` and `frontend/dist` (esbuild's bundled output) as canister
   `frontend`, the same shape every `../examples/*` game uses.
@@ -60,12 +68,27 @@ independent Candid interface — no `ws.mo`, no `Registry`, no `Spec`.
   `setDisplayName`/`registerGame`/`updateGame`; browsing the public grid
   works anonymously). `hooks/useBanner.ts` fetches a game's banner via
   the separate `getBanner` query and turns it into a cached object URL.
-  `components/GameFormModal.tsx` is the register/edit form: it reads an
-  uploaded PNG's own pixel dimensions client-side (via a throwaway
-  `<img>`) and checks them against `getBannerRequirements()` before ever
-  calling `registerGame`/`updateGame`, so a wrong-size upload never
-  reaches the network — `Store.mo`'s own validation is still the actual
-  gate; this is purely a fast, friendly first check.
+  `components/GameCard.tsx` shows an owner (its `developer` matches the
+  logged-in principal) an Edit and a Delete button on their own card;
+  Delete opens an inline confirm dialog (not a native `window.confirm`,
+  to match the rest of the UI) before calling `deregisterGame` and
+  reloading the grid — `Store.mo`'s own `#notOwner` gate is still the
+  real enforcement, this is just the client-side prompt.
+  `components/GameFormModal.tsx` is the register/edit form: picking a
+  banner file opens `components/ImageCropper.tsx` (built on
+  `react-easy-crop`) rather than uploading it as-is — the developer drags
+  and zooms a crop box locked to the registry's own banner aspect ratio,
+  and "Use crop" rasterizes exactly that area onto a canvas sized to the
+  exact `width`/`height` `getBannerRequirements()` returns, so the
+  resulting PNG always matches `Store.mo`'s required size by
+  construction (no separate client-side dimension check is needed
+  anymore); it still checks the cropped file's byte size against
+  `getBannerRequirements()`'s `maxBytes` before ever calling
+  `registerGame`/`updateGame`, so an oversized upload never reaches the
+  network — `Store.mo`'s own validation is still the actual gate, this
+  is purely a fast, friendly first check. The whole crop step is
+  frontend-only; `Store.mo`/`Main.mo` and the Candid interface are
+  unchanged.
 
 ## Toolchain
 
@@ -76,7 +99,9 @@ independent Candid interface — no `ws.mo`, no `Registry`, no `Spec`.
 - `core` (`mo:core`) is the only Motoko dependency — no `mo:base`,
   same rule as `../backend`.
 - `frontend/`'s only npm dependencies are `@icp-sdk/core` (agent/Candid),
-  `@icp-sdk/auth` (Internet Identity), and `react`/`react-dom`. Its own
+  `@icp-sdk/auth` (Internet Identity), `react`/`react-dom`, and
+  `react-easy-crop` (the banner crop dialog in
+  `components/ImageCropper.tsx`). Its own
   `package.json` needs `--legacy-peer-deps` on `npm install` for the same
   reason `../frontend`'s does (`@icp-sdk/auth`'s peer range on
   `@icp-sdk/core` trails the version actually used) — see `../CLAUDE.md`'s

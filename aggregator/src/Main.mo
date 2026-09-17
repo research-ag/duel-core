@@ -47,6 +47,10 @@ persistent actor {
     Store.updateGame(state, caller, Time.now(), id, edit);
   };
 
+  public shared ({ caller }) func deregisterGame(id : T.GameId) : async Store.Res<()> {
+    Store.deregisterGame(state, caller, id);
+  };
+
   public query func listGames() : async [T.GameView] {
     Store.listGames(state);
   };

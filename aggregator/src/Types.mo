@@ -81,4 +81,6 @@ module {
     #noSuchGame;
     #notOwner;
   };
+  // Note: deregistering a game reuses #noSuchGame/#notOwner above — no
+  // new Err arm needed (see Store.deregisterGame).
 };

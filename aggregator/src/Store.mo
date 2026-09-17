@@ -206,4 +206,19 @@ module {
     };
     List.toArray(out);
   };
+
+  /// Permanently removes a game from the registry. Only the developer who
+  /// registered it (`existing.developer == caller`) may do this — same
+  /// ownership gate `updateGame` enforces, and the same two error arms
+  /// (`#noSuchGame`/`#notOwner`), so no new `Err` case was needed for it.
+  public func deregisterGame(self : State, caller : Principal, id : T.GameId) : Res<()> {
+    if (Principal.isAnonymous(caller)) return #err(#anonymousCaller);
+    let existing = switch (Map.get(self.games, Principal.compare, id)) {
+      case null return #err(#noSuchGame);
+      case (?g) g;
+    };
+    if (existing.developer != caller) return #err(#notOwner);
+    Map.remove(self.games, Principal.compare, id);
+    #ok(());
+  };
 };

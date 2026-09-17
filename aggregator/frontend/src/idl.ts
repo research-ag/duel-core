@@ -76,6 +76,7 @@ export const idlFactory: IDL.InterfaceFactory = ({ IDL }) => {
     getBannerRequirements: IDL.Func([], [BannerRequirements], ["query"]),
     registerGame: IDL.Func([GameInput], [GameIdResult], []),
     updateGame: IDL.Func([GameId, GameEdit], [UnitResult], []),
+    deregisterGame: IDL.Func([GameId], [UnitResult], []),
     listGames: IDL.Func([], [IDL.Vec(GameView)], ["query"]),
     listGamesByDeveloper: IDL.Func([IDL.Principal], [IDL.Vec(GameView)], ["query"]),
     getGame: IDL.Func([GameId], [IDL.Opt(GameView)], ["query"]),
