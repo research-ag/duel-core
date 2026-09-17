@@ -113,17 +113,33 @@ function PrerequisitesStep() {
           <CodeBlock code="icp --version" />
         </li>
         <li>
-          Create an identity (your deploy key — keep it safe, it controls your canisters):
+          Already have an identity you want to deploy with? Skip this — it's optional. Otherwise,
+          check what you have and switch to the right one:
+          <CodeBlock code={"icp identity list       # your existing identities\nicp identity default    # which one is currently selected"} />
+          Or create a fresh one and switch to it (this is your deploy key — keep it safe, it
+          controls your canisters):
           <CodeBlock code={"icp identity new my-game\nicp identity default my-game"} />
+          <p className="hint">
+            By default `icp identity new` stores the private key in your OS's own secure keyring
+            (Keychain / Secret Service / Credential Manager) — not a plaintext file on disk.
+          </p>
         </li>
         <li>
           Get enough cycles to create and deploy 2 canisters, with some margin — aim for at least
-          ~4–6T cycles to start comfortably. Check your mainnet balance:
+          ~4–6T cycles to start comfortably. Check what you already have:
           <CodeBlock code="icp cycles balance -e ic" />
-          If it's low, send some ICP to your identity's ledger account, then convert it to cycles:
-          <CodeBlock
-            code={"icp identity account-id            # where to send ICP\nicp cycles mint --icp 2 -e ic       # convert ICP to cycles"}
-          />
+          If that's already enough, skip ahead. Otherwise, get your principal — the address
+          cycles attach to:
+          <CodeBlock code="icp identity principal" />
+          Already hold some ICP? Convert it directly:
+          <CodeBlock code="icp cycles mint --icp 2 -e ic" />
+          Don't have any ICP? The easiest option is buying cycles straight with a credit card via{" "}
+          <a href="https://cycle.express/" target="_blank" rel="noreferrer">
+            cycle.express
+          </a>{" "}
+          — no exchange account needed. Open this URL with your own principal (from above) in
+          place of <code>&lt;principal&gt;</code>:
+          <CodeBlock code="https://cycle.express/?to=<principal>" />
         </li>
       </ol>
     </>
@@ -135,12 +151,11 @@ function ProjectSetupStep() {
     <>
       <p>Create a fresh directory for your game — this is where all its code will live.</p>
       <CodeBlock code={"mkdir my-game && cd my-game\ngit init"} />
-      <p>
-        Optional but recommended: put it on GitHub so you (or an AI assistant) can push progress
-        and come back to it later.
+      <p className="hint">
+        Optional: for a remote backup (or so an AI assistant can push progress), create an empty
+        repository on your git host's website (e.g. GitHub), then link it as `origin` and push:
       </p>
-      <CodeBlock code="gh repo create my-game --private --source=. --remote=origin" />
-      <p className="hint">Skip the `gh` command if you don't use the GitHub CLI — any git remote works.</p>
+      <CodeBlock code={"git remote add origin <your-repo-url>\ngit push -u origin main"} />
     </>
   );
 }
@@ -152,19 +167,7 @@ function SkeletonStep() {
         A full game is six pieces of code — a rules module, a host actor, tests, a frontend
         plugin, and deploy config. You don't have to write any of it by hand.
       </p>
-      <p>
-        <strong>Working with an AI coding assistant</strong> (e.g. Claude Code)? Install the
-        duel-game-core skill in your new project directory and just describe your game:
-      </p>
-      <CodeBlock code="npx skills add research-ag/duel-core --skill duel-game-core" />
-      <p className="hint">
-        Then ask it something like: "Build me a duel-game-core game where players ...". The skill
-        walks the assistant through the whole rules/host/tests/plugin/config workflow from your
-        rules description alone.
-      </p>
-      <p>
-        <strong>Building it by hand?</strong> The same playbook is written for a human too:
-      </p>
+      <p>The whole workflow — copy-and-fill templates for every file, step by step — is written down here:</p>
       <p>
         <a
           href="https://github.com/research-ag/duel-core/blob/main/skills/duel-game-core/SKILL.md"
@@ -172,8 +175,20 @@ function SkeletonStep() {
           rel="noreferrer"
         >
           skills/duel-game-core/SKILL.md
-        </a>{" "}
-        — copy-and-fill templates for every file, step by step.
+        </a>
+      </p>
+      <p>
+        <strong>Shortcut for agentic development</strong>
+      </p>
+      <p>
+        Working with an AI coding assistant (e.g. Claude Code)? Install that same playbook as a
+        skill in your new project directory instead of reading it yourself:
+      </p>
+      <CodeBlock code="npx skills add research-ag/duel-core --skill duel-game-core" />
+      <p className="hint">
+        Then just ask it something like: "Build me a duel-game-core game where players ...". The
+        skill walks the assistant through the whole rules/host/tests/plugin/config workflow from
+        your rules description alone.
       </p>
     </>
   );
@@ -189,9 +204,9 @@ function DeployStep() {
       <p>Then deploy to the Internet Computer mainnet — this is the step that spends cycles:</p>
       <CodeBlock code="icp deploy -e ic -y" />
       <p>
-        Note the <strong>backend canister id</strong> it prints — you'll need it in the next step
-        to register the game here. The frontend canister id is what you'll share with players as
-        the game's URL.
+        Note <strong>both canister ids</strong> it prints — the registration form in the next step
+        needs the backend AND frontend canister id. The frontend canister id is also what you'll
+        share with players as the game's URL.
       </p>
     </>
   );
@@ -202,8 +217,8 @@ function RegisterStep({ isLoggedIn }: { isLoggedIn: boolean }) {
     <>
       <p>
         Last step — list your game on this dashboard so players can find it. You'll need the
-        backend canister id from the previous step, a title, a short description, and a banner
-        image.
+        backend and frontend canister ids from the previous step, a title, a short description,
+        and a banner image.
       </p>
       {isLoggedIn ? (
         <p>Click "Register your game" below to open the registration form.</p>
