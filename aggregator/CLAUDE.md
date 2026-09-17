@@ -74,6 +74,21 @@ independent Candid interface — no `ws.mo`, no `Registry`, no `Spec`.
   to match the rest of the UI) before calling `deregisterGame` and
   reloading the grid — `Store.mo`'s own `#notOwner` gate is still the
   real enforcement, this is just the client-side prompt.
+  `components/TutorialWizard.tsx` is the other on-ramp, next to
+  `GameFormModal.tsx`'s "register a game you already built" flow: a
+  5-step guide ("Build a new game", opened from the header, no login
+  required until its last step) for someone who hasn't built a game
+  yet — prerequisites (`icp-cli`, an identity, enough cycles for 2
+  canisters), project/GitHub setup, generating the skeleton (pointing at
+  `skills/duel-game-core/SKILL.md`, both as an `npx skills add
+  research-ag/duel-core --skill duel-game-core` install for an AI
+  assistant and as a plain GitHub link for a human), deploying to
+  mainnet (`icp deploy -e ic -y`), then handing off into the SAME
+  `GameFormModal` register flow for the final step. It's a browser page,
+  so every step is copy-pasteable commands for the developer's own
+  terminal, never something this frontend runs itself — there is nothing
+  here to verify a step actually succeeded before moving to the next
+  one.
   `components/GameFormModal.tsx` is the register/edit form: picking a
   banner file opens `components/ImageCropper.tsx` (built on
   `react-easy-crop`) rather than uploading it as-is — the developer drags

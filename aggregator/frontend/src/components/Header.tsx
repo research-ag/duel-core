@@ -2,7 +2,15 @@ import type { Auth } from "../hooks/useAuth";
 import { useProfile } from "../hooks/useProfile";
 import { DisplayNameEditor } from "./DisplayNameEditor";
 
-export function Header({ auth, onRegister }: { auth: Auth; onRegister: () => void }) {
+export function Header({
+  auth,
+  onRegister,
+  onTutorial,
+}: {
+  auth: Auth;
+  onRegister: () => void;
+  onTutorial: () => void;
+}) {
   const profile = useProfile(auth.actor, auth.principal);
 
   return (
@@ -11,6 +19,7 @@ export function Header({ auth, onRegister }: { auth: Auth; onRegister: () => voi
         <span>Duel Framework</span> Dashboard
       </h1>
       <div className="identity">
+        <button onClick={onTutorial}>Build a new game</button>
         {auth.loading ? (
           <span className="name">…</span>
         ) : auth.isLoggedIn ? (

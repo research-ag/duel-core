@@ -317,3 +317,75 @@ select:disabled {
 input[type="range"] {
   width: 100%;
 }
+
+.tutorial-modal {
+  max-width: 640px;
+}
+
+.tutorial-steps {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.tutorial-steps .dot {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.tutorial-steps .dot.done {
+  background: var(--accent);
+}
+
+.tutorial-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.tutorial-list {
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.tutorial-list li {
+  padding-left: 0.2rem;
+}
+
+p.hint {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0.35rem 0 1rem;
+}
+
+.code-block {
+  position: relative;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0;
+  overflow-x: auto;
+}
+
+.code-block pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  white-space: pre;
+}
+
+.code-block button.copy {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.modal-actions .spacer {
+  flex: 1;
+}

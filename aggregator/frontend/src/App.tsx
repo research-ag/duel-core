@@ -3,6 +3,7 @@ import { useState } from "react";
 import { GameFormModal } from "./components/GameFormModal";
 import { GameGrid } from "./components/GameGrid";
 import { Header } from "./components/Header";
+import { TutorialWizard } from "./components/TutorialWizard";
 import { useAuth } from "./hooks/useAuth";
 import { useGames } from "./hooks/useGames";
 import type { GameView } from "./types";
@@ -15,10 +16,11 @@ export function App() {
   const auth = useAuth();
   const { games, loading, reload } = useGames(auth.actor);
   const [modal, setModal] = useState<Modal>(undefined);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
 
   return (
     <div className="wrap">
-      <Header auth={auth} onRegister={() => setModal("register")} />
+      <Header auth={auth} onRegister={() => setModal("register")} onTutorial={() => setTutorialOpen(true)} />
       <GameGrid
         games={games}
         loading={loading}
@@ -33,6 +35,16 @@ export function App() {
           existing={modal === "register" ? undefined : modal}
           onClose={() => setModal(undefined)}
           onSaved={reload}
+        />
+      )}
+      {tutorialOpen && (
+        <TutorialWizard
+          isLoggedIn={auth.isLoggedIn}
+          onClose={() => setTutorialOpen(false)}
+          onRegister={() => {
+            setTutorialOpen(false);
+            setModal("register");
+          }}
         />
       )}
     </div>
