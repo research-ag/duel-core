@@ -152,6 +152,12 @@ in that party's own repo (see that file's own header and the root
 README's "Building a game" section), but is equally the right starting
 point when working in this repo.
 
+`aggregator/` is a different kind of thing entirely: a standalone
+product built on this repo's own Motoko/TypeScript tooling — Internet
+Identity login, developer profiles, and a public, filterable registry of
+games — not part of either `duel-game-core` package and not a game built
+on the session engine above. See its own `aggregator/CLAUDE.md`.
+
 ## Toolchain
 
 - moc **1.11.2** (mops toolchain, pinned in `backend/mops.toml`) — enough
