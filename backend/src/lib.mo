@@ -118,6 +118,14 @@
 /// The `Spec` (functions) is passed on every call and never stored, so the
 /// engine survives upgrades with no migration gymnastics.
 ///
+/// A host actor may also opt into Prometheus-style metrics by calling
+/// `Registry.attachMetrics(pt)` with a `pt : mo:promtracker`'s `Tracker` —
+/// unlike `mo:duel-game-core/ws`, this is entirely opt-in instrumentation:
+/// a host that never calls it just leaves those counters/gauges
+/// unpopulated, with no other behavioral effect. See `backend/README.md`'s
+/// "Metrics" section for the metrics it exposes and the full wiring
+/// (`examples/racing/src/Host.mo` is a worked example).
+///
 /// ── Design guarantees (each maps to a bug class found in the wild) ─────────
 ///
 ///   1. RACE-FREE REMATCH. `rematch` from #debrief stages a new game, on the

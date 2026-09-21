@@ -40,6 +40,10 @@ particular game — that's supplied by whoever builds a game on top.
   the matching `Table` operation — no game logic or legality is
   reimplemented at this layer; a game that genuinely wants exactly one
   fixed board with no lobby of its own can use `Table` directly instead.
+  `Registry.attachMetrics(pt)` is a separate, optional call wiring four
+  Prometheus-style metrics (games started, active games, rounds per
+  game, matchmaking wait time) onto a `mo:promtracker` `Tracker` — see
+  `backend/README.md`'s "Metrics" section.
   See [`backend/README.md`](backend/README.md) for the `Spec<S, M>`
   contract a game implements and a full host-actor wiring example.
   `Spec` is tagged by `Mode` (`#simultaneous`/`#alternating`) — a game
@@ -168,17 +172,26 @@ on the session engine above. See its own `aggregator/CLAUDE.md`.
   toolchain note); any consumer whose `Host.mo` wires
   `mo:duel-game-core/actor_mixin` needs at least that version even though
   the package itself is developed against 1.11.2.
-- The engine (`src/lib.mo`/`types.mo`/`table.mo`/`registry.mo`) has
-  exactly one Motoko dependency: `core` (mo:core, the current Motoko
-  standard library). Never import `mo:base` in any of it — that's the
-  legacy library. `src/ws.mo` is the sole exception: it additionally
-  depends on `ic-websocket-cdk` (vendored in this repo at
+- The engine (`src/lib.mo`/`types.mo`/`table.mo`/`registry.mo`) is built
+  on `core` (mo:core, the current Motoko standard library). Never import
+  `mo:base` in any of it — that's the legacy library. Two modules
+  additionally depend on one more package each, for different reasons:
+  `types.mo` and `registry.mo` unconditionally import `promtracker`
+  (`?PT.Counter`/`?PT.Gauge` fields on `Registry`, and
+  `Registry.attachMetrics`) — this IS an always-compiled-in dependency,
+  but the integration itself is entirely opt-in: a host that never calls
+  `attachMetrics` just leaves those fields `null` and pays no other cost
+  (see `backend/README.md`'s "Metrics" section). `src/ws.mo` depends on
+  `ic-websocket-cdk` (vendored in this repo at
   `backend/src/ic-websocket-cdk/src`, migrated to `mo:core` throughout —
-  it has no `mo:base` import left) — confined there so the engine
-  modules themselves stay exactly as pure as the architecture rules
+  it has no `mo:base` import left) — confined to that one module so
+  `lib.mo`/`table.mo` stay exactly as pure as the architecture rules
   require, NOT because wiring `ws.mo` is optional (every host actor
-  built on this package must wire it — see the `backend/` bullet above).
-  `ic-websocket-cdk` in turn depends on the third-party
+  built on this package must wire it — see the `backend/` bullet above;
+  this is the one respect in which `ws.mo`'s dependency and
+  `registry.mo`'s promtracker dependency differ — the module dependency
+  is unconditional either way, but only wiring `ws.mo`'s functionality is
+  mandatory). `ic-websocket-cdk` in turn depends on the third-party
   `ic-certification` mops package for its Merkle certification tree,
   which still uses `mo:base` internally — genuinely outside this repo's
   control, unlike `ic-websocket-cdk` itself. Any FUTURE module added

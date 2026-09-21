@@ -13,11 +13,20 @@ import Registry "mo:duel-game-core/registry";
 import Ws "mo:duel-game-core/ws";
 import ActorMixin "mo:duel-game-core/actor_mixin";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
+import PT "mo:promtracker";
+import Http "mo:promtracker/mixins/http";
+import Tracker "mo:promtracker/Tracker"; // enables pt.toValue() dot notation
 
 import Rules "CheckersRules";
 
 persistent actor {
+  let pt = PT.Tracker.new();
+  transient let renderer = PT.Renderer();
+  renderer.addValue(PT.allSystemMetrics);
+  renderer.addValue(pt.toValue());
+
   let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(60_000_000_000, 15_000_000_000); // 60s idle timeout, 15s claim-win window, per table
+  registry.attachMetrics(pt);
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Rules.spec(), Time.now(), sid);
@@ -39,4 +48,6 @@ persistent actor {
   // `attached.sweep` (not a bare `registry.sweep(Time.now())`)
   // pushes a fresh status to every session the idle sweep just evicted.
   include ActorMixin<system>(attached.ws, attached.sweep);
+
+  include Http(renderer.renderExposition, "/metrics");
 };

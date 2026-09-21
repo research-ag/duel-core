@@ -34,7 +34,17 @@ either package itself.
   have NO plain Candid method at all — they're reachable exclusively
   through `mo:duel-game-core/ws`'s `ws_message`, which is what
   `frontend/app.js` actually talks to. See `../../backend/README.md`'s
-  "Real-time push" section for the full design.
+  "Real-time push" section for the full design. `Host.mo` also wires
+  Prometheus-style metrics onto the registry via
+  `Registry.attachMetrics(pt)` (`pt : mo:promtracker`'s `Tracker`),
+  rendered at a `/metrics` endpoint (`include
+  Http(renderer.renderExposition, "/metrics")`, from
+  `mo:promtracker/mixins/http` — the same kind of `mixin` as
+  `mo:duel-game-core/actor_mixin`) alongside `PT.allSystemMetrics`
+  (cycles/RTS metrics, no `Tracker` of its own needed). Unlike `ws.mo`,
+  this is entirely optional instrumentation — see
+  `../../backend/README.md`'s "Metrics" section for the metrics it
+  exposes and the full reasoning.
 - **`test/*.test.mo`** — interpreter-run suites. `RulesUnit.test.mo`
   drives `validate`/`resolve` directly against synthetic boards (no
   engine, no actor) — the bulk of the rule coverage: forward-only men,
@@ -110,12 +120,18 @@ either package itself.
 - moc **1.11.2** (mops toolchain, pinned in `mops.toml`), node/npm for
   the frontend.
 - Motoko dependencies: `duel-game-core` (path dependency on
-  `../../backend` — see `mops.toml`), `core` (mo:core), and
-  `ic-websocket-cdk` (only because `src/Host.mo` opts into
-  `mo:duel-game-core/ws` — see `../../CLAUDE.md`'s toolchain note). Never
-  import `mo:base` directly in this game's own code — it's the legacy
-  library; `ic-websocket-cdk` pulling it in transitively is a
-  documented, contained exception, not license to import it yourself.
+  `../../backend` — see `mops.toml`), `core` (mo:core), `ic-websocket-cdk`
+  (only because `src/Host.mo` opts into `mo:duel-game-core/ws`), and
+  `promtracker` (only because `src/Host.mo` opts into the metrics wiring
+  described above) — see `../../CLAUDE.md`'s toolchain note for both of
+  the latter. Neither is listed under `mops.toml`'s own `[dependencies]`
+  here — both arrive transitively through `duel-game-core`'s own
+  `mops.toml`, same as `ic-websocket-cdk` already did before promtracker
+  existed; `mops sources` resolves the whole tree regardless of which
+  `mops.toml` first declared a package. Never import `mo:base` directly
+  in this game's own code — it's the legacy library; `ic-websocket-cdk`
+  pulling it in transitively is a documented, contained exception, not
+  license to import it yourself.
 - The frontend's npm dependencies split the same way `examples/007`'s
   do: `duel-game-core` (`file:../../../frontend`) and `@icp-sdk/core`
   are what `app.js` itself needs; esbuild bundles both, plus everything

@@ -291,6 +291,45 @@ turn," so only the seat NOT currently on turn ever sees the claim
 control — the on-turn seat gets the mirror-image warning instead, same
 as above.
 
+**Metrics (optional).** Unlike everything else in this file, wiring
+Prometheus-style metrics is not part of the six required pieces — skip
+it unless the user asks for observability, a `/metrics` endpoint, or
+similar. If they do, add `mops add promtracker` and extend `Host.mo`
+with:
+
+```motoko
+import PT "mo:promtracker";
+import Http "mo:promtracker/mixins/http";
+import Tracker "mo:promtracker/Tracker"; // enables pt.toValue() dot notation
+
+persistent actor {
+  let pt = PT.Tracker.new();
+  transient let renderer = PT.Renderer();
+  renderer.addValue(PT.allSystemMetrics); // IC/RTS metrics — optional but nearly free
+  renderer.addValue(pt.toValue());
+
+  let registry : TP.Registry<Rules.State, Rules.Action> =
+    Registry.new(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__);
+  registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
+
+  // ...status/Ws.attach/ActorMixin exactly as the template already has...
+
+  include Http(renderer.renderExposition, "/metrics");
+};
+
+```
+
+`Http` is defined the same way `mo:duel-game-core/actor_mixin` is (a
+Motoko `mixin`), so it needs the same moc version as that already does
+— no extra toolchain bump beyond whatever this project already pins for
+`ActorMixin`. This dependency isn't declared directly in your own
+`mops.toml`: it arrives transitively through `duel-game-core`'s own
+dependency on `promtracker`, the same way `ic-websocket-cdk` already
+does for `mo:duel-game-core/ws`. See `mo:duel-game-core`'s own
+`backend/README.md` "Metrics" section (shipped in the package) for what
+each metric means, and `examples/racing/src/Host.mo` in
+`research-ag/duel-core` for a complete worked example.
+
 ## Step 5 — Write the rules unit tests
 
 Read `templates/RulesUnit.test.mo.template` and write

@@ -118,6 +118,9 @@ separate sibling modules, both built on those same types:
   mapping the registry keeps) and delegate straight into the matching
   `Table` operation above — no game logic is reimplemented at this
   layer. `sweep` idle-evicts and garbage-collects across every table.
+  `attachMetrics(pt : PT.Tracker)`, from `mo:promtracker`, is a separate,
+  entirely optional call some time after `Registry.new` — see "Metrics"
+  below.
 - Eight per-table operations, on either `Table<S, M>` or `Registry<S,
   M>`: `join`/`createTable`+`joinTable`, `submit`, `rematch`, `leave`,
   `reset`, `claimWin`, `ackEnded`, `status` (plus `sweep`, not
@@ -494,6 +497,86 @@ real canister, a browser tab registering as its own Gateway, and an
 actual push arriving — has not been proven end-to-end.** Treat it as a
 solid, carefully-reasoned starting point, not a battle-tested one, and
 sanity-check it against a real deploy before relying on it.
+
+### Metrics
+
+Unlike `ws.mo`, this is entirely opt-in: a host actor that never wires
+this section gets no metrics and pays no cost for skipping it —
+`Registry`'s own state (`gamesStarted`/`activeGames`/`roundsPerGame`/
+`matchmakingWaitSecs`, all `?PT.Counter`/`?PT.Gauge`) simply stays `null`
+throughout, and every metrics call inside `registry.mo` is a no-op
+against `null`. Add the dependency: `mops add promtracker` (pins
+`1.0.1`).
+
+`Registry.attachMetrics(pt : PT.Tracker)` — called once, right after
+`Registry.new` — registers four metrics on that tracker, all scoped to
+that one `Registry` (so a canister with several independent registries
+can `attachMetrics` each onto its own child tracker and tell them apart
+by label):
+
+- `games_started` (counter) — bumped once per game that actually starts
+  (a fresh `#staging -> #active` transition, whether from `joinTable`
+  seating the second player or a `rematch` both sides agreed to).
+- `active_games` (gauge) — recomputed by scanning every table's current
+  phase after any call that could change how many are `#active` (join,
+  submit, rematch, claimWin, leave, reset, sweep) — the live count of
+  in-progress games on this registry right now.
+- `rounds_per_game` (gauge) — set to the just-finished game's own round
+  count (`Debrief.turns`) every time a game ends, by any of the four
+  paths that can end one (a resolved final round, a claimed win, or an
+  abort via `leave`/`reset`). Like every metric here, this is a snapshot
+  at the moment of the event, not a running average — a Prometheus
+  scrape between two games' endings sees whichever game ended last;
+  query `avg_over_time`/`quantile_over_time` over the scraped series if
+  you want a distribution across many games.
+- `matchmaking_wait_seconds` (gauge) — set every time a game starts, to
+  how long that table sat in `#staging` (its `since` timestamp) before
+  the second seat filled it, in whole seconds. Same snapshot caveat as
+  `rounds_per_game`.
+
+A minimal wiring, extending the host actor above (see
+`examples/racing/src/Host.mo` for the full worked example, including the
+`/metrics` HTTP endpoint):
+
+```motoko
+import PT "mo:promtracker";
+import Http "mo:promtracker/mixins/http";
+
+persistent actor {
+  let pt = PT.Tracker.new();
+  transient let renderer = PT.Renderer();
+  renderer.addValue(PT.allSystemMetrics); // IC/RTS metrics (cycles, heap, ...) — optional but nearly free
+  renderer.addValue(pt.toValue());
+
+  let registry = Registry.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000);
+  registry.attachMetrics(pt);
+
+  // ...status/Ws.attach/ActorMixin exactly as above...
+
+  include Http(renderer.renderExposition, "/metrics"); // scrape endpoint
+};
+
+```
+
+`pt` itself (`PT.Tracker`) is a plain data record — no function values —
+so, left `transient`-free like `registry`, it's a genuinely stable field:
+every counter/gauge it holds survives a canister upgrade intact, same as
+the rest of the game state. `PT.Renderer` is the opposite: it's a class
+holding closures (the `Value`s passed to `addValue`), so it must be
+`transient`, like `wsHub`/`attached` above — cheap to rebuild from
+scratch on every upgrade (`renderer.addValue(pt.toValue())` just wraps
+the surviving `pt` again), and it holds no metric data of its own to
+lose.
+`mo:promtracker/mixins/http`'s `Http` mixin (`include Http(text, route)`)
+supplies a `http_request` query returning `text()`'s result — here,
+`renderer.renderExposition()`, the Prometheus text-exposition format — at
+whichever `route` you pick; consuming it is subject to the same toolchain
+note as `mo:duel-game-core/actor_mixin` (see the root `CLAUDE.md`'s
+toolchain section) since both are defined the same way, as a Motoko
+`mixin`. `PT.allSystemMetrics` is optional but nearly free to add
+alongside your own tracker — it bundles cycles balance, canister version,
+and Motoko RTS metrics (heap size, GC stats) without needing a `Tracker`
+of its own.
 
 ### Build & test
 
