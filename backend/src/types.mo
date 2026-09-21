@@ -71,6 +71,26 @@ module {
     #atTable : { id : TableId; view : View<S> };
   };
 
+  /// What a canister-seated player is handed to decide its move —
+  /// `mo:duel-game-core/canister_players`'s call/response counterpart to
+  /// `View.inGame`, minus the UI countdown cosmetics: a canister player
+  /// sees exactly the state a human's own screen would show. `tableId`
+  /// is included because a bot's own `make_move` may be watching more
+  /// than one table at once and needs to know which one this request is
+  /// about; `gen`/`turn` are the values to echo straight back on the
+  /// `registry.submit` the reply drives, though the caller re-reads both
+  /// fresh immediately before that call rather than trusting the copies
+  /// still closed over from before the bot's own `await` (see
+  /// `canister_players.mo`'s own doc for why).
+  public type MoveRequest<S> = {
+    tableId : TableId;
+    seat : Seat;
+    game : S;
+    mode : Mode;
+    turn : Nat;
+    gen : Nat;
+  };
+
   // ────────────────────────── the game plug-in interface ─────────────────────
 
   /// What a game must supply. `S` = game state, `M` = a player's move.

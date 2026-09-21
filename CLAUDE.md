@@ -75,6 +75,28 @@ particular game — that's supplied by whoever builds a game on top.
   methods (`ws_open`/`ws_close`/`ws_message`/`ws_get_messages`,
   forwarding each straight to the `ws` built from `Ws.attach`) plus the
   idle-sweep timer, so no host actor hand-declares any of the four.
+  `backend/src/canister_players.mo` (`mo:duel-game-core/canister_players`)
+  is a fifth module, OPTIONAL (unlike `ws.mo`, wiring it is never
+  required — a host that never imports it just has no canister-seatable
+  players): it lets a CANISTER (a hardcoded-script bot, a
+  rules-following bot, an LLM-backed agent) take a seat and play, using
+  a third reserved `sid` namespace (`cp:`, `sidForCanister`, mirroring
+  `ws.mo`'s `ii:`/`an:`) derived from `msg.caller` — never a
+  client-supplied `sid`, so there's nothing to spoof. The whole protocol
+  is one call: the game canister calls the player canister's own
+  `make_move` and treats the reply AS the move (`registry.submit`,
+  applied by the caller, never a second inbound entry point a move could
+  arrive through) — reusing `Ws.Attached.afterMutation` so a human
+  opponent still learns about a canister-driven move in real time, and
+  falling silent (letting `claimTimeoutNs`/`idleTimeoutNs` take over,
+  same as an unresponsive human) on a trap, an error, or a move still
+  illegal after one retry. `nudge(now)`, wired onto a host's own fast
+  timer alongside the existing 30s idle-sweep one, is what asks a due
+  canister seat again after a HUMAN's own move resolves a round (`ws.mo`
+  itself stays completely unchanged); a canister-driven mutation
+  eagerly re-checks the same thing immediately, so a bot-vs-bot match
+  never waits on a tick for the common case. See `backend/README.md`'s
+  "Canister players" section for the full design and worked example.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
   client plumbing (session identity, real-time push, the generic
   multi-table lobby/staging/rematch/busy/debrief screens, Candid IDL
@@ -127,7 +149,14 @@ particular game — that's supplied by whoever builds a game on top.
   counterpart to `FakeGame.mo`; `Registry`'s own routing is mode-agnostic
   and already covered generically by `Lobby.test.mo`/
   `LobbyLifecycle.test.mo`, so there is no separate registry-level
-  alternating suite. The `*.test.mo` suffix is what `mops test`
+  alternating suite. `CanisterPlayers.test.mo` covers
+  `canister_players.mo`'s own orchestration — due-seat detection via
+  `Registry.status`, the retry-once-on-illegal-move then silence
+  behavior, the in-flight guard clearing correctly, and the eager
+  bot-vs-bot trigger — against `FakeGame.mo` again, with `afterMutation`
+  stubbed (a plain call counter) rather than a real `Ws.attach`, same
+  caveat `Hub.test.mo` documents for why the full `IcWebSocketCdk` actor
+  machinery isn't exercisable here. The `*.test.mo` suffix is what `mops test`
   discovers — a file named `FooTest.mo` is silently skipped, so keep the
   suffix when adding
   suites.
@@ -456,6 +485,17 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
     side-effect-free). There is no second transport for the same calls to
     (dis)agree with; a game that ever adds a plain mutating Candid method
     alongside `ws.mo` reopens exactly the race this design closes.
+    `canister_players.mo`'s own `*_as_canister` Candid methods are a
+    narrow, deliberate exception, not a violation: they're reachable
+    only under the separate `cp:` sid namespace `ws.mo`'s own
+    `isAuthorizedSid` never authenticates (it only ever recognizes
+    `ii:`/`an:`) — so no session is EVER claimed by both transports, and
+    the race this rule closes (two independent update calls for the
+    SAME session with no guaranteed relative order) never reopens.
+    `submit` is still never exposed this way even for a `cp:` session —
+    a canister player's move only ever arrives as the direct reply to a
+    call `canister_players.mo` itself made, never a separately-arriving
+    request (see that module's own doc header).
 12. **Leave means left.** `status`/`join`/`rematch` all treat a session
     that already acked its own debrief (via `leave`) as no longer a
     participant of it (`activeDebriefSeat`, not plain `seatInDebrief`),

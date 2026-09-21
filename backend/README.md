@@ -498,6 +498,169 @@ actual push arriving — has not been proven end-to-end.** Treat it as a
 solid, carefully-reasoned starting point, not a battle-tested one, and
 sanity-check it against a real deploy before relying on it.
 
+### Canister players
+
+`mo:duel-game-core/canister_players` lets a CANISTER — a hardcoded-script
+bot, a rules-following bot, an LLM-backed agent, anything with a
+principal — take a seat at a table and play, against a human or another
+canister, with no polling and no second inbound entry point for a move
+to arrive through. The key simplification: `ws.mo` exists only because
+the IC has no native WebSocket, so a browser has to fake real-time push.
+A canister player needs none of that — two canisters calling each other
+with `async`/`await` already IS a real, ordered, request-response
+channel, the primitive the whole IC is built on. So the whole feature
+reframes to "let the GAME canister call the PLAYER canister directly and
+treat the reply as the move" — never a one-way "your turn" notice
+followed by the player canister calling back independently, which would
+reopen exactly the unordered-second-channel problem `ws.mo`'s own
+architecture rule (11) closes. A single `await` whose return value IS
+the chosen action needs no second inbound entry point at all: nothing
+new is exposed for a stray caller to hit, and there's nothing to spoof —
+the reply can only ever come from the one principal this module itself
+decided to call.
+
+**Identity: a third `sid` namespace.** Exactly like `ws.mo`'s `ii:`/
+`an:`, `CanisterPlayers.CP_SID_PREFIX` (`"cp:"`) is a third reserved
+namespace of the same `sidFor(prefix, p)` shape, reusing `Ws.sidFor`
+as-is. It's actually simpler here than for a browser: `ws.mo` has to
+cross-check a client-ASSERTED `sid` against a separately authenticated
+WebSocket connection, because that transport decouples the two. A plain
+canister-to-canister Candid call has no such gap — `msg.caller` already
+IS the authenticated identity — so every entry point computes
+`sidForCanister(caller)` itself and never accepts a client-supplied
+`sid` at all. There's nothing to check, because there's nothing to
+spoof.
+
+**The call/response protocol.** `notifyAndApply` (internal) builds a
+`TP.MoveRequest<S>` from the table's own current, truthful
+`Registry.status` (never a second, divergent read of `Table`'s
+internals — the same field shape `View.#inGame` already reports, minus
+UI countdown cosmetics), hands it to a host-supplied `callBot`, re-reads
+`gen`/`turn` FRESH once the bot replies (never the copies closed over
+from before that call — the table can legitimately change underneath a
+long-running bot call: the human claims a win, leaves, or gets
+idle-swept while the bot is still thinking), applies the move via
+`registry.submit`, and runs the EXACT SAME push fan-out `ws.mo` itself
+runs (`Ws.Attached.afterMutation`, exposed for exactly this reuse — see
+`ws.mo`'s own `Attached` doc), so a human opponent's browser learns
+about a canister-driven move in real time, same as any other. `callBot`
+is continuation-passing —
+`(SessionId, MoveRequest<S>, (?M) -> async* ()) -> async* ()`, not a
+plain `(...) -> async M` — because Motoko rejects `async M` as a type
+for an unconstrained generic `M`; the host's own implementation is the
+one place able to `try`/`catch` the actual inter-canister call, since
+its own game's `Action` type is concrete there, and calls the
+continuation with `?move` on success or `null` on a trapped/errored
+call.
+
+**Silence is already a first-class outcome.** A bot canister can fail in
+every ordinary way software fails: it traps, it's out of cycles, it's
+mid-upgrade, it times out, or it just returns an illegal move. None of
+that needs new machinery — this engine already has a complete story for
+"a seat didn't move" (`claimTimeoutNs`, `idleTimeoutNs`, `#aborted`
+debriefs — see the Design section's guarantee 4), and a misbehaving bot
+is, from the engine's point of view, indistinguishable from a human who
+put the phone down. So `notifyAndApply`'s own failure handling stays
+small: an `#err(#illegalMove _)` reply is retried once; a trapped/
+errored call, or any other rejection (the table moved on underneath the
+bot — a claim, a leave, an idle takeover), is treated exactly like
+silence — do nothing, and let the existing timeout machinery take it
+from there.
+
+**When a canister seat gets asked.** `ws.mo` stays completely unchanged
+— it's still the only transport a human ever mutates through (rule 11).
+That means nothing in it eagerly tells a bot "your turn again" once a
+HUMAN's own move resolves a round. `nudge(now)` is the fix: a periodic
+scan over every `#active` table for a due, idle canister seat (one whose
+`View.#inGame.youSubmitted` is `false` — "due to move" reduces to that
+one Boolean in EITHER mode, exactly the same way "the waiting seat" that
+may `claimWin` does — see `Table.status`'s own doc), guarded by a
+one-bit-per-(table, seat) in-flight flag so an overlapping tick can never
+ask the same due seat twice while the first ask is still pending. Wire
+it onto its own fast timer (a few seconds — independent of the existing
+30s idle-sweep timer, which is far too slow for a game round to wait
+on):
+
+```motoko
+ignore Timer.recurringTimer<system>(#seconds(3), func() : async () {
+  await* cpAttached.nudge(Time.now());
+});
+```
+
+A canister-initiated mutation additionally triggers the SAME check
+eagerly, right after it succeeds — `joinTable`/`rematch`'s own
+implementations call it internally — so a bot's own move landing (in a
+bot-vs-bot match) or a bot's own join starting the game never waits for
+the next tick; only a HUMAN-caused transition needs `nudge` to catch it.
+
+**Wiring it into a host actor** — extending the `ws.mo` example above:
+
+```motoko
+import CanisterPlayers "mo:duel-game-core/canister_players";
+import Principal "mo:core/Principal";
+import Text "mo:core/Text";
+import Timer "mo:core/Timer";
+
+import BotIface "BotIface"; // this game's own CanisterPlayer actor type
+
+persistent actor {
+  // ...registry / status / wsHub / attached / ActorMixin from the
+  // `ws.mo` example above, unchanged...
+
+  transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
+    Rules.spec(),
+    registry,
+    attached.afterMutation, // reuses ws.mo's own push fan-out — see above
+    func(session, req, k) : async* () {
+      let p = Principal.fromText(
+        Text.trimStart(session, #text CanisterPlayers.CP_SID_PREFIX)
+      );
+      let bot : BotIface.CanisterPlayer = actor (Principal.toText(p));
+      try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
+    },
+  );
+
+  public shared ({ caller }) func create_table_as_canister(seat : TP.Seat, visibility : TP.TableVisibility) : async TP.Res<TP.TableId> {
+    await* cpAttached.createTable(caller, seat, visibility);
+  };
+  public shared ({ caller }) func join_table_as_canister(id : TP.TableId, seat : TP.Seat, code : ?Text) : async TP.Res<TP.JoinOk> {
+    await* cpAttached.joinTable(caller, id, seat, code);
+  };
+  public shared ({ caller }) func leave_as_canister(gen : Nat) : async TP.Res<()> {
+    await* cpAttached.leave(caller, gen);
+  };
+  public shared ({ caller }) func rematch_as_canister() : async TP.Res<TP.RematchOk> {
+    await* cpAttached.rematch(caller);
+  };
+  public shared ({ caller }) func ack_ended_as_canister() : async () {
+    await* cpAttached.ackEnded(caller);
+  };
+
+  ignore Timer.recurringTimer<system>(#seconds(3), func() : async () {
+    await* cpAttached.nudge(Time.now());
+  });
+};
+```
+
+Note what's absent: no `submit_as_canister`. A canister player's move
+never arrives as an independent inbound call under this design — it's
+always the direct reply to the call `notifyAndApply` itself made, applied
+by the same code that made it (see "The call/response protocol" above).
+`claim_win_as_canister`/`reset_as_canister` (for a fully unattended
+canister-vs-canister match, where nobody's around to click "claim win")
+and the `reservedFor`-based eager dual-seat assignment (an instant-start
+human-vs-bot table, no access code to relay) are further, optional
+additions on top of this same module — see
+`skills/duel-game-core/SKILL.md` for the authoring guide and
+`examples/racing/src/Bot.mo` for a minimal, complete worked example.
+
+A lobby frontend needs no new field to show "vs 🤖" either:
+`TableSummary.p1Session`/`p2Session` already carry the raw `SessionId`
+text, so a client-side check against the `cp:` prefix
+(`CanisterPlayers.isCanisterSession`, or just
+`Text.startsWith(session, #text "cp:")` on the frontend) is purely
+cosmetic, reading data the engine already exposes.
+
 ### Metrics
 
 Unlike `ws.mo`, this is entirely opt-in: a host actor that never wires

@@ -422,6 +422,19 @@ module {
   public type Attached = {
     ws : IcWebSocketCdk.IcWebSocket;
     sweep : (Int) -> async* ();
+    // The exact fan-out `onMessage` itself runs after every successful
+    // mutating request — see `attach`'s own `afterMutation` doc for the
+    // full shape. Exposed here so `mo:duel-game-core/canister_players`
+    // can push the identical real-time status to a human opponent after
+    // a CANISTER-driven mutation (a bot joining, moving, leaving, ...),
+    // without a second, divergent implementation of the same fan-out.
+    // `reqId` is always `null` from that caller: a canister-driven
+    // mutation is never the direct reply to a client's own WS request,
+    // so there's no `reqId` to correlate — passing `sid` = the acting
+    // `cp:`-prefixed session is still safe and correct even so, since
+    // `pushTo` is a no-op for a session `hub.bySid` never registered
+    // (a canister player is never itself WS-connected).
+    afterMutation : (Int, TP.SessionId, ?Nat64, ?TP.TableId, Bool) -> async* ();
   };
 
   /// `async*`/`await*`, not `async`/`await`, on `sweep` here and on every
@@ -903,6 +916,7 @@ module {
     {
       ws = IcWebSocketCdk.IcWebSocket(wsState, wsParams, handlers);
       sweep = sweepAndPush;
+      afterMutation;
     };
   };
 };
