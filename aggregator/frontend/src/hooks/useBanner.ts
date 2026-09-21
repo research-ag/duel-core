@@ -11,6 +11,15 @@ import type { AggregatorActor } from "../types";
 
 const cache = new Map<string, string>();
 
+/// Drops a cached banner (and its object URL) so the next render refetches
+/// it — call this after updateGame replaces a game's banner.
+export function invalidateBanner(gameId: Principal): void {
+  const key = gameId.toText();
+  const url = cache.get(key);
+  if (url) URL.revokeObjectURL(url);
+  cache.delete(key);
+}
+
 export function useBanner(actor: AggregatorActor | undefined, gameId: Principal | undefined): string | undefined {
   const key = gameId?.toText();
   const [url, setUrl] = useState<string | undefined>(key ? cache.get(key) : undefined);
