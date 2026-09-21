@@ -1,0 +1,391 @@
+/* Same dark palette as duel-game-core's own style.css, so the aggregator
+ * (the landing page for every game built on this framework) and a
+ * game's own client read as one family. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0d10;
+  --panel: #14181d;
+  --panel-2: #1b2027;
+  --line: #262d36;
+  --ink: #e6e9ee;
+  --muted: #8b95a3;
+  --accent: #d4af37;
+  --red: #ff6b5e;
+  --green: #58d68d;
+  --blue: #6aa9ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 1.25rem 4rem;
+  background:
+    radial-gradient(1200px 500px at 50% -10%, #171c23 0%, transparent 70%),
+    var(--bg);
+  color: var(--ink);
+  font:
+    15px/1.55 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  min-height: 100vh;
+}
+
+a {
+  color: var(--blue);
+}
+
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1.75rem 0 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
+}
+
+header h1 span {
+  color: var(--accent);
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.identity .name {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+button {
+  font: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1400;
+  font-weight: 600;
+}
+
+button.danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #2a0d09;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1.5rem 0;
+}
+
+.toolbar .filters {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+input[type="text"],
+input[type="url"],
+textarea,
+select {
+  font: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0.5rem 0.7rem;
+}
+
+textarea {
+  resize: vertical;
+}
+
+input:disabled,
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--panel-2);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+}
+
+.card .banner {
+  aspect-ratio: 2 / 1;
+  width: 100%;
+  background: var(--panel-2) center / cover no-repeat;
+  display: block;
+}
+
+.card .body {
+  padding: 0.85rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.card .title {
+  font-weight: 600;
+  font-size: 1.02rem;
+}
+
+.card .developer {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.card .overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 50%;
+  background: rgba(11, 13, 16, 0.92);
+  color: var(--ink);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: flex-start;
+  overflow-y: auto;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+  font-size: 0.85rem;
+}
+
+.card:hover .overlay,
+.card:focus-visible .overlay {
+  opacity: 1;
+}
+
+.card .card-actions {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 1;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.card .card-actions button {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.card .delete-btn:hover {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.empty {
+  color: var(--muted);
+  padding: 3rem 0;
+  text-align: center;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4vh 1rem;
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 480px;
+}
+
+.modal h2 {
+  margin-top: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.field label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field .hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.error {
+  color: var(--red);
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1.25rem;
+}
+
+.banner-preview {
+  aspect-ratio: 2 / 1;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+  background: var(--panel-2) center / cover no-repeat;
+}
+
+.cropper-modal {
+  max-width: 520px;
+}
+
+.cropper-area {
+  position: relative;
+  width: 100%;
+  height: 320px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+input[type="range"] {
+  width: 100%;
+}
+
+.tutorial-modal {
+  max-width: 640px;
+}
+
+.tutorial-steps {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.tutorial-steps .dot {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.tutorial-steps .dot.done {
+  background: var(--accent);
+}
+
+.tutorial-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.tutorial-list {
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.tutorial-list li {
+  padding-left: 0.2rem;
+}
+
+p.hint {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0.35rem 0 1rem;
+}
+
+.code-block {
+  position: relative;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0;
+  overflow-x: auto;
+}
+
+.code-block pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  white-space: pre;
+}
+
+.code-block button.copy {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.modal-actions .spacer {
+  flex: 1;
+}

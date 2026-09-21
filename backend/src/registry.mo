@@ -48,32 +48,44 @@ module {
   /// `listTables`, not just a table whose id a visitor already
   /// happens to know: without it, "no ghost lobbies" would silently
   /// stop applying to every table but the one you already have a link
-  /// to.
+  /// to. `p1Session`/`p2Session` name whichever session currently holds a
+  /// NOT-open seat — only ever non-null out of the `#staging` branch
+  /// below (the one phase `listTables` surfaces with exactly one seat
+  /// genuinely taken by a specific, still-there occupant); every other
+  /// branch reports both seats open with nobody in particular to name
+  /// (an idle-reclaimable board resets to a clean slate, not "join the
+  /// ghost who's still technically listed here").
   func openness<S, M>(t : T.Table<S, M>, now : Int) : ?{
     p1Open : Bool;
     p2Open : Bool;
+    p1Session : ?T.SessionId;
+    p2Session : ?T.SessionId;
     since : Int;
   } {
     switch (t.phase) {
-      case (#empty) ?{ p1Open = true; p2Open = true; since = now };
+      case (#empty) ?{ p1Open = true; p2Open = true; p1Session = null; p2Session = null; since = now };
       case (#staging st) {
         let ex = t.isExpired(st.since, now);
         if (Option.isSome(st.reservedFor) and not ex) { null } else {
+          let p1Open = st.seat != #p1 or ex;
+          let p2Open = st.seat != #p2 or ex;
           ?{
-            p1Open = st.seat != #p1 or ex;
-            p2Open = st.seat != #p2 or ex;
+            p1Open;
+            p2Open;
+            p1Session = if (p1Open) null else ?st.session;
+            p2Session = if (p2Open) null else ?st.session;
             since = st.since;
           };
         };
       };
       case (#active g) {
         if (t.isExpired(g.lastActivity, now)) {
-          ?{ p1Open = true; p2Open = true; since = g.lastActivity };
+          ?{ p1Open = true; p2Open = true; p1Session = null; p2Session = null; since = g.lastActivity };
         } else { null };
       };
       case (#debrief d) {
         if (t.isExpired(d.since, now)) {
-          ?{ p1Open = true; p2Open = true; since = d.since };
+          ?{ p1Open = true; p2Open = true; p1Session = null; p2Session = null; since = d.since };
         } else { null };
       };
     };
@@ -166,21 +178,29 @@ module {
 
   // ────────────────────── operations ─────────────────────────────────────
 
+  /// Lists every table with at least one open seat right now — a
+  /// `#code`-protected table included, just flagged `protected = true`
+  /// and never carrying its own code (that stays known only to its own
+  /// occupant, via their own `#stagingYou` view — see `View`'s own doc):
+  /// a browsing visitor can see a protected table exists, that it needs a
+  /// code, and who (if anyone) is already seated on it, but has to be
+  /// handed the code itself out of band before `joinTable` will actually
+  /// seat them on it.
   public func listTables<S, M>(self : Registry<S, M>, now : Int) : [T.TableSummary] {
     let withSummaries = Map.filterMap<T.TableId, T.Table<S, M>, T.TableSummary>(
       self.tables,
       Nat.compare,
       func(id, t) {
-        let protected = t.visibility != #open;
-        if (protected) { null } else {
-          switch (openness(t, now)) {
-            case null null;
-            case (?o) ?{
-              id;
-              p1Open = o.p1Open;
-              p2Open = o.p2Open;
-              waitingSecs = waitingSecs(o.since, now);
-            };
+        switch (openness(t, now)) {
+          case null null;
+          case (?o) ?{
+            id;
+            p1Open = o.p1Open;
+            p2Open = o.p2Open;
+            p1Session = o.p1Session;
+            p2Session = o.p2Session;
+            protected = t.visibility != #open;
+            waitingSecs = waitingSecs(o.since, now);
           };
         };
       },

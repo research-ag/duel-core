@@ -38,9 +38,9 @@ if (!canisterId) {
 const host = deriveHost();
 
 // This tab's own identity — a real, permanent Internet Identity login if
-// one's already active, otherwise a fresh throwaway identity plus a
-// plain, self-generated agent id. See duel-game-core/README.md's
-// "Logging in with Internet Identity" section for the full mechanism.
+// one's already active, otherwise a persisted, non-spoofable anonymous
+// keypair (no login required). See duel-game-core/README.md's "Logging
+// in with Internet Identity" section for the full mechanism.
 const session = await resolveIdentity();
 
 const agent = await HttpAgent.create({

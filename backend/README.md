@@ -7,11 +7,14 @@ Computer. It solves the plumbing every simultaneous-reveal, turn-based
 2-player game needs — and knows nothing about any particular game's
 rules:
 
-- **Tables** — anyone may open a new table: `#open` (discoverable and
-  joinable by anyone browsing the lobby) or protected with an access
-  code (shared with a friend out of band, never listed). Any number of
-  tables run independently and simultaneously; a shared `Registry`
-  creates them and routes every session's calls to the right one.
+- **Tables** — anyone may open a new table: `#open` (joinable outright by
+  anyone browsing the lobby) or protected with an access code shared with
+  a friend out of band. Both are discoverable through the same browsable
+  table list — a protected table just flagged as such, so a visitor knows
+  a code is needed (and who, if anyone, already holds a seat) before
+  attempting to join it. Any number of tables run independently and
+  simultaneously; a shared `Registry` creates them and routes every
+  session's calls to the right one.
 - **Seating** — two players join a table (seats `#p1` / `#p2`); a third
   caller is turned away while a match is in progress on it.
 - **Rounds** — a `#simultaneous` game has each seated player submit one
@@ -361,28 +364,29 @@ connection is keyed by principal — `Hub` learns the `sid <-> principal`
 pairing from the `sid` every inbound message carries, and forgets it on
 `ws_close`.
 
-**Player identity: anonymous and logged-in players, treated equally.**
-`Table`/`Registry` never look at a `SessionId` beyond comparing it for
-equality, so an anonymous, client-chosen id (today's default — an "agent
-id"/"racer id" a game's own frontend makes up) and a real, permanently
-identified player (someone who logged in via Internet Identity) already sit
-at the very same tables with no special-casing anywhere in the engine. The
-only piece a real login needs beyond that is non-spoofability — nothing
-should let one caller claim another's identity — and `Ws` is where that's
-enforced, since it's already the layer bridging `sid` to a caller's
-authenticated principal. `Ws.sidForPrincipal(p)` is a pure, permanent
-function of a principal (`"ii:" # Principal.toText(p)` — the exact prefix
-is `Ws.PRINCIPAL_SID_PREFIX`): a logged-in player's id is "issued" for free
-at their first login (nothing to allocate or store) and can never change
-for as long as the same login keeps resolving to the same principal.
-`onMessage` rejects any inbound `sid` in that reserved namespace whose
-principal doesn't match the connection's own `args.client_principal` with
-`Err.#unauthorized`, before the request ever reaches `Hub` or `Registry` —
-a `sid` outside that namespace keeps the fully decoupled, client-asserted
-trust model unchanged. See `../frontend/README.md`'s "Logging in with
-Internet Identity" section for the matching frontend half
-(`duel-game-core/identity.js`'s `resolveIdentity()`, which computes the
-identical `sidForPrincipal` value).
+**Player identity: anonymous and logged-in players, treated equally, both
+non-spoofable.** `Table`/`Registry` never look at a `SessionId` beyond
+comparing it for equality, so an anonymous player (today's default — no
+login required) and a real, permanently identified player (someone who
+logged in via Internet Identity) sit at the very same tables with no
+special-casing anywhere in the engine. Both are non-spoofable, though: `Ws`
+is the layer bridging `sid` to a caller's authenticated principal, and it
+recognizes two reserved `sid` namespaces, each a pure, permanent function of
+a principal — `Ws.sidFor(prefix, p) = prefix # Principal.toText(p)`.
+`Ws.PRINCIPAL_SID_PREFIX` (`"ii:"`) is a real Internet Identity login;
+`Ws.ANON_SID_PREFIX` (`"an:"`) is a locally generated keypair a frontend
+persists on its own, with no login step at all — either way the id is
+"issued" for free the moment the principal is first seen (nothing to
+allocate or store) and can never change for as long as the same
+keypair/login keeps resolving to the same principal. `onMessage` rejects
+any inbound `sid` whose principal doesn't match the connection's own
+`args.client_principal` under its own namespace's scheme — or that names no
+recognized namespace at all — with `Err.#unauthorized`, before the request
+ever reaches `Hub` or `Registry`. There is no third, client-asserted tier:
+every legal `sid` is principal-bound. See `../frontend/README.md`'s
+"Logging in with Internet Identity" section for the matching frontend half
+(`duel-game-core/identity.js`'s `resolveAnonymousIdentity()`/
+`resolveIdentity()`, which compute the identical `sidFor` values).
 
 **Replay safety.** `#submit`/`#leave`/`#reset`/`#claimWin` each carry a
 `gen : Nat` (and `#submit` additionally a `turn : Nat`) — the match

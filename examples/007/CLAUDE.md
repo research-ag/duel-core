@@ -61,16 +61,15 @@ concrete to copy — it is **not** part of either package itself.
   `../../frontend/README.md`. `app.js` calls `duel-game-core/identity.js`'s
   `resolveIdentity()` to get this tab's own identity/`session` in one
   call: a real, permanent Internet Identity login if one's already
-  active, otherwise a fresh, throwaway `Ed25519KeyIdentity` (no seed) —
+  active, otherwise a persisted, non-spoofable anonymous keypair (see
+  `duel-game-core/anon-identity.js`'s `resolveAnonymousIdentity()`) —
   never the plain anonymous identity `HttpAgent.create({ host })`
   defaults to, since `ic-websocket-cdk`'s `ws_open` hard-rejects an
   anonymous caller outright (there's no polling fallback). See
   `../../frontend/README.md`'s "Logging in with Internet Identity" and
-  "Real-time push" sections for the full mechanism, including why a
-  throwaway identity must NOT be derived from `sid` to stay stable across
-  a reload (a real, reachable `ic-websocket-cdk@0.4.1` cleanup bug), and
-  the trade-off a genuinely stable, login-derived principal reintroduces
-  on purpose. Then calls `duel-game-core/ws.js`'s
+  "Real-time push" sections for the full mechanism, including why `sid`
+  is always derived from — and non-spoofable because of — the exact
+  identity that opens the WS connection. Then calls `duel-game-core/ws.js`'s
   `connectWs({ actor, principal: session.principal, gameIdlTypes:
   plugin.idlTypes })` for the real push transport `start()` requires —
   this game's own code never touches `mo:duel-game-core/ws`'s protocol

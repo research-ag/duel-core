@@ -6,16 +6,15 @@
 // "Your opponent walked away" appearing for a game neither player
 // actually left, right after ONE of them reloaded the page.
 //
-// Every one of this package's reference frontends deliberately mints a
-// FRESH principal on every page load while the player's own `sid`
-// (sessionStorage) survives the reload unchanged (see
-// `examples/racing/frontend/src/duel/duel-app.js`'s own doc on why — a
-// real `ic-websocket-cdk@0.4.1` bookkeeping quirk). That means the SAME
-// `sid` legitimately re-registers under a DIFFERENT principal across a
-// reload — exactly the case `remember`/`forget` have to get right: the
-// OLD principal's belated `ws_close` (its own `pagehide`-driven goodbye
-// has no guarantee of landing before the new page's own `ws_open` does)
-// must not be allowed to erase the fresher registration.
+// A session's own principal is usually stable across a reload now (both
+// `ii:` and `an:` identities persist their keypair — see
+// `frontend/src/identity.ts`), but a genuinely new principal can still
+// show up under the SAME `sid` — a first-ever load before a persisted
+// identity exists yet, or a login/logout swap. Either way this is
+// exactly the case `remember`/`forget` have to get right: the OLD
+// principal's belated `ws_close` (its own `pagehide`-driven goodbye has
+// no guarantee of landing before the new page's own `ws_open` does) must
+// not be allowed to erase the fresher registration.
 //
 // Test 16 covers the mirror case: the SAME principal switching to a
 // DIFFERENT sid on one still-live connection (an in-place "new sid" swap,
@@ -318,19 +317,31 @@ do {
   Debug.print("14. isAuthorizedSid() enforces the reserved namespace's own owner OK");
 };
 
-// ── 15. isAuthorizedSid(): a sid OUTSIDE the reserved namespace (the
-//       ordinary, plain/anonymous case) is authorized for ANY principal —
-//       the fully decoupled trust model this module always had must stay
-//       unchanged for it.
+// ── 15. isAuthorizedSid(): the ANON_SID_PREFIX ("an:") namespace is
+//       enforced exactly the same way as PRINCIPAL_SID_PREFIX ("ii:") —
+//       and a sid in neither reserved namespace is rejected outright for
+//       every principal, since every legal sid must now be
+//       principal-bound. There is no more fully-decoupled, plain-text
+//       tier.
 // ────────────────────────────────────────────────────────────────────
 do {
-  if (not Ws.isAuthorizedSid("plain-agent-42", PA)) {
-    Runtime.trap("15a: a plain sid must be authorized regardless of principal");
+  let anonSid = Ws.sidFor(Ws.ANON_SID_PREFIX, PA);
+  if (not Text.startsWith(anonSid, #text (Ws.ANON_SID_PREFIX))) {
+    Runtime.trap("15a: sidFor(ANON_SID_PREFIX, ...) must fall in its own reserved namespace");
   };
-  if (not Ws.isAuthorizedSid("plain-agent-42", PB)) {
-    Runtime.trap("15b: ...for ANY principal, not just one");
+  if (not Ws.isAuthorizedSid(anonSid, PA)) {
+    Runtime.trap("15b: the owning principal must be authorized for its own an: sid");
   };
-  Debug.print("15. isAuthorizedSid() leaves plain, non-reserved sids fully decoupled OK");
+  if (Ws.isAuthorizedSid(anonSid, PB)) {
+    Runtime.trap("15c: a different principal must be rejected for someone else's an: sid");
+  };
+  if (Ws.isAuthorizedSid("plain-agent-42", PA)) {
+    Runtime.trap("15d: a sid in no recognized namespace must be rejected, not trusted");
+  };
+  if (Ws.isAuthorizedSid("plain-agent-42", PB)) {
+    Runtime.trap("15e: ...for every principal, not just one");
+  };
+  Debug.print("15. isAuthorizedSid() enforces ANON_SID_PREFIX the same way, and rejects every unrecognized sid OK");
 };
 
 // ── 16. remember(): the SAME principal switching to a DIFFERENT sid (an

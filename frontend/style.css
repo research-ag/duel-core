@@ -320,20 +320,18 @@ button.seat {
 }
 
 /* ── lobby-of-tables (renderBrowsing) ───────────────────────────────────
- * `.create-table`/`.open-tables`/`.join-by-code` are the three <section>s
- * of the lobby-of-tables screen; `h3` styling here is scoped to inside
- * them rather than global so it doesn't leak into a GamePlugin's own
- * board markup. */
+ * `.create-table`/`.open-tables` are the two <section>s of the
+ * lobby-of-tables screen; `h3` styling here is scoped to inside them
+ * rather than global so it doesn't leak into a GamePlugin's own board
+ * markup. */
 
 .create-table,
-.open-tables,
-.join-by-code {
+.open-tables {
   margin-bottom: 1.75rem;
 }
 
 .create-table h3,
-.open-tables h3,
-.join-by-code h3 {
+.open-tables h3 {
   margin: 0 0 0.75rem;
   font-size: 0.95rem;
   letter-spacing: 0.04em;
@@ -353,10 +351,6 @@ button.seat {
   margin-bottom: 0.75rem;
 }
 
-.join-by-code > input {
-  margin: 0 0.75rem 0.75rem 0;
-}
-
 .table-row {
   display: flex;
   align-items: center;
@@ -373,6 +367,14 @@ button.seat {
   font-weight: 650;
 }
 
+/* A protected table row's own badge, next to its "Table #N" label. */
+.protected-badge {
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  color: var(--accent);
+}
+
 .table-row-seats {
   display: flex;
   gap: 0.5rem;
@@ -381,7 +383,18 @@ button.seat {
 
 .table-row-seats button.seat {
   flex-direction: row;
+  align-items: center;
   padding: 0.45rem 1rem;
+}
+
+/* The occupant id shown inline next to a taken seat's label (see
+ * render.js's `renderTableRow`) — visually secondary to the seat label
+ * itself. `title` (added only once the id was actually truncated) is
+ * what surfaces the untruncated id as a native tooltip on hover. */
+.seat-occupant {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── in-game chrome ──────────────────────────────────────────────────── */
@@ -500,6 +513,51 @@ button.seat {
 }
 
 .duel-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+/* ── access-code prompt (app.js's showCodePrompt(), for a click on an
+   open seat of a protected table row) ──────────────────────────────── */
+
+.duel-code-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(6, 7, 9, 0.6);
+}
+
+.duel-code-overlay[hidden] {
+  display: none;
+}
+
+.duel-code-box {
+  max-width: 320px;
+  padding: 1.25rem 1.4rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.duel-code-msg {
+  margin: 0 0 0.9rem;
+  color: var(--ink);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.duel-code-input {
+  width: 100%;
+  margin-bottom: 1.1rem;
+}
+
+.duel-code-actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.6rem;

@@ -25,9 +25,11 @@ particular game — that's supplied by whoever builds a game on top.
   of it (`Registry.new` plus the same eight caller-facing operations,
   routed to the right table, plus `createTable`/`listTables`/`sweep`).
   Any number of tables run independently and simultaneously
-  (`TP.Registry`, created with `Registry.new`); a table can be `#open`
-  (browsable/joinable by anyone) or protected with an access code
-  (joinable only by id + code, shared with a friend out of band). Once a
+  (`TP.Registry`, created with `Registry.new`); a table can be `#open` or
+  protected with an access code shared with a friend out of band — either
+  way it's browsable and shows who (if anyone) already holds a seat,
+  `#open` joinable outright and `#code` joinable only once the caller
+  also supplies the matching code. Once a
   player's own move has sat pending against their opponent's silence for
   longer than a second, independent, normally much shorter timeout
   (`claimTimeoutNs`), `claimWin` lets that player optionally end the
@@ -150,6 +152,12 @@ in that party's own repo (see that file's own header and the root
 README's "Building a game" section), but is equally the right starting
 point when working in this repo.
 
+`aggregator/` is a different kind of thing entirely: a standalone
+product built on this repo's own Motoko/TypeScript tooling — Internet
+Identity login, developer profiles, and a public, filterable registry of
+games — not part of either `duel-game-core` package and not a game built
+on the session engine above. See its own `aggregator/CLAUDE.md`.
+
 ## Toolchain
 
 - moc **1.11.2** (mops toolchain, pinned in `backend/mops.toml`) — enough
@@ -232,7 +240,7 @@ mops bench
 # ships; there is no bare frontend/app.js etc. any more to check
 # directly, and no DOM needed to import the compiled output either:
 (cd frontend && npm run build)
-node --check frontend/dist/app.js frontend/dist/render.js frontend/dist/idl.js frontend/dist/ic-env.js frontend/dist/ws.js frontend/dist/identity.js frontend/dist/ws/gateway-client.js frontend/dist/ws/gateway-transport.js frontend/dist/ws/gateway-protocol.js
+node --check frontend/dist/app.js frontend/dist/render.js frontend/dist/idl.js frontend/dist/ic-env.js frontend/dist/ws.js frontend/dist/identity.js frontend/dist/anon-identity.js frontend/dist/ws/gateway-client.js frontend/dist/ws/gateway-transport.js frontend/dist/ws/gateway-protocol.js
 ```
 
 With mops installed, `<path-to-core/src>` is typically
@@ -414,12 +422,19 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
     supply Internet Identity login (see `frontend/README.md`'s "Logging
     in with Internet Identity"), and a game that never imports it pulls
     in neither — `app.js` only ever imports its TYPES, erased at compile
-    time. Every OTHER file in this package (`app.js`, `render.js`,
+    time. `frontend/anon-identity.js` is a third, narrower exception: the
+    persisted-keypair anonymous identity `identity.js` re-exports,
+    depending only on `@icp-sdk/core/identity` — not `@icp-sdk/auth` — so
+    a game that wants a real, non-spoofable identity with no login step
+    at all can import only this and skip `identity.js`'s dependency
+    entirely. Every OTHER file in this package (`app.js`, `render.js`,
     `idl.js`, `ic-env.js`) stays dependency-free. `start()` itself stays
     exactly as transport-agnostic as before — a caller may still hand it
     any WebSocket-shaped mock (e.g. for tests) instead of a real
-    `GatewayWs`, and passing no `session` option leaves player identity
-    exactly as self-generated and anonymous as it always was.
+    `GatewayWs` — but `session` is now REQUIRED, not optional: every
+    legal `sid` is principal-bound (see `backend/README.md`'s "Player
+    identity" section), so `start()` has no self-generated fallback left
+    to fall back to on its own.
 11. **`ws.mo` reimplements no game logic, and is the sole entry point for
     mutation.** Every WebSocket request dispatches to `registry.mo`'s own
     `Registry` operations (`createTable`, `joinTable`, `submit`, ...)

@@ -52,42 +52,36 @@ if (!canisterId) {
 const host = deriveHost();
 
 // This tab's own identity — a real, permanent Internet Identity login if
-// one's already active, otherwise a fresh, throwaway, non-anonymous
-// identity plus a plain, self-generated driver id, both exactly as this
-// game always used before it had a login option at all. See
-// duel-game-core/README.md's "Logging in with Internet Identity" section
-// for the full mechanism; the rest of this comment explains WHY the
-// throwaway fallback must stay throwaway rather than something simpler.
+// one's already active, otherwise a persisted, non-spoofable anonymous
+// keypair (`duel-game-core/anon-identity.js`'s `resolveAnonymousIdentity()`,
+// which `resolveIdentity()` falls back to). See duel-game-core/README.md's
+// "Logging in with Internet Identity" section for the full mechanism.
 //
 // `ic-websocket-cdk`'s `ws_open` hard-rejects the anonymous principal
 // outright ("Anonymous principal is not allowed"), so an anonymous
 // session (no login) can't just build `agent` with `HttpAgent.create({
 // host })` and nothing else — the WS handshake, and with it the whole
-// app (there's no polling fallback), never comes up. `resolveIdentity()`
-// generates a FRESH throwaway Ed25519 identity every page load for that
-// case — deliberately NOT derived from/stable across this tab's own
-// `sid` either (an earlier version of this file derived it from `sid` so
-// it stayed the same across a reload — reverted after that turned out to
-// actively cause a persistent "Connection closed" banner /
-// `ws_message: Client with principal ... doesn't have an open
-// connection", see below) — specifically BECAUSE of a real bug in
-// `ic-websocket-cdk@0.4.1`'s own bookkeeping: `remove_client` (in its
-// `State.mo`) deletes its principal->client_key lookup by PRINCIPAL
-// ALONE, not scoped to the exact client_key being removed. A plain page
-// reload gives the OLD page's own `ws_close()` (fired from
-// `pagehide`/`visibilitychange`, see
-// `../../../../../frontend/ws/gateway-client.js`) no guarantee of
-// completing before the tab is torn down — so if that stale close (or
-// its eventual keep-alive-timeout eviction) is still pending when the
-// NEW page's `ws_open` registers, and BOTH share the same principal
-// (which a sid-derived identity guarantees across a reload), the stale
-// close can land AFTER and silently erase the NEW, perfectly-live
-// connection's own lookup entry. A fresh random principal every load
-// means no two registrations ever share a principal in the first place,
-// so this whole class of collision can't happen — the engine's own
-// player identity (`sid`) already persists across reload regardless,
-// completely independent of this principal, so nothing player-visible
-// is lost by NOT also pinning the WS-layer principal.
+// app (there's no polling fallback), never comes up.
+//
+// `session.identity`'s keypair is deliberately STABLE across a reload of
+// this tab (persisted in `sessionStorage`, same storage `sid` itself
+// already used), and `session.sid` is derived from its own principal —
+// the backend's `isAuthorizedSid` guard requires exactly this: the WS
+// connection's authenticated principal must match the principal `sid`
+// names, for both the anonymous and logged-in case alike. An earlier
+// version of this file used a FRESH, unrelated keypair every page load
+// instead, specifically to dodge a real bug in `ic-websocket-cdk@0.4.1`'s
+// own bookkeeping: `remove_client` (in its `State.mo`) used to delete its
+// principal->client_key lookup by PRINCIPAL ALONE, not scoped to the
+// exact client_key being removed, so a belated close for an old,
+// already-superseded connection could erase a newer, still-live one's
+// lookup entry after a same-principal reconnect (a plain reload). That
+// bug is fixed directly in the vendored CDK now (`remove_client` only
+// clears the lookup when it's still the exact connection being closed),
+// so a stable, sid-matching principal across reload is safe — the fresh-
+// per-load workaround is no longer needed, and would in fact break
+// `sid`'s own non-spoofability if reintroduced (a fresh keypair each load
+// can't match a `sid` that's supposed to survive the reload).
 const session = await resolveIdentity();
 const agent = await HttpAgent.create({
   host,

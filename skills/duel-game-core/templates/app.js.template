@@ -11,10 +11,10 @@
 // directory of its own.
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
-import { Ed25519KeyIdentity } from "@icp-sdk/core/identity";
 import { makeIdlFactory } from "duel-game-core/idl.js";
 import { start } from "duel-game-core/app.js";
 import { connectWs } from "duel-game-core/ws.js";
+import { resolveAnonymousIdentity } from "duel-game-core/anon-identity.js";
 import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
 import { plugin } from "./__PLUGIN_FILE__";
 
@@ -30,20 +30,21 @@ if (!canisterId) {
 }
 
 const host = deriveHost();
-// A FRESH throwaway identity every page load — required (ic-websocket-
-// cdk's ws_open hard-rejects the anonymous principal), and deliberately
-// NOT derived from `sid`/stable across reload (see
-// duel-game-core's frontend/README.md "Real-time push" section for the
-// ic-websocket-cdk@0.4.1 cleanup bug a stable principal would trigger).
+// A real, non-spoofable identity with no login step: a keypair this tab
+// generates once and persists in `sessionStorage` (see anon-identity.js's
+// own doc) — `session.sid` is a pure function of `session.principal`, and
+// `session.identity` is exactly the identity that must open the WS
+// connection below, since the backend checks the two match on every
+// request (see ../backend/src/ws.mo's `isAuthorizedSid`).
+const session = resolveAnonymousIdentity();
 const agent = await HttpAgent.create({
   host,
-  identity: Ed25519KeyIdentity.generate(),
+  identity: session.identity,
   shouldFetchRootKey: /localhost|127\.0\.0\.1/.test(host),
 });
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
-const principal = await agent.getPrincipal();
-const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
+const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
 
-start({ plugin, ws });
+start({ plugin, ws, session });

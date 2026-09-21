@@ -26,3 +26,11 @@ Tracked in git, so it installs standalone into your own game's repo:
 ```
 npx skills add research-ag/duel-core --skill duel-game-core
 ```
+
+## Aggregator
+
+[`aggregator/`](aggregator/CLAUDE.md) is a separate product built on
+this repo's Motoko/TypeScript tooling: an Internet Identity login, a
+developer's own editable display name, and a public, filterable grid of
+every registered game — not part of either package above and not a game
+built on the session engine.

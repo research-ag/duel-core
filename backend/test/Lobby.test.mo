@@ -7,6 +7,7 @@
 // registry per scenario. Plugged-in rules: FakeGame.mo.
 // Run: moc -r --package core <core/src> test/Lobby.test.mo
 import Rules "FakeGame";
+import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
@@ -76,15 +77,34 @@ expectErr(reg.createTable(spec, T0, "a", #p2, #open), "a tries to create a secon
 expectErr(reg.joinTable(spec, T0, "a", id2, #p2, null), "a tries to join z's table too");
 Debug.print("2. already-at-a-table guard blocks create/join OK");
 
-// ── 3. listTables: open tables with a free seat; protected ones hidden ────
+// ── 3. listTables: open tables with a free seat, occupant ids included ────
 switch (reg.listTables(T0)) {
   case (rows) {
     assert rows.size() == 2; // id1, id2 — both p1-taken/p2-open
-    for (r in rows.values()) { assert not r.p1Open; assert r.p2Open };
+    for (r in rows.values()) {
+      assert not r.p1Open;
+      assert r.p2Open;
+      assert not r.protected;
+      assert r.p2Session == null; // open seat names nobody
+    };
   };
 };
+switch (Array.find<TP.TableSummary>(reg.listTables(T0), func(r) = r.id == id1)) {
+  case (?r) assert r.p1Session == ?"a"; // the taken seat names its occupant
+  case null Runtime.trap("id1 should still be listed");
+};
 let idProt = ok(reg.createTable(spec, T0, "q", #p1, #code("secret")), "q creates a protected table");
-assert reg.listTables(T0).size() == 2; // idProt must not appear
+// A protected table is listed too, just flagged — never its own code.
+switch (Array.find<TP.TableSummary>(reg.listTables(T0), func(r) = r.id == idProt)) {
+  case (?r) {
+    assert r.protected;
+    assert not r.p1Open;
+    assert r.p2Open;
+    assert r.p1Session == ?"q";
+  };
+  case null Runtime.trap("idProt should be listed, flagged protected");
+};
+assert reg.listTables(T0).size() == 3;
 // q's own view echoes the table's visibility (code included) back to
 // them — the only way a "Protected" table's own creator can learn its
 // code well enough to actually share it with a friend; a1's own OPEN
@@ -103,7 +123,7 @@ switch (atTableView(reg, T0, "a")) {
   };
   case (_) Runtime.trap("a should be staging");
 };
-Debug.print("3. listTables shows open tables only, protected ones hidden OK");
+Debug.print("3. listTables lists open AND protected tables, with occupant ids OK");
 
 // ── 4. joinTable: bad id, bad/missing code, correct code, open needs none ──
 switch (reg.joinTable(spec, T0, "b", 9999, #p2, null)) {

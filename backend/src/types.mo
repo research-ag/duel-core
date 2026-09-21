@@ -41,6 +41,19 @@ module {
     id : TableId;
     p1Open : Bool;
     p2Open : Bool;
+    // Whichever session currently holds a NOT-open seat — `null` for an
+    // open seat, or for a seat whose occupant isn't meaningfully "someone
+    // to name" (an idle-reclaimable board reported open on both seats
+    // instead — see `Registry.openness`'s own doc). Lets a browsing
+    // visitor see WHO they'd be facing before they even join, not just
+    // that the seat is taken.
+    p1Session : ?SessionId;
+    p2Session : ?SessionId;
+    // Whether this table needs an access code to join — never the code
+    // itself (see `Registry.listTables`'s own doc for why: a visitor
+    // browsing the lobby has no business learning a code they weren't
+    // handed out of band, only that one is required).
+    protected : Bool;
     waitingSecs : Nat;
   };
 
@@ -219,11 +232,13 @@ module {
     // back to `joinTable` to match it, so that table would otherwise be
     // unreachable by construction.
     #badCode;
-    // A `ws.mo` request claimed a `SessionId` in the reserved
-    // principal-bound namespace (see `Ws.sidForPrincipal`'s own doc) that
-    // doesn't match the caller's own authenticated principal — never
-    // produced by `Table`/`Registry` themselves, only by `Ws.onMessage`'s
-    // own guard, before the request ever reaches either.
+    // A `ws.mo` request's `SessionId` doesn't match the caller's own
+    // authenticated principal under either reserved, principal-bound
+    // namespace (see `Ws.PRINCIPAL_SID_PREFIX`/`Ws.ANON_SID_PREFIX`'s own
+    // doc) — including a `SessionId` that names neither namespace at all,
+    // since every legal `sid` must be principal-bound. Never produced by
+    // `Table`/`Registry` themselves, only by `Ws.onMessage`'s own guard,
+    // before the request ever reaches either.
     #unauthorized;
   };
 

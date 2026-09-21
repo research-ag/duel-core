@@ -264,9 +264,10 @@ full reasoning). `status` is the one exception, staying a plain
 `query` — it's side-effect-free. Your `Host.mo` wires a
 `TP.Registry<State, Action>` (built with `Registry.new`, from
 `mo:duel-game-core/registry`), not a bare `TP.Table` — this game gets a
-multi-table lobby (open tables browsable by anyone, protected ones
-joinable by id + access code) for free, with zero code of your own
-beyond this template.
+multi-table lobby for free, with zero code of your own beyond this
+template: every table is browsable, open ones joinable outright and
+protected ones (flagged as such in the listing) joinable once the caller
+also supplies the matching access code.
 
 **Claim a win.** Once a player's own move has sat pending for at least
 `__CLAIM_TIMEOUT_NS__` against their opponent's silence, the engine
@@ -338,9 +339,10 @@ and `core` as dependencies, simply `mops test` from that directory.
 
 Read `templates/plugin.js.template` and write
 `frontend/src/<game>-plugin.js`. This is the only game-specific frontend
-code — everything else (the multi-table lobby — create a table,
-open or access-code protected, browse open ones, join by code — staging,
-rematch, busy countdown, debrief chrome, the turn counter, "opponent is
+code — everything else (the multi-table lobby — create a table, open or
+access-code protected; browse and join both kinds, a protected row
+flagged as such and prompting for its code on click — staging, rematch,
+busy countdown, debrief chrome, the turn counter, "opponent is
 deciding"/"locked in", the verdict banner) is generic and comes from the
 npm package itself, via `render.js`/`app.js`.
 
@@ -370,25 +372,29 @@ Then copy `templates/index.html.template` → `frontend/src/index.html`
 and `templates/app.js.template` → `frontend/src/app.js`, filling in
 `__GAME_TITLE__`, `__PLUGIN_FILE__`, and `__IDLE_TIMEOUT_SECONDS__`
 (match Step 4's timeout). Neither file should need any other change —
-they build the actor, build a real-time-push `ws` over it
+they resolve a real, non-spoofable player identity with no login step
+(`duel-game-core/anon-identity.js`'s `resolveAnonymousIdentity()`), build
+the actor from it, build a real-time-push `ws` over the same identity
 (`connectWs()`, required — there is no polling fallback, and no plain
 mutating Candid method to poll in the first place), and hand off to the
-generic `start({ plugin, ws })`. `app.js` is esbuild's bundle entry point
-(see Step 7's `build.js.template`) — every dependency it and
-`duel-game-core` need (`@icp-sdk/core`, `@icp-sdk/auth`, `cborg`) is
-resolved from `node_modules` and inlined at build time, so the deployed
-page loads nothing from a CDN and needs no import map.
+generic `start({ plugin, ws, session })`. `app.js` is esbuild's bundle
+entry point (see Step 7's `build.js.template`) — every dependency it and
+`duel-game-core` need (`@icp-sdk/core`, `cborg`) is resolved from
+`node_modules` and inlined at build time, so the deployed page loads
+nothing from a CDN and needs no import map.
 
-Every player is a plain, anonymous, self-generated `sid` by default —
-this template makes no distinction between players beyond that, and
-nothing in Steps 2–5 needs to either. A game that also wants real,
-permanent player identity — someone logged in via Internet Identity,
-playing in the very same lobby as anonymous players with zero rules
-changes — swaps in `duel-game-core/identity.js`'s `resolveIdentity()`
-instead of this template's own throwaway-identity block, and passes its
-result as `start({ plugin, ws, session })`; see
-`frontend/README.md`'s "Logging in with Internet Identity" section (in
-the `duel-game-core` npm package) for the exact, complete pattern —
+Every player gets a real, non-spoofable identity by default — no login,
+no setup — and this template makes no distinction between players beyond
+that, and nothing in Steps 2–5 needs to either. A game that also wants
+real, *permanent* player identity — someone logged in via Internet
+Identity, playing in the very same lobby as anonymous players with zero
+rules changes — swaps in `duel-game-core/identity.js`'s
+`resolveIdentity()` instead of this template's own
+`resolveAnonymousIdentity()` call (both return the same
+`{ identity, principal, sid }` shape `start({ plugin, ws, session })`
+expects, `resolveIdentity()` just adds the login/logout branch on top);
+see `frontend/README.md`'s "Logging in with Internet Identity" section
+(in the `duel-game-core` npm package) for the exact, complete pattern —
 nothing further to design here.
 
 **If your game's whole UI genuinely doesn't fit buttons and text** (a
