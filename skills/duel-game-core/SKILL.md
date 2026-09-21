@@ -438,11 +438,17 @@ icp deploy --network ic                # mainnet — spends cycles
 ```
 
 The asset-canister recipe in `icp.yaml.template` must stay **v2.3.0 or
-newer** (v2.1.0 uses a sync step icp-cli 1.x rejects outright). Run
-`npm install && npm run build` inside `frontend/` before deploying —
-`icp deploy` does not do this for you, and `frontend/dist/` (esbuild's
-bundled output, what `icp.yaml` actually deploys) won't exist without
-it.
+newer** (v2.1.0 uses a sync step icp-cli 1.x rejects outright). Its
+`configuration.build` step runs `npm run build` inside `frontend/`
+automatically, so `icp build`/`icp deploy` always rebuilds
+`frontend/dist/` (esbuild's bundled output, what `icp.yaml` actually
+deploys) from current source before syncing it — there's no separate
+manual build step to remember before deploying. `npm install
+--legacy-peer-deps` itself is still a one-time (or as-needed) manual
+step that populates `frontend/node_modules` in the first place (see the
+build/test block above) — the automatic `build` step only re-bundles
+from whatever's already installed there, it doesn't run `npm install`
+for you.
 
 Play both seats by opening the deployed URL in two separate browser
 tabs (each tab is its own session automatically) — create a table in

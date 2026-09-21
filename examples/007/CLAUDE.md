@@ -174,9 +174,14 @@ icp deploy                 # local  → http://frontend.local.localhost:8000/
 icp deploy --network ic    # mainnet — spends cycles
 ```
 
-Run `npm install && npm run build` inside `frontend/` before deploying —
-`icp deploy` does not do this for you, and `frontend/dist/` won't exist
-(or will be stale) without it.
+`icp.yaml`'s asset-canister recipe declares `npm run build` (inside
+`frontend/`) as a `build` step, so `icp build`/`icp deploy` runs it
+automatically and `frontend/dist/` is always rebuilt from current
+source before syncing. `npm install --legacy-peer-deps` is still a
+separate, manual step that populates `frontend/node_modules` in the
+first place — the automatic `build` step only re-bundles from whatever
+is already installed there, it doesn't run `npm install` for you (see
+this file's own toolchain note above on when to re-run it).
 
 The asset-canister recipe must be **v2.3.0 or newer**: v2.1.0 syncs with
 an `assets` step that icp-cli 1.x rejects ("no longer supports the

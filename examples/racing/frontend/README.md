@@ -35,8 +35,9 @@ copied `index.html` / `style.css` / `favicon.ico` / `assets/` /
 as the `frontend` asset canister, and it carries no `node_modules`
 directory: every dependency (`@icp-sdk/core`, `@icp-sdk/auth`, `cborg`,
 `three`, `rxjs`, ...) is resolved and inlined into the two bundles at
-build time. It is not checked in; run `npm run build` before
-`icp deploy`, same as `examples/007/frontend` needs.
+build time. It is not checked in; `../icp.yaml`'s asset-canister recipe
+declares `npm run build` as a `build` step, so `icp build`/`icp deploy`
+runs it automatically before syncing — same as `examples/007/frontend`.
 
 `npm run watch` rebuilds both `main.js` and `duel-app.js` on change
 (`esbuild --watch`); it does not re-copy the static files, so re-run

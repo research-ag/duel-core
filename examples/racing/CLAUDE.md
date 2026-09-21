@@ -177,14 +177,18 @@ mops test Engine           # one suite — the filter is a path substring
 mops test Rules            # ...so this matches Rules AND RulesUnit
 ```
 
-Build the frontend, then deploy (icp-cli; `icp network start` must be
-running for the local env):
+Install the frontend's own dependencies, then deploy (icp-cli; `icp
+network start` must be running for the local env). `icp.yaml`'s
+asset-canister recipe declares `npm run build` (inside `frontend/`) as a
+`build` step, so `icp build`/`icp deploy` runs it — and therefore
+esbuild-bundles `frontend/dist/` (icp.yaml deploys THIS, not
+`frontend/` itself) from current source — automatically; there's no
+separate manual build step to run first:
 
 ```bash
 (cd ../../frontend && npm run build)  # duel-game-core's own dist/ — see this file's note above
 cd examples/racing/frontend
-npm install --legacy-peer-deps   # see frontend/README.md's peer-dep note
-npm run build                    # esbuild bundle → frontend/dist/ (icp.yaml deploys THIS, not frontend/ itself)
+npm install --legacy-peer-deps   # see frontend/README.md's peer-dep note; populates node_modules only
 
 cd ..
 icp deploy                 # local  → http://frontend.local.localhost:8000/

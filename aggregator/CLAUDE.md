@@ -144,6 +144,15 @@ npx tsc -p tsconfig.json           # typecheck (noEmit)
 node --check dist/app.js
 ```
 
+`icp.yaml`'s asset-canister recipe declares `npm run build` (inside
+`frontend/`) as a `build` step, so `icp build`/`icp deploy` also runs it
+automatically before syncing `frontend/dist/` — the sequence above is
+for local typechecking/sanity-checking, not a manual step you must
+repeat before every deploy. `npm install --legacy-peer-deps` is still a
+separate, manual step that populates `frontend/node_modules` in the
+first place; the automatic `build` step only re-bundles from whatever is
+already installed there.
+
 ## Conventions
 
 Same house style as the rest of this repo — see the root `CLAUDE.md`'s
