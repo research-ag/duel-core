@@ -5,6 +5,9 @@ import Nat "mo:core/Nat";
 import Option "mo:core/Option";
 import Text "mo:core/Text";
 
+import PT "mo:promtracker";
+import Tracker "mo:promtracker/Tracker";
+
 import Table "./table";
 import T "./types";
 
@@ -34,9 +37,43 @@ module {
     var tables = Map.empty<T.TableId, T.Table<S, M>>();
     var bySession = Map.empty<T.SessionId, T.TableId>();
     var tableIdNonce = 1;
+    var gamesStarted = null;
+    var activeGames = null;
+  };
+
+  public func attachMetrics<S, M>(self : Registry<S, M>, pt : PT.Tracker) {
+    if (self.gamesStarted.isNull()) {
+      self.gamesStarted := ?pt.newCounter("games_started", []);
+    };
+    if (self.activeGames.isNull()) {
+      self.activeGames := ?pt.newGauge("active_games", [], []);
+    };
   };
 
   // ────────────────────── internal helpers ──────────────────────────────
+
+  func recordActiveGames<S, M>(self : Registry<S, M>) {
+    switch (self.activeGames) {
+      case null {};
+      case (?g) {
+        var n = 0;
+        for (t in self.tables.values()) {
+          switch (t.phase) {
+            case (#active _) n += 1;
+            case (_) {};
+          };
+        };
+        PT.Gauge.update(g, n);
+      };
+    };
+  };
+
+  func bumpGamesStarted<S, M>(self : Registry<S, M>) {
+    switch (self.gamesStarted) {
+      case null {};
+      case (?c) PT.Counter.add(c, 1);
+    };
+  };
 
   /// Whether (and since when) a table would present an open seat to a
   /// generic, not-yet-seated visitor right now — the same outsider
@@ -63,7 +100,13 @@ module {
     since : Int;
   } {
     switch (t.phase) {
-      case (#empty) ?{ p1Open = true; p2Open = true; p1Session = null; p2Session = null; since = now };
+      case (#empty) ?{
+        p1Open = true;
+        p2Open = true;
+        p1Session = null;
+        p2Session = null;
+        since = now;
+      };
       case (#staging st) {
         let ex = t.isExpired(st.since, now);
         if (Option.isSome(st.reservedFor) and not ex) { null } else {
@@ -80,12 +123,24 @@ module {
       };
       case (#active g) {
         if (t.isExpired(g.lastActivity, now)) {
-          ?{ p1Open = true; p2Open = true; p1Session = null; p2Session = null; since = g.lastActivity };
+          ?{
+            p1Open = true;
+            p2Open = true;
+            p1Session = null;
+            p2Session = null;
+            since = g.lastActivity;
+          };
         } else { null };
       };
       case (#debrief d) {
         if (t.isExpired(d.since, now)) {
-          ?{ p1Open = true; p2Open = true; p1Session = null; p2Session = null; since = d.since };
+          ?{
+            p1Open = true;
+            p2Open = true;
+            p1Session = null;
+            p2Session = null;
+            since = d.since;
+          };
         } else { null };
       };
     };
@@ -276,6 +331,11 @@ module {
       case (#err e) #err(e);
       case (#ok j) {
         self.bySession.add(session, id);
+        switch (j) {
+          case (#started _) bumpGamesStarted(self);
+          case (#staged _) {};
+        };
+        recordActiveGames(self);
         #ok(j);
       };
     };
@@ -289,11 +349,44 @@ module {
     gen : Nat,
     turn : Nat,
     move : M,
-  ) : T.Res<T.SubmitOk> = withTable<S, M, T.SubmitOk>(self, session, func(t) = t.submit(spec, now, session, gen, turn, move));
+  ) : T.Res<T.SubmitOk> = withTable<S, M, T.SubmitOk>(
+    self,
+    session,
+    func(t) {
+      let r = t.submit(spec, now, session, gen, turn, move);
+      switch (r) {
+        case (#ok(#gameEnded _)) recordActiveGames(self); // #active -> #debrief
+        case (_) {};
+      };
+      r;
+    },
+  );
 
-  public func rematch<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.Res<T.RematchOk> = withTable<S, M, T.RematchOk>(self, session, func(t) = t.rematch(spec, now, session));
+  public func rematch<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.Res<T.RematchOk> = withTable<S, M, T.RematchOk>(
+    self,
+    session,
+    func(t) {
+      let r = t.rematch(spec, now, session);
+      switch (r) {
+        case (#ok(#started)) { bumpGamesStarted(self); recordActiveGames(self) }; // #staging -> #active
+        case (_) {};
+      };
+      r;
+    },
+  );
 
-  public func claimWin<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(self, session, func(t) = t.claimWin(spec, now, session, gen));
+  public func claimWin<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(
+    self,
+    session,
+    func(t) {
+      let r = t.claimWin(spec, now, session, gen);
+      switch (r) {
+        case (#ok _) recordActiveGames(self); // #active -> #debrief
+        case (#err _) {};
+      };
+      r;
+    },
+  );
 
   /// Whether a `leave`/`reset` call about to run against `t` is the
   /// ABORT case — leaving a live game — rather than a plain staging
@@ -318,7 +411,13 @@ module {
       let abort = isAbort(t);
       let r = t.leave(now, session, gen);
       switch (r) {
-        case (#ok _) { if (not abort) returnToLobby(self, session) };
+        case (#ok _) {
+          if (abort) {
+            recordActiveGames(self); // #active -> #debrief
+          } else {
+            returnToLobby(self, session);
+          };
+        };
         case (#err _) {};
       };
       r;
@@ -332,7 +431,13 @@ module {
       let abort = isAbort(t);
       let r = t.reset(now, session, gen);
       switch (r) {
-        case (#ok _) { if (not abort) returnToLobby(self, session) };
+        case (#ok _) {
+          if (abort) {
+            recordActiveGames(self); // #active -> #debrief/#empty
+          } else {
+            returnToLobby(self, session);
+          };
+        };
         case (#err _) {};
       };
       r;
@@ -375,5 +480,6 @@ module {
       t.sweep(now);
       gcIfQuiesced(self, id, t);
     };
+    recordActiveGames(self); // idle eviction can drop an #active table too
   };
 };

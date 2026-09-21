@@ -1,4 +1,5 @@
 import Map "mo:core/Map";
+import PT "mo:promtracker";
 
 module {
 
@@ -35,6 +36,8 @@ module {
     // `reset`/`ackEnded` returns them to "browsing". Absent = browsing the lobby.
     var bySession : Map.Map<SessionId, TableId>;
     var tableIdNonce : TableId;
+    var gamesStarted : ?PT.Counter;
+    var activeGames : ?PT.Gauge;
   };
 
   public type TableSummary = {

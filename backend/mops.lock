@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "mopsTomlDepsHash": "144dc97548ad185429f3df0a549fbdcf24ec7864685c20737af8a26dd4e88e7b",
+  "mopsTomlDepsHash": "88545ac9ca951ebe8d9b959d69e6e46ca46691cd265e1e1a0bb9440c215ae4d4",
   "localDepsHash": "a1ea7b8762688fdbc04b8d1d7a84e2e73edea2f24e975f66e08bbe75fe20e854",
   "deps": {
     "base": "0.14.14",
@@ -13,6 +13,7 @@
     "core@1": "1.0.0",
     "ic-certification": "1.1.0",
     "ic-websocket-cdk": "./src/ic-websocket-cdk/src",
+    "promtracker": "1.0.1",
     "sha2": "0.2.5",
     "sha2@0": "0.1.6",
     "xtended-numbers@2": "2.1.0"
@@ -37,6 +38,9 @@
       "base@0": "0.16.0",
       "cbor@4": "4.1.0",
       "sha2@0": "0.1.6"
+    },
+    "promtracker@1.0.1": {
+      "core": "2.5.0"
     },
     "sha2@0.1.6": {
       "base": "0.14.14"
@@ -305,6 +309,31 @@
       "ic-certification@1.1.0/src/MerkleTree.mo": "ab481b6f6042dca040f8bdd80a3cf5f7627660c50ccf45bd3a9299b150c8b15e",
       "ic-certification@1.1.0/src/ReqData.mo": "1940051ecc264bd77f9e4be9d5b9d1072d4f779c8b6e76f4c8015c880ec3b5ef",
       "ic-certification@1.1.0/tmp.mo": "cdf39bd0c3cadf35506df1623d7221ffa2ea043afb33f6eed40cf3746d43d483"
+    },
+    "promtracker@1.0.1": {
+      "promtracker@1.0.1/LICENSE": "0351aa17e901e2f426698e6199237119a18c8ea1674877e0eb4d694ee9c4b938",
+      "promtracker@1.0.1/NOTICE": "2a2979e2cb91a7d903c3377ed8031a92e7fd467fd9ddb005f2ae2042ead1b4f1",
+      "promtracker@1.0.1/README.md": "b79b33239dd89733b96a1dec24dfcc30ea46072eb8d9c5c068a7dd9a9d18e8fd",
+      "promtracker@1.0.1/examples/README.md": "f6b4ecc30cf8421de8bb683ff310b34eacbbf3aefe19aea51ed0820572ca7ab4",
+      "promtracker@1.0.1/examples/mops.toml": "e5264d750d63ef8992934ceccad5a04f99ba7869adfc5277ac324ffaa833ad6c",
+      "promtracker@1.0.1/examples/src/migration.mo": "a9df9699af0fb01828ef36cb2305906752cf5abf1a9af8c9444f715c13b581cb",
+      "promtracker@1.0.1/examples/src/min.mo": "a99efe2381239adcd30b89a74b1c01bc8df46472416f66ffd3b170a7c603b129",
+      "promtracker@1.0.1/examples/src/mock-stream.mo": "d15d74d6ed280c35264b71bb5022f88afa23f5f60c5ebb38608e87bca7b110f1",
+      "promtracker@1.0.1/examples/src/nested.mo": "d17127c50bbd06c9d5f06740d6b78e3510000a0ba7c1ba12963b707ef691035d",
+      "promtracker@1.0.1/examples/src/no-pull.mo": "e09ab500164bd9bd98c5bd5f00972dde39c74257a710df04a7405e4142a607a7",
+      "promtracker@1.0.1/examples/src/package.mo": "7cd105548b481b3d987c5e286d42cf704d198510ef0fc6fdd133411b4bd4227b",
+      "promtracker@1.0.1/examples/src/uptime.mo": "e7ceba08c3fe9c7360e8af2d90bf4ef55a85b56b010035db8acd77b5b89c4a07",
+      "promtracker@1.0.1/mops.toml": "b2ebe3f827b92c6836979c725d20fd94a7bf38c2cb23bb420fbe6534966feb2c",
+      "promtracker@1.0.1/src/Http.mo": "825fd142f05449e45624de927d169c36f44b18301080d0457420a9cb827a2d41",
+      "promtracker@1.0.1/src/Label.mo": "5ee89f58f159474ece8e30d339db007c360b279a69ca332be9182ade283e319e",
+      "promtracker@1.0.1/src/Metrics.mo": "47a3266942e7a9e5a430cdb77cd1b5771f95ad99469f69c343313e8ec8bb5651",
+      "promtracker@1.0.1/src/Tracker.mo": "f05f95defd588debd6ff5ca5d7b990b289372bc5fa71b4807e16ee64789d9a63",
+      "promtracker@1.0.1/src/TrackerAPI.mo": "8c1a9b4105e34a6268b03a1d570627bbb8d58b9d3d2c1ddb6e6b6a0c7a3f2ee9",
+      "promtracker@1.0.1/src/internal/Types.mo": "b5e689968fa7d13e5a4734b91da94beea0af9c119145e1b461136035f7df4339",
+      "promtracker@1.0.1/src/lib.mo": "1b16d8594ce0846e47d4776a12759283ff673782d2f19ed897b8f22f39237be7",
+      "promtracker@1.0.1/src/mixins/http.mo": "2eb90f1dff105c7235b8aff3a925595e74d9cb8d6141e3010cb22db04f0d201b",
+      "promtracker@1.0.1/src/mixins/query.mo": "bdf0bcef00585d42df4ac10a1be1fd29ea40e128c0300f744b01a80e0b7d3d03",
+      "promtracker@1.0.1/src/mixins/uptime.mo": "b23b0b3095d86633eb14c1bd8b6140e30999b8fea2d6bc4c382f28ad539d0f1f"
     },
     "sha2@0.1.6": {
       "sha2@0.1.6/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
