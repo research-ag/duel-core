@@ -39,6 +39,8 @@ module {
     var tableIdNonce = 1;
     var gamesStarted = null;
     var activeGames = null;
+    var roundsPerGame = null;
+    var matchmakingWaitSecs = null;
   };
 
   public func attachMetrics<S, M>(self : Registry<S, M>, pt : PT.Tracker) {
@@ -47,6 +49,12 @@ module {
     };
     if (self.activeGames.isNull()) {
       self.activeGames := ?pt.newGauge("active_games", [], []);
+    };
+    if (self.roundsPerGame.isNull()) {
+      self.roundsPerGame := ?pt.newGauge("rounds_per_game", [], []);
+    };
+    if (self.matchmakingWaitSecs.isNull()) {
+      self.matchmakingWaitSecs := ?pt.newGauge("matchmaking_wait_seconds", [], []);
     };
   };
 
@@ -72,6 +80,31 @@ module {
     switch (self.gamesStarted) {
       case null {};
       case (?c) PT.Counter.add(c, 1);
+    };
+  };
+
+  func recordRoundsPerGame<S, M>(self : Registry<S, M>, t : T.Table<S, M>) {
+    switch (self.roundsPerGame) {
+      case null {};
+      case (?g) switch (t.phase) {
+        case (#debrief d) PT.Gauge.update(g, d.turns);
+        case (_) {};
+      };
+    };
+  };
+
+  func stagingSince<S, M>(t : T.Table<S, M>) : ?Int = switch (t.phase) {
+    case (#staging st) ?st.since;
+    case (_) null;
+  };
+
+  func recordMatchmakingWait<S, M>(self : Registry<S, M>, now : Int, since : ?Int) {
+    switch (self.matchmakingWaitSecs, since) {
+      case (?g, ?s) {
+        let waited = now - s;
+        PT.Gauge.update(g, if (waited <= 0) { 0 } else { waited.toNat() / 1_000_000_000 });
+      };
+      case (_, _) {};
     };
   };
 
@@ -327,12 +360,16 @@ module {
       };
       case null return #err(#noSuchTable);
     };
+    let waitSince = stagingSince(t);
     switch (t.join(spec, now, session, seat)) {
       case (#err e) #err(e);
       case (#ok j) {
         self.bySession.add(session, id);
         switch (j) {
-          case (#started _) bumpGamesStarted(self);
+          case (#started _) {
+            bumpGamesStarted(self);
+            recordMatchmakingWait(self, now, waitSince);
+          };
           case (#staged _) {};
         };
         recordActiveGames(self);
@@ -355,7 +392,10 @@ module {
     func(t) {
       let r = t.submit(spec, now, session, gen, turn, move);
       switch (r) {
-        case (#ok(#gameEnded _)) recordActiveGames(self); // #active -> #debrief
+        case (#ok(#gameEnded _)) {
+          recordActiveGames(self); // #active -> #debrief
+          recordRoundsPerGame(self, t);
+        };
         case (_) {};
       };
       r;
@@ -366,9 +406,15 @@ module {
     self,
     session,
     func(t) {
+      let waitSince = stagingSince(t);
       let r = t.rematch(spec, now, session);
       switch (r) {
-        case (#ok(#started)) { bumpGamesStarted(self); recordActiveGames(self) }; // #staging -> #active
+        case (#ok(#started)) {
+          // #staging -> #active
+          bumpGamesStarted(self);
+          recordActiveGames(self);
+          recordMatchmakingWait(self, now, waitSince);
+        };
         case (_) {};
       };
       r;
@@ -381,7 +427,10 @@ module {
     func(t) {
       let r = t.claimWin(spec, now, session, gen);
       switch (r) {
-        case (#ok _) recordActiveGames(self); // #active -> #debrief
+        case (#ok _) {
+          recordActiveGames(self); // #active -> #debrief
+          recordRoundsPerGame(self, t);
+        };
         case (#err _) {};
       };
       r;
@@ -414,6 +463,7 @@ module {
         case (#ok _) {
           if (abort) {
             recordActiveGames(self); // #active -> #debrief
+            recordRoundsPerGame(self, t);
           } else {
             returnToLobby(self, session);
           };
@@ -434,6 +484,7 @@ module {
         case (#ok _) {
           if (abort) {
             recordActiveGames(self); // #active -> #debrief/#empty
+            recordRoundsPerGame(self, t);
           } else {
             returnToLobby(self, session);
           };

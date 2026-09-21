@@ -38,6 +38,8 @@ module {
     var tableIdNonce : TableId;
     var gamesStarted : ?PT.Counter;
     var activeGames : ?PT.Gauge;
+    var roundsPerGame : ?PT.Gauge;
+    var matchmakingWaitSecs : ?PT.Gauge;
   };
 
   public type TableSummary = {
