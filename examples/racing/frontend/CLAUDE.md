@@ -49,43 +49,36 @@ choose beyond a table and a seat), plain TypeScript with no framework:
 - `src/duel/duel-app.js` calls `duel-game-core/identity.js`'s
   `resolveIdentity()` to get this tab's own identity/`session` in one
   call: a real, permanent Internet Identity login if one's already
-  active, otherwise a fresh, throwaway, non-anonymous `Ed25519KeyIdentity`
-  (no seed) — never the plain anonymous identity `HttpAgent.create({
-  host })` defaults to, since `ic-websocket-cdk`'s `ws_open` hard-rejects
-  an anonymous caller outright ("Anonymous principal is not allowed") —
-  with no real `identity` passed, the WS handshake (and with it the
-  whole app, since there's no polling fallback) never comes up at all;
-  that's the real bug behind a console full of repeating `ws_open:
-  Anonymous principal is not allowed` errors and a lobby that never
-  leaves the loading state.
-  **The anonymous-fallback identity must stay a FRESH keypair every page
-  load, never derived from this tab's own `sid`** so it stays the same
-  across a plain reload: `ic-websocket-cdk@0.4.1`'s own `remove_client`
-  cleans up its principal->client_key lookup by PRINCIPAL alone, not
-  scoped to the specific `client_key` being removed. A plain reload gives
-  the OLD page's own `ws_close()` no guarantee of completing before the
-  tab is torn down, so if that stale close (or its eventual
-  keep-alive-timeout eviction) lands AFTER the NEW page has re-registered
-  under the SAME principal, it silently erases the NEW, perfectly-live
-  connection's own lookup entry — surfacing as `ws_message: Client with
-  principal ... doesn't have an open connection` immediately, and a
-  persistent "Connection closed" banner once the ack keep-alive can no
-  longer be sent either. Retry logic alone can't paper over this —
-  `../../../frontend/ws/gateway-client.js`'s send retries and
-  `_invalidateAndRetry()` reopen on failure, but neither stops a live
-  connection's lookup entry from being erased out from under it in the
-  first place; only NOT sharing a principal across reload does. `sid`
-  itself — the engine's actual player identity for an anonymous session —
-  already persists across reload via sessionStorage regardless,
-  completely independent of this principal, so nothing player-visible is
-  lost by not also pinning the WS-layer identity. If "Connection closed"
-  or this exact `ws_message` error ever comes back, check whether
-  something reintroduced a stable-across-reload principal for an
-  ANONYMOUS session before assuming it's a new bug — a genuinely
-  logged-in session's principal is DELIBERATELY stable across reload
-  instead (that's the whole point of logging in), which reintroduces
-  this exact race as a known, documented trade-off; see
-  `../../../frontend/README.md`'s "Real-time push" section.
+  active, otherwise a persisted, non-spoofable anonymous keypair
+  (`duel-game-core/anon-identity.js`'s `resolveAnonymousIdentity()`) —
+  never the plain anonymous identity `HttpAgent.create({ host })`
+  defaults to, since `ic-websocket-cdk`'s `ws_open` hard-rejects an
+  anonymous caller outright ("Anonymous principal is not allowed") — with
+  no real `identity` passed, the WS handshake (and with it the whole app,
+  since there's no polling fallback) never comes up at all; that's the
+  real bug behind a console full of repeating `ws_open: Anonymous
+  principal is not allowed` errors and a lobby that never leaves the
+  loading state.
+  **The anonymous identity's keypair is persisted (`sessionStorage`),
+  stable across a reload of this tab, and `session.sid` is derived from
+  its own principal** — `../../../backend/src/ws.mo`'s `isAuthorizedSid`
+  guard requires exactly this: the WS connection's authenticated
+  principal must match the principal `sid` names, for both the anonymous
+  and logged-in case alike, so the two can never be built from different
+  identities. This is safe against a real bug that USED to live in
+  `ic-websocket-cdk@0.4.1`'s own bookkeeping — `remove_client` deleted its
+  principal->client_key lookup by PRINCIPAL alone, not scoped to the
+  specific `client_key` being removed, so a belated close for an old,
+  already-superseded connection could erase a newer, still-live
+  connection's own lookup entry after a same-principal reconnect (any
+  reload) — because that bug is fixed directly in this repo's vendored
+  copy of the CDK now: `remove_client` only clears the lookup entry when
+  it's still exactly the connection being closed (see
+  `../../../backend/src/ic-websocket-cdk/src/State.mo`). If a stale
+  `ws_message: Client with principal ... doesn't have an open connection`
+  / persistent "Connection closed" banner ever comes back, suspect a
+  regression in that fix (or a `duel-game-core` version predating it)
+  before assuming this file's own identity wiring is at fault.
   `duel-app.js` imports `Actor`/`HttpAgent` from `@icp-sdk/core/agent`
   (a plain npm dependency, esbuild-bundled into `dist/duel-app.js` — see
   `../CLAUDE.md`); `resolveIdentity()` (in `duel-game-core/identity.js`)

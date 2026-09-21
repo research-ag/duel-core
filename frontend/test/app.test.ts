@@ -90,11 +90,42 @@ function click(screen: FakeElement, button: FakeElement): void {
   screen.dispatch("click", { target: button });
 }
 
-test("start(): throws without plugin or ws", async () => {
+// ── `session` (a resolveIdentity()/resolveAnonymousIdentity() result —
+// see identity.ts/anon-identity.ts) — required by `start()`. A minimal
+// stand-in mirroring exactly `app.ts`'s own `SessionIdentity`, not
+// identity.ts's real `ResolvedIdentity` (importing that would pull
+// `@icp-sdk/auth` into this test for no reason; see identity.ts's own
+// header on why app.ts never does that at runtime either).
+interface FakeSession {
+  sid: string;
+  isLoggedIn: boolean;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
+  regenerate: () => Promise<void>;
+}
+
+function fakeSession(overrides: Partial<FakeSession> = {}): FakeSession {
+  return {
+    sid: "ii:abc",
+    isLoggedIn: true,
+    login: async () => {},
+    logout: async () => {},
+    regenerate: async () => {},
+    ...overrides,
+  };
+}
+
+// The plain, anonymous-by-default fixture most tests reach for: `new-sid`
+// enabled (unless seated), no login/logout wired — matches this
+// package's own default (no Internet Identity login step).
+const defaultSession = fakeSession({ isLoggedIn: false });
+
+test("start(): throws without plugin, ws, or session", async () => {
   const { start } = await import("../src/app.js");
   setup();
-  assert.throws(() => start({ plugin: undefined as never, ws: new FakeWs() }), /`plugin` is required/);
-  assert.throws(() => start({ plugin, ws: undefined as never }), /`ws` is required/);
+  assert.throws(() => start({ plugin: undefined as never, ws: new FakeWs(), session: defaultSession }), /`plugin` is required/);
+  assert.throws(() => start({ plugin, ws: undefined as never, session: defaultSession }), /`ws` is required/);
+  assert.throws(() => start({ plugin, ws: new FakeWs(), session: undefined as never }), /`session` is required/);
 });
 
 test("start(): throws a clear error when the screen element is missing", async () => {
@@ -103,13 +134,13 @@ test("start(): throws a clear error when the screen element is missing", async (
   (globalThis as unknown as { document: typeof doc }).document = doc;
   (globalThis as unknown as { sessionStorage: FakeStorage }).sessionStorage = new FakeStorage();
   (globalThis as unknown as { location: { search: string } }).location = { search: "" };
-  assert.throws(() => start({ plugin, ws: new FakeWs() }), /no element with id "screen"/);
+  assert.throws(() => start({ plugin, ws: new FakeWs(), session: defaultSession }), /no element with id "screen"/);
 });
 
 test("start(): shows a connecting placeholder immediately, then sends #status on ws.onopen", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
   assert.match(els.screen.innerHTML, /Connecting/);
 
   ws.onopen!();
@@ -120,7 +151,7 @@ test("start(): shows a connecting placeholder immediately, then sends #status on
 test("onmessage: a pushed status renders via the plugin", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({
     data: {
@@ -146,7 +177,7 @@ test("onmessage: a pushed status renders via the plugin", async () => {
 test("onmessage: an err shows the error banner and leaves the screen untouched", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
   const before = els.screen.innerHTML;
 
   ws.onmessage!({ data: { err: { seatTaken: null } } });
@@ -158,7 +189,7 @@ test("onmessage: an err shows the error banner and leaves the screen untouched",
 test("onmessage: identical consecutive statuses are only rendered once (dedup)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   let writes = 0;
   let stored = els.screen.innerHTML;
@@ -185,7 +216,7 @@ test("open-tables list: a row's 'waiting Ns' label counts up locally between pus
   try {
     const { start } = await import("../src/app.js");
     const { els, ws } = setup();
-    start({ plugin, ws });
+    start({ plugin, ws, session: defaultSession });
 
     ws.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 5n }]) } });
     const row = els.screen.querySelectorAll("[data-wait-base]")[0];
@@ -213,7 +244,7 @@ test("open-tables list: a row's 'waiting Ns' label counts up locally between pus
 test("clicking 'create table' calls ws.request with a createTable request and shows/clears the loading state", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   const btn = makeButton({ createTable: "p1" });
   click(els.screen, btn);
@@ -231,7 +262,7 @@ test("clicking 'create table' calls ws.request with a createTable request and sh
 test("a button's spinner survives an unrelated re-render that arrives before its own call settles (regression: two players taking seats at once)", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   // Initial lobby: nobody's created a table yet.
   ws.onmessage!({ data: { view: browsing() } });
@@ -276,7 +307,7 @@ test("a button's spinner survives an unrelated re-render that arrives before its
 test("the create-table form's live input survives an unrelated push mid-fill (regression: a lobby refresh silently discards Protected)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({ data: { view: browsing() } });
 
@@ -311,7 +342,7 @@ test("the create-table form's live input survives an unrelated push mid-fill (re
 test("clicking 'create table' with Protected chosen but no code entered shows a friendly error and never dispatches (regression: an empty access code makes an unjoinable table)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({ data: { view: browsing() } });
 
@@ -332,7 +363,7 @@ test("clicking 'create table' with Protected chosen but no code entered shows a 
 test("clicking an open seat on a protected table row prompts for the access code before joining", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({
     data: {
@@ -365,7 +396,7 @@ test("clicking an open seat on a protected table row prompts for the access code
 test("cancelling the access-code prompt dispatches nothing", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({
     data: {
@@ -390,7 +421,7 @@ test("cancelling the access-code prompt dispatches nothing", async () => {
 test("an open table's own seat button (no data-protected) joins directly, without a code prompt", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({
     data: {
@@ -414,7 +445,7 @@ test("an open table's own seat button (no data-protected) joins directly, withou
 test("a submit action button round-trips its data-act JSON verbatim", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   const btn = makeButton({ act: JSON.stringify({ shoot: { power: 2 } }) });
   click(els.screen, btn);
@@ -425,7 +456,7 @@ test("a submit action button round-trips its data-act JSON verbatim", async () =
 test("a disabled button never dispatches", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   const btn = makeButton({ leave: "" });
   btn.disabled = true;
@@ -436,7 +467,7 @@ test("a disabled button never dispatches", async () => {
 test("a second click while a call is in flight is ignored (no double-submit)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   const btn = makeButton({ rematch: "" });
   click(els.screen, btn);
@@ -447,7 +478,7 @@ test("a second click while a call is in flight is ignored (no double-submit)", a
 test("a data-confirm button waits for confirmation before dispatching", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   const btn = makeButton({ leave: "" });
   btn.dataset.confirm = "Forfeit this game? Your opponent will win.";
@@ -468,7 +499,7 @@ test("a data-confirm button waits for confirmation before dispatching", async ()
 test("a data-confirm button dispatches nothing if cancelled", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   const btn = makeButton({ leave: "" });
   btn.dataset.confirm = "Forfeit?";
@@ -484,7 +515,7 @@ test("a data-confirm button dispatches nothing if cancelled", async () => {
 test("declining a rematch invite (Decline, from #awaitingRematch) sends its own gen", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({
     data: { view: atTable({ awaitingRematch: { openSeat: { p2: null }, gen: 7n } }) },
@@ -499,7 +530,7 @@ test("declining a rematch invite (Decline, from #awaitingRematch) sends its own 
 test("clicking 'Claim the win' sends claimWin with the last-observed gen", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({
     data: {
@@ -534,7 +565,7 @@ test("the 'Claim the win' button reveals itself locally once the countdown reach
   try {
     const { start } = await import("../src/app.js");
     const { els, ws } = setup();
-    start({ plugin, ws });
+    start({ plugin, ws, session: defaultSession });
 
     ws.onmessage!({
       data: {
@@ -590,7 +621,7 @@ test("the still-deciding player never gets a Claim button of their own — not i
   try {
     const { start } = await import("../src/app.js");
     const { els, ws } = setup();
-    start({ plugin, ws });
+    start({ plugin, ws, session: defaultSession });
 
     ws.onmessage!({
       data: {
@@ -626,23 +657,39 @@ test("the still-deciding player never gets a Claim button of their own — not i
   }
 });
 
-test("the new-sid button rotates sid and re-sends #status", async () => {
+test("the new-sid button calls session.regenerate() and disables itself while the call is in flight", async () => {
   const { start } = await import("../src/app.js");
-  const { els, ws } = setup();
-  start({ plugin, ws });
+  const { els } = setup();
+  let regenerateCalls = 0;
+  let resolveRegenerate!: () => void;
+  const session = fakeSession({
+    isLoggedIn: false,
+    regenerate: () =>
+      new Promise<void>((resolve) => {
+        regenerateCalls++;
+        resolveRegenerate = resolve;
+      }),
+  });
+  start({ plugin, ws: new FakeWs(), session });
 
-  const before = els.sid.textContent;
+  assert.equal(els["new-sid"].disabled, false);
   els["new-sid"].dispatch("click", {});
-  assert.notEqual(els.sid.textContent, before);
-  assert.equal(ws.sent.length, 1);
-  assert.deepEqual(ws.sent[0]!.req, { status: null });
-  assert.equal(ws.sent[0]!.sid, els.sid.textContent);
+  assert.equal(regenerateCalls, 1);
+  assert.equal(els["new-sid"].disabled, true, "disabled immediately while regenerate() is in flight");
+  resolveRegenerate();
 });
 
 test("the new-sid button is disabled while the sid holds a seat, and ignores clicks then", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  let regenerateCalls = 0;
+  const session = fakeSession({
+    isLoggedIn: false,
+    regenerate: async () => {
+      regenerateCalls++;
+    },
+  });
+  start({ plugin, ws, session });
 
   const seated = [
     atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n, visibility: { open: null } } }),
@@ -674,10 +721,8 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
     assert.equal(els["new-sid"].disabled, true, Object.keys((view as { atTable: { view: object } }).atTable.view)[0]);
   }
 
-  const before = els.sid.textContent;
   els["new-sid"].dispatch("click", {});
-  assert.equal(els.sid.textContent, before);
-  assert.equal(ws.sent.length, 0);
+  assert.equal(regenerateCalls, 0, "a disabled new-sid must never call regenerate()");
 
   const unseated = [
     browsing(),
@@ -691,34 +736,36 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
   }
 
   els["new-sid"].dispatch("click", {});
-  assert.notEqual(els.sid.textContent, before);
+  assert.equal(regenerateCalls, 1);
 });
 
 test("the new-sid button disables the instant a create-table request is dispatched, not only once it resolves (regression: click new-sid mid-join soft-locks the seat)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  let regenerateCalls = 0;
+  const session = fakeSession({ isLoggedIn: false, regenerate: async () => { regenerateCalls++; } });
+  start({ plugin, ws, session });
 
   // Browsing: nobody's created a table yet — new-sid starts out enabled.
   ws.onmessage!({ data: { view: browsing() } });
   assert.equal(els["new-sid"].disabled, false);
 
-  const before = els.sid.textContent;
   const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
   assert.ok(p1Btn, "expected a rendered 'create table as p1' button");
 
-  // Click "start a table" — the request is now in flight, still under
-  // the OLD sid, but nothing has confirmed the seat yet.
+  // Click "start a table" — the request is now in flight, under the
+  // current sid, but nothing has confirmed the seat yet.
   click(els.screen, p1Btn!);
   assert.equal(ws.requests.length, 1);
 
   // new-sid must already be disabled — waiting for the request's own
   // response (which only flips SEATED_VIEW_TAGS on) would leave a window
-  // where clicking it rotates sid out from under the still-in-flight
-  // request, stranding the seat on a sid the page no longer tracks.
+  // where clicking it could regenerate the identity out from under the
+  // still-in-flight request, stranding the seat on a sid the page no
+  // longer tracks.
   assert.equal(els["new-sid"].disabled, true);
   els["new-sid"].dispatch("click", {});
-  assert.equal(els.sid.textContent, before, "sid must not rotate while the request is in flight");
+  assert.equal(regenerateCalls, 0, "must not call regenerate() while the request is in flight");
 
   // The call succeeds; the confirmed seat keeps new-sid disabled as usual.
   ws.requests[0]!.resolve({
@@ -732,7 +779,7 @@ test("the new-sid button disables the instant a create-table request is dispatch
 test("the new-sid button re-enables after a rejected join request", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n }]) } });
   const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.joinTable === "p1" && b.dataset.joinTableId === "1");
@@ -754,7 +801,7 @@ test("the new-sid button re-enables after a rejected join request", async () => 
 test("call() recovers if ws.request() throws synchronously instead of rejecting (regression: no guard around the correlated request path — carried-forward finding 07/N7)", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({ data: { view: browsing() } });
   // A misbehaving (or simply different — DuelWs.request is a
@@ -777,7 +824,7 @@ test("call() recovers if ws.request() throws synchronously instead of rejecting 
 test("the new-sid button stays disabled through an unrelated push arriving mid-join (regression: rival's move landing first briefly re-enables new-sid)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   // Browsing: one open table, both seats free.
   ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n }]) } });
@@ -823,7 +870,7 @@ test("the new-sid button stays disabled through an unrelated push arriving mid-j
 test("a createTable rejected as wrongPhase (stale status — already seated elsewhere) resyncs silently instead of showing an error", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({ data: { view: browsing() } });
   const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
@@ -844,7 +891,7 @@ test("a createTable rejected as wrongPhase (stale status — already seated else
 test("a createTable rejected as wrongPhase resyncs even without ws.request (fallback transport)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup({ withRequest: false });
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({ data: { view: browsing() } });
   const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
@@ -862,7 +909,7 @@ test("a createTable rejected as wrongPhase resyncs even without ws.request (fall
 test("a wrongPhase rejection from a NON-join request still shows the error banner (regression guard)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   ws.onmessage!({
     data: {
@@ -894,7 +941,7 @@ test("a wrongPhase rejection from a NON-join request still shows the error banne
 test("fallback transport (no ws.request): settles inFlight off the shared onmessage stream", async () => {
   const { start } = await import("../src/app.js");
   const { els, doc, ws } = setup({ withRequest: false });
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   const btn = makeButton({ reset: "" });
   click(els.screen, btn);
@@ -909,7 +956,7 @@ test("fallback transport (no ws.request): settles inFlight off the shared onmess
 test("ws.onerror shows the error banner", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
   ws.onerror!({ error: new Error("boom") });
   assert.match(els.error.textContent, /WebSocket error: boom/);
 });
@@ -917,7 +964,7 @@ test("ws.onerror shows the error banner", async () => {
 test("ws.onclose shows a persistent reload prompt and disables every button on the page", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: defaultSession });
 
   // A real browsing screen first, so there's a page full of clickable
   // buttons (create-table) to prove get disabled — not just an assertion
@@ -948,35 +995,6 @@ test("ws.onclose shows a persistent reload prompt and disables every button on t
   assert.doesNotMatch(els.error.innerHTML, /boom/);
 });
 
-// ── `session` (a resolveIdentity() result — see identity.ts) ───────────
-// A minimal stand-in mirroring exactly the fields app.ts itself reads —
-// not identity.ts's real `ResolvedIdentity` (importing that would pull
-// `@icp-sdk/auth` into this test for no reason; see identity.ts's own
-// header on why app.ts never does that at runtime either).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- app.ts
-// never reads either field itself (see identity.ts); `any` sidesteps
-// needing a real @icp-sdk/core Identity/Principal here.
-interface FakeSession {
-  identity: any;
-  principal: any;
-  sid: string;
-  isLoggedIn: boolean;
-  login: () => Promise<void>;
-  logout: () => Promise<void>;
-}
-
-function fakeSession(overrides: Partial<FakeSession> = {}): FakeSession {
-  return {
-    identity: {}, // app.ts never reads this field itself — see identity.ts
-    principal: {}, // ...or this one; both just pass through to connectWs()
-    sid: "ii:abc",
-    isLoggedIn: true,
-    login: async () => {},
-    logout: async () => {},
-    ...overrides,
-  };
-}
-
 test("a logged-in session's sid is used directly, and new-sid is permanently disabled AND hidden", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
@@ -990,24 +1008,58 @@ test("a logged-in session's sid is used directly, and new-sid is permanently dis
   assert.equal(ws.sent.length, 0, "a disabled new-sid must never dispatch");
 });
 
-test("an anonymous session's sid is used, and new-sid still rotates it as usual", async () => {
+test("an anonymous session's sid is used, and new-sid calls session.regenerate()", async () => {
   const { start } = await import("../src/app.js");
-  const { els, ws } = setup();
-  const session = fakeSession({ sid: "anon-1", isLoggedIn: false });
-  start({ plugin, ws, session });
+  const { els } = setup();
+  let regenerateCalls = 0;
+  const session = fakeSession({
+    sid: "an:abc",
+    isLoggedIn: false,
+    regenerate: async () => {
+      regenerateCalls++;
+    },
+  });
+  start({ plugin, ws: new FakeWs(), session });
 
-  assert.equal(els.sid.textContent, "anon-1");
+  assert.equal(els.sid.textContent, "an:abc");
   assert.equal(els["new-sid"].disabled, false);
   assert.equal(els["new-sid"].hidden, false);
   els["new-sid"].dispatch("click", {});
-  assert.notEqual(els.sid.textContent, "anon-1");
-  assert.equal(ws.sent[0]!.sid, els.sid.textContent);
+  assert.equal(regenerateCalls, 1, "clicking new-sid must call session.regenerate()");
+  assert.equal(els["new-sid"].disabled, true, "disabled immediately while regenerate() is in flight");
 });
 
-test("with no session passed, duel-auth-btn is left untouched (default, backward-compatible behavior)", async () => {
+test("new-sid is hidden entirely when session.regenerate isn't provided (a game using anon-identity.js's lighter session directly)", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
-  start({ plugin, ws });
+  start({ plugin, ws, session: { sid: "an:bare" } });
+
+  assert.equal(els["new-sid"].disabled, true);
+  assert.equal(els["new-sid"].hidden, true);
+  els["new-sid"].dispatch("click", {});
+  assert.equal(ws.sent.length, 0, "a hidden/disabled new-sid must never dispatch");
+});
+
+test("a failed session.regenerate() re-enables new-sid and shows an error", async () => {
+  const { start } = await import("../src/app.js");
+  const { els } = setup();
+  const session = fakeSession({
+    isLoggedIn: false,
+    regenerate: () => Promise.reject(new Error("storage full")),
+  });
+  start({ plugin, ws: new FakeWs(), session });
+
+  els["new-sid"].dispatch("click", {});
+  assert.equal(els["new-sid"].disabled, true, "disabled immediately, before the rejection settles");
+  await Promise.resolve().then(() => Promise.resolve());
+  assert.equal(els["new-sid"].disabled, false, "re-enabled once the failed attempt settles");
+  assert.match(els.error.textContent, /New sid failed/);
+});
+
+test("with a session that provides no login/logout, duel-auth-btn is left untouched", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws, session: { sid: "an:bare" } });
 
   assert.equal(els["duel-auth-btn"].textContent, "");
   els["duel-auth-btn"].dispatch("click", {});

@@ -240,7 +240,7 @@ mops bench
 # ships; there is no bare frontend/app.js etc. any more to check
 # directly, and no DOM needed to import the compiled output either:
 (cd frontend && npm run build)
-node --check frontend/dist/app.js frontend/dist/render.js frontend/dist/idl.js frontend/dist/ic-env.js frontend/dist/ws.js frontend/dist/identity.js frontend/dist/ws/gateway-client.js frontend/dist/ws/gateway-transport.js frontend/dist/ws/gateway-protocol.js
+node --check frontend/dist/app.js frontend/dist/render.js frontend/dist/idl.js frontend/dist/ic-env.js frontend/dist/ws.js frontend/dist/identity.js frontend/dist/anon-identity.js frontend/dist/ws/gateway-client.js frontend/dist/ws/gateway-transport.js frontend/dist/ws/gateway-protocol.js
 ```
 
 With mops installed, `<path-to-core/src>` is typically
@@ -422,12 +422,19 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
     supply Internet Identity login (see `frontend/README.md`'s "Logging
     in with Internet Identity"), and a game that never imports it pulls
     in neither — `app.js` only ever imports its TYPES, erased at compile
-    time. Every OTHER file in this package (`app.js`, `render.js`,
+    time. `frontend/anon-identity.js` is a third, narrower exception: the
+    persisted-keypair anonymous identity `identity.js` re-exports,
+    depending only on `@icp-sdk/core/identity` — not `@icp-sdk/auth` — so
+    a game that wants a real, non-spoofable identity with no login step
+    at all can import only this and skip `identity.js`'s dependency
+    entirely. Every OTHER file in this package (`app.js`, `render.js`,
     `idl.js`, `ic-env.js`) stays dependency-free. `start()` itself stays
     exactly as transport-agnostic as before — a caller may still hand it
     any WebSocket-shaped mock (e.g. for tests) instead of a real
-    `GatewayWs`, and passing no `session` option leaves player identity
-    exactly as self-generated and anonymous as it always was.
+    `GatewayWs` — but `session` is now REQUIRED, not optional: every
+    legal `sid` is principal-bound (see `backend/README.md`'s "Player
+    identity" section), so `start()` has no self-generated fallback left
+    to fall back to on its own.
 11. **`ws.mo` reimplements no game logic, and is the sole entry point for
     mutation.** Every WebSocket request dispatches to `registry.mo`'s own
     `Registry` operations (`createTable`, `joinTable`, `submit`, ...)

@@ -93,8 +93,9 @@ either package itself.
   `#alternating` table with zero plugin-side work. `app.js` calls
   `duel-game-core/identity.js`'s `resolveIdentity()` for this tab's own
   identity/`session` (a real Internet Identity login if active,
-  otherwise a fresh throwaway identity — never the plain anonymous
-  identity, since `ic-websocket-cdk`'s `ws_open` hard-rejects it), then
+  otherwise a persisted, non-spoofable anonymous keypair — never the
+  plain anonymous identity, since `ic-websocket-cdk`'s `ws_open`
+  hard-rejects it), then
   `duel-game-core/ws.js`'s `connectWs({ actor, principal:
   session.principal, gameIdlTypes: plugin.idlTypes })` for the real push
   transport `start()` requires, and `start({ plugin, ws, session })` —

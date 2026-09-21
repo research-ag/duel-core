@@ -15,8 +15,11 @@ consumer imports — `duel-game-core/app.js` etc. — resolves there, with
 `.d.ts` types alongside. No build step is required of the CONSUMER: the
 files you get from `node_modules/duel-game-core` are plain, already-
 compiled ESM `.js`, dependency-free except for what you pass in yourself
-and two narrow, documented exceptions: `ws/gateway-*.js` (see "Real-time
-push") and `identity.js` (see "Logging in with Internet Identity").
+and three narrow, documented exceptions: `ws/gateway-*.js` (see
+"Real-time push"), `anon-identity.js`, and `identity.js` (see "Logging in
+with Internet Identity") — `identity.js` re-exports `anon-identity.js`'s
+lighter surface, so importing only the latter pulls in just
+`@icp-sdk/core/identity`, not `@icp-sdk/auth` too.
 
 ```
 npm install duel-game-core --legacy-peer-deps
@@ -85,24 +88,27 @@ while it's legal for `mySeat` to move, in both modes.
 
 You build the `actor` — this package doesn't import `@icp-sdk/core/agent`
 or hardcode a CDN, so you're free to load it however you like (esm.sh, a
-bundled dependency, a mock for tests) — and a `ws` over it (see
-"Real-time push" below; `start()` requires one, there is no
-plain-polling mode):
+bundled dependency, a mock for tests) — a `session` (see "Logging in with
+Internet Identity" below; `start()` requires one, and its own `identity`
+is what the `actor`'s `agent` must be built with — see that section for
+why), and a `ws` over the same identity (see "Real-time push" below;
+`start()` requires one, there is no plain-polling mode):
 
 ```js
 import { Actor, HttpAgent } from "@icp-sdk/core/agent"; // however you prefer to load it
 import { makeIdlFactory } from "duel-game-core/idl.js";
 import { start } from "duel-game-core/app.js";
 import { connectWs } from "duel-game-core/ws.js";
+import { resolveIdentity } from "duel-game-core/identity.js"; // or anon-identity.js
 import { plugin } from "./my-game-plugin.js";
 
 const idlFactory = makeIdlFactory(plugin.idlTypes);
-const agent = await HttpAgent.create({ host });
+const session = await resolveIdentity();
+const agent = await HttpAgent.create({ host, identity: session.identity });
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
-const principal = await agent.getPrincipal();
-const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
+const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
 
-start({ plugin, ws });
+start({ plugin, ws, session });
 ```
 
 `start()` expects a handful of element ids in your page (all optional,
@@ -117,11 +123,18 @@ shown here with their defaults):
 ```
 
 - `sid` — filled with the current session id (per-tab identity; a second
-  browser tab is automatically the second player).
-- `new-sid` — optional button to start a fresh session id. Disabled
-  automatically while the current sid still holds a seat (`stagingYou`/
-  `inGame`/`debrief`) — swapping identities there would abandon that seat
-  instead of freeing it, leaving it stuck until idle takeover reclaims it.
+  browser tab is automatically the second player). A real, non-spoofable
+  id by construction (see "Logging in with Internet Identity" below) —
+  `start()` no longer generates one of its own.
+- `new-sid` — optional button that discards this tab's persisted
+  anonymous keypair for a fresh one and reloads the page (see
+  `session.regenerate()`'s own doc) — hidden entirely for a session that
+  doesn't support it (a real Internet Identity login, or a bare
+  `resolveAnonymousIdentity()` result a game wired up without a
+  `regenerate` hook of its own). Disabled automatically while the current
+  sid still holds a seat (`stagingYou`/`inGame`/`debrief`) — swapping
+  identities there would abandon that seat instead of freeing it, leaving
+  it stuck until idle takeover reclaims it.
 - `screen` — where `renderStatus`'s output is written (the multi-table
   lobby or a specific table's own screen, depending on the current
   status); also where clicks are delegated from, so re-rendering never
@@ -146,65 +159,47 @@ view arrives via `ws.onmessage`, for both players:
 ```js
 import { connectWs } from "duel-game-core/ws.js";
 import { start } from "duel-game-core/app.js";
+import { resolveIdentity } from "duel-game-core/identity.js"; // or anon-identity.js
 
-const principal = await agent.getPrincipal();
-const ws = connectWs({ actor, principal, gameIdlTypes: plugin.idlTypes });
-start({ plugin, ws });
+const session = await resolveIdentity();
+const agent = await HttpAgent.create({ host, identity: session.identity });
+const actor = Actor.createActor(idlFactory, { agent, canisterId });
+const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
+start({ plugin, ws, session });
 ```
 
-**`principal` must not be the anonymous principal — and, for a game with
-no login step, should be a FRESH one every page load, not stable across a
-reload.** `agent`'s identity doesn't need to mean anything for such a
-game — the engine's own identity is the client-chosen `sid`, decoupled
-from any IC principal by default (see `../backend/src/ws.mo`'s doc
-header) — but `ic-websocket-cdk`'s `ws_open` hard-rejects an anonymous
-caller outright ("Anonymous principal is not allowed"), so a game with no
-login step (the common case — see both `examples/`) must not build
-`agent` with `HttpAgent.create({ host })` and nothing else, since that
-defaults to the anonymous identity: the WS handshake, and with it the
-whole app (there is no polling fallback by default), never comes up. See
-`examples/racing/frontend/src/duel/duel-app.js` for the worked example
-(`Ed25519KeyIdentity.generate()`, no seed) — or just call
-`resolveIdentity()` (see "Logging in with Internet Identity" below),
-which already does exactly this for you.
+**`principal` must be `session.principal` — the exact same identity that
+produced `session.sid`, and it must not be the anonymous principal.**
+Every legal `sid` is principal-bound (see `../backend/src/ws.mo`'s
+`isAuthorizedSid`): the backend rejects any request whose `sid` doesn't
+match the WS connection's own authenticated principal, so the identity
+opening the connection and the identity `sid` was derived from can never
+drift apart. `resolveIdentity()`/`resolveAnonymousIdentity()` (see
+"Logging in with Internet Identity" below) already return a matched
+`{ identity, principal, sid }` triple for exactly this reason — don't
+build `agent` from a separate, unrelated identity. `ic-websocket-cdk`'s
+`ws_open` also hard-rejects an anonymous caller outright ("Anonymous
+principal is not allowed"), so `agent` must never be built with
+`HttpAgent.create({ host })` and nothing else — that defaults to the
+anonymous identity, and the WS handshake (with it, the whole app: there
+is no polling fallback by default) never comes up.
 
-Resist the temptation to derive that identity's seed from `sid` so it
-stays the same across a plain reload (a previous version of this
-worked example did exactly that) — it actively causes `ws_message:
-Client with principal ... doesn't have an open connection` and a
-persistent "Connection closed" banner (`app.js`'s `showDisconnected()`
-— see its own doc): `ic-websocket-cdk@0.4.1`'s
-own `remove_client` (in its `State.mo`) deletes its
-principal->client_key lookup by PRINCIPAL ALONE, not scoped to the exact
-client_key being removed. A plain reload gives the OLD page's own
-`ws_close()` no guarantee of completing before the tab is torn down, so
-if that stale close (or its eventual keep-alive-timeout eviction) lands
-AFTER the NEW page has re-registered under the SAME principal, it
-silently erases the new, perfectly-live connection's own lookup entry.
-A fresh random principal every load means no two registrations ever
-share a principal, so this collision can't happen at all — and nothing
-player-visible is lost, since `sid` (the engine's actual player
-identity) already persists across reload on its own, completely
-independent of this principal.
-
-A logged-in player (see "Logging in with Internet Identity" below) is the
-one deliberate exception to "fresh every load": their whole point is a
-principal that stays the same across reloads and devices, and `ws.mo`'s
-own spoofing guard (`Ws.isAuthorizedSid`) only has teeth because the WS
-connection is genuinely authenticated as that same, real principal — so
-this specific known `ic-websocket-cdk@0.4.1` race is a real, present risk
-for a logged-in player's reloads (not just their first login), not only
-the anonymous case. `Hub.generation`'s own deferred-close mechanism (see
-`../backend/src/ws.mo`) protects `ws.mo`'s OWN sid<->principal bookkeeping
-from a same-principal reconnect race, but not this deeper bug in the
-vendored CDK's own internal `client_key` accounting — the two are
-separate data structures. In practice the failure mode is a stale
-`Client with principal ... doesn't have an open connection` /
-"Connection closed" banner that a further reload clears, exactly like any
-other `showDisconnected()` case — not silent data loss or a spoofable
-identity — but it's worth knowing this trade-off is inherent to wanting a
-truly stable player id over this transport, not a bug in this package's
-own `Hub`/`Registry` layers.
+A persisted identity's keypair staying the same across a reload is safe
+and, for the default anonymous case, deliberate: `resolveAnonymousIdentity()`
+persists it in `sessionStorage` (see `anon-identity.js`'s own doc) so
+`sid` — and the WS connection's own authenticated principal — survive a
+reload of that tab unchanged, exactly the continuity a real Internet
+Identity login already had. `ws.mo`'s own spoofing guard
+(`Ws.isAuthorizedSid`) has teeth precisely because the WS connection is
+genuinely authenticated as that same principal every time. A same-
+principal reconnect (any reload, for either identity kind) is handled
+correctly at both layers: `Hub.generation`'s own deferred-close mechanism
+(see `../backend/src/ws.mo`) protects `ws.mo`'s OWN sid<->principal
+bookkeeping from the race, and the vendored `ic-websocket-cdk`'s
+`remove_client` (in its `State.mo`) scopes its `client_key` removal to
+the exact, current connection rather than the bare principal — a stale
+close for an old, already-superseded connection can no longer erase a
+newer, still-live one's lookup entry.
 
 `connectWs()` builds a `GatewayWs` (`./ws/gateway-client.js`) that
 speaks `mo:duel-game-core/ws`'s real `ic-websocket-cdk` protocol
@@ -358,13 +353,10 @@ freely overlap.
 
 ## Logging in with Internet Identity
 
-By default a player is identified by a plain, anonymous, self-generated
-`sid` (see `start()`'s "Session identity" behavior above) — no login, no
-setup. A game that wants real, permanent player identity instead — so a
-player's presence, and eventually their own match history/stats, survive
-losing `sessionStorage` or switching devices — can opt in with one extra
-call, `identity.js`'s `resolveIdentity()`, instead of hand-rolling
-`AuthClient` wiring itself:
+Every player gets a real, non-spoofable identity by default — no login,
+no setup required. `identity.js`'s `resolveIdentity()` (the call `start()`
+requires a `session` from — see "Wiring it up" above) resolves one of two
+kinds:
 
 ```js
 import { HttpAgent, Actor } from "@icp-sdk/core/agent"; // however you prefer to load it
@@ -392,29 +384,44 @@ That's the entire integration. `resolveIdentity()`:
   `session.identity`/`session.principal` are that real, permanent
   identity, and `session.sid` is `sidForPrincipal(principal.toText())` —
   the exact value `../backend/src/ws.mo`'s `Ws.sidForPrincipal` expects
-  and enforces (see that file's own doc, and the trade-off called out in
-  "Real-time push" above).
-- Otherwise, falls back to exactly the same anonymous behavior `start()`
-  always had on its own: a fresh, throwaway, non-anonymous identity for
-  the transport (`Ed25519KeyIdentity.generate()`) and a plain,
-  self-generated `sid`.
+  and enforces.
+- Otherwise, falls back to `anon-identity.js`'s `resolveAnonymousIdentity()`
+  — a keypair this tab generates once and persists in `sessionStorage`
+  (so it, and `session.sid`, survive a reload of this tab unchanged; a
+  second tab is automatically a second player, same as it always was),
+  with `session.sid` = `` `an:${principal.toText()}` `` — a different
+  reserved namespace than a real login's, but bound to the connection's
+  own authenticated principal exactly the same way (see
+  `../backend/src/ws.mo`'s `isAuthorizedSid`). A game that wants this
+  anonymous-but-non-spoofable identity with no login option at all can
+  import `resolveAnonymousIdentity()` directly from
+  `duel-game-core/anon-identity.js` instead of `identity.js` — it depends
+  only on `@icp-sdk/core/identity`, not `@icp-sdk/auth`, so a game that
+  never imports `identity.js` pulls in neither.
 - Returns `login()`/`logout()`, each of which opens/closes the Internet
-  Identity session and then reloads the page — there is no in-place
-  actor/ws teardown-and-rebuild anywhere in this package, so a reload is
-  always how a freshly (un)authenticated identity takes effect (same
-  pattern as `app.js`'s own `showDisconnected()` recovery).
+  Identity session and then reloads the page, and `regenerate()`
+  (anonymous sessions only — a no-op for a logged-in one), which discards
+  the persisted keypair for a fresh one and reloads — there is no
+  in-place actor/ws teardown-and-rebuild anywhere in this package, so a
+  reload is always how a freshly (re)authenticated identity takes effect
+  (same pattern as `app.js`'s own `showDisconnected()` recovery).
 
 `start({ session, authBtnId })` (default id `"duel-auth-btn"`) wires that
 one button entirely on its own: labeled and enabled for "Log in with
-Internet Identity" while anonymous, "Log out" once logged in, with
-errors surfaced through the same `error` element every other action
-uses. It also permanently disables `new-sid` once `session.isLoggedIn` —
-a real login isn't meant to be randomized away. Passing no `session` at
-all (the default) leaves both of these exactly as they've always been.
+Internet Identity" while anonymous, "Log out" once logged in (left
+untouched if `session` provides no `login`/`logout` — e.g. a bare
+`resolveAnonymousIdentity()` result), with errors surfaced through the
+same `error` element every other action uses. `new-sid` is wired to
+`session.regenerate()` and permanently hidden once `session.isLoggedIn` —
+a real login isn't meant to be randomized away — or if `session` provides
+no `regenerate` at all.
 
 Logged-in and anonymous sessions sit at the very same tables with no
 special-casing anywhere: `Table`/`Registry` only ever compare a
-`SessionId` for equality, never inspect how it was produced.
+`SessionId` for equality, never inspect how it was produced — but every
+legal `SessionId` is principal-bound at the transport layer regardless of
+which kind produced it (see `../backend/README.md`'s "Player identity"
+section).
 
 ## Optional: `ic-env.js`
 
@@ -433,6 +440,7 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 | `render.js`              | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
 | `app.js`                 | `start({ plugin, ws, session, ...elIds })` |
 | `identity.js`            | `resolveIdentity()`, `sidForPrincipal(principalText)` — see "Logging in with Internet Identity"; depends on `@icp-sdk/auth`/`@icp-sdk/core/identity`, same narrow-exception treatment as `ws/gateway-*.js` |
+| `anon-identity.js`       | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX` — the persisted-keypair anonymous identity `identity.js` re-exports; depends only on `@icp-sdk/core/identity`, not `@icp-sdk/auth` |
 | `ic-env.js`              | `readIcEnv()`, `deriveHost()` (optional)   |
 | `ws.js`                  | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result |
 | `ws/gateway-client.js`   | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds |

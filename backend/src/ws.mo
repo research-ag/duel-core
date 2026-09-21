@@ -26,28 +26,34 @@
 ///
 /// ── What it does ────────────────────────────────────────────────────────
 ///
-/// The engine's identity is a client-chosen `SessionId` (Text), decoupled
-/// from any IC principal by default (see `../README.md`/`../../frontend`'s
-/// `sid` — one per browser tab). A WebSocket connection, however, is keyed
-/// by the caller's principal (each browser tab signs with its own identity,
-/// generated or supplied by `ic-websocket-js`). `Hub` bridges the two: it
-/// learns `sid <-> principal` from the `sid` every inbound `Msg` carries,
-/// and forgets it on `ws_close`.
+/// The engine's identity is a `SessionId` (Text) — opaque to `Table`/
+/// `Registry`, which never look at one beyond comparing it for equality
+/// (see `../README.md`/`../../frontend`'s `sid` — one per browser tab). A
+/// WebSocket connection, however, is keyed by the caller's principal (each
+/// browser tab signs with its own identity, generated or supplied by
+/// `ic-websocket-js`). `Hub` bridges the two: it learns `sid <-> principal`
+/// from the `sid` every inbound `Msg` carries, and forgets it on
+/// `ws_close`.
 ///
-/// A game MAY opt a session into a real, non-spoofable identity instead —
-/// e.g. a player who logged in via Internet Identity — by using a `sid` of
-/// the form `sidForPrincipal(p)` (below): a pure, permanent function of
-/// `p`, so nothing needs to be allocated or stored to "issue" it — the
-/// first login already produces it, and it can never change so long as the
-/// same login resolves to the same principal. This module is what makes
-/// that binding real rather than a naming convention: `onMessage` (below)
-/// rejects any inbound `sid` in that reserved namespace whose principal
-/// doesn't match `args.client_principal` with `#unauthorized`, before the
-/// request ever reaches `Hub`/`Registry`. A `sid` NOT in that namespace
-/// keeps the fully decoupled, client-asserted trust model described above,
-/// unchanged — the two kinds of session sit at the very same tables, since
-/// `Table`/`Registry` never look at a `SessionId` beyond comparing it for
-/// equality.
+/// Every legal `sid` is principal-bound — there is no client-asserted,
+/// unchecked tier. Two reserved namespaces exist, both of the form
+/// `sidFor(prefix, p)` (below): a pure, permanent function of a principal
+/// `p`, so nothing needs to be allocated or stored server-side to "issue"
+/// one — it's produced for free the moment `p` is first seen, and can
+/// never change so long as the same keypair/login resolves to the same
+/// principal. `PRINCIPAL_SID_PREFIX` (`"ii:"`) is a real, permanent login
+/// (Internet Identity); `ANON_SID_PREFIX` (`"an:"`) is a locally generated
+/// keypair a frontend persists on its own (see
+/// `../../frontend/src/identity.ts`'s `resolveAnonymousIdentity`) without
+/// requiring any login step — anonymous and logged-in players alike get a
+/// real, non-spoofable identity by default, and sit at the very same
+/// tables with no special-casing, since `Table`/`Registry` still only ever
+/// compare a `SessionId` for equality. This module is what makes the
+/// binding real rather than a naming convention: `onMessage` (below)
+/// rejects any inbound `sid` whose principal doesn't match
+/// `args.client_principal` under its own namespace's scheme, or that
+/// matches no recognized namespace at all, with `#unauthorized`, before
+/// the request ever reaches `Hub`/`Registry`.
 ///
 /// Every mutating request re-uses `Registry`'s own routed operations
 /// (`createTable`, `joinTable`, `submit`, ...) with `Time.now()` —
@@ -220,36 +226,59 @@ module {
 
   // ────────────────────────── principal-bound identity ────────────────────
 
-  /// Reserved `SessionId` namespace for a real, non-spoofable identity —
-  /// see this module's own doc header. Never used internally by `Table`/
-  /// `Registry`, which treat every `SessionId` as opaque text; this prefix
-  /// only ever matters to `onMessage`'s own guard, below.
+  /// Reserved `SessionId` namespace for a real, permanent, logged-in
+  /// identity (Internet Identity) — see this module's own doc header.
+  /// Never used internally by `Table`/`Registry`, which treat every
+  /// `SessionId` as opaque text; this prefix only ever matters to
+  /// `onMessage`'s own guard, below.
   public let PRINCIPAL_SID_PREFIX : Text = "ii:";
 
-  /// The permanent player id for principal `p` — a pure function, so it's
-  /// "issued" for free the first time `p` ever logs in (nothing to
-  /// allocate or store) and can never change for as long as the same login
-  /// keeps resolving to the same principal. A frontend deriving a session's
-  /// `sid` this way (see `../../frontend/src/identity.ts`'s
-  /// `sidForPrincipal`, which MUST compute the identical value) gets that
-  /// guarantee automatically; `isAuthorizedSid` below is what makes it
-  /// non-spoofable rather than just a naming convention.
+  /// Reserved `SessionId` namespace for an anonymous but still
+  /// non-spoofable identity: a locally generated keypair a frontend
+  /// persists (see `../../frontend/src/identity.ts`'s
+  /// `resolveAnonymousIdentity`) rather than a real login — same
+  /// principal-binding guarantee as `PRINCIPAL_SID_PREFIX`, just without
+  /// the permanence of an actual Internet Identity account.
+  public let ANON_SID_PREFIX : Text = "an:";
+
+  /// The permanent player id for principal `p` under the given reserved
+  /// prefix — a pure function, so it's "issued" for free the first time
+  /// `p` is ever seen (nothing to allocate or store) and can never change
+  /// for as long as the same keypair/login keeps resolving to the same
+  /// principal. A frontend deriving a session's `sid` this way (see
+  /// `../../frontend/src/identity.ts`'s `sidForPrincipal`, which MUST
+  /// compute the identical value for a given prefix) gets that guarantee
+  /// automatically; `isAuthorizedSid` below is what makes it non-spoofable
+  /// rather than just a naming convention.
+  public func sidFor(prefix : Text, p : Principal.Principal) : TP.SessionId {
+    prefix # Principal.toText(p);
+  };
+
+  /// `sidFor(PRINCIPAL_SID_PREFIX, p)` — kept as its own name since it's
+  /// the one most callers (and every doc comment written before
+  /// `ANON_SID_PREFIX` existed) already refer to.
   public func sidForPrincipal(p : Principal.Principal) : TP.SessionId {
-    PRINCIPAL_SID_PREFIX # Principal.toText(p);
+    sidFor(PRINCIPAL_SID_PREFIX, p);
   };
 
   /// Whether `sid` is legal for a request arriving over a connection
-  /// authenticated as `p`. A `sid` outside the reserved namespace is
-  /// always authorized — the plain, client-asserted trust model this
-  /// module always had is unchanged for it. A `sid` inside the reserved
-  /// namespace is authorized only if it's exactly `sidForPrincipal(p)` —
-  /// anything else is an attempt to claim an identity that isn't this
-  /// caller's own. Pulled out as its own pure function (mirroring
-  /// `rematchOpenedLobby`'s own doc on why) so it's unit-testable without
-  /// the `IcWebSocketCdk` actor machinery `onMessage` itself needs.
+  /// authenticated as `p`. Every legal `sid` is principal-bound: it must
+  /// start with `PRINCIPAL_SID_PREFIX` or `ANON_SID_PREFIX` and equal
+  /// `sidFor` of that same prefix and `p` — anything else (a sid outside
+  /// both namespaces, or one inside a namespace but for a different
+  /// principal) is unauthorized. There is no third, unchecked/
+  /// client-asserted tier any more — see this module's own doc header.
+  /// Pulled out as its own pure function (mirroring `rematchOpenedLobby`'s
+  /// own doc on why) so it's unit-testable without the `IcWebSocketCdk`
+  /// actor machinery `onMessage` itself needs.
   public func isAuthorizedSid(sid : TP.SessionId, p : Principal.Principal) : Bool {
-    if (not Text.startsWith(sid, #text PRINCIPAL_SID_PREFIX)) return true;
-    Text.equal(sid, sidForPrincipal(p));
+    if (Text.startsWith(sid, #text PRINCIPAL_SID_PREFIX)) {
+      return Text.equal(sid, sidFor(PRINCIPAL_SID_PREFIX, p));
+    };
+    if (Text.startsWith(sid, #text ANON_SID_PREFIX)) {
+      return Text.equal(sid, sidFor(ANON_SID_PREFIX, p));
+    };
+    false;
   };
 
   // ────────────────────────── sid <-> principal bridge ────────────────────
@@ -292,11 +321,14 @@ module {
   };
 
   /// Binds `sid` to `p`, replacing whichever principal it was bound to
-  /// before (if any) — a session reconnecting under a NEW principal (a
-  /// page reload: `sid` survives in sessionStorage, but every one of this
-  /// package's reference frontends deliberately mints a FRESH principal
-  /// on every load — see `examples/racing/frontend/src/duel/duel-app.js`'s
-  /// own doc on why, a real `ic-websocket-cdk@0.4.1` bookkeeping quirk).
+  /// before (if any) — covers both a session reconnecting under a
+  /// genuinely NEW principal (a logged-out-then-logged-in swap, or a
+  /// first-ever load before a persisted identity exists yet) and the
+  /// common case of an unchanged principal reconnecting after a reload
+  /// (both `ii:` and `an:` identities persist their keypair across a
+  /// reload by design — see `../../frontend/src/identity.ts` — so `sid`
+  /// and `p` both usually stay the same; `remember` still runs, and still
+  /// bumps `generation`, exactly as it does for a real principal change).
   /// Cleans up the OLD principal's own `byPrincipal` entry right here,
   /// not just `bySid`'s — see `forget`'s own doc for the bug leaving it
   /// dangling produces.
@@ -341,18 +373,20 @@ module {
   /// (see `remember`'s own doc: a reload's own `ws_close`, fired from
   /// `pagehide`, has no guarantee of completing before the tab tears
   /// down, so it can arrive well after the SAME session has already
-  /// reconnected under a fresh principal) would erase the CURRENT, live
-  /// registration out from under a session that never actually left —
-  /// `onClose`'s caller would then find `sid` still resolvable from the
-  /// stale principal, run `disconnectSession` on it, and silently abort
-  /// a game two still-connected players were mid-round on, crediting the
-  /// reconnected (not gone) player as the one who walked away. A real,
-  /// observed bug, not hypothetical: this is the analogous problem to
-  /// the `ic-websocket-cdk` quirk `remember`'s own doc references,
-  /// except one layer up, in this module's OWN `Hub` — a fresh principal
-  /// per page load sidesteps the CDK's version of it but does nothing
-  /// for this one, since `Hub` deliberately keeps tracking the SAME
-  /// `sid` across that reload.
+  /// reconnected — whether under the same persisted principal or a
+  /// genuinely new one) would erase the CURRENT, live registration out
+  /// from under a session that never actually left — `onClose`'s caller
+  /// would then find `sid` still resolvable from the stale principal, run
+  /// `disconnectSession` on it, and silently abort a game two
+  /// still-connected players were mid-round on, crediting the reconnected
+  /// (not gone) player as the one who walked away. A real, observed bug,
+  /// not hypothetical: this is the analogous problem to the
+  /// `ic-websocket-cdk` quirk `remember`'s own doc references, except one
+  /// layer up, in this module's OWN `Hub` — fixing the CDK's version of
+  /// it (see `ic-websocket-cdk/src/State.mo`'s `remove_client`) does
+  /// nothing for this one, since `Hub` is a separate data structure
+  /// tracking the same reconnect race independently; both guards are
+  /// needed together, not either alone.
   public func forget(hub : Hub, p : Principal.Principal) {
     switch (Map.get(hub.byPrincipal, Principal.compare, p)) {
       case null {};

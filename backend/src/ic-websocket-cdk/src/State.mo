@@ -321,7 +321,14 @@ module {
       };
 
       CLIENTS_WAITING_FOR_KEEP_ALIVE.remove(Types.compareClientKey, client_key);
-      CURRENT_CLIENT_KEY_MAP.remove(Principal.compare, client_key.client_principal);
+      switch (CURRENT_CLIENT_KEY_MAP.get(Principal.compare, client_key.client_principal)) {
+        case (?current) {
+          if (Types.areClientKeysEqual(current, client_key)) {
+            CURRENT_CLIENT_KEY_MAP.remove(Principal.compare, client_key.client_principal);
+          };
+        };
+        case (null) {};
+      };
       OUTGOING_MESSAGE_TO_CLIENT_NUM_MAP.remove(Types.compareClientKey, client_key);
       INCOMING_MESSAGE_FROM_CLIENT_NUM_MAP.remove(Types.compareClientKey, client_key);
 

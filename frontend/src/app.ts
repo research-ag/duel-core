@@ -32,10 +32,12 @@
 //
 //   import { connectWs } from "duel-game-core/ws.js";
 //   import { start } from "duel-game-core/app.js";
+//   import { resolveIdentity } from "duel-game-core/identity.js"; // or anon-identity.js
 //   import { plugin } from "./my-game-plugin.js";
 //
-//   const ws = connectWs({ actor });
-//   start({ plugin, ws });
+//   const session = await resolveIdentity();
+//   const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
+//   start({ plugin, ws, session });
 //
 // `ws` must implement the standard WebSocket-like surface (assignable
 // `onopen`/`onmessage`/`onclose`/`onerror` and a `send(msg)` where `msg`
@@ -67,20 +69,8 @@ import {
   waitingText,
 } from "./render.js";
 import type { DuelWs, EngineErr, GamePlugin, InGameView, Seat, SeatTag, StagingYouView, Visibility, WsPayload, WsRequest } from "./types.js";
-// Type-only — erased at compile time, so this adds no runtime import (and
-// no dependency) to app.js itself; see identity.ts's own header for why
-// that matters. A game that wants the real thing imports `resolveIdentity`
-// from "duel-game-core/identity.js" itself and hands the result in here
-// as `session`.
-import type { ResolvedIdentity } from "./identity.js";
 
 const $ = (id: string): HTMLElement | null => document.getElementById(id);
-
-function randomSid(): string {
-  const b = new Uint8Array(8);
-  crypto.getRandomValues(b);
-  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
-}
 
 /// Structural equality for two decoded Candid values (Statuses, here) —
 /// used to skip a redundant re-render when a push tick delivers the
@@ -287,6 +277,26 @@ function makeTableWaitTicker(root: HTMLElement) {
   return { sync };
 }
 
+// The minimal shape `start()` itself needs from a resolved identity —
+// deliberately narrower than `duel-game-core/identity.js`'s own
+// `ResolvedIdentity` (which satisfies this structurally, no import
+// needed) so a game that only wants `duel-game-core/anon-identity.js`'s
+// lighter `resolveAnonymousIdentity()` (no `@icp-sdk/auth` dependency,
+// no login/regenerate/isLoggedIn built in) can still pass its result
+// straight through: `sid` is the only field `start()` strictly requires.
+export interface SessionIdentity {
+  sid: string;
+  /// Defaults to `false` when omitted (the plain-anonymous case).
+  isLoggedIn?: boolean;
+  /// Present only for a session that supports it — the "new sid" button
+  /// is hidden entirely (not just disabled) when this is missing, same
+  /// as it already is once `isLoggedIn` is true.
+  regenerate?(): Promise<void>;
+  /// Wired to `authBtnId` only when BOTH are present.
+  login?(): Promise<void>;
+  logout?(): Promise<void>;
+}
+
 export interface StartOptions<S = unknown> {
   plugin: GamePlugin<S>;
   ws: DuelWs<S>;
@@ -294,28 +304,32 @@ export interface StartOptions<S = unknown> {
   newSidBtnId?: string;
   screenElId?: string;
   errorElId?: string;
-  // A resolved identity from `duel-game-core/identity.js`'s
-  // `resolveIdentity()` — see this file's own "Session identity" section
-  // below. Omit entirely for today's default: a plain, anonymous,
-  // self-generated per-tab `sid`, unchanged.
-  session?: ResolvedIdentity;
+  // A resolved identity — `duel-game-core/identity.js`'s
+  // `resolveIdentity()` (Internet Identity login, or a persisted
+  // anonymous keypair) or `duel-game-core/anon-identity.js`'s lighter
+  // `resolveAnonymousIdentity()` (persisted anonymous keypair only, no
+  // `@icp-sdk/auth` dependency) — see this file's own "Session identity"
+  // section below. Required: every legal `sid` is principal-bound (see
+  // `../backend/src/ws.mo`'s `isAuthorizedSid`), so there's no longer a
+  // self-generated fallback `start()` can fall back to on its own.
+  session: SessionIdentity;
   authBtnId?: string;
 }
 
 /// Boots the generic session/click wiring against `ws`, using `plugin`
 /// for the game-specific board and action markup.
 ///
-/// Options (all optional except `plugin`/`ws`):
+/// Options (all optional except `plugin`/`ws`/`session`):
 ///   sidElId      - id of the element that displays the session id (default "sid")
 ///   newSidBtnId  - id of a "play as someone else" button (default "new-sid");
-///                  auto-disabled while the current sid holds a seat
+///                  auto-disabled while the current sid holds a seat, hidden
+///                  entirely if `session.regenerate` isn't provided
 ///   screenElId   - id of the element `renderStatus` output is written into (default "screen")
 ///   errorElId    - id of the element transient errors are shown in (default "error")
 ///   ws           - WebSocket-like transport (see the file header)
-///   session      - a `resolveIdentity()` result (duel-game-core/identity.js);
-///                  omit for a plain, self-generated anonymous sid (default)
-///   authBtnId    - id of a login/logout button, wired only when `session` is
-///                  given (default "duel-auth-btn")
+///   session      - a resolved identity (see `StartOptions.session`'s own doc)
+///   authBtnId    - id of a login/logout button, wired only when
+///                  `session.login`/`session.logout` are both given (default "duel-auth-btn")
 export function start<S>({
   plugin,
   ws,
@@ -328,6 +342,7 @@ export function start<S>({
 }: StartOptions<S>): void {
   if (!plugin) throw new Error("start(): `plugin` is required");
   if (!ws) throw new Error("start(): `ws` is required");
+  if (!session) throw new Error("start(): `session` is required");
 
   // Declared up front (not down by the click listener, where the
   // original JS had it) so every closure below — including
@@ -341,60 +356,55 @@ export function start<S>({
   if (!screenEl) throw new Error(`start(): no element with id "${screenElId}"`);
 
   // ---------------------------------------------------------------------
-  // Session identity. With no `session` given: sessionStorage is per-tab,
-  // so tab #2 is player #2, and `?sid=` wins so you can pin an identity
-  // across reloads if you want — unchanged from before `session` existed.
-  // With a `session` (see `duel-game-core/identity.js`'s `resolveIdentity()`):
-  // its own `sid` is used instead, and — only once `session.isLoggedIn` —
-  // "new sid" is permanently disabled, since a real login isn't meant to
-  // be randomized away. `randomSid`/the inline sessionStorage calls below
-  // deliberately duplicate `identity.ts`'s own identical anonymous-sid
-  // logic rather than importing it: importing anything from `identity.ts`
-  // here would pull `@icp-sdk/auth` into every game that loads app.js,
-  // even one that never passes `session` at all — see identity.ts's own
-  // header and the root CLAUDE.md's rule 10.
+  // Session identity. `session.sid` is always a real, principal-bound id
+  // by construction (see `SessionIdentity`'s own doc) — `start()` no
+  // longer generates one itself. `sessionStorage["sid"]` still ends up
+  // holding the active sid, for the same reason it always did: the one
+  // place a game's own code outside `start()` (e.g. a second bundle
+  // sharing the push connection) can read it from.
   //
-  // Either way, `sessionStorage["sid"]` ends up holding the real active
-  // sid — the one place a game's own code outside `start()` (e.g. a
-  // second bundle sharing the push connection) can read it from.
+  // "new sid" is wired only when `session.regenerate` is provided — hidden
+  // entirely otherwise (not just disabled), same as it already is once
+  // `session.isLoggedIn` is true: there's nothing this button could
+  // meaningfully do without it. Unlike before, a click reloads the page
+  // rather than swapping `sid` in place — `session.regenerate()` needs to
+  // establish a freshly authenticated WS connection under the new
+  // identity, and this package never tears down and rebuilds an
+  // actor/ws in place (see `ResolvedIdentity.login`'s own doc on why a
+  // reload is how every identity change here takes effect).
   // ---------------------------------------------------------------------
 
-  if (session) {
-    sessionStorage.setItem("sid", session.sid);
-  } else {
-    const urlSid = new URLSearchParams(location.search).get("sid");
-    if (urlSid) sessionStorage.setItem("sid", urlSid);
-    if (!sessionStorage.getItem("sid")) sessionStorage.setItem("sid", randomSid());
-  }
-
-  let sid = session ? session.sid : (sessionStorage.getItem("sid") as string);
+  sessionStorage.setItem("sid", session.sid);
+  const sid = session.sid;
   const sidEl = $(sidElId);
   if (sidEl) sidEl.textContent = sid;
   const newSidBtn = $(newSidBtnId) as HTMLButtonElement | null;
   if (newSidBtn) {
-    if (session?.isLoggedIn) {
-      // Not just disabled — a real login isn't a per-tab identity at all,
-      // so offering the button (even greyed out) reads as "this should
-      // still do something." Hidden for good; there's nothing later that
-      // un-hides it (isLoggedIn can't change without a reload).
+    if (!session.regenerate || session.isLoggedIn) {
+      // Not just disabled — nothing this button could do without a
+      // `regenerate` hook (or for a real login, which isn't a per-tab
+      // identity at all). Hidden for good; there's nothing later that
+      // un-hides it (neither condition can change without a reload).
       newSidBtn.disabled = true;
       newSidBtn.hidden = true;
     } else {
+      const regenerate = session.regenerate;
       newSidBtn.addEventListener("click", () => {
         if (newSidBtn.disabled) return;
-        sid = randomSid();
-        sessionStorage.setItem("sid", sid);
-        if (sidEl) sidEl.textContent = sid;
-        refresh();
+        newSidBtn.disabled = true;
+        regenerate().catch((e: Error) => {
+          newSidBtn.disabled = false;
+          showError(`New sid failed: ${e?.message ?? e}`);
+        });
       });
     }
   }
 
-  // Login/logout — wired only when a `session` was actually handed in;
-  // left untouched (whatever markup/label a game gave it, if anything)
-  // otherwise. Static for the page's lifetime: logging in or out always
-  // reloads (see `ResolvedIdentity.login`/`logout`'s own doc), so there's
-  // no later state to re-render this against.
+  // Login/logout — wired only when both are given; left untouched
+  // (whatever markup/label a game gave it, if anything) otherwise. Static
+  // for the page's lifetime: logging in or out always reloads (see
+  // `ResolvedIdentity.login`/`logout`'s own doc), so there's no later
+  // state to re-render this against.
   const authBtn = $(authBtnId) as HTMLButtonElement | null;
   // True while THIS button's own login/logout call is in flight — checked
   // by `setNewSidDisabled` below so an unrelated re-sync (a push landing
@@ -402,7 +412,9 @@ export function start<S>({
   // the same guard `joinPending`/`pendingButtonKey` give the rest of the
   // page's buttons.
   let authActionPending = false;
-  if (authBtn && session) {
+  if (authBtn && session.login && session.logout) {
+    const login = session.login;
+    const logout = session.logout;
     authBtn.textContent = session.isLoggedIn ? "Log out" : "Log in with Internet Identity";
     authBtn.disabled = false;
     authBtn.addEventListener("click", () => {
@@ -410,7 +422,7 @@ export function start<S>({
       authActionPending = true;
       authBtn.disabled = true;
       const verb = session.isLoggedIn ? "Log out" : "Log in";
-      (session.isLoggedIn ? session.logout() : session.login()).catch((e: Error) => {
+      (session.isLoggedIn ? logout() : login()).catch((e: Error) => {
         authActionPending = false;
         // Resync to whatever the shared new-sid/auth state currently is
         // instead of blindly re-enabling — e.g. a seat taken while this
@@ -424,12 +436,12 @@ export function start<S>({
   // Single choke point for "new sid"'s disabled state — also mirrors it
   // onto `authBtn` (Login/Logout), since a swapped-away-from or
   // in-progress identity is exactly as unsafe to touch mid-seat/mid-join/
-  // mid-disconnect as randomizing the sid itself is. Skipped for `authBtn`
-  // while its OWN action is in flight (see `authActionPending` above) —
-  // that state already keeps it disabled on its own terms.
+  // mid-disconnect as regenerating the sid itself is. Skipped for
+  // `authBtn` while its OWN action is in flight (see `authActionPending`
+  // above) — that state already keeps it disabled on its own terms.
   function setNewSidDisabled(disabled: boolean): void {
     if (newSidBtn) newSidBtn.disabled = disabled;
-    if (authBtn && session && !authActionPending) authBtn.disabled = disabled;
+    if (authBtn && session.login && session.logout && !authActionPending) authBtn.disabled = disabled;
   }
 
   // A status counts as "seated" when this sid still holds a seat at a

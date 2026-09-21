@@ -232,11 +232,13 @@ module {
     // back to `joinTable` to match it, so that table would otherwise be
     // unreachable by construction.
     #badCode;
-    // A `ws.mo` request claimed a `SessionId` in the reserved
-    // principal-bound namespace (see `Ws.sidForPrincipal`'s own doc) that
-    // doesn't match the caller's own authenticated principal — never
-    // produced by `Table`/`Registry` themselves, only by `Ws.onMessage`'s
-    // own guard, before the request ever reaches either.
+    // A `ws.mo` request's `SessionId` doesn't match the caller's own
+    // authenticated principal under either reserved, principal-bound
+    // namespace (see `Ws.PRINCIPAL_SID_PREFIX`/`Ws.ANON_SID_PREFIX`'s own
+    // doc) — including a `SessionId` that names neither namespace at all,
+    // since every legal `sid` must be principal-bound. Never produced by
+    // `Table`/`Registry` themselves, only by `Ws.onMessage`'s own guard,
+    // before the request ever reaches either.
     #unauthorized;
   };
 
