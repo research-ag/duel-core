@@ -21,7 +21,7 @@
 // no reconnect) — the old sid's `bySid` entry must also be scrubbed, or
 // it lingers and gets mistaken for a second browsing session.
 // Run: moc -r --package core <core/src> --package ic-websocket-cdk <cdk/src> ... test/Hub.test.mo
-import Ws "../src/Ws";
+import Ws "../src/ws";
 import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
