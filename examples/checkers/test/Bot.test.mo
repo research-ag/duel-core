@@ -43,6 +43,7 @@ do {
       mode = #alternating;
       turn;
       gen = 0;
+      retryReason = null;
     };
     let move = BotLogic.chooseMove(req);
     let legal = Rules.legalActions(s0, #p1);
@@ -66,6 +67,7 @@ do {
       mode = #alternating;
       turn;
       gen = 0;
+      retryReason = null;
     };
     switch (BotLogic.chooseMove(req)) {
       case (#jump { path }) assert path == [idx(6, 1), idx(4, 3), idx(2, 5)];

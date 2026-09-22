@@ -85,12 +85,26 @@ func constantBot(move : Rules.Action) : (TP.SessionId, TP.MoveRequest<Rules.Stat
   };
 };
 
-/// A bot that plays `first` on its first call, `rest` on every call after.
-func retryingBot(first : Rules.Action, rest : Rules.Action) : (TP.SessionId, TP.MoveRequest<Rules.State>, (?Rules.Action) -> async* ()) -> async* () {
+/// A bot that plays `first` on its first call, `rest` on every call
+/// after — and asserts the retry's own `req.retryReason` carries exactly
+/// `expectedReason`, the rejection text `validate` returned for `first`,
+/// proving `notifyAndApply` actually threads it through rather than just
+/// asking again blind. The first call must see `retryReason == null` —
+/// it's a fresh ask, not (yet) a retry.
+func retryingBot(first : Rules.Action, rest : Rules.Action, expectedReason : Text) : (TP.SessionId, TP.MoveRequest<Rules.State>, (?Rules.Action) -> async* ()) -> async* () {
   var calls = 0;
-  func(_session : TP.SessionId, _req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
+  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
     calls += 1;
-    await* k(?(if (calls == 1) first else rest));
+    if (calls == 1) {
+      assert req.retryReason == null;
+      await* k(?first);
+    } else {
+      switch (req.retryReason) {
+        case (?reason) assert reason == expectedReason;
+        case null Runtime.trap("retry's own MoveRequest must carry the previous rejection reason");
+      };
+      await* k(?rest);
+    };
   };
 };
 
@@ -157,13 +171,16 @@ switch (atTableView(reg2, T0, sidBot1)) {
 };
 Debug.print("5. a resolved round makes a canister seat due again, caught by the next nudge OK");
 
-// ── 6. an illegal move is retried once, then the legal fallback lands ───
+// ── 6. an illegal move is retried once, then the legal fallback lands —
+//        and the retry's own MoveRequest carries validate's own rejection
+//        reason, not just a blind re-ask ─────────────────────────────────
 let reg6 = fresh();
 let counter6 = newAfterMutationCounter();
 // #attack is illegal at 0 resource (FakeGame's own rule) — the bot's
 // first reply is always illegal here; the retry's #gather must be what
-// actually lands.
-let cp6 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg6, stubAfterMutation(counter6), retryingBot(#attack, #gather));
+// actually lands. retryingBot itself asserts the retry's `retryReason`
+// matches this exact text (see its own doc).
+let cp6 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg6, stubAfterMutation(counter6), retryingBot(#attack, #gather, "No resource — GATHER first."));
 let id6 = ok(await* cp6.createTable(bot1, #p1, #open), "bot1 creates a table");
 ignore ok(reg6.joinTable(spec, T0, "human", id6, #p2, null), "human joins");
 await* cp6.nudge(T0);
@@ -171,7 +188,7 @@ switch (atTableView(reg6, T0, sidBot1)) {
   case (#inGame v) assert v.youSubmitted; // the retried #gather landed
   case (_) Runtime.trap("bot1 should still be in-game after its retried move");
 };
-Debug.print("6. an illegal move is retried once and the legal reply is applied OK");
+Debug.print("6. an illegal move is retried once, carrying validate's own rejection reason, and the legal reply is applied OK");
 
 // ── 7. a bot that never answers leaves the round pending, not stuck — and
 //        the in-flight flag clears so a LATER nudge can ask again once the

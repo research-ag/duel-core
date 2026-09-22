@@ -81,7 +81,12 @@ module {
   /// `registry.submit` the reply drives, though the caller re-reads both
   /// fresh immediately before that call rather than trusting the copies
   /// still closed over from before the bot's own `await` (see
-  /// `canister_players.mo`'s own doc for why).
+  /// `canister_players.mo`'s own doc for why). `retryReason` is `null`
+  /// on the first ask for a given round; `canister_players.mo`'s own
+  /// one-shot retry sets it to the exact rejection text `validate`
+  /// returned for the first, illegal reply, so a bot that wants to can
+  /// react to specifically WHY its move was rejected rather than just
+  /// blindly resubmitting — a bot that ignores it is free to.
   public type MoveRequest<S> = {
     tableId : TableId;
     seat : Seat;
@@ -89,6 +94,7 @@ module {
     mode : Mode;
     turn : Nat;
     gen : Nat;
+    retryReason : ?Text;
   };
 
   // ────────────────────────── the game plug-in interface ─────────────────────

@@ -1,6 +1,7 @@
 // Proves the racing bot (`../src/Bot.mo`/`BotLogic.mo`, the milestone-01
-// hardcoded-script canister player) two ways: (1) `BotLogic.SCRIPT` stays
-// legal — RacingRules.validate-passing, no collision-forced illegal move —
+// hardcoded-script canister player) two ways: (1) `BotLogic.SCRIPT_P1`
+// stays legal — RacingRules.validate-passing, no collision-forced illegal
+// move —
 // for its own full length plus several rounds of the post-script "hold the
 // last entry" clamp, replayed against the REAL `RacingRules.validate`/
 // `resolve` (this is the permanent regression guard for the numbers
@@ -33,7 +34,7 @@ let spec = Rules.spec();
 do {
   var state = Rules.init();
   var i = 0;
-  let steps = BotLogic.SCRIPT.size() + 4; // a few rounds past the array's end too
+  let steps = BotLogic.SCRIPT_P1.size() + 4; // a few rounds past the array's end too
   while (i < steps) {
     let req : TP.MoveRequest<Rules.State> = {
       tableId = 0;
@@ -42,6 +43,7 @@ do {
       mode = #simultaneous;
       turn = i;
       gen = 0;
+      retryReason = null;
     };
     let move = BotLogic.chooseMove(req);
     switch (Rules.validate(state, #p1, move)) {
@@ -53,7 +55,7 @@ do {
     i += 1;
   };
 };
-Debug.print("1. BotLogic.SCRIPT stays legal for its own length plus the post-script hold, against real collision checks OK");
+Debug.print("1. BotLogic.SCRIPT_P1 stays legal for its own length plus the post-script hold, against real collision checks OK");
 
 // ── 2. wired live through canister_players.mo, the bot drives several
 //        rounds against a human with no illegal move ──────────────────────
@@ -93,7 +95,7 @@ let id = ok(await* cp.createTable(bot1, #p1, #open), "bot creates a table");
 ignore ok(reg.joinTable(spec, T0, "human", id, #p2, null), "human joins bot1's table");
 
 var round = 0;
-while (round < BotLogic.SCRIPT.size() + 2) {
+while (round < BotLogic.SCRIPT_P1.size() + 2) {
   await* cp.nudge(T0);
   switch (atTableView(reg, T0, sidBot1)) {
     case (#inGame v) assert v.youSubmitted; // the bot's scripted move landed legally

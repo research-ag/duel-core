@@ -67,7 +67,12 @@
 /// from a human who put the phone down. So `notifyAndApply`'s own failure
 /// handling is almost trivially small: catch a trapped/errored call or an
 /// `#err(#illegalMove _)` result, retry the bot once, and otherwise do
-/// NOTHING — let the existing timeout machinery take it from there.
+/// NOTHING — let the existing timeout machinery take it from there. The
+/// one retry isn't blind: its own `T.MoveRequest<S>` carries
+/// `retryReason`, the exact rejection text the game's own `validate`
+/// returned for the first reply, so a bot that wants to can correct
+/// specifically what was wrong (a trapped/errored call has no such text
+/// to give — `callBot`'s own `k(null)` never retries at all, see below).
 ///
 /// ── A finished game still needs acking ───────────────────────────────────
 ///
@@ -261,6 +266,7 @@ module {
               mode = ig.mode;
               turn = ig.turn;
               gen = ig.gen;
+              retryReason = null; // a fresh ask, not (yet) a retry — see notifyAndApply
             };
           };
         };
@@ -279,11 +285,15 @@ module {
       // One retry on an illegal move (`triesLeft`), then silence — see
       // this module's own doc header. A trapped/errored call (`callBot`
       // invoking `k(null)`) never retries at all, same as any other
-      // failure that isn't specifically an illegal move.
-      func tryOnce(triesLeft : Nat) : async* () {
+      // failure that isn't specifically an illegal move. The retry's
+      // OWN request carries `retryReason`, the exact text `validate`
+      // rejected the first reply with, re-read fresh (never `req`'s own
+      // stale copy) so the bot can act on specifically why it was wrong
+      // instead of just resubmitting blind.
+      func tryOnce(triesLeft : Nat, thisReq : T.MoveRequest<S>) : async* () {
         await* callBot(
           session,
-          req,
+          thisReq,
           func(maybeMove : ?M) : async* () {
             switch (maybeMove) {
               case null {}; // trapped/errored — treat exactly like silence
@@ -299,8 +309,10 @@ module {
                       await* afterMutation(now, session, null, ?id, false);
                       await* maybeSettleBoth(now, id);
                     };
-                    case (#err(#illegalMove _)) {
-                      if (triesLeft > 0) { await* tryOnce(triesLeft - 1 : Nat) };
+                    case (#err(#illegalMove reason)) {
+                      if (triesLeft > 0) {
+                        await* tryOnce(triesLeft - 1 : Nat, { fresh with retryReason = ?reason });
+                      };
                     };
                     case (#err _) {}; // #stale/#notYourTurn/#wrongPhase/... — table moved on; stop, don't retry
                   };
@@ -311,7 +323,7 @@ module {
         );
       };
 
-      await* tryOnce(1);
+      await* tryOnce(1, req);
       inFlight.remove(key);
     };
 
@@ -330,7 +342,7 @@ module {
         case (#atTable { view = #inGame ig }) {
           if (not ig.youSubmitted) {
             if (inFlight.get(flightKey(id, ig.seat)) == null) {
-              await* notifyAndApply(id, session, { tableId = id; seat = ig.seat; game = ig.game; mode = ig.mode; turn = ig.turn; gen = ig.gen });
+              await* notifyAndApply(id, session, { tableId = id; seat = ig.seat; game = ig.game; mode = ig.mode; turn = ig.turn; gen = ig.gen; retryReason = null });
             };
           } else if (ig.claimWinAvailable) {
             switch (registry.claimWin(spec, now, session, ig.gen)) {

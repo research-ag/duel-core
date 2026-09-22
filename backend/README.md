@@ -563,7 +563,14 @@ small: an `#err(#illegalMove _)` reply is retried once; a trapped/
 errored call, or any other rejection (the table moved on underneath the
 bot — a claim, a leave, an idle takeover), is treated exactly like
 silence — do nothing, and let the existing timeout machinery take it
-from there.
+from there. That one retry still gives the bot something to work with:
+the retried `MoveRequest<S>`'s `retryReason` field carries the exact
+text the game's own `validate` rejected the first reply with, so
+`make_move` can inspect why its move was illegal and correct that
+specifically, rather than just being asked again with no new
+information. `retryReason` is `null` on every non-retry ask; a
+trapped/errored call never reaches a retry at all, since there's no
+rejection text to carry.
 
 **When a canister seat gets asked, claims a win, or acks a finished
 debrief.** `ws.mo` stays completely unchanged — it's still the only
