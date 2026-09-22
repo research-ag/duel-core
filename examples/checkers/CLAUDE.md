@@ -78,10 +78,13 @@ Http(renderer.renderExposition, "/metrics")`, from
   canister case); `claim_win_as_canister`/`reset_as_canister` exist
   mainly so a canister participant can act the instant it's entitled to
   instead of waiting on the next tick.
-- **`bot/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
+- **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
 -> async Rules.Action`, the exact counterpart to a browser's own
-  `GamePlugin`.
+  `GamePlugin`. Lives in `src/`, not `bot/`, because it's `src/Host.mo`
+  (the GAME canister) that imports it — to type the remote bot actor it
+  calls — not `bot/Bot.mo`/`bot/BotLogic.mo` (the bot canister), which
+  never import it at all.
 - **`bot/BotLogic.mo`** — the checkers bot's move-selection logic, as a
   plain pure module (no actor, no `Time`, matching `CheckersRules.mo`'s
   own style): `chooseMove` reuses `CheckersRules.legalActions` directly

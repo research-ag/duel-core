@@ -6,8 +6,10 @@
 /// would show) and treats the returned `Rules.Action` as the chosen move —
 /// see `../../../CLAUDE.md`'s "Canister players" note and
 /// `../../../backend/README.md`'s "Canister players" section for the full
-/// design. `Bot.mo` in this same directory is this game's own
-/// rule-following implementation.
+/// design. `../bot/Bot.mo` is this game's own rule-following
+/// implementation — kept in its own directory since, unlike this
+/// interface (used by `Host.mo`, the GAME canister, to type the remote
+/// bot), it's what gets deployed as the separate BOT canister.
 import TP "mo:duel-game-core";
 import Rules "CheckersRules";
 

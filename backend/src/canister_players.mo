@@ -137,7 +137,7 @@
 ///   });
 ///
 /// See `../README.md`'s "Canister players" section for the full worked
-/// example, `examples/racing/src/Bot.mo` for a minimal hardcoded-script
+/// example, `examples/racing/bot/Bot.mo` for a minimal hardcoded-script
 /// bot, and `skills/duel-game-core/SKILL.md` for the authoring guide.
 /// ═══════════════════════════════════════════════════════════════════════════
 
