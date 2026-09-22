@@ -78,11 +78,11 @@ Http(renderer.renderExposition, "/metrics")`, from
   canister case); `claim_win_as_canister`/`reset_as_canister` exist
   mainly so a canister participant can act the instant it's entitled to
   instead of waiting on the next tick.
-- **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
+- **`bot/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
 -> async Rules.Action`, the exact counterpart to a browser's own
   `GamePlugin`.
-- **`src/BotLogic.mo`** — the checkers bot's move-selection logic, as a
+- **`bot/BotLogic.mo`** — the checkers bot's move-selection logic, as a
   plain pure module (no actor, no `Time`, matching `CheckersRules.mo`'s
   own style): `chooseMove` reuses `CheckersRules.legalActions` directly
   (never re-deriving mandatory-capture/maximal-chain itself) and picks one
@@ -90,17 +90,22 @@ Http(renderer.renderExposition, "/metrics")`, from
   lookahead, no material evaluation, the milestone-02 baseline. Kept
   separate from `Bot.mo` specifically so `test/Bot.test.mo` can call
   `chooseMove` directly, with no actor/Candid round-trip.
-- **`src/Bot.mo`** — the bot canister itself: implements
-  `BotIface.CanisterPlayer`'s `make_move` (a thin shell over
-  `BotLogic.chooseMove`), plus `play(host, tableId, seat, code)`, this
-  bot's own Flow 1 "self-join" entry point (see the canister-players
-  design's "Lobby & opponent selection" section) — hand it a checkers
-  `Host.mo`-shaped canister's id, a table id, a seat, and that table's
-  access code (however you like; entirely outside this engine's concern),
-  and it calls that canister's own `join_table_as_canister` on its own
-  account. Deploy target (see `icp.yaml` below). Because every reply is
-  drawn from `legalActions`, this bot can never submit an illegal move,
-  even without any lookahead of its own.
+- **`bot/Bot.mo`** — the bot canister itself: implements
+  `BotIface.CanisterPlayer`'s `make_move` as a `query` (a thin shell over
+  `BotLogic.chooseMove` — pure and stateless, so there's nothing an
+  update call's replication would buy it), plus
+  `play(host, tableId, seat, code)`, this bot's own Flow 1 "self-join"
+  entry point (see the canister-players design's "Lobby & opponent
+  selection" section) — hand it a checkers `Host.mo`-shaped canister's
+  id, a table id, a seat, and that table's access code (however you like;
+  entirely outside this engine's concern), and it calls that canister's
+  own `join_table_as_canister` on its own account. Deploy target (see
+  `icp.yaml` below). Because every reply is drawn from `legalActions`,
+  this bot can never submit an illegal move, even without any lookahead
+  of its own. This same `play` method is also what the frontend's own
+  `Add Bot` control calls directly (see the `frontend/` bullet below) —
+  a plain Candid call from the browser straight to this canister, not
+  routed through `Host.mo`/`ws.mo` at all.
 - **`test/*.test.mo`** — interpreter-run suites. `RulesUnit.test.mo`
   drives `validate`/`resolve` directly against synthetic boards (no
   engine, no actor) — the bulk of the rule coverage: forward-only men,
@@ -132,7 +137,7 @@ Http(renderer.renderExposition, "/metrics")`, from
   is what `mops test` discovers — a file named `FooTest.mo` is silently
   skipped, so keep the suffix when adding suites.
 - **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as canister
-  `backend`, `src/Bot.mo` as canister `bot` (this example's own
+  `backend`, `bot/Bot.mo` as canister `bot` (this example's own
   milestone-02 canister player — see that file's own doc header), and
   `frontend/dist` (esbuild's bundled output — see this
   file's "Build & test" section, NOT `frontend/` itself) as an asset
@@ -166,6 +171,30 @@ Http(renderer.renderExposition, "/metrics")`, from
   `../../skills/duel-game-core/references/alternating-turn-games.md` for
   the general pattern a board game's interaction usually takes on this
   framework.
+  `app.js` also wires a small `Add Bot` control (`index.html`'s
+  `#play-vs-bot-panel`, a sibling of `#screen`, positioned/styled in
+  `style.css` to read as a continuation of the same card) — Flow 1's
+  human-facing entry point (see `../../CLAUDE.md`'s "Canister players"
+  note): shown only for the generic "Waiting for an opponent" screen
+  (`render.js`'s `stagingYou`, detected off a
+  `ws.addEventListener("message", ...)` listener, the same
+  `GatewayWs`-as-`EventTarget` technique the duel-game-core skill's
+  rich-UI pattern describes), it reads that SAME status push's own open
+  seat/table id/access code and, on click, calls the deployed
+  `bot/Bot.mo` canister's own `play(host, tableId, seat, code)` directly
+  — a plain Candid call to a SECOND, ad-hoc-IDL'd actor (built from
+  `duel-game-core/idl.js`'s exported `buildEngineTypes`, so `Seat`/
+  `TableId`/`Err` aren't redeclared by hand), never routed through
+  `ws.mo`'s protocol or the shared `ws` at all — the bot then joins on
+  its own account via `join_table_as_canister`, exactly Flow 1's
+  "self-join" shape, just automated instead of hand-fed a table id/seat/
+  code. Deliberately NOT `Registry.createTableReserving`/Flow 2: that
+  call only ever seats both sides of a BRAND NEW table atomically, with
+  no way to fill an already-staged table's open seat — exactly this
+  screen's situation (a table this player already created, choosing
+  their own seat, now waiting on the other one). `PUBLIC_CANISTER_ID:bot`
+  missing from this deploy's `ic_env` cookie (a fork with no `bot`
+  canister declared in `icp.yaml`) leaves the panel hidden for good.
   The generic chrome (`duel-game-core/render.js`) already shows
   turn-accurate copy ("Your turn"/"Opponent's turn") for an
   `#alternating` table with zero plugin-side work. `app.js` calls
@@ -341,7 +370,7 @@ points to (the duel-game-core-specific playbook instead lives in the
 tracked `../../skills/duel-game-core/`, whose
 `references/alternating-turn-games.md` this example itself is the
 worked reference for). Consult those before editing
-`src/CheckersRules.mo`, `src/Host.mo`, or `src/Bot.mo`/`src/BotLogic.mo`.
+`src/CheckersRules.mo`, `src/Host.mo`, or `bot/Bot.mo`/`bot/BotLogic.mo`.
 
 ## Conventions
 

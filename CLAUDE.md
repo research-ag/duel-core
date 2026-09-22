@@ -126,10 +126,11 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   `backend/test/CanisterPlayers.test.mo`; deliberately not wired any
   further than that — see `backend/README.md`'s own note on why a
   human-facing "invite this bot" button is a separate feature).
-  `examples/racing`'s own `Add Bot` control (see its own `CLAUDE.md`)
-  uses Flow 1 instead — this call only ever seats both sides of a BRAND
-  NEW table atomically, so it structurally can't fill an already-staged
-  table's open seat, which is what that control does. See
+  `examples/racing`'s and `examples/checkers`'s own `Add Bot` controls
+  (see each one's own `CLAUDE.md`) use Flow 1 instead — this call only
+  ever seats both sides of a BRAND NEW table atomically, so it
+  structurally can't fill an already-staged table's open seat, which is
+  what those controls do. See
   `backend/README.md`'s "Canister players" section for the full design
   and worked example.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
@@ -358,7 +359,8 @@ fast copy nor a full reinstall picks up a source edit that was never
 compiled; `frontend/dist/` is stale (or missing entirely, on a fresh
 clone) until you do.
 
-`examples/007/frontend` and `examples/racing/frontend` each depend on
+`examples/007/frontend`, `examples/racing/frontend`, and
+`examples/checkers/frontend` each depend on
 `duel-game-core` as `file:../../../frontend`, with `install-links=true`
 in their `.npmrc` — so it's **copied** into their own
 `node_modules/duel-game-core`, not symlinked (an asset canister with no
@@ -375,7 +377,7 @@ directly, no further npm involved, effectively instant:
 
 ```bash
 cd frontend && npm run build && cd ..
-for ex in examples/007/frontend examples/racing/frontend; do
+for ex in examples/007/frontend examples/racing/frontend examples/checkers/frontend; do
   target="$ex/node_modules/duel-game-core"
   rsync -a --delete frontend/dist/ "$target/dist/"
   cp frontend/package.json frontend/style.css frontend/README.md "$target/"
@@ -386,9 +388,9 @@ done
 same set a real `install-links=true` copy or `npm pack` would produce —
 so it never leaks `frontend/src/`/`frontend/test/` source into a
 deployed asset canister.) This is enough for `node --check`/a local
-`dfx` reload; for `examples/racing`, also re-run `npm run build` there
-too (fast, esbuild only — no network) so ITS OWN `dist/` picks up the
-change.
+`dfx` reload; for `examples/racing`/`examples/checkers`, also re-run
+`npm run build` there too (fast, esbuild only — no network) so EACH
+ONE'S OWN `dist/` picks up the change.
 
 **If `frontend/package.json`'s `dependencies` DID change** (e.g. a new
 package added): the copy above is not enough — the new package itself
@@ -398,15 +400,16 @@ too, not just `node_modules/duel-game-core`:
 
 ```bash
 cd frontend && npm run build && cd ..
-cd examples/007/frontend    && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
-cd examples/racing/frontend && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
+cd examples/007/frontend      && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
+cd examples/racing/frontend   && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
+cd examples/checkers/frontend && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
 ```
 
-`--legacy-peer-deps` is required for BOTH examples now (007 didn't
+`--legacy-peer-deps` is required for every example now (007 didn't
 previously need it): `frontend/package.json`'s own `@icp-sdk/auth`
 dependency (added for `identity.js`, see rule 10 below) declares a peer
 dependency on `@icp-sdk/core@^5`, one major behind the `@icp-sdk/core@^6.1.0`
-this package (and both examples) actually use — `identity.ts`'s own actual
+this package (and every example) actually use — `identity.ts`'s own actual
 surface (`Identity`/`Principal`'s structural methods) is stable across
 that skew, but plain `npm install` still refuses to resolve the conflicting
 peer ranges without this flag. A plain `npm install` inside `frontend/`

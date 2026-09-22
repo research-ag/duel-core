@@ -17,7 +17,7 @@
 /// every call recomputes fresh from `req.game`, nothing is mirrored
 /// locally.
 import TP "mo:duel-game-core";
-import Rules "CheckersRules";
+import Rules "../src/CheckersRules";
 
 module {
 

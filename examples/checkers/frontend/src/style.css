@@ -2,6 +2,30 @@
    generic lobby/staging/debrief screens) comes from duel-game-core.css,
    loaded first in index.html. */
 
+/* #play-vs-bot-panel (index.html) — see app.js's own comment there for
+ * what it does. A sibling of #screen, styled to read as a continuation
+ * of that same card (same max-width/centering as `main` in the shared
+ * frontend/style.css) rather than a separate floating element; app.js
+ * itself hides it whenever the current view isn't the "Waiting for an
+ * opponent" screen (browsing/busy/playing/debriefing/...). */
+#play-vs-bot-panel {
+  max-width: 860px;
+  margin: 0.75rem auto 0;
+}
+
+#play-vs-bot {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--accent, #d4af37);
+  border-color: var(--accent, #d4af37);
+}
+
+#play-vs-bot-panel .error {
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+  padding: 0.45rem 0.7rem;
+}
+
 .cb-board {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));

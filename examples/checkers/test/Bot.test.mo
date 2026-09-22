@@ -1,4 +1,4 @@
-// Proves the checkers bot (`../src/Bot.mo`/`BotLogic.mo`, the
+// Proves the checkers bot (`../bot/Bot.mo`/`BotLogic.mo`, the
 // milestone-02 rule-following canister player) two ways: (1)
 // `BotLogic.chooseMove` only ever returns a `Rules.legalActions`-listed
 // move for a handful of synthetic positions, including one where a
@@ -24,7 +24,7 @@ import TP "mo:duel-game-core";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import Registry "mo:duel-game-core/registry";
 
-import BotLogic "../src/BotLogic";
+import BotLogic "../bot/BotLogic";
 import Rules "../src/CheckersRules";
 
 let spec = Rules.spec();

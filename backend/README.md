@@ -748,10 +748,11 @@ is due to move the instant the table exists, picked up by the very next
 ordinary `nudge` tick, with no `joinTable` call from the bot at all.
 Deliberately NOT wired any further than that here: `ws.mo`'s own `Msg`
 protocol has no request variant reaching this call, and no game in this
-repo calls it from a browser tab — `examples/racing`'s own `Add Bot`
-control (see its own `CLAUDE.md`'s `frontend/` bullet) uses Flow 1
-instead, since it fills an ALREADY-STAGED table's open seat, which this
-call structurally can't do (it only ever seats both sides of a BRAND NEW
+repo calls it from a browser tab — `examples/racing`'s and
+`examples/checkers`'s own `Add Bot` controls (see each one's own
+`CLAUDE.md`'s `frontend/` bullet) use Flow 1 instead, since it fills an
+ALREADY-STAGED table's open seat, which this call structurally can't do
+(it only ever seats both sides of a BRAND NEW
 table, atomically, in the one call — there's no "join the other seat of
 a table that already exists" version of it). The scenario this call
 _would_ suit — an orchestrator seating two bots against each other with

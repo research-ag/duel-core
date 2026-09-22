@@ -14,7 +14,7 @@ import Principal "mo:core/Principal";
 import TP "mo:duel-game-core";
 
 import BotLogic "BotLogic";
-import Rules "CheckersRules";
+import Rules "../src/CheckersRules";
 
 persistent actor {
 
@@ -39,7 +39,7 @@ persistent actor {
     await h.join_table_as_canister(tableId, seat, code);
   };
 
-  public shared func make_move(req : TP.MoveRequest<Rules.State>) : async Rules.Action {
+  public query func make_move(req : TP.MoveRequest<Rules.State>) : async Rules.Action {
     BotLogic.chooseMove(req);
   };
 
