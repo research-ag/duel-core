@@ -107,7 +107,7 @@ while (round < BotLogic.SCRIPT_P1.size() + 2 and not finished) {
   switch (atTableView(reg, T0, sidBot1)) {
     case (#inGame v) assert v.youSubmitted; // the bot's scripted move landed legally
     case (#debrief d) switch (d.end) {
-      case (#finished (#p1Wins)) finished := true; // the script actually finished the race, as tuned
+      case (#finished(#p1Wins)) finished := true; // the script actually finished the race, as tuned
       case (other) Runtime.trap("race ended unexpectedly at round " # debug_show (round) # ": " # debug_show (other));
     };
     case (_) Runtime.trap("bot1 should still be in-game or in debrief after round " # debug_show (round));
