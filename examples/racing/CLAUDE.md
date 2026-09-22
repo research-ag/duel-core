@@ -100,7 +100,11 @@ Http(renderer.renderExposition, "/metrics")`, from
   access code (however you like; entirely outside this engine's concern),
   and it calls that canister's own `join_table_as_canister` on its own
   account. Deploy target (see `icp.yaml` below) — a deliberately "dumb"
-  bot that proves the wiring end to end, not a competitive racer.
+  bot that proves the wiring end to end, not a competitive racer. This
+  same `play` method is also what the frontend's own `Add Bot` control
+  calls directly (see the `frontend/` bullet below) — a plain Candid
+  call from the browser straight to this canister, not routed through
+  `Host.mo`/`ws.mo` at all.
 - **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
   `Rules.test.mo` are scenario walks (one long session / the headline game
   rules); `Engine.test.mo` and `RulesUnit.test.mo` are per-operation unit
@@ -149,6 +153,30 @@ gateway-*.js` does, registering this tab as its own WS Gateway).
   backend has no plain mutating Candid method to poll in the first place
   (see `../../CLAUDE.md`), so `duel-game-core` ships no plain-polling
   transport at all.
+  `duel-app.js` also wires a small `Add Bot` control (`index.html`'s
+  `#play-vs-bot-panel`, a sibling of `#screen`, positioned/styled in
+  `style.css` to read as a continuation of the same card) — Flow 1's
+  human-facing entry point (see `../CLAUDE.md`'s "Canister players"
+  note): shown only for the generic "Waiting for an opponent" screen
+  (`render.js`'s `stagingYou`, detected off a
+  `ws.addEventListener("message", ...)` listener, the same
+  `GatewayWs`-as-`EventTarget` technique `lobby-connection.service.ts`
+  uses below), it reads that SAME status push's own open seat/table
+  id/access code and, on click, calls the deployed `bot/Bot.mo`
+  canister's own `play(host, tableId, seat, code)` directly — a plain
+  Candid call to a SECOND, ad-hoc-IDL'd actor (built from
+  `duel-game-core/idl.js`'s exported `buildEngineTypes`, so `Seat`/
+  `TableId`/`Err` aren't redeclared by hand), never routed through
+  `ws.mo`'s protocol or the shared `ws` at all — the bot then joins on
+  its own account via `join_table_as_canister`, exactly Flow 1's
+  "self-join" shape, just automated instead of hand-fed a table id/seat/
+  code. Deliberately NOT `Registry.createTableReserving`/Flow 2: that
+  call only ever seats both sides of a BRAND NEW table atomically, with
+  no way to fill an already-staged table's open seat — exactly this
+  screen's situation (a table this player already created, choosing
+  their own seat, now waiting on the other one). `PUBLIC_CANISTER_ID:bot`
+  missing from this deploy's `ic_env` cookie (a fork with no `bot`
+  canister declared in `icp.yaml`) leaves the panel hidden for good.
   `frontend/src/main.ts`'s own gameplay code (really
   `lobby-connection.service.ts`, wired in via `gameplay.service.ts`)
   shares that EXACT connection (`duel-app.js` publishes it on

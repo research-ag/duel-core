@@ -45,7 +45,16 @@ choose beyond a table and a seat), plain TypeScript with no framework:
   switch without being asked. The one exception to "no settings UI" is
   the header's own `duel-auth-btn` (Internet Identity login/logout, see
   below) — that's generic `duel-game-core` chrome, not a per-game
-  setting, and is wired entirely by `start()` itself.
+  setting, and is wired entirely by `start()` itself. `#play-vs-bot-panel`
+  (below `#screen`, not in the header) is a second, narrower exception:
+  NOT generic chrome (not every game has a canister-seated bot) — it's
+  this example's own small sibling-DOM control, wired by hand at the
+  bottom of `duel-app.js` itself, driven directly off the shared
+  `ws`/`session` rather than through `start()`, and talking straight to
+  a SECOND actor (the deployed `bot` canister) rather than through
+  `ws.mo`'s protocol at all. See `../CLAUDE.md`'s `frontend/` bullet for
+  the full design (Flow 1, "self-join") and `bot/Bot.mo`'s own `play`
+  method for the engine side.
 - `src/duel/duel-app.js` calls `duel-game-core/identity.js`'s
   `resolveIdentity()` to get this tab's own identity/`session` in one
   call: a real, permanent Internet Identity login if one's already

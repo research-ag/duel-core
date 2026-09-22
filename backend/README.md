@@ -746,15 +746,22 @@ already busy elsewhere), proven end to end against `canister_players.mo`
 in `backend/test/CanisterPlayers.test.mo` — a canister seated this way
 is due to move the instant the table exists, picked up by the very next
 ordinary `nudge` tick, with no `joinTable` call from the bot at all.
-Deliberately NOT wired any further than that here: turning this into a
-human-facing "instantly start a game against this bot" button needs a
-new field on `ws.mo`'s own `Msg` protocol (so a browser tab can NAME the
-target bot canister when it creates a table) plus real frontend UI for
-picking one — a genuine, separate feature, and one with its own
-trade-off the canister-players design itself calls out (the target
-canister never gets a say — anyone can force a seat against it, unlike
-Flow 1's own opt-in `join_table_as_canister`), so it's left for a game
-that actually wants it to build, rather than assumed here.
+Deliberately NOT wired any further than that here: `ws.mo`'s own `Msg`
+protocol has no request variant reaching this call, and no game in this
+repo calls it from a browser tab — `examples/racing`'s own `Add Bot`
+control (see its own `CLAUDE.md`'s `frontend/` bullet) uses Flow 1
+instead, since it fills an ALREADY-STAGED table's open seat, which this
+call structurally can't do (it only ever seats both sides of a BRAND NEW
+table, atomically, in the one call — there's no "join the other seat of
+a table that already exists" version of it). The scenario this call
+_would_ suit — an orchestrator seating two bots against each other with
+nobody waiting on a `#staging` screen at all — is left for whoever wants
+it to build as its own feature: most naturally a privileged Motoko
+caller invoking `registry.createTableReserving` directly (an admin
+canister, a test harness, a tournament orchestrator), not a new
+`ws.mo`/frontend request path, since `ws.mo`'s own request/push protocol
+is built around one human's own browser tab, not a third party
+launching two OTHER sessions' game for them.
 
 ### Metrics
 

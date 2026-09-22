@@ -125,7 +125,11 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   assignment," proven against `canister_players.mo` in
   `backend/test/CanisterPlayers.test.mo`; deliberately not wired any
   further than that — see `backend/README.md`'s own note on why a
-  human-facing "invite this bot" button is a separate feature). See
+  human-facing "invite this bot" button is a separate feature).
+  `examples/racing`'s own `Add Bot` control (see its own `CLAUDE.md`)
+  uses Flow 1 instead — this call only ever seats both sides of a BRAND
+  NEW table atomically, so it structurally can't fill an already-staged
+  table's open seat, which is what that control does. See
   `backend/README.md`'s "Canister players" section for the full design
   and worked example.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching

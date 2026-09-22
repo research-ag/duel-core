@@ -9,7 +9,6 @@
 /// to — the point of this canister is to prove `canister_players.mo`'s
 /// call/response wiring end to end with the simplest possible bot logic.
 import Principal "mo:core/Principal";
-import Debug "mo:core/Debug";
 
 import TP "mo:duel-game-core";
 
@@ -42,11 +41,7 @@ persistent actor {
     await h.join_table_as_canister(tableId, seat, code);
   };
 
-  public shared func make_move(req : TP.MoveRequest<Rules.State>) : async Rules.Action {
-    switch (req.retryReason) {
-      case (?rr) Debug.print("Bot.make_move: retryReason = " # rr);
-      case (_) {};
-    };
+  public query func make_move(req : TP.MoveRequest<Rules.State>) : async Rules.Action {
     BotLogic.chooseMove(req);
   };
 
