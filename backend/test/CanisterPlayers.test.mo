@@ -331,6 +331,49 @@ switch (atTableView(reg12, PAST_CLAIM, sidBot1)) {
   };
   case (other) Runtime.trap("expected a #claimed debrief, got " # debug_show (other));
 };
+// Both seats are still pinned to the just-ended table — neither has acked
+// its own side of the shared debrief yet.
+expectErr(await* cp12.createTable(bot1, #p1, #open), "bot1 should still be pinned to the debrief its own claim just created");
+expectErr(await* cp12.createTable(bot2, #p1, #open), "bot2 should still be pinned too");
+// Nobody's around to decide on a rematch in an all-canister match — the
+// NEXT nudge tick acks BOTH seats immediately, with no deadlock waiting
+// on each other's own ack (see `maybeAckDebrief`'s own doc).
+await* cp12.nudge(PAST_CLAIM);
+ignore ok(await* cp12.createTable(bot1, #p1, #open), "bot1 should be free immediately, no deadlock waiting on bot2");
+ignore ok(await* cp12.createTable(bot2, #p1, #open), "bot2 should be free immediately too");
 Debug.print("12. an unattended canister-vs-canister match finishes via nudge's own automatic claim-win, no human involved OK");
+
+// ── 13. the reported bug this fix addresses: a game ending via a HUMAN's
+//          own action (never routed through canister_players.mo at all)
+//          leaves a canister seat pinned to the just-ended table, refusing
+//          a fresh `createTable` for that same `cp:` session — `nudge`
+//          must free it once nobody's left who could still want a
+//          rematch, but NOT a moment before, so a still-deciding human
+//          partner's own rematch window is never cut short ─────────────
+let reg13 = fresh();
+let counter13 = newAfterMutationCounter();
+let cp13 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg13, stubAfterMutation(counter13), constantBot(#gather));
+let id13 = ok(await* cp13.createTable(bot1, #p1, #open), "bot1 creates a table");
+ignore ok(reg13.joinTable(spec, T0, "human", id13, #p2, null), "human joins; game live");
+let genAbort13 = switch (atTableView(reg13, T0, sidBot1)) {
+  case (#inGame v) v.gen;
+  case (_) Runtime.trap("n/a");
+};
+// The human forfeits/leaves outright — a shared #aborted debrief, exactly
+// like the reported bug (`ws.mo` is what a real human's frontend goes
+// through; a direct `reg13.leave` call stands in for it here, same as
+// test 3's own doc explains for why a human's own actions never route
+// through `canister_players.mo`).
+ok(reg13.leave(T0, "human", genAbort13), "human forfeits — bot1's side of the debrief is never told");
+expectErr(await* cp13.createTable(bot1, #p1, #open), "bot1 should be pinned to its own unacked debrief, same as the reported bug");
+await* cp13.nudge(T0);
+// Still pinned — the human hasn't acked THEIR side yet, so they might
+// still rematch; freeing bot1 now would silently break that option.
+expectErr(await* cp13.createTable(bot1, #p1, #open), "bot1 should stay pinned while its human partner could still rematch");
+ignore ok(reg13.leave(T0, "human", genAbort13), "human acks their own debrief too (idempotent gen, same as leave's own doc) — no rematch coming");
+await* cp13.nudge(T0);
+// Freed — nothing's left for bot1 to wait on, no idle-timeout wait needed.
+ignore ok(await* cp13.createTable(bot1, #p1, #open), "bot1 should be free the moment its human partner is gone for good");
+Debug.print("13. a canister seat's own finished debrief only auto-acks once its human partner is gone for good OK");
 
 Debug.print("ALL CANISTER-PLAYERS CHECKS PASSED");

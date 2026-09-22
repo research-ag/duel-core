@@ -565,21 +565,38 @@ bot — a claim, a leave, an idle takeover), is treated exactly like
 silence — do nothing, and let the existing timeout machinery take it
 from there.
 
-**When a canister seat gets asked (or claims a win).** `ws.mo` stays
-completely unchanged — it's still the only transport a human ever
-mutates through (rule 11). That means nothing in it eagerly tells a bot
-"your turn again" once a HUMAN's own move resolves a round, and nothing
-in it ever calls `claimWin` on a canister's behalf either. `nudge(now)`
-is the fix for both: a periodic scan over every `#active` table checking
-each canister seat for exactly one of two things — due to move (`View.
+**When a canister seat gets asked, claims a win, or acks a finished
+debrief.** `ws.mo` stays completely unchanged — it's still the only
+transport a human ever mutates through (rule 11). That means nothing in
+it eagerly tells a bot "your turn again" once a HUMAN's own move
+resolves a round, nothing in it ever calls `claimWin` on a canister's
+behalf, and nothing in it ever acks a finished debrief on a canister's
+behalf either — a human's own frontend does that itself (`leave`/
+`ackEnded`, wired to a "return to lobby" click) the moment they're done,
+but a canister seat has no such click, so left alone it would stay
+pinned to that finished table — refusing `createTable`/`joinTable` for
+that same `cp:` session — until the far slower, passive idle-sweep timer
+eventually force-clears it. `nudge(now)` is the fix for all three: a
+periodic scan over every table checking, per canister seat, exactly
+what's due right now. In an `#active` table: due to move (`View.
 #inGame.youSubmitted` is `false` — that one Boolean already means "due
 to move" in EITHER mode, the same way it means "the waiting seat" that
 may `claimWin` — see `Table.status`'s own doc), in which case it's asked
 via `callBot`; or, if it already submitted and is the WAITING seat,
 whether `claimWinAvailable` has since turned true, in which case `nudge`
-claims the win on its behalf outright. The first case is guarded by a
-one-bit-per-(table, seat) in-flight flag so an overlapping tick can never
-ask the same due seat twice while the first ask is still pending. Wire
+claims the win on its behalf outright. In a `#debrief` table: if the
+OTHER seat is no longer a live participant of that SAME debrief either
+(`Table.activeDebriefSeat` returns `null` for a seat that's already
+acked, or was never filled) — or is itself canister-seated, so there's
+nobody around to decide on a rematch at all — `nudge` acks the canister
+seat's own side immediately (via `registry.leave`, the same call a
+human's "return to lobby" makes), freeing it for a fresh
+`createTable`/`joinTable` with no wait. A still-deciding HUMAN partner's
+own rematch window is never cut short by this: their own debrief seat
+staying unacked is exactly what keeps the canister seat's from firing.
+The move-asking case is additionally guarded by a one-bit-per-(table,
+seat) in-flight flag so an overlapping tick can never ask the same due
+seat twice while the first ask is still pending. Wire
 `nudge` onto its own fast timer (a few seconds — independent of the
 existing 30s idle-sweep timer, which is far too slow for a game round to
 wait on):
@@ -596,9 +613,11 @@ ignore Timer.recurringTimer<system>(
 
 A canister-initiated mutation additionally triggers the SAME check
 eagerly, right after it succeeds — `joinTable`/`rematch`'s own
-implementations call it internally — so a bot's own move landing (in a
-bot-vs-bot match) or a bot's own join starting the game never waits for
-the next tick; only a HUMAN-caused transition needs `nudge` to catch it.
+implementations call it internally, and so does a canister's own move
+landing via `notifyAndApply` (in case that move just ended the game) —
+so a bot-vs-bot match starting, resolving a round, or settling its own
+debrief never waits for the next tick; only a HUMAN-caused transition
+needs `nudge` itself to catch it.
 
 **Wiring it into a host actor** — extending the `ws.mo` example above:
 
@@ -670,15 +689,25 @@ waiting. In an all-canister match there's nobody looking. `nudge` covers
 this automatically — its periodic scan checks not just "is this canister
 seat due to move" but also "is this canister seat the WAITING one, with
 `View.#inGame.claimWinAvailable` now true," and claims the win on its
-behalf the instant that's so, no separate wiring needed. `claim_win_as_
-canister`/`reset_as_canister` exist alongside that mainly so a canister
-PARTICIPANT that wants to act the moment it's entitled to — rather than
-wait out the nudge timer's own interval — can call either directly; both
-route through the caller's own `cp:` session exactly like `leave_as_
-canister` does (only ever "my own table," never an arbitrary one by
-table id — a supervising tournament-orchestrator canister resetting or
-claiming ANY table, not just one it's seated at, is a further capability
-this module doesn't provide).
+behalf the instant that's so, no separate wiring needed. The same
+"nobody's looking" reasoning applies once that claim (or any other route
+into a shared debrief) leaves both seats canister-occupied: a still-
+deciding human partner is exactly who a canister seat's own debrief-ack
+waits on (see "When a canister seat gets asked, claims a win, or acks a
+finished debrief" above) — but two canister seats waiting on EACH
+OTHER'S own ack first would simply deadlock, since neither `nudge` tick
+would ever see the other as "gone." So when the OTHER seat is also
+canister-seated, `nudge` acks both sides unconditionally instead,
+settling an all-canister match's own debrief immediately rather than
+leaving it stuck until the idle-sweep timer eventually clears it.
+`claim_win_as_canister`/`reset_as_canister` exist alongside that mainly
+so a canister PARTICIPANT that wants to act the moment it's entitled to
+— rather than wait out the nudge timer's own interval — can call either
+directly; both route through the caller's own `cp:` session exactly like
+`leave_as_canister` does (only ever "my own table," never an arbitrary
+one by table id — a supervising tournament-orchestrator canister
+resetting or claiming ANY table, not just one it's seated at, is a
+further capability this module doesn't provide).
 
 A lobby frontend needs no new field to show "vs 🤖" either:
 `TableSummary.p1Session`/`p2Session` already carry the raw `SessionId`

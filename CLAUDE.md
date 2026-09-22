@@ -103,7 +103,21 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   next tick, routed through its own `cp:` session exactly like
   `leave_as_canister` (only ever "my own table," never an arbitrary one
   by id — a supervising tournament-orchestrator canister is out of scope
-  here). `registry.mo`'s `createTableReserving` is a separate, small
+  here). `nudge` also acks a canister seat's own finished `#debrief` —
+  a human's frontend does this itself (`leave`/`ackEnded`, on "return to
+  lobby") the moment they're not rematching, but a canister seat has no
+  such click, so left alone it stays pinned to that finished table
+  (refusing `createTable`/`joinTable` for that same `cp:` session) until
+  the far slower idle-sweep timer eventually clears it; `nudge` acks it
+  immediately instead, once the OTHER seat is no longer a live
+  participant of that SAME debrief either (already acked, or never
+  filled) — never cutting short a still-deciding HUMAN partner's own
+  rematch window, since their own seat staying unacked is exactly what
+  keeps this from firing. When the other seat is ALSO canister-seated
+  (nobody around to decide on a rematch at all), both ack unconditionally
+  instead of each waiting on the other's own ack first, which would
+  otherwise deadlock two canister seats against each other forever.
+  `registry.mo`'s `createTableReserving` is a separate, small
   addition alongside plain `createTable`: it seats BOTH sides atomically
   in one call — the creator, and a `reservedFor` session named
   up front — landing the table directly in `#active` with no second
@@ -177,10 +191,15 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   bot-vs-bot trigger, `claimWin`/`reset` forwarding, `nudge`'s own
   automatic claim-win once a canister seat's stall turns overdue (a
   fully unattended, canister-vs-canister match, start to finish, with no
-  human ever involved), and a canister seated via `createTableReserving`
+  human ever involved), a canister seated via `createTableReserving`
   being due from the very first ordinary `nudge` tick with no
-  `joinTable` of its own — against `FakeGame.mo` again, with
-  `afterMutation`
+  `joinTable` of its own, `nudge`'s own debrief-ack freeing a canister
+  seat pinned to a game a HUMAN'S own action just ended (never routed
+  through `canister_players.mo` at all) — staying pinned while that human
+  partner could still rematch, then freeing the instant they're gone for
+  good — and the canister-vs-canister case settling both seats'
+  debriefs immediately with no partner-vs-partner deadlock — against
+  `FakeGame.mo` again, with `afterMutation`
   stubbed (a plain call counter) rather than a real `Ws.attach`, same
   caveat `Hub.test.mo` documents for why the full `IcWebSocketCdk` actor
   machinery isn't exercisable here. (Its own `T0` baseline is
