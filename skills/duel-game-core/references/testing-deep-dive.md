@@ -39,10 +39,13 @@ from finishing:
 ```motoko
 public func seedGame(t : TP.Table<R.State, R.Action>, p1 : R.CarState, p2 : R.CarState) {
   switch (t.phase) {
-    case (#active a) { t.phase := #active({ a with game = { p1; p2; step = a.game.step } }) };
+    case (#active a) {
+      t.phase := #active({ a with game = { p1; p2; step = a.game.step } });
+    };
     case (_) Runtime.trap("seedGame: table is not #active");
   };
 };
+
 ```
 
 Then submit ONE real move through the actual `TP.submit` and let the

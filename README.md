@@ -34,3 +34,19 @@ this repo's Motoko/TypeScript tooling: an Internet Identity login, a
 developer's own editable display name, and a public, filterable grid of
 every registered game — not part of either package above and not a game
 built on the session engine.
+
+### Format the code
+
+We use `prettier` with the `prettier-plugin-motoko` plugin (configured in `.prettierrc`). The CI checks formatting on every pull request.
+
+To format the code locally run:
+
+```
+npx -y prettier --plugin prettier-plugin-motoko --write '**/*.{mo,json,md}'
+```
+
+To only check the formatting (as CI does) run:
+
+```
+npx -y prettier --plugin prettier-plugin-motoko --check '**/*.{mo,json,md}'
+```

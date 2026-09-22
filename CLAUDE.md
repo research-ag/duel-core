@@ -71,7 +71,7 @@ particular game — that's supplied by whoever builds a game on top.
   — see `backend/README.md`'s "Real-time push" section). `backend/src/actor_mixin.mo`
   (`mo:duel-game-core/actor_mixin`) is a fourth module — a Motoko
   `mixin`, `include`d in the host actor as `include
-  ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
+ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   methods (`ws_open`/`ws_close`/`ws_message`/`ws_get_messages`,
   forwarding each straight to the `ws` built from `Ws.attach`) plus the
   idle-sweep timer, so no host actor hand-declares any of the four.
@@ -137,7 +137,7 @@ particular game — that's supplied by whoever builds a game on top.
   its own caller, and the CDK's own sequence-numbered envelopes plus
   keep-alive/close semantics are real, canister-driven state, not a
   client-side illusion — but the transport underneath that surface is
-  Candid calls on an interval, so there's no external relay *process* to
+  Candid calls on an interval, so there's no external relay _process_ to
   run, and no genuine browser WebSocket either. A real Gateway-backed
   transport (swapped in under the same `GatewayWs` surface, see
   `frontend/README.md`'s transport-split table) is what a deployment
@@ -582,7 +582,7 @@ because only one of them ships to third parties:
   ordering (core / third-party / local, alphabetical), unused-import
   cleanup. CAUTION: dot notation creates implicit import needs —
   `xs.concat(..)` / `i.toNat()` still require `import Array` / `import
-  Int` even though the module name no longer appears (they carry
+Int` even though the module name no longer appears (they carry
   comments here saying so; don't remove them).
 - `.agents/skills/motoko-dot-notation-migration/SKILL.md` — prefer
   `self.func(...)` dot notation for core functions with a `self` first

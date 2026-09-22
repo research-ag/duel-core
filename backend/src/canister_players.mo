@@ -230,7 +230,14 @@ module {
       switch (registry.status(spec, now, session)) {
         case (#atTable { view = #inGame ig }) {
           if (ig.youSubmitted) { null } else {
-            ?{ tableId = id; seat = ig.seat; game = ig.game; mode = ig.mode; turn = ig.turn; gen = ig.gen };
+            ?{
+              tableId = id;
+              seat = ig.seat;
+              game = ig.game;
+              mode = ig.mode;
+              turn = ig.turn;
+              gen = ig.gen;
+            };
           };
         };
         case (_) null;
@@ -376,7 +383,10 @@ module {
         switch (registry.bySession.get(session)) {
           case null #err(#notSeated);
           case (?id) switch (registry.leave(now, session, gen)) {
-            case (#ok _) { await* afterMutation(now, session, null, ?id, true); #ok(()) };
+            case (#ok _) {
+              await* afterMutation(now, session, null, ?id, true);
+              #ok(());
+            };
             case (#err e) #err(e);
           };
         };
@@ -421,7 +431,10 @@ module {
         switch (registry.bySession.get(session)) {
           case null #err(#notSeated);
           case (?id) switch (registry.claimWin(spec, now, session, gen)) {
-            case (#ok _) { await* afterMutation(now, session, null, ?id, true); #ok(()) };
+            case (#ok _) {
+              await* afterMutation(now, session, null, ?id, true);
+              #ok(());
+            };
             case (#err e) #err(e);
           };
         };
@@ -433,7 +446,10 @@ module {
         switch (registry.bySession.get(session)) {
           case null #err(#notSeated);
           case (?id) switch (registry.reset(now, session, gen)) {
-            case (#ok _) { await* afterMutation(now, session, null, ?id, true); #ok(()) };
+            case (#ok _) {
+              await* afterMutation(now, session, null, ?id, true);
+              #ok(());
+            };
             case (#err e) #err(e);
           };
         };

@@ -125,7 +125,7 @@ jobs:
         with:
           node-version: latest
 
-#      - name: Prettier Check
-#        run: |
-#          npm install prettier prettier-plugin-motoko --no-save
-#          npx -y prettier --plugin prettier-plugin-motoko --check '**/*.{mo,json,md}'
+      - name: Prettier Check
+        run: |
+          npm install prettier prettier-plugin-motoko --no-save
+          npx -y prettier --plugin prettier-plugin-motoko --check '**/*.{mo,json,md}'

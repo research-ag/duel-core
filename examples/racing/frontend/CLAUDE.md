@@ -57,7 +57,7 @@ choose beyond a table and a seat), plain TypeScript with no framework:
   no real `identity` passed, the WS handshake (and with it the whole app,
   since there's no polling fallback) never comes up at all; that's the
   real bug behind a console full of repeating `ws_open: Anonymous
-  principal is not allowed` errors and a lobby that never leaves the
+principal is not allowed` errors and a lobby that never leaves the
   loading state.
   **The anonymous identity's keypair is persisted (`sessionStorage`),
   stable across a reload of this tab, and `session.sid` is derived from
@@ -96,7 +96,7 @@ choose beyond a table and a seat), plain TypeScript with no framework:
   workaround here: if a call fired this early ever again surfaces as
   "duel status request failed" in the console with a `null` `client_key`
   (`Invalid record ... field client_key -> Cannot read properties of
-  null (reading 'hasOwnProperty')`), the bug is that `_ensureOpen()`'s
+null (reading 'hasOwnProperty')`), the bug is that `_ensureOpen()`'s
   own coalescing regressed, not that this file needs its own open-wait.
 - `game-communication/services/lobby-connection.service.ts` shares the
   SAME `GatewayWs` duel-game-core's own chrome uses for push (one
@@ -166,16 +166,16 @@ time for sustained driving.
 ### `onStepComplete` already animates cars to their END position before `startNewIteration` runs
 
 In `gameplay.service.ts`, `onStepComplete(data)` calls `await this.playAnimations(steps)`
-(for every step past the first) *before* calling `this.startNewIteration(data)`.
+(for every step past the first) _before_ calling `this.startNewIteration(data)`.
 `playAnimations` mutates the shared `Car` objects in `gameStateService.cars` via
 `car.setFullPositioning(...)` all the way to each step's **final** position as
 part of driving the ~1s move animation. So by the time `startNewIteration` runs,
 `car.getFullPositioning()` no longer reflects where that step's trajectory
-*started* — it's already the destination. Any logic that needs the pre-move
+_started_ — it's already the destination. Any logic that needs the pre-move
 starting positioning for a given step (e.g. re-deriving whether a trajectory
 collided with the map, via `findTrajectoryCollisionWithMap`/`hasCrashed`) must
 capture it in `onStepComplete`'s first loop (the one that builds `steps[]`),
-*before* `playAnimations` is awaited — not read it fresh inside
+_before_ `playAnimations` is awaited — not read it fresh inside
 `startNewIteration`. Doing the latter silently tests the trajectory against
 the wrong basis point and can produce spurious collision results (a real bug
 that manifested as crash-penalty logic triggering on ordinary non-crashing
@@ -208,13 +208,15 @@ cache can fail. Just (re-)run `npx playwright install chromium`; it's a no-op
 if versions already match and downloads the right one (~170MB) if not.
 
 Launch once with:
+
 ```bash
 chrome --remote-debugging-port=9333 --remote-debugging-address=127.0.0.1 \
   --headless=new --no-sandbox --use-gl=angle --use-angle=swiftshader \
   --enable-unsafe-swiftshader --ignore-gpu-blocklist
 ```
+
 `disown` it, then in later scripts `connectOverCDP` to the same port, reusing
-`context.pages()[0]`. Calling `browser.close()` on a CDP-*connected* Browser only
+`context.pages()[0]`. Calling `browser.close()` on a CDP-_connected_ Browser only
 disconnects Playwright — it does **not** kill the underlying Chromium — so it's
 safe to call at the end of every short script.
 
@@ -244,13 +246,13 @@ Mutating the Three.js scene graph directly (e.g. via a `window.__THREE_DEVTOOLS_
 hook, see below) and then screenshotting will show a **stale frame** unless you
 also trigger an actual game interaction (a trajectory click) afterward to force
 a redraw. `window.dispatchEvent(new Event('resize'))` and mouse-move alone do
-*not* trigger it.
+_not_ trigger it.
 
 ### Inspecting the live Three.js scene graph without app code changes
 
 Three.js calls `window.__THREE_DEVTOOLS__.dispatchEvent(new CustomEvent('observe', { detail: this }))`
 from `Scene`/`Object3D` constructors, and a `'register'` event from
-`WebGLRenderer`, *if* that global exists — this is meant for the real Three.js
+`WebGLRenderer`, _if_ that global exists — this is meant for the real Three.js
 devtools extension, but you can fake it with `page.addInitScript` before
 `page.goto` to capture live object references (Scene, proxy groups, meshes) for
 free, e.g. to assert prop counts/positions/scale after a map load. No camera
@@ -284,9 +286,11 @@ that's impractical to reach through real UI interaction alone (e.g. testing a
 crash-penalty state without actually maneuvering the car into the map
 boundary), temporarily add a one-liner to the relevant service's constructor
 or `init()`:
+
 ```ts
 (window as any).__gameStateDebug = this; // TEMP-DEBUG-REMOVE
 ```
+
 then drive it from Playwright via
 `page.evaluate(() => window.__gameStateDebug.someSubject.next(...))`.
 TypeScript `private` is compile-time only, so even a component/service's
@@ -303,6 +307,7 @@ geometry) plus an `<name>.meta` JSON sidecar with two arrays — `dummies`
 key/value pairs) for point markers, and `curves` (name + an ordered list
 of spline points) for paths/boundaries. `model-loader.service.ts` loads
 both; `map-loader.service.ts` matches specific names out of them:
+
 - `map-polygon_outer` / `map-polygon_inner` (curves) — drivable-area
   boundary polygons.
 - `player-position_NN` (dummies) — race start positions.

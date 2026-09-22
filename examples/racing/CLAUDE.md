@@ -48,7 +48,7 @@ first to complete the lap wins.
   design. `Host.mo` also wires Prometheus-style metrics onto the
   registry via `Registry.attachMetrics(pt)` (`pt : mo:promtracker`'s
   `Tracker`), rendered at a `/metrics` endpoint (`include
-  Http(renderer.renderExposition, "/metrics")`, from
+Http(renderer.renderExposition, "/metrics")`, from
   `mo:promtracker/mixins/http` — the same kind of `mixin` as
   `mo:duel-game-core/actor_mixin`, so it's subject to this file's own
   Toolchain note below) alongside `PT.allSystemMetrics` (cycles/RTS
@@ -80,7 +80,7 @@ first to complete the lap wins.
   instant it's entitled to instead of waiting on the next tick.
 - **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a racing
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
-  -> async Rules.Action`, the exact counterpart to a browser's own
+-> async Rules.Action`, the exact counterpart to a browser's own
   `GamePlugin`.
 - **`src/BotLogic.mo`** — the racing bot's move-selection logic, as a
   plain pure module (no actor, no `Time`, matching `RacingRules.mo`'s own
@@ -144,7 +144,7 @@ first to complete the lap wins.
   `examples/007/frontend/app.js` — see `../../frontend/README.md`'s
   "Real-time push" section; this game's own code never touches
   `mo:duel-game-core/ws`'s protocol directly — `duel-game-core/ws/
-  gateway-*.js` does, registering this tab as its own WS Gateway).
+gateway-*.js` does, registering this tab as its own WS Gateway).
   There is no polling fallback anywhere in this stack any more — the
   backend has no plain mutating Candid method to poll in the first place
   (see `../../CLAUDE.md`), so `duel-game-core` ships no plain-polling
@@ -217,7 +217,7 @@ first to complete the lap wins.
   pull in everything they need — `@icp-sdk/core` directly, `@icp-sdk/auth`
   and `cborg` transitively through `duel-game-core`'s own `package.json`
   — from `node_modules` at build time (a normal `npm install
-  --legacy-peer-deps` resolves them there like any other dependency; see
+--legacy-peer-deps` resolves them there like any other dependency; see
   `../../frontend/README.md`'s note on why the flag is needed). Neither
   bundle needs an import map: esbuild inlines every one of those
   dependencies directly into `dist/main.js`/`dist/duel-app.js`, so the
@@ -225,14 +225,14 @@ first to complete the lap wins.
 - **Gotcha:** `frontend/.npmrc` sets `install-links=true` (same reasoning
   as `examples/007`'s — see its `CLAUDE.md`), so `duel-game-core` is
   COPIED into `node_modules/duel-game-core`, not symlinked. A plain `npm
-  install` after editing `../../frontend/` reports nothing to do and does
+install` after editing `../../frontend/` reports nothing to do and does
   NOT refresh that copy. See `../../../CLAUDE.md`'s "After touching
   anything under `frontend/`" section for the actual refresh procedure —
   **always `npm run build` inside `../../frontend/` first** (its
   `prepare` script does NOT reliably do this for you here — this repo's
   `allow-scripts` gate blocks it, confirmed live), then a fast direct
   `rsync` copy in the common case, followed by re-running `npm run
-  build` HERE too; a full `node_modules`+lockfile reinstall with
+build` HERE too; a full `node_modules`+lockfile reinstall with
   `--legacy-peer-deps` only if `frontend/package.json`'s own
   `dependencies` changed. Do this proactively after any change there,
   not just when asked to deploy.

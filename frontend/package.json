@@ -6,18 +6,54 @@
   "main": "./dist/app.js",
   "types": "./dist/app.d.ts",
   "exports": {
-    ".": { "types": "./dist/app.d.ts", "default": "./dist/app.js" },
-    "./app.js": { "types": "./dist/app.d.ts", "default": "./dist/app.js" },
-    "./render.js": { "types": "./dist/render.d.ts", "default": "./dist/render.js" },
-    "./idl.js": { "types": "./dist/idl.d.ts", "default": "./dist/idl.js" },
-    "./ic-env.js": { "types": "./dist/ic-env.d.ts", "default": "./dist/ic-env.js" },
-    "./ws.js": { "types": "./dist/ws.d.ts", "default": "./dist/ws.js" },
-    "./identity.js": { "types": "./dist/identity.d.ts", "default": "./dist/identity.js" },
-    "./anon-identity.js": { "types": "./dist/anon-identity.d.ts", "default": "./dist/anon-identity.js" },
-    "./types.js": { "types": "./dist/types.d.ts", "default": "./dist/types.js" },
-    "./ws/gateway-client.js": { "types": "./dist/ws/gateway-client.d.ts", "default": "./dist/ws/gateway-client.js" },
-    "./ws/gateway-transport.js": { "types": "./dist/ws/gateway-transport.d.ts", "default": "./dist/ws/gateway-transport.js" },
-    "./ws/gateway-protocol.js": { "types": "./dist/ws/gateway-protocol.d.ts", "default": "./dist/ws/gateway-protocol.js" },
+    ".": {
+      "types": "./dist/app.d.ts",
+      "default": "./dist/app.js"
+    },
+    "./app.js": {
+      "types": "./dist/app.d.ts",
+      "default": "./dist/app.js"
+    },
+    "./render.js": {
+      "types": "./dist/render.d.ts",
+      "default": "./dist/render.js"
+    },
+    "./idl.js": {
+      "types": "./dist/idl.d.ts",
+      "default": "./dist/idl.js"
+    },
+    "./ic-env.js": {
+      "types": "./dist/ic-env.d.ts",
+      "default": "./dist/ic-env.js"
+    },
+    "./ws.js": {
+      "types": "./dist/ws.d.ts",
+      "default": "./dist/ws.js"
+    },
+    "./identity.js": {
+      "types": "./dist/identity.d.ts",
+      "default": "./dist/identity.js"
+    },
+    "./anon-identity.js": {
+      "types": "./dist/anon-identity.d.ts",
+      "default": "./dist/anon-identity.js"
+    },
+    "./types.js": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    },
+    "./ws/gateway-client.js": {
+      "types": "./dist/ws/gateway-client.d.ts",
+      "default": "./dist/ws/gateway-client.js"
+    },
+    "./ws/gateway-transport.js": {
+      "types": "./dist/ws/gateway-transport.d.ts",
+      "default": "./dist/ws/gateway-transport.js"
+    },
+    "./ws/gateway-protocol.js": {
+      "types": "./dist/ws/gateway-protocol.d.ts",
+      "default": "./dist/ws/gateway-protocol.js"
+    },
     "./style.css": "./style.css"
   },
   "files": [

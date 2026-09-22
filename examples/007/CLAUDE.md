@@ -41,7 +41,7 @@ concrete to copy — it is **not** part of either package itself.
   design. `Host.mo` also wires Prometheus-style metrics onto the
   registry via `Registry.attachMetrics(pt)` (`pt : mo:promtracker`'s
   `Tracker`), rendered at a `/metrics` endpoint (`include
-  Http(renderer.renderExposition, "/metrics")`, from
+Http(renderer.renderExposition, "/metrics")`, from
   `mo:promtracker/mixins/http` — the same kind of `mixin` as
   `mo:duel-game-core/actor_mixin`, so it's subject to this file's own
   Toolchain note below) alongside `PT.allSystemMetrics` (cycles/RTS
@@ -80,7 +80,7 @@ concrete to copy — it is **not** part of either package itself.
   is always derived from — and non-spoofable because of — the exact
   identity that opens the WS connection. Then calls `duel-game-core/ws.js`'s
   `connectWs({ actor, principal: session.principal, gameIdlTypes:
-  plugin.idlTypes })` for the real push transport `start()` requires —
+plugin.idlTypes })` for the real push transport `start()` requires —
   this game's own code never touches `mo:duel-game-core/ws`'s protocol
   directly (`duel-game-core/ws/gateway-*.js` does, registering this tab
   as its own WS Gateway) — and calls `start({ plugin, ws, session })`,
@@ -125,9 +125,9 @@ concrete to copy — it is **not** part of either package itself.
 - The frontend's npm dependencies (`frontend/package.json`) split by
   what needs them: `duel-game-core` (`file:../../../frontend`) is the
   one `app.js` itself needs, pulled in bundled via `duel-game-core/
-  app.js`/`idl.js`/`ws.js`/`identity.js`/`ic-env.js`/`render.js` (its
+app.js`/`idl.js`/`ws.js`/`identity.js`/`ic-env.js`/`render.js` (its
   `package.json` `exports` map, not an on-disk `dist/` path); `@icp-sdk/
-  core` is `app.js`'s own direct dependency, for `Actor`/`HttpAgent`.
+core` is `app.js`'s own direct dependency, for `Actor`/`HttpAgent`.
   esbuild bundles both, plus everything `duel-game-core` itself needs
   transitively (`@icp-sdk/auth`, `cborg`) into a single `dist/app.js` —
   see `frontend/build.js`. `frontend/.npmrc`

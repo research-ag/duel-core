@@ -24,10 +24,7 @@ module {
   };
 
   func u32be(bytes : [Nat8], offset : Nat) : Nat {
-    Nat8.toNat(bytes[offset]) * 16_777_216 +
-    Nat8.toNat(bytes[offset + 1]) * 65_536 +
-    Nat8.toNat(bytes[offset + 2]) * 256 +
-    Nat8.toNat(bytes[offset + 3]);
+    Nat8.toNat(bytes[offset]) * 16_777_216 + Nat8.toNat(bytes[offset + 1]) * 65_536 + Nat8.toNat(bytes[offset + 2]) * 256 + Nat8.toNat(bytes[offset + 3]);
   };
 
   /// `?(width, height)` in pixels, read from the PNG signature + `IHDR`

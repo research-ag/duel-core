@@ -292,7 +292,7 @@ do {
   if (sidA != Ws.sidForPrincipal(PA)) {
     Runtime.trap("13a: sidForPrincipal must be deterministic for the same principal");
   };
-  if (not Text.startsWith(sidA, #text (Ws.PRINCIPAL_SID_PREFIX))) {
+  if (not Text.startsWith(sidA, #text(Ws.PRINCIPAL_SID_PREFIX))) {
     Runtime.trap("13b: sidForPrincipal's own output must fall in its reserved namespace");
   };
   if (sidA == Ws.sidForPrincipal(PB)) {
@@ -326,7 +326,7 @@ do {
 // ────────────────────────────────────────────────────────────────────
 do {
   let anonSid = Ws.sidFor(Ws.ANON_SID_PREFIX, PA);
-  if (not Text.startsWith(anonSid, #text (Ws.ANON_SID_PREFIX))) {
+  if (not Text.startsWith(anonSid, #text(Ws.ANON_SID_PREFIX))) {
     Runtime.trap("15a: sidFor(ANON_SID_PREFIX, ...) must fall in its own reserved namespace");
   };
   if (not Ws.isAuthorizedSid(anonSid, PA)) {

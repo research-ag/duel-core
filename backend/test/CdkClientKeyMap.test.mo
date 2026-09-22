@@ -33,8 +33,14 @@ let clientP = Principal.fromText("2vxsx-fae");
 await async {
   let state = State.IcWebSocketState(Types.WsInitParams(null, null));
 
-  let oldKey : Types.ClientKey = { client_principal = clientP; client_nonce = 1 };
-  let newKey : Types.ClientKey = { client_principal = clientP; client_nonce = 2 };
+  let oldKey : Types.ClientKey = {
+    client_principal = clientP;
+    client_nonce = 1;
+  };
+  let newKey : Types.ClientKey = {
+    client_principal = clientP;
+    client_nonce = 2;
+  };
 
   state.add_client(oldKey, Types.RegisteredClient(gateway));
   // A reload: the same principal re-registers under a new client_key

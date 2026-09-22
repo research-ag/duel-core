@@ -218,7 +218,10 @@ let counter9 = newAfterMutationCounter();
 let cp9 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg9, stubAfterMutation(counter9), constantBot(#gather));
 let id9 = ok(await* cp9.createTable(bot1, #p1, #open), "bot1 creates a table");
 ignore ok(reg9.joinTable(spec, T0, "human", id9, #p2, null), "human joins; game live");
-let genBefore = switch (atTableView(reg9, T0, sidBot1)) { case (#inGame v) v.gen; case (_) Runtime.trap("n/a") };
+let genBefore = switch (atTableView(reg9, T0, sidBot1)) {
+  case (#inGame v) v.gen;
+  case (_) Runtime.trap("n/a");
+};
 ok(await* cp9.leave(bot1, genBefore), "bot1 leaves the live game — a shared #aborted debrief");
 switch (atTableView(reg9, T0, sidBot1)) {
   case (#debrief d) switch (d.end) {
@@ -270,7 +273,10 @@ expectErr(await* cp11.reset(bot1, 0), "bot1 (not seated anywhere) tries to reset
 let id11 = ok(await* cp11.createTable(bot1, #p1, #open), "bot1 creates a table");
 ignore ok(reg11.joinTable(spec, T0, "human", id11, #p2, null), "human joins; game live");
 await* cp11.nudge(T0); // bot1 gathers; now waiting on human
-let g11 = switch (atTableView(reg11, T0, sidBot1)) { case (#inGame v) v.gen; case (_) Runtime.trap("n/a") };
+let g11 = switch (atTableView(reg11, T0, sidBot1)) {
+  case (#inGame v) v.gen;
+  case (_) Runtime.trap("n/a");
+};
 switch (await* cp11.claimWin(bot1, g11)) {
   case (#err(#notOverdue _)) {};
   case (other) Runtime.trap("bot1's own claim window hasn't elapsed yet, got " # debug_show (other));
@@ -310,7 +316,10 @@ let cp12 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg12, stubAf
 let id12 = ok(await* cp12.createTable(bot1, #p1, #open), "bot1 creates a table");
 ignore ok(await* cp12.joinTable(bot2, id12, #p2, null), "bot2 joins; game starts — bot1's own eager join-trigger gathers, bot2 stays silent");
 switch (atTableView(reg12, T0, sidBot1), atTableView(reg12, T0, sidBot2)) {
-  case (#inGame v1, #inGame v2) { assert v1.youSubmitted; assert not v2.youSubmitted };
+  case (#inGame v1, #inGame v2) {
+    assert v1.youSubmitted;
+    assert not v2.youSubmitted;
+  };
   case (_, _) Runtime.trap("bot1 should be waiting, bot2 should still be due");
 };
 let PAST_CLAIM : Int = T0 + CLAIM_TIMEOUT + 1_000_000_000; // safely past bot1's own claim window

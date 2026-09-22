@@ -52,8 +52,7 @@ module {
 
   // ── Profiles ───────────────────────────────────────────────────────────
 
-  public func getProfile(self : State, who : Principal) : ?T.Profile =
-    Map.get(self.profiles, Principal.compare, who);
+  public func getProfile(self : State, who : Principal) : ?T.Profile = Map.get(self.profiles, Principal.compare, who);
 
   public func setDisplayName(self : State, caller : Principal, name : Text) : Res<()> {
     if (Principal.isAnonymous(caller)) return #err(#anonymousCaller);
@@ -187,11 +186,9 @@ module {
     #ok(());
   };
 
-  public func getGame(self : State, id : T.GameId) : ?T.GameView =
-    Option.map<T.Game, T.GameView>(Map.get(self.games, Principal.compare, id), func(g) = toView(self, g));
+  public func getGame(self : State, id : T.GameId) : ?T.GameView = Option.map<T.Game, T.GameView>(Map.get(self.games, Principal.compare, id), func(g) = toView(self, g));
 
-  public func getBanner(self : State, id : T.GameId) : ?Blob =
-    Option.map<T.Game, Blob>(Map.get(self.games, Principal.compare, id), func(g) = g.banner);
+  public func getBanner(self : State, id : T.GameId) : ?Blob = Option.map<T.Game, Blob>(Map.get(self.games, Principal.compare, id), func(g) = g.banner);
 
   public func listGames(self : State) : [T.GameView] {
     let out = List.empty<T.GameView>();

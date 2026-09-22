@@ -28,7 +28,7 @@ independent Candid interface — no `ws.mo`, no `Registry`, no `Spec`.
   it, and registering the same backend canister twice is rejected
   outright rather than silently reassigning ownership. `deregisterGame`
   gates on the same ownership check `updateGame` uses (`existing.developer
-  == caller`, else `#notOwner`) and reuses `updateGame`'s own
+== caller`, else `#notOwner`) and reuses `updateGame`'s own
   `#noSuchGame`/`#notOwner` `Err` arms rather than adding new ones — it
   removes the game (and, since the banner lives on the same record, its
   banner) from the registry outright; it has no effect on the game's own
@@ -81,7 +81,7 @@ independent Candid interface — no `ws.mo`, no `Registry`, no `Spec`.
   yet — prerequisites (`icp-cli`, an identity, enough cycles for 2
   canisters), project/GitHub setup, generating the skeleton (pointing at
   `skills/duel-game-core/SKILL.md`, both as an `npx skills add
-  research-ag/duel-core --skill duel-game-core` install for an AI
+research-ag/duel-core --skill duel-game-core` install for an AI
   assistant and as a plain GitHub link for a human), deploying to
   mainnet (`icp deploy -e ic -y`), then handing off into the SAME
   `GameFormModal` register flow for the final step. It's a browser page,

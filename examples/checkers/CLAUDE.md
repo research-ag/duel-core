@@ -44,7 +44,7 @@ either package itself.
   Prometheus-style metrics onto the registry via
   `Registry.attachMetrics(pt)` (`pt : mo:promtracker`'s `Tracker`),
   rendered at a `/metrics` endpoint (`include
-  Http(renderer.renderExposition, "/metrics")`, from
+Http(renderer.renderExposition, "/metrics")`, from
   `mo:promtracker/mixins/http` — the same kind of `mixin` as
   `mo:duel-game-core/actor_mixin`) alongside `PT.allSystemMetrics`
   (cycles/RTS metrics, no `Tracker` of its own needed). Unlike `ws.mo`,
@@ -80,7 +80,7 @@ either package itself.
   instead of waiting on the next tick.
 - **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
-  -> async Rules.Action`, the exact counterpart to a browser's own
+-> async Rules.Action`, the exact counterpart to a browser's own
   `GamePlugin`.
 - **`src/BotLogic.mo`** — the checkers bot's move-selection logic, as a
   plain pure module (no actor, no `Time`, matching `CheckersRules.mo`'s
@@ -175,7 +175,7 @@ either package itself.
   plain anonymous identity, since `ic-websocket-cdk`'s `ws_open`
   hard-rejects it), then
   `duel-game-core/ws.js`'s `connectWs({ actor, principal:
-  session.principal, gameIdlTypes: plugin.idlTypes })` for the real push
+session.principal, gameIdlTypes: plugin.idlTypes })` for the real push
   transport `start()` requires, and `start({ plugin, ws, session })` —
   identical wiring to `examples/007/frontend/src/app.js`, since none of
   that depends on this game's own mode. `style.css` here holds only the
@@ -287,7 +287,7 @@ read that file first. Rules specific to this example:
    `mo:duel-game-core`. If you find yourself copy-pasting engine code
    into this directory to fix something, fix it in
    `../../backend/src/lib.mo`/`table.mo` instead and re-run `mops
-   install` here.
+install` here.
 2. **The generic screens live in `../../frontend` and are never
    vendored here either.** `checkers-plugin.js` supplies ONLY
    `idlTypes`/`seatLabel`/`renderBoard`/`renderActions`; the multi-table

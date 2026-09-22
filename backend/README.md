@@ -104,7 +104,7 @@ separate sibling modules, both built on those same types:
 - `src/table.mo` (`mo:duel-game-core/table`) — `Table<S, M>`, the stable
   session state for ONE board, and the low-level primitive `Registry`
   (below) is built from: `Table.new(idleTimeoutNs, claimTimeoutNs,
-  visibility, createdBy)` plus `join`/`submit`/`rematch`/`leave`/`reset`/
+visibility, createdBy)` plus `join`/`submit`/`rematch`/`leave`/`reset`/
   `claimWin`/`ackEnded`/`status`/`sweep` on the table it returns (Motoko
   dot-notation call sugar — plain functions taking the table as their
   first argument). A game that genuinely wants exactly one fixed board
@@ -122,7 +122,7 @@ separate sibling modules, both built on those same types:
   entirely optional call some time after `Registry.new` — see "Metrics"
   below.
 - Eight per-table operations, on either `Table<S, M>` or `Registry<S,
-  M>`: `join`/`createTable`+`joinTable`, `submit`, `rematch`, `leave`,
+M>`: `join`/`createTable`+`joinTable`, `submit`, `rematch`, `leave`,
   `reset`, `claimWin`, `ackEnded`, `status` (plus `sweep`, not
   caller-facing). Every one that can mutate takes `spec` and the current
   time (`now : Int`, nanoseconds) as explicit parameters — see
@@ -587,9 +587,13 @@ existing 30s idle-sweep timer, which is far too slow for a game round to
 wait on):
 
 ```motoko
-ignore Timer.recurringTimer<system>(#seconds(3), func() : async () {
-  await* cpAttached.nudge(Time.now());
-});
+ignore Timer.recurringTimer<system>(
+  #seconds(3),
+  func() : async () {
+    await* cpAttached.nudge(Time.now());
+  },
+);
+
 ```
 
 A canister-initiated mutation additionally triggers the SAME check
@@ -618,7 +622,7 @@ persistent actor {
     attached.afterMutation, // reuses ws.mo's own push fan-out — see above
     func(session, req, k) : async* () {
       let p = Principal.fromText(
-        Text.trimStart(session, #text (CanisterPlayers.CP_SID_PREFIX))
+        Text.trimStart(session, #text(CanisterPlayers.CP_SID_PREFIX))
       );
       let bot : BotIface.CanisterPlayer = actor (Principal.toText(p));
       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
@@ -647,10 +651,14 @@ persistent actor {
     await* cpAttached.reset(caller, gen);
   };
 
-  ignore Timer.recurringTimer<system>(#seconds(3), func() : async () {
-    await* cpAttached.nudge(Time.now());
-  });
+  ignore Timer.recurringTimer<system>(
+    #seconds(3),
+    func() : async () {
+      await* cpAttached.nudge(Time.now());
+    },
+  );
 };
+
 ```
 
 Note what's absent: no `submit_as_canister`. A canister player's move
@@ -694,6 +702,7 @@ switch (registry.createTableReserving(spec, now, mySession, #p1, #open, Canister
   case (#ok id) { /* both seats are already live */ };
   case (#err e) { /* ... */ };
 };
+
 ```
 
 This is the whole of the feature: a small, generic `Registry` addition
@@ -817,22 +826,6 @@ game's `resolve` cost — using the same throwaway `Spec`
 (`test/FakeGame.mo`) the test suites use, across `join`+`leave`, a full
 submitted round, and repeated `status` queries (the one plain Candid
 method a real host actor still exposes directly).
-
-### Format the code
-
-We use `prettier` with the `prettier-plugin-motoko` plugin (configured in `.prettierrc`). The CI checks formatting on every pull request.
-
-To format the code locally run:
-
-```
-npx -y prettier --plugin prettier-plugin-motoko --write '**/*.{mo,json,md}'
-```
-
-To only check the formatting (as CI does) run:
-
-```
-npx -y prettier --plugin prettier-plugin-motoko --check '**/*.{mo,json,md}'
-```
 
 ## Design
 

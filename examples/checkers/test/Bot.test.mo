@@ -36,7 +36,14 @@ func idx(r : Nat, c : Nat) : Nat = r * 8 + c;
 do {
   let s0 = Rules.init();
   for (turn in Nat.range(0, 9)) {
-    let req : TP.MoveRequest<Rules.State> = { tableId = 0; seat = #p1; game = s0; mode = #alternating; turn; gen = 0 };
+    let req : TP.MoveRequest<Rules.State> = {
+      tableId = 0;
+      seat = #p1;
+      game = s0;
+      mode = #alternating;
+      turn;
+      gen = 0;
+    };
     let move = BotLogic.chooseMove(req);
     let legal = Rules.legalActions(s0, #p1);
     assert Array.find<Rules.Action>(legal, func(a) = a == move) != null;
@@ -52,7 +59,14 @@ do {
     },
   );
   for (turn in Nat.range(0, 5)) {
-    let req : TP.MoveRequest<Rules.State> = { tableId = 0; seat = #p1; game = { board = chainBoard }; mode = #alternating; turn; gen = 0 };
+    let req : TP.MoveRequest<Rules.State> = {
+      tableId = 0;
+      seat = #p1;
+      game = { board = chainBoard };
+      mode = #alternating;
+      turn;
+      gen = 0;
+    };
     switch (BotLogic.chooseMove(req)) {
       case (#jump { path }) assert path == [idx(6, 1), idx(4, 3), idx(2, 5)];
       case (#move _) Runtime.trap("a capture is mandatory — chooseMove must not offer a #move");
@@ -112,7 +126,10 @@ switch (atTableView(reg, T0, sidBot1)) {
 // count, only that #inGame never stalls (a nudge tick that finds a due
 // seat but makes no progress at all) across several ticks.
 var round = 0;
-var lastTurn = switch (atTableView(reg, T0, sidBot1)) { case (#inGame v) v.turn; case (_) 0 };
+var lastTurn = switch (atTableView(reg, T0, sidBot1)) {
+  case (#inGame v) v.turn;
+  case (_) 0;
+};
 var stalled = false;
 while (round < 8) {
   await* cp.nudge(T0);
