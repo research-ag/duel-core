@@ -70,8 +70,8 @@ persistent actor {
     registry,
     attached.afterMutation,
     func(session : TP.SessionId, req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
-      let p = Principal.fromText(Text.trimStart(session, #text(CanisterPlayers.CP_SID_PREFIX)));
-      let bot : BotIface.CanisterPlayer = actor (Principal.toText(p));
+      let p = Principal.fromText(session.trimStart(#text(CanisterPlayers.CP_SID_PREFIX)));
+      let bot : BotIface.CanisterPlayer = actor (p.toText());
       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
     },
   );

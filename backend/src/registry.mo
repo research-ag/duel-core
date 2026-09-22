@@ -142,7 +142,7 @@ module {
       };
       case (#staging st) {
         let ex = t.isExpired(st.since, now);
-        if (Option.isSome(st.reservedFor) and not ex) { null } else {
+        if (st.reservedFor.isSome() and not ex) { null } else {
           let p1Open = st.seat != #p1 or ex;
           let p2Open = st.seat != #p2 or ex;
           ?{
@@ -204,7 +204,7 @@ module {
     };
   };
 
-  func alreadyAtATable<S, M>(reg : Registry<S, M>, session : T.SessionId) : Bool = Option.isSome(reg.bySession.get(session));
+  func alreadyAtATable<S, M>(reg : Registry<S, M>, session : T.SessionId) : Bool = reg.bySession.get(session).isSome();
 
   /// Drops `session`'s `bySession` mapping if the table it points to no
   /// longer considers them seated `now` (`Table.isStillSeated`) — see
@@ -585,7 +585,7 @@ module {
   /// `reg.tables` in place, and doing that while an iterator over the
   /// same live `Map` is still walking it is not something to rely on.
   public func sweep<S, M>(self : Registry<S, M>, now : Int) {
-    for ((id, t) in Map.toArray(self.tables).values()) {
+    for ((id, t) in self.tables.toArray().values()) {
       t.sweep(now);
       gcIfQuiesced(self, id, t);
     };

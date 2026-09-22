@@ -26,10 +26,10 @@ let T0 : Int = 1_000_000_000_000;
 let T1 : Int = 1_000_000_500_000;
 
 func u32beBytes(n : Nat) : [Nat8] = [
-  Nat.toNat8((n / 16_777_216) % 256),
-  Nat.toNat8((n / 65_536) % 256),
-  Nat.toNat8((n / 256) % 256),
-  Nat.toNat8(n % 256),
+  ((n / 16_777_216) % 256).toNat8(),
+  ((n / 65_536) % 256).toNat8(),
+  ((n / 256) % 256).toNat8(),
+  (n % 256).toNat8(),
 ];
 
 /// A blob with a real PNG signature + IHDR chunk announcing `w`x`h` —
@@ -40,7 +40,7 @@ func pngWithSize(w : Nat, h : Nat) : Blob {
   let sig : [Nat8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
   let chunkHeader : [Nat8] = [0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]; // length=13, "IHDR"
   let padding = Array.repeat<Nat8>(0, 5); // bit depth/color/etc — unread by our validator
-  Array.toBlob(Array.flatten<Nat8>([sig, chunkHeader, u32beBytes(w), u32beBytes(h), padding]));
+  [sig, chunkHeader, u32beBytes(w), u32beBytes(h), padding].flatten<Nat8>().toBlob();
 };
 
 let VALID_BANNER = pngWithSize(Store.BANNER_WIDTH, Store.BANNER_HEIGHT);
@@ -88,21 +88,21 @@ Debug.print("1-3. Png.dimensions OK");
 
 do {
   let s = Store.empty();
-  expectErr<()>(Store.setDisplayName(s, Principal.anonymous(), "anon"), #anonymousCaller, "4a");
-  expectErr<()>(Store.setDisplayName(s, DEV_A, "   "), #emptyDisplayName, "4b");
+  expectErr<()>(s.setDisplayName(Principal.anonymous(), "anon"), #anonymousCaller, "4a");
+  expectErr<()>(s.setDisplayName(DEV_A, "   "), #emptyDisplayName, "4b");
   expectErr<()>(
-    Store.setDisplayName(s, DEV_A, "this display name is deliberately far too long to accept"),
+    s.setDisplayName(DEV_A, "this display name is deliberately far too long to accept"),
     #displayNameTooLong,
     "4c",
   );
-  ok(Store.setDisplayName(s, DEV_A, "  Ada  "), "4d");
-  switch (Store.getProfile(s, DEV_A)) {
+  ok(s.setDisplayName(DEV_A, "  Ada  "), "4d");
+  switch (s.getProfile(DEV_A)) {
     case (?p) if (p.displayName != "Ada") Runtime.trap("4e: display name must be trimmed");
     case null Runtime.trap("4e: profile must exist after setDisplayName");
   };
-  if (Store.getProfile(s, DEV_B) != null) Runtime.trap("4f: an unrelated principal must have no profile");
-  ok(Store.setDisplayName(s, DEV_A, "Ada Lovelace"), "4g: re-setting must overwrite, not error");
-  switch (Store.getProfile(s, DEV_A)) {
+  if (s.getProfile(DEV_B) != null) Runtime.trap("4f: an unrelated principal must have no profile");
+  ok(s.setDisplayName(DEV_A, "Ada Lovelace"), "4g: re-setting must overwrite, not error");
+  switch (s.getProfile(DEV_A)) {
     case (?p) if (p.displayName != "Ada Lovelace") Runtime.trap("4h: overwrite must take effect");
     case null Runtime.trap("4h: profile must still exist");
   };
@@ -113,27 +113,27 @@ Debug.print("4. setDisplayName / getProfile OK");
 
 do {
   let s = Store.empty();
-  expectErr<T.GameId>(Store.registerGame(s, Principal.anonymous(), T0, baseInput), #anonymousCaller, "5a");
-  expectErr<T.GameId>(Store.registerGame(s, DEV_A, T0, { baseInput with title = "   " }), #emptyTitle, "5b");
+  expectErr<T.GameId>(s.registerGame(Principal.anonymous(), T0, baseInput), #anonymousCaller, "5a");
+  expectErr<T.GameId>(s.registerGame(DEV_A, T0, { baseInput with title = "   " }), #emptyTitle, "5b");
   expectErr<T.GameId>(
-    Store.registerGame(s, DEV_A, T0, { baseInput with banner = WRONG_SIZE_BANNER }),
+    s.registerGame(DEV_A, T0, { baseInput with banner = WRONG_SIZE_BANNER }),
     #invalidBanner("banner must be exactly 800x400 pixels (got 100x100)"),
     "5c",
   );
   expectErr<T.GameId>(
-    Store.registerGame(s, DEV_A, T0, { baseInput with banner = NOT_A_PNG }),
+    s.registerGame(DEV_A, T0, { baseInput with banner = NOT_A_PNG }),
     #invalidBanner("banner must be a valid PNG file"),
     "5d",
   );
   expectErr<T.GameId>(
-    Store.registerGame(s, DEV_A, T0, { baseInput with customDomain = ?"ftp://not-http" }),
+    s.registerGame(DEV_A, T0, { baseInput with customDomain = ?"ftp://not-http" }),
     #invalidCustomDomain,
     "5e",
   );
-  let id = ok(Store.registerGame(s, DEV_A, T0, baseInput), "5f");
+  let id = ok(s.registerGame(DEV_A, T0, baseInput), "5f");
   if (id != BACKEND_1) Runtime.trap("5f: the game's id must be its backendCanisterId");
   expectErr<T.GameId>(
-    Store.registerGame(s, DEV_B, T1, { baseInput with frontendCanisterId = FRONTEND_2 }),
+    s.registerGame(DEV_B, T1, { baseInput with frontendCanisterId = FRONTEND_2 }),
     #gameAlreadyRegistered,
     "5g: a second registration under the SAME backendCanisterId must be rejected, even from another caller",
   );
@@ -144,15 +144,15 @@ Debug.print("5. registerGame OK");
 
 do {
   let s = Store.empty();
-  ignore ok(Store.registerGame(s, DEV_A, T0, baseInput), "6 setup");
+  ignore ok(s.registerGame(DEV_A, T0, baseInput), "6 setup");
 
   expectErr<()>(
-    Store.updateGame(s, DEV_A, T1, FRONTEND_1, { title = "x"; description = ""; frontendCanisterId = FRONTEND_1; customDomain = null; banner = null }),
+    s.updateGame(DEV_A, T1, FRONTEND_1, { title = "x"; description = ""; frontendCanisterId = FRONTEND_1; customDomain = null; banner = null }),
     #noSuchGame,
     "6a: id must be the backendCanisterId, not the frontend one",
   );
   expectErr<()>(
-    Store.updateGame(s, DEV_B, T1, BACKEND_1, { title = "hijacked"; description = ""; frontendCanisterId = FRONTEND_1; customDomain = null; banner = null }),
+    s.updateGame(DEV_B, T1, BACKEND_1, { title = "hijacked"; description = ""; frontendCanisterId = FRONTEND_1; customDomain = null; banner = null }),
     #notOwner,
     "6b",
   );
@@ -164,9 +164,9 @@ do {
     customDomain = ?"https://duel007.example.com";
     banner = null; // keep the existing banner
   };
-  ok(Store.updateGame(s, DEV_A, T1, BACKEND_1, edit), "6c");
+  ok(s.updateGame(DEV_A, T1, BACKEND_1, edit), "6c");
 
-  let view = switch (Store.getGame(s, BACKEND_1)) {
+  let view = switch (s.getGame(BACKEND_1)) {
     case (?v) v;
     case null Runtime.trap("6d: the game must still exist after editing");
   };
@@ -175,20 +175,20 @@ do {
   if (view.backendCanisterId != BACKEND_1) Runtime.trap("6g: backendCanisterId must stay fixed");
   if (view.developer != DEV_A) Runtime.trap("6h: developer must stay fixed");
 
-  switch (Store.getBanner(s, BACKEND_1)) {
+  switch (s.getBanner(BACKEND_1)) {
     case (?b) if (b != VALID_BANNER) Runtime.trap("6i: banner = null on edit must leave the original banner untouched");
     case null Runtime.trap("6i: banner must still exist");
   };
 
   let newBanner = pngWithSize(Store.BANNER_WIDTH, Store.BANNER_HEIGHT);
-  ok(Store.updateGame(s, DEV_A, T1, BACKEND_1, { edit with banner = ?newBanner }), "6j");
-  switch (Store.getBanner(s, BACKEND_1)) {
+  ok(s.updateGame(DEV_A, T1, BACKEND_1, { edit with banner = ?newBanner }), "6j");
+  switch (s.getBanner(BACKEND_1)) {
     case (?b) if (b != newBanner) Runtime.trap("6k: a supplied banner must replace the old one");
     case null Runtime.trap("6k: banner must still exist");
   };
 
   expectErr<()>(
-    Store.updateGame(s, DEV_A, T1, BACKEND_1, { edit with banner = ?WRONG_SIZE_BANNER }),
+    s.updateGame(DEV_A, T1, BACKEND_1, { edit with banner = ?WRONG_SIZE_BANNER }),
     #invalidBanner("banner must be exactly 800x400 pixels (got 100x100)"),
     "6l: an edit's own banner is validated exactly like registration's",
   );
@@ -199,16 +199,16 @@ Debug.print("6. updateGame OK");
 
 do {
   let s = Store.empty();
-  ok(Store.setDisplayName(s, DEV_A, "Ada"), "7 setup a");
-  ignore ok(Store.registerGame(s, DEV_A, T0, baseInput), "7 setup b");
+  ok(s.setDisplayName(DEV_A, "Ada"), "7 setup a");
+  ignore ok(s.registerGame(DEV_A, T0, baseInput), "7 setup b");
   ignore ok(
-    Store.registerGame(s, DEV_B, T1, { baseInput with backendCanisterId = BACKEND_2; frontendCanisterId = FRONTEND_2 }),
+    s.registerGame(DEV_B, T1, { baseInput with backendCanisterId = BACKEND_2; frontendCanisterId = FRONTEND_2 }),
     "7 setup c",
   );
 
-  if (Store.listGames(s).size() != 2) Runtime.trap("7a: both games must be listed");
+  if (s.listGames().size() != 2) Runtime.trap("7a: both games must be listed");
 
-  let byA = Store.listGamesByDeveloper(s, DEV_A);
+  let byA = s.listGamesByDeveloper(DEV_A);
   if (byA.size() != 1 or byA[0].backendCanisterId != BACKEND_1) {
     Runtime.trap("7b: filtering by developer must return only that developer's games");
   };
@@ -216,7 +216,7 @@ do {
     Runtime.trap("7c: a game's view must resolve its developer's current display name");
   };
 
-  let byB = Store.listGamesByDeveloper(s, DEV_B);
+  let byB = s.listGamesByDeveloper(DEV_B);
   if (byB.size() != 1 or byB[0].developerDisplayName != null) {
     Runtime.trap("7d: a developer with no profile yet must show a null display name, not trap or default silently");
   };
@@ -227,20 +227,20 @@ Debug.print("7. listGames / listGamesByDeveloper / developerDisplayName OK");
 
 do {
   let s = Store.empty();
-  ignore ok(Store.registerGame(s, DEV_A, T0, baseInput), "8 setup");
+  ignore ok(s.registerGame(DEV_A, T0, baseInput), "8 setup");
 
-  expectErr<()>(Store.deregisterGame(s, Principal.anonymous(), BACKEND_1), #anonymousCaller, "8a");
-  expectErr<()>(Store.deregisterGame(s, DEV_A, FRONTEND_1), #noSuchGame, "8b: id must be the backendCanisterId");
-  expectErr<()>(Store.deregisterGame(s, DEV_B, BACKEND_1), #notOwner, "8c: only the developer who registered it may remove it");
+  expectErr<()>(s.deregisterGame(Principal.anonymous(), BACKEND_1), #anonymousCaller, "8a");
+  expectErr<()>(s.deregisterGame(DEV_A, FRONTEND_1), #noSuchGame, "8b: id must be the backendCanisterId");
+  expectErr<()>(s.deregisterGame(DEV_B, BACKEND_1), #notOwner, "8c: only the developer who registered it may remove it");
 
-  if (Store.getGame(s, BACKEND_1) == null) Runtime.trap("8d: a failed deregister must not remove the game");
+  if (s.getGame(BACKEND_1) == null) Runtime.trap("8d: a failed deregister must not remove the game");
 
-  ok(Store.deregisterGame(s, DEV_A, BACKEND_1), "8e");
-  if (Store.getGame(s, BACKEND_1) != null) Runtime.trap("8f: the game must be gone after deregistering");
-  if (Store.getBanner(s, BACKEND_1) != null) Runtime.trap("8g: its banner must be gone too");
-  if (Store.listGames(s).size() != 0) Runtime.trap("8h: it must no longer be listed");
+  ok(s.deregisterGame(DEV_A, BACKEND_1), "8e");
+  if (s.getGame(BACKEND_1) != null) Runtime.trap("8f: the game must be gone after deregistering");
+  if (s.getBanner(BACKEND_1) != null) Runtime.trap("8g: its banner must be gone too");
+  if (s.listGames().size() != 0) Runtime.trap("8h: it must no longer be listed");
 
-  expectErr<()>(Store.deregisterGame(s, DEV_A, BACKEND_1), #noSuchGame, "8i: deregistering an already-removed game must not succeed twice");
+  expectErr<()>(s.deregisterGame(DEV_A, BACKEND_1), #noSuchGame, "8i: deregistering an already-removed game must not succeed twice");
 };
 Debug.print("8. deregisterGame OK");
 

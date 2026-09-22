@@ -136,8 +136,8 @@ module {
     switch (self.phase) {
       case (#empty) self.unackedEnded(session);
       case (#staging st) st.session == session and not self.isExpired(st.since, now);
-      case (#active g) Option.isSome(getSessionSeat(g, session));
-      case (#debrief d) Option.isSome(self.activeDebriefSeat(d, session));
+      case (#active g) getSessionSeat(g, session).isSome();
+      case (#debrief d) self.activeDebriefSeat(d, session).isSome();
     };
   };
 
@@ -251,7 +251,7 @@ module {
       };
 
       case (#active g) {
-        if (Option.isSome(getSessionSeat(g, session))) {
+        if (getSessionSeat(g, session).isSome()) {
           #err(#wrongPhase("you are already in the running game"));
         } else if (self.isExpired(g.lastActivity, now)) {
           // idle takeover: the abandoned game evaporates; its players will
@@ -327,7 +327,7 @@ module {
       };
 
       case (#active g) {
-        if (Option.isSome(getSessionSeat(g, session))) {
+        if (getSessionSeat(g, session).isSome()) {
           #err(#wrongPhase("your game is already running"));
         } else { #err(#notSeated) };
       };
@@ -496,10 +496,10 @@ module {
               case (#p1) (g.pending1, g.pending2);
               case (#p2) (g.pending2, g.pending1);
             };
-            if (Option.isNull(myPending)) {
+            if (myPending.isNull()) {
               return #err(#wrongPhase("submit your own move before you can claim a win"));
             };
-            if (Option.isSome(oppPending)) {
+            if (oppPending.isSome()) {
               return #err(#wrongPhase("your opponent already moved"));
             };
           };
@@ -628,7 +628,7 @@ module {
       };
 
       case (#active g) {
-        if (Option.isSome(getSessionSeat(g, session))) {
+        if (getSessionSeat(g, session).isSome()) {
           self.leave(now, session, gen); // participant reset = abort with shared debrief
         } else if (self.isExpired(g.lastActivity, now)) {
           self.noteEnded(now, g.p1, g.p2, []);
@@ -640,7 +640,7 @@ module {
       };
 
       case (#debrief d) {
-        if (Option.isSome(getSessionSeat(d, session))) {
+        if (getSessionSeat(d, session).isSome()) {
           self.leave(now, session, gen);
         } else if (self.isExpired(d.since, now)) {
           self.noteEnded(now, d.p1, d.p2, [d.p1, d.p2]); // they saw their debrief
@@ -730,7 +730,7 @@ module {
           // seat can vanish out from under them with no notice.
           #stagingYou {
             seat = st.seat;
-            reservedForPartner = Option.isSome(st.reservedFor);
+            reservedForPartner = st.reservedFor.isSome();
             secondsUntilReclaimable = self.secsLeft(st.since, now);
             gen = self.gen;
             visibility = self.visibility;
@@ -741,7 +741,7 @@ module {
           #endedByOther;
         } else {
           let ex = self.isExpired(st.since, now);
-          if (Option.isSome(st.reservedFor) and not ex) {
+          if (st.reservedFor.isSome() and not ex) {
             #busy { secondsUntilTakeover = self.secsLeft(st.since, now) };
           } else {
             #lobby {
@@ -770,8 +770,8 @@ module {
             };
             let (youSubmitted, oppSubmitted) = switch (spec) {
               case (#simultaneous _) (
-                Option.isSome(switch (mySeat) { case (#p1) g.pending1; case (#p2) g.pending2 }),
-                Option.isSome(switch (mySeat) { case (#p1) g.pending2; case (#p2) g.pending1 }),
+                (switch (mySeat) { case (#p1) g.pending1; case (#p2) g.pending2 }).isSome(),
+                (switch (mySeat) { case (#p1) g.pending2; case (#p2) g.pending1 }).isSome(),
               );
               case (#alternating _) {
                 let onTurn = mySeat == toMove(g.turn);

@@ -149,8 +149,8 @@ module {
   /// Legal one-square, non-capturing destinations for `piece` sitting at
   /// `i`, given the CURRENT board.
   func stepTargets(board : Board, piece : Piece, i : Nat) : [Nat] {
-    let r = Nat.toInt(rowOf(i));
-    let c = Nat.toInt(colOf(i));
+    let r = rowOf(i).toInt();
+    let c = colOf(i).toInt();
     let king = isKingPiece(piece);
     let owner = ownerOf(piece);
     DIAGS.filterMap<(Int, Int), Nat>(
@@ -171,8 +171,8 @@ module {
   /// Legal one-leg captures for `piece` sitting at `i`, given the CURRENT
   /// board — each result is `(capturedSquare, landingSquare)`.
   func jumpTargets(board : Board, piece : Piece, i : Nat) : [(Nat, Nat)] {
-    let r = Nat.toInt(rowOf(i));
-    let c = Nat.toInt(colOf(i));
+    let r = rowOf(i).toInt();
+    let c = colOf(i).toInt();
     let king = isKingPiece(piece);
     let owner = ownerOf(piece);
     DIAGS.filterMap<(Int, Int), (Nat, Nat)>(
@@ -229,20 +229,20 @@ module {
     func go(board : Board, cur : Nat, path : List.List<Nat>) {
       let legs = jumpTargets(board, piece, cur);
       if (legs.size() == 0) {
-        List.add(results, List.toArray(path));
+        results.add(path.toArray());
       } else {
         for ((mid, land) in legs.values()) {
           let board2 = setAt(setAt(setAt(board, mid, null), cur, null), land, ?piece);
-          let path2 = List.clone(path);
-          List.add(path2, land);
+          let path2 = path.clone();
+          path2.add(land);
           go(board2, land, path2);
         };
       };
     };
     let path0 = List.empty<Nat>();
-    List.add(path0, origin);
+    path0.add(origin);
     go(board, origin, path0);
-    List.toArray(results);
+    results.toArray();
   };
 
   /// Every legal `Action` for `seat` on the CURRENT board — the same
@@ -270,7 +270,7 @@ module {
           // case.
           case (?p) if (ownerOf(p) == seat and jumpTargets(s.board, p, i).size() > 0) {
             for (path in captureChainsFrom(s.board, p, i).values()) {
-              List.add(out, #jump { path });
+              out.add(#jump { path });
             };
           };
           case _ {};
@@ -281,14 +281,14 @@ module {
         switch (s.board[i]) {
           case (?p) if (ownerOf(p) == seat) {
             for (to in stepTargets(s.board, p, i).values()) {
-              List.add(out, #move { from = i; to });
+              out.add(#move { from = i; to });
             };
           };
           case null {};
         };
       };
     };
-    List.toArray(out);
+    out.toArray();
   };
 
   // ────────────────────────── Spec: validate ───────────────────────────────
@@ -337,13 +337,12 @@ module {
         label chain loop {
           if (k >= path.size()) break chain;
           let next = path[k];
-          let leg = Array.find<(Nat, Nat)>(
-            jumpTargets(board, piece, cur),
-            func((mid, land)) = land == next and not List.contains<Nat>(captured, Nat.equal, mid),
+          let leg = jumpTargets(board, piece, cur).find<(Nat, Nat)>(
+            func((mid, land)) = land == next and not captured.contains<Nat>(Nat.equal, mid)
           );
           switch (leg) {
             case (?(mid, _)) {
-              List.add(captured, mid);
+              captured.add(mid);
               board := setAt(setAt(setAt(board, mid, null), cur, null), next, ?piece);
             };
             case null return ?"That's not a legal capture sequence.";
@@ -355,9 +354,8 @@ module {
         // The chain must be maximal: this SAME piece (by kind — see this
         // module's own doc header on mid-chain promotion) may not still
         // have a capture available from where it ended up.
-        let stillCapturing = Array.find<(Nat, Nat)>(
-          jumpTargets(board, piece, cur),
-          func((mid, _)) = not List.contains<Nat>(captured, Nat.equal, mid),
+        let stillCapturing = jumpTargets(board, piece, cur).find<(Nat, Nat)>(
+          func((mid, _)) = not captured.contains<Nat>(Nat.equal, mid)
         );
         switch (stillCapturing) {
           case (?_) return ?"You must keep capturing with the same piece.";
@@ -394,11 +392,11 @@ module {
     while (k + 1 < path.size()) {
       let a2 = path[k];
       let b2 = path[k + 1];
-      let dr = Nat.toInt(rowOf(b2)) - Nat.toInt(rowOf(a2));
+      let dr = rowOf(b2).toInt() - rowOf(a2).toInt();
       if (dr == 2 or dr == -2) {
-        let dc = Nat.toInt(colOf(b2)) - Nat.toInt(colOf(a2));
-        let mr = Nat.toInt(rowOf(a2)) + dr / 2;
-        let mc = Nat.toInt(colOf(a2)) + dc / 2;
+        let dc = colOf(b2).toInt() - colOf(a2).toInt();
+        let mr = rowOf(a2).toInt() + dr / 2;
+        let mc = colOf(a2).toInt() + dc / 2;
         board := setAt(board, mr.toNat() * SIZE + mc.toNat(), null);
       };
       k += 1;

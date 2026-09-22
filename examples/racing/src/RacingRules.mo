@@ -137,7 +137,7 @@ module {
   // matches the frontend's default `Math.ceil(Math.abs(l) * 2)`, floored to 1.
   func segCountFor(l : Float) : Nat {
     if (l == 0.0) return 1;
-    Int.toNat(Float.toInt(Float.ceil(Float.abs(l) * 2.0)));
+    Float.ceil(Float.abs(l) * 2.0).toInt().toNat();
   };
 
   // ────────────────────────── track boundary ──────────────────────────────────
@@ -187,11 +187,11 @@ module {
     rot : Float;
   } {
     let segsCount = segCountFor(l);
-    let step = l / Int.toFloat(segsCount);
+    let step = l / segsCount.toFloat();
     var prevWorld = basisPos;
     var i = 1;
     while (i <= segsCount) {
-      let local = trajectoryPosition(Int.toFloat(i) * step, c);
+      let local = trajectoryPosition(i.toFloat() * step, c);
       let rotated = rotate(local, basisRot);
       let world = (rotated.0 + basisPos.0, rotated.1 + basisPos.1);
       if (not isOnTrack(world)) {
@@ -203,7 +203,7 @@ module {
           collisionPoint.1 + Float.sin(fixAngle) * edgeDistance,
         );
         let rot = if (dist(basisPos, pos) > 0.01) {
-          basisRot + Int.toFloat(i) * (pointerRotation(l, c) / Int.toFloat(segsCount));
+          basisRot + i.toFloat() * (pointerRotation(l, c) / segsCount.toFloat());
         } else {
           basisRot;
         };
@@ -400,7 +400,7 @@ module {
   };
 
   func totalProgress(car : CarState) : Float {
-    Int.toFloat(car.lap) * roadLength() + car.distanceFromStart;
+    car.lap.toFloat() * roadLength() + car.distanceFromStart;
   };
 
   /// Both moves are in (already validated). Pure: State in, State + verdict out.

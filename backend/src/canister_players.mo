@@ -85,9 +85,9 @@
 ///     // catchable, lives here, where `Rules.Action` is concrete:
 ///     func(session, req, k) : async* () {
 ///       let p = Principal.fromText(
-///         Text.trimStart(session, #text (CanisterPlayers.CP_SID_PREFIX))
+///         session.trimStart(#text (CanisterPlayers.CP_SID_PREFIX))
 ///       );
-///       let bot : BotIface.CanisterPlayer = actor (Principal.toText(p));
+///       let bot : BotIface.CanisterPlayer = actor (p.toText());
 ///       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
 ///     },
 ///   );
@@ -144,14 +144,14 @@ module {
   /// `ws.mo` here for one line would pull that dependency in transitively
   /// for no real reason, since every actual byte of it is unrelated to
   /// canister players).
-  public func sidForCanister(p : Principal.Principal) : T.SessionId = CP_SID_PREFIX # Principal.toText(p);
+  public func sidForCanister(p : Principal.Principal) : T.SessionId = CP_SID_PREFIX # p.toText();
 
   /// Whether `session` names a canister-seated player under this module's
   /// namespace — a purely cosmetic check for a lobby frontend wanting to
   /// render "vs 🤖" (`TableSummary.p1Session`/`p2Session` already carry the
   /// raw text), and the check `nudge` itself uses to decide which seats
   /// are its own responsibility.
-  public func isCanisterSession(session : T.SessionId) : Bool = Text.startsWith(session, #text CP_SID_PREFIX);
+  public func isCanisterSession(session : T.SessionId) : Bool = session.startsWith(#text CP_SID_PREFIX);
 
   /// What a host actor gets back from `attach` — seven table-lifecycle
   /// operations (never `submit`: a canister player's move is always
@@ -216,7 +216,7 @@ module {
     // correctness.
     let inFlight = Map.empty<Text, ()>();
     func flightKey(id : T.TableId, seat : T.Seat) : Text {
-      Nat.toText(id) # (switch (seat) { case (#p1) "/p1"; case (#p2) "/p2" });
+      id.toText() # (switch (seat) { case (#p1) "/p1"; case (#p2) "/p2" });
     };
 
     /// Builds this session's own `T.MoveRequest<S>` from the table's

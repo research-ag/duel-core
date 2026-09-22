@@ -59,7 +59,7 @@ let sidBot1 = CanisterPlayers.sidForCanister(bot1);
 let sidBot2 = CanisterPlayers.sidForCanister(bot2);
 
 // ── 1. sidForCanister / isCanisterSession ───────────────────────────────
-assert sidBot1 == "cp:" # Principal.toText(bot1);
+assert sidBot1 == "cp:" # bot1.toText();
 assert CanisterPlayers.isCanisterSession(sidBot1);
 assert not CanisterPlayers.isCanisterSession("ii:someone");
 assert not CanisterPlayers.isCanisterSession("an:someone");

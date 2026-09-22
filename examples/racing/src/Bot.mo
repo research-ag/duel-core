@@ -37,7 +37,7 @@ persistent actor {
   /// anything asserted here — there's nothing for a caller of `play` to
   /// spoof.
   public shared func play(host : Principal.Principal, tableId : TP.TableId, seat : TP.Seat, code : ?Text) : async TP.Res<TP.JoinOk> {
-    let h : Host = actor (Principal.toText(host));
+    let h : Host = actor (host.toText());
     await h.join_table_as_canister(tableId, seat, code);
   };
 
