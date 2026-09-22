@@ -8,7 +8,7 @@ import Nat "mo:core/Nat";
 import Float "mo:core/Float";
 
 import TP "mo:duel-game-core";
-import Rules "RacingRules";
+import Rules "../src/RacingRules";
 
 module {
 

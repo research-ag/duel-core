@@ -78,11 +78,11 @@ Http(renderer.renderExposition, "/metrics")`, from
   to (the unattended, canister-vs-canister case); `claim_win_as_canister`/
   `reset_as_canister` exist mainly so a canister participant can act the
   instant it's entitled to instead of waiting on the next tick.
-- **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a racing
+- **`bot/BotIface.mo`** — the `CanisterPlayer` Candid interface a racing
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
 -> async Rules.Action`, the exact counterpart to a browser's own
   `GamePlugin`.
-- **`src/BotLogic.mo`** — the racing bot's move-selection logic, as a
+- **`bot/BotLogic.mo`** — the racing bot's move-selection logic, as a
   plain pure module (no actor, no `Time`, matching `RacingRules.mo`'s own
   style): `SCRIPT`, a fixed array of arcs baked in offline (see the
   module's own doc comment for how they were derived and why the sequence
@@ -91,7 +91,7 @@ Http(renderer.renderExposition, "/metrics")`, from
   awareness of `req.game` at all. Kept separate from `Bot.mo` specifically
   so `test/Bot.test.mo` can call `chooseMove` directly, with no
   actor/Candid round-trip.
-- **`src/Bot.mo`** — the bot canister itself: implements
+- **`bot/Bot.mo`** — the bot canister itself: implements
   `BotIface.CanisterPlayer`'s `make_move` (a thin shell over
   `BotLogic.chooseMove`), plus `play(host, tableId, seat, code)`, this
   bot's own Flow 1 "self-join" entry point (see the canister-players
@@ -127,7 +127,7 @@ Http(renderer.renderExposition, "/metrics")`, from
   discovers — a file named `FooTest.mo` is silently skipped, so keep the
   suffix when adding suites.
 - **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as canister
-  `backend`, `src/Bot.mo` as canister `bot` (this example's own
+  `backend`, `bot/Bot.mo` as canister `bot` (this example's own
   milestone-01 canister player — see that file's own doc header), and
   `frontend/dist` (esbuild's bundled output — see `frontend/README.md`,
   NOT `frontend/` itself) as an asset canister.
@@ -337,7 +337,7 @@ Local copies of the relevant Motoko-authoring SKILL.md playbooks live in
 this repo under `../../.agents/skills/` — the same set `../../CLAUDE.md`
 points to (the duel-game-core-specific playbook instead lives in the
 tracked `../../skills/duel-game-core/`). Consult those before editing
-`src/RacingRules.mo`, `src/Host.mo`, or `src/Bot.mo`/`src/BotLogic.mo`.
+`src/RacingRules.mo`, `src/Host.mo`, or `bot/Bot.mo`/`bot/BotLogic.mo`.
 
 ## Conventions
 

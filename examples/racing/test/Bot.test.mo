@@ -1,15 +1,16 @@
-// Proves the racing bot (`../src/Bot.mo`/`BotLogic.mo`, the milestone-01
+// Proves the racing bot (`../bot/Bot.mo`/`BotLogic.mo`, the milestone-01
 // hardcoded-script canister player) two ways: (1) `BotLogic.SCRIPT_P1`
 // stays legal — RacingRules.validate-passing, no collision-forced illegal
-// move —
-// for its own full length plus several rounds of the post-script "hold the
-// last entry" clamp, replayed against the REAL `RacingRules.validate`/
-// `resolve` (this is the permanent regression guard for the numbers
-// `BotLogic.mo`'s own doc comment says were derived offline); and (2)
-// wired live through `mo:duel-game-core/canister_players`, a canister
-// seated with this exact bot logic drives several real rounds against a
-// human opponent with no illegal move and no trap — the "testing offline"
-// pattern `../../../CLAUDE.md`'s "Canister players" note describes, using
+// move — for its own full length plus several rounds of the post-script
+// "hold the last entry" clamp, replayed against the REAL
+// `RacingRules.validate`/`resolve` (this is the permanent regression
+// guard for the numbers `BotLogic.mo`'s own doc comment says were
+// derived offline); and (2) wired live through
+// `mo:duel-game-core/canister_players`, a canister seated with this exact
+// bot logic drives several real rounds against a human opponent with no
+// illegal move and no trap, actually finishing the race by the time
+// SCRIPT_P1 runs out — the "testing offline" pattern
+// `../../../CLAUDE.md`'s "Canister players" note describes, using
 // `BotLogic.chooseMove` directly as the `callBot` continuation so no
 // actor/Candid round-trip (and no second, real canister) is needed here,
 // same as `backend/test/CanisterPlayers.test.mo` does for its own
@@ -23,7 +24,7 @@ import TP "mo:duel-game-core";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import Registry "mo:duel-game-core/registry";
 
-import BotLogic "../src/BotLogic";
+import BotLogic "../bot/BotLogic";
 import Rules "../src/RacingRules";
 
 let spec = Rules.spec();
@@ -58,7 +59,12 @@ do {
 Debug.print("1. BotLogic.SCRIPT_P1 stays legal for its own length plus the post-script hold, against real collision checks OK");
 
 // ── 2. wired live through canister_players.mo, the bot drives several
-//        rounds against a human with no illegal move ──────────────────────
+//        rounds against a human with no illegal move — and, since the
+//        human sits completely still every round, SCRIPT_P1's own
+//        post-script cruise actually carries the bot across the finish
+//        line by the time its length runs out, ending the match with a
+//        real #finished(#p1Wins) debrief rather than staying #active
+//        forever ───────────────────────────────────────────────────────
 let TIMEOUT : Int = 300_000_000_000;
 let CLAIM_TIMEOUT : Int = 45_000_000_000;
 let T0 : Int = 1_000_000_000_000;
@@ -95,19 +101,27 @@ let id = ok(await* cp.createTable(bot1, #p1, #open), "bot creates a table");
 ignore ok(reg.joinTable(spec, T0, "human", id, #p2, null), "human joins bot1's table");
 
 var round = 0;
-while (round < BotLogic.SCRIPT_P1.size() + 2) {
+var finished = false;
+while (round < BotLogic.SCRIPT_P1.size() + 2 and not finished) {
   await* cp.nudge(T0);
   switch (atTableView(reg, T0, sidBot1)) {
     case (#inGame v) assert v.youSubmitted; // the bot's scripted move landed legally
-    case (_) Runtime.trap("bot1 should still be in-game after round " # debug_show (round));
+    case (#debrief d) switch (d.end) {
+      case (#finished (#p1Wins)) finished := true; // the script actually finished the race, as tuned
+      case (other) Runtime.trap("race ended unexpectedly at round " # debug_show (round) # ": " # debug_show (other));
+    };
+    case (_) Runtime.trap("bot1 should still be in-game or in debrief after round " # debug_show (round));
   };
-  let hv = switch (atTableView(reg, T0, "human")) {
-    case (#inGame v) v;
-    case (_) Runtime.trap("human should be in-game");
+  if (not finished) {
+    let hv = switch (atTableView(reg, T0, "human")) {
+      case (#inGame v) v;
+      case (_) Runtime.trap("human should be in-game");
+    };
+    ignore ok(reg.submit(spec, T0, "human", hv.gen, hv.turn, { l = 0.0; c = 0.0 }), "human submits a no-op move; round resolves");
   };
-  ignore ok(reg.submit(spec, T0, "human", hv.gen, hv.turn, { l = 0.0; c = 0.0 }), "human submits a no-op move; round resolves");
   round += 1;
 };
-Debug.print("2. wired through canister_players.mo, the bot drives several live rounds against a human with no illegal move OK");
+assert finished; // the script must actually finish the race within this many rounds
+Debug.print("2. wired through canister_players.mo, the bot drives several live rounds against a human with no illegal move and finishes the race OK");
 
 Debug.print("ALL RACING BOT CHECKS PASSED");
