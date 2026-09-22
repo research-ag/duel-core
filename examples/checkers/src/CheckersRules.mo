@@ -218,6 +218,79 @@ module {
     false;
   };
 
+  /// Every MAXIMAL capture chain starting at `origin` (`piece` sitting
+  /// there), as full root-to-leaf paths — generalizes `validate`'s own
+  /// `#jump` walk (which checks one GIVEN path against the same
+  /// `jumpTargets`/maximality rule) into enumerating every branch. A leg
+  /// with no further capture available from its landing square (the same
+  /// test `validate`'s `stillCapturing` check makes) ends that branch.
+  func captureChainsFrom(board : Board, piece : Piece, origin : Nat) : [[Nat]] {
+    let results = List.empty<[Nat]>();
+    func go(board : Board, cur : Nat, path : List.List<Nat>) {
+      let legs = jumpTargets(board, piece, cur);
+      if (legs.size() == 0) {
+        List.add(results, List.toArray(path));
+      } else {
+        for ((mid, land) in legs.values()) {
+          let board2 = setAt(setAt(setAt(board, mid, null), cur, null), land, ?piece);
+          let path2 = List.clone(path);
+          List.add(path2, land);
+          go(board2, land, path2);
+        };
+      };
+    };
+    let path0 = List.empty<Nat>();
+    List.add(path0, origin);
+    go(board, origin, path0);
+    List.toArray(results);
+  };
+
+  /// Every legal `Action` for `seat` on the CURRENT board — the same
+  /// legality `validate` enforces (if `seat` has ANY capture available,
+  /// only `#jump`s are returned, never a `#move`; each `#jump` already
+  /// carries its full, maximal chain), exported so a caller — a bot's own
+  /// move selection, most notably (see
+  /// `../../../CLAUDE.md`'s "Canister players" note and
+  /// `../../../skills/duel-game-core/SKILL.md`'s authoring guide) — has
+  /// one source of truth for "what can `seat` do right now" rather than
+  /// re-deriving these same capture/mandatory-capture rules itself. An
+  /// empty result means `seat` has no legal action at all — the same
+  /// condition `resolve`'s own win check tests via
+  /// `seatHasAnyLegalAction`.
+  public func legalActions(s : State, seat : TP.Seat) : [Action] {
+    let out = List.empty<Action>();
+    if (seatHasCapture(s.board, seat)) {
+      for (i in Nat.range(0, SQUARES)) {
+        switch (s.board[i]) {
+          // Only a piece that ITSELF has a capture available contributes
+          // chains — `seatHasCapture` only guarantees SOME piece does,
+          // not this one; skipping this check would let a capture-less
+          // piece's own empty leg set look like a (bogus, one-square,
+          // non-capturing) "maximal chain" via `captureChainsFrom`'s base
+          // case.
+          case (?p) if (ownerOf(p) == seat and jumpTargets(s.board, p, i).size() > 0) {
+            for (path in captureChainsFrom(s.board, p, i).values()) {
+              List.add(out, #jump { path });
+            };
+          };
+          case _ {};
+        };
+      };
+    } else {
+      for (i in Nat.range(0, SQUARES)) {
+        switch (s.board[i]) {
+          case (?p) if (ownerOf(p) == seat) {
+            for (to in stepTargets(s.board, p, i).values()) {
+              List.add(out, #move { from = i; to });
+            };
+          };
+          case null {};
+        };
+      };
+    };
+    List.toArray(out);
+  };
+
   // ────────────────────────── Spec: validate ───────────────────────────────
 
   /// null = legal. Called only for the seat currently on turn — the

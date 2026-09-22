@@ -567,19 +567,24 @@ bot — a claim, a leave, an idle takeover), is treated exactly like
 silence — do nothing, and let the existing timeout machinery take it
 from there.
 
-**When a canister seat gets asked.** `ws.mo` stays completely unchanged
-— it's still the only transport a human ever mutates through (rule 11).
-That means nothing in it eagerly tells a bot "your turn again" once a
-HUMAN's own move resolves a round. `nudge(now)` is the fix: a periodic
-scan over every `#active` table for a due, idle canister seat (one whose
-`View.#inGame.youSubmitted` is `false` — "due to move" reduces to that
-one Boolean in EITHER mode, exactly the same way "the waiting seat" that
-may `claimWin` does — see `Table.status`'s own doc), guarded by a
+**When a canister seat gets asked (or claims a win).** `ws.mo` stays
+completely unchanged — it's still the only transport a human ever
+mutates through (rule 11). That means nothing in it eagerly tells a bot
+"your turn again" once a HUMAN's own move resolves a round, and nothing
+in it ever calls `claimWin` on a canister's behalf either. `nudge(now)`
+is the fix for both: a periodic scan over every `#active` table checking
+each canister seat for exactly one of two things — due to move (`View.
+#inGame.youSubmitted` is `false` — that one Boolean already means "due
+to move" in EITHER mode, the same way it means "the waiting seat" that
+may `claimWin` — see `Table.status`'s own doc), in which case it's asked
+via `callBot`; or, if it already submitted and is the WAITING seat,
+whether `claimWinAvailable` has since turned true, in which case `nudge`
+claims the win on its behalf outright. The first case is guarded by a
 one-bit-per-(table, seat) in-flight flag so an overlapping tick can never
 ask the same due seat twice while the first ask is still pending. Wire
-it onto its own fast timer (a few seconds — independent of the existing
-30s idle-sweep timer, which is far too slow for a game round to wait
-on):
+`nudge` onto its own fast timer (a few seconds — independent of the
+existing 30s idle-sweep timer, which is far too slow for a game round to
+wait on):
 
 ```motoko
 ignore Timer.recurringTimer<system>(#seconds(3), func() : async () {
@@ -613,7 +618,7 @@ persistent actor {
     attached.afterMutation, // reuses ws.mo's own push fan-out — see above
     func(session, req, k) : async* () {
       let p = Principal.fromText(
-        Text.trimStart(session, #text CanisterPlayers.CP_SID_PREFIX)
+        Text.trimStart(session, #text (CanisterPlayers.CP_SID_PREFIX))
       );
       let bot : BotIface.CanisterPlayer = actor (Principal.toText(p));
       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
@@ -635,6 +640,12 @@ persistent actor {
   public shared ({ caller }) func ack_ended_as_canister() : async () {
     await* cpAttached.ackEnded(caller);
   };
+  public shared ({ caller }) func claim_win_as_canister(gen : Nat) : async TP.Res<()> {
+    await* cpAttached.claimWin(caller, gen);
+  };
+  public shared ({ caller }) func reset_as_canister(gen : Nat) : async TP.Res<()> {
+    await* cpAttached.reset(caller, gen);
+  };
 
   ignore Timer.recurringTimer<system>(#seconds(3), func() : async () {
     await* cpAttached.nudge(Time.now());
@@ -646,13 +657,22 @@ Note what's absent: no `submit_as_canister`. A canister player's move
 never arrives as an independent inbound call under this design — it's
 always the direct reply to the call `notifyAndApply` itself made, applied
 by the same code that made it (see "The call/response protocol" above).
-`claim_win_as_canister`/`reset_as_canister` (for a fully unattended
-canister-vs-canister match, where nobody's around to click "claim win")
-and the `reservedFor`-based eager dual-seat assignment (an instant-start
-human-vs-bot table, no access code to relay) are further, optional
-additions on top of this same module — see
-`skills/duel-game-core/SKILL.md` for the authoring guide and
-`examples/racing/src/Bot.mo` for a minimal, complete worked example.
+
+**Unattended, canister-vs-canister matches.** `claimWin`/`Table.claimWin`
+is shaped for a human: someone looks at the screen and decides to stop
+waiting. In an all-canister match there's nobody looking. `nudge` covers
+this automatically — its periodic scan checks not just "is this canister
+seat due to move" but also "is this canister seat the WAITING one, with
+`View.#inGame.claimWinAvailable` now true," and claims the win on its
+behalf the instant that's so, no separate wiring needed. `claim_win_as_
+canister`/`reset_as_canister` exist alongside that mainly so a canister
+PARTICIPANT that wants to act the moment it's entitled to — rather than
+wait out the nudge timer's own interval — can call either directly; both
+route through the caller's own `cp:` session exactly like `leave_as_
+canister` does (only ever "my own table," never an arbitrary one by
+table id — a supervising tournament-orchestrator canister resetting or
+claiming ANY table, not just one it's seated at, is a further capability
+this module doesn't provide).
 
 A lobby frontend needs no new field to show "vs 🤖" either:
 `TableSummary.p1Session`/`p2Session` already carry the raw `SessionId`
@@ -660,6 +680,38 @@ text, so a client-side check against the `cp:` prefix
 (`CanisterPlayers.isCanisterSession`, or just
 `Text.startsWith(session, #text "cp:")` on the frontend) is purely
 cosmetic, reading data the engine already exposes.
+
+**Flow 2: eager dual-seat assignment.** Flow 1 above (self-join) has the
+bot claim its own seat, on its own account, once someone hands it a
+table id/seat/access code. `Registry.createTableReserving` is the
+alternative: a creator names BOTH seats in one call — themselves, and
+`reservedFor`, some OTHER already-known `SessionId` — and the table
+lands directly in `#active`, with no second `joinTable` needed from
+either side:
+
+```motoko
+switch (registry.createTableReserving(spec, now, mySession, #p1, #open, CanisterPlayers.sidForCanister(botPrincipal))) {
+  case (#ok id) { /* both seats are already live */ };
+  case (#err e) { /* ... */ };
+};
+```
+
+This is the whole of the feature: a small, generic `Registry` addition
+(rejecting a self-reservation, and a `reservedFor` already busy
+elsewhere, the same way `createTable` itself rejects a creator who's
+already busy elsewhere), proven end to end against `canister_players.mo`
+in `backend/test/CanisterPlayers.test.mo` — a canister seated this way
+is due to move the instant the table exists, picked up by the very next
+ordinary `nudge` tick, with no `joinTable` call from the bot at all.
+Deliberately NOT wired any further than that here: turning this into a
+human-facing "instantly start a game against this bot" button needs a
+new field on `ws.mo`'s own `Msg` protocol (so a browser tab can NAME the
+target bot canister when it creates a table) plus real frontend UI for
+picking one — a genuine, separate feature, and one with its own
+trade-off the canister-players design itself calls out (the target
+canister never gets a say — anyone can force a seat against it, unlike
+Flow 1's own opt-in `join_table_as_canister`), so it's left for a game
+that actually wants it to build, rather than assumed here.
 
 ### Metrics
 

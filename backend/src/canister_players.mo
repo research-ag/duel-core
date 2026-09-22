@@ -85,7 +85,7 @@
 ///     // catchable, lives here, where `Rules.Action` is concrete:
 ///     func(session, req, k) : async* () {
 ///       let p = Principal.fromText(
-///         Text.trimStart(session, #text CanisterPlayers.CP_SID_PREFIX)
+///         Text.trimStart(session, #text (CanisterPlayers.CP_SID_PREFIX))
 ///       );
 ///       let bot : BotIface.CanisterPlayer = actor (Principal.toText(p));
 ///       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
@@ -96,10 +96,16 @@
 ///     await* cpAttached.createTable(caller, seat, visibility);
 ///   };
 ///   // ...join_table_as_canister / leave_as_canister / rematch_as_canister /
-///   // ack_ended_as_canister forward the same way — see `Attached`'s own doc
-///   // for the full set. `submit` is deliberately absent: a canister
-///   // player's move never arrives as an independent inbound call under
-///   // this design (see this module's doc header above).
+///   // ack_ended_as_canister / claim_win_as_canister / reset_as_canister
+///   // forward the same way — see `Attached`'s own doc for the full set.
+///   // `submit` is deliberately absent: a canister player's move never
+///   // arrives as an independent inbound call under this design (see this
+///   // module's doc header above). `claim_win_as_canister`/
+///   // `reset_as_canister` matter most for an unattended, canister-vs-
+///   // canister match: `nudge` below already claims a stalled game
+///   // automatically, but a canister participant that wants to act the
+///   // instant it's entitled to, rather than wait for the next tick, can
+///   // call either directly.
 ///
 ///   // Alongside the existing 30s idle-sweep timer:
 ///   ignore Timer.recurringTimer<system>(#seconds(3), func() : async () {
@@ -147,21 +153,28 @@ module {
   /// are its own responsibility.
   public func isCanisterSession(session : T.SessionId) : Bool = Text.startsWith(session, #text CP_SID_PREFIX);
 
-  /// What a host actor gets back from `attach` — five table-lifecycle
+  /// What a host actor gets back from `attach` — seven table-lifecycle
   /// operations (never `submit`: a canister player's move is always
   /// applied by `notifyAndApply` below, as the direct reply to a call THIS
   /// module made, not as a separately-arriving request — see this
   /// module's own doc header) plus `nudge`, the periodic "ask every due,
-  /// idle canister seat for its next move" sweep a host wires onto its own
-  /// timer. Each lifecycle op takes the CALLING canister's own principal
-  /// (from `msg.caller` at the host actor's own entry point — never a
-  /// client-supplied `sid`) and derives `sidForCanister` itself.
+  /// idle canister seat for its next move — and claim the win against any
+  /// stalled opponent" sweep a host wires onto its own timer (see this
+  /// module's own doc header's §3 note on the unattended, canister-vs-
+  /// canister case: `claimWin`/`reset` exist mainly so a canister
+  /// participant CAN act immediately instead of waiting for the next
+  /// `nudge` tick, not because `nudge` itself needs them called from the
+  /// outside). Each lifecycle op takes the CALLING canister's own
+  /// principal (from `msg.caller` at the host actor's own entry point —
+  /// never a client-supplied `sid`) and derives `sidForCanister` itself.
   public type Attached = {
     createTable : (Principal.Principal, T.Seat, T.TableVisibility) -> async* T.Res<T.TableId>;
     joinTable : (Principal.Principal, T.TableId, T.Seat, ?Text) -> async* T.Res<T.JoinOk>;
     leave : (Principal.Principal, Nat) -> async* T.Res<()>;
     rematch : (Principal.Principal) -> async* T.Res<T.RematchOk>;
     ackEnded : (Principal.Principal) -> async* ();
+    claimWin : (Principal.Principal, Nat) -> async* T.Res<()>;
+    reset : (Principal.Principal, Nat) -> async* T.Res<()>;
     nudge : (Int) -> async* ();
   };
 
@@ -268,18 +281,31 @@ module {
       inFlight.remove(key);
     };
 
-    /// If `session` is due right now and not already mid-`callBot`, ask
-    /// and apply — otherwise a no-op. Shared by every eager trigger below
-    /// and by `nudge`'s own periodic scan.
+    /// If `session` is due to move right now (and not already
+    /// mid-`callBot`), ask and apply — see `notifyAndApply`. Otherwise, if
+    /// `session` is the WAITING seat and may `claimWin` against a stalled
+    /// opponent, claim it on `session`'s own behalf: this module's own
+    /// account of "there's nobody looking at a screen to click Claim Win"
+    /// in an unattended, canister-vs-canister match (see this module's own
+    /// doc header §3). A no-op either way if neither condition currently
+    /// holds, or the table isn't `#active` at all. Shared by every eager
+    /// trigger below and by `nudge`'s own periodic scan.
     func maybeNotify(now : Int, id : T.TableId, session : T.SessionId) : async* () {
       if (not isCanisterSession(session)) return;
-      switch (dueRequest(now, id, session)) {
-        case null {};
-        case (?req) {
-          if (inFlight.get(flightKey(id, req.seat)) == null) {
-            await* notifyAndApply(id, session, req);
+      switch (registry.status(spec, now, session)) {
+        case (#atTable { view = #inGame ig }) {
+          if (not ig.youSubmitted) {
+            if (inFlight.get(flightKey(id, ig.seat)) == null) {
+              await* notifyAndApply(id, session, { tableId = id; seat = ig.seat; game = ig.game; mode = ig.mode; turn = ig.turn; gen = ig.gen });
+            };
+          } else if (ig.claimWinAvailable) {
+            switch (registry.claimWin(spec, now, session, ig.gen)) {
+              case (#ok _) await* afterMutation(now, session, null, ?id, true);
+              case (#err _) {}; // raced/stale by the time this ran — harmless; the next nudge tick re-checks
+            };
           };
         };
+        case (_) {};
       };
     };
 
@@ -379,6 +405,38 @@ module {
         let priorId = registry.bySession.get(session);
         registry.ackEnded(session);
         await* afterMutation(now, session, null, priorId, true);
+      };
+
+      // `claimWin`/`reset` below give a canister PARTICIPANT the same
+      // agency a human has — act immediately rather than wait for the
+      // next `nudge` tick's own auto-claim (see `maybeNotify`'s doc).
+      // Both route through `registry.bySession`, exactly like `leave`
+      // above: only ever "my own table," never an arbitrary one by id —
+      // a supervising orchestrator resetting/claiming ANY table (not just
+      // one it's seated at) is tournament-orchestrator territory, out of
+      // scope here (see `../../CLAUDE.md`'s "Canister players" note).
+      claimWin = func(caller : Principal.Principal, gen : Nat) : async* T.Res<()> {
+        let session = sidForCanister(caller);
+        let now = Time.now();
+        switch (registry.bySession.get(session)) {
+          case null #err(#notSeated);
+          case (?id) switch (registry.claimWin(spec, now, session, gen)) {
+            case (#ok _) { await* afterMutation(now, session, null, ?id, true); #ok(()) };
+            case (#err e) #err(e);
+          };
+        };
+      };
+
+      reset = func(caller : Principal.Principal, gen : Nat) : async* T.Res<()> {
+        let session = sidForCanister(caller);
+        let now = Time.now();
+        switch (registry.bySession.get(session)) {
+          case null #err(#notSeated);
+          case (?id) switch (registry.reset(now, session, gen)) {
+            case (#ok _) { await* afterMutation(now, session, null, ?id, true); #ok(()) };
+            case (#err e) #err(e);
+          };
+        };
       };
 
       nudge = func(now : Int) : async* () {

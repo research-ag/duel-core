@@ -24,7 +24,18 @@ let spec = Rules.spec();
 
 let TIMEOUT : Int = 60_000_000_000; // 60 s
 let CLAIM_TIMEOUT : Int = 20_000_000_000; // 20 s
-let T0 : Int = 1_000_000_000_000;
+// Kept well under CLAIM_TIMEOUT (unlike Lobby.test.mo/Engine.test.mo,
+// this suite goes through `canister_players.mo`'s own ops, several of
+// which stamp `lastActivity` via their OWN internal `Time.now()` call —
+// a fixed, small constant under the `moc -r` interpreter, not real wall
+// time (this module plays the host's own role and calls `Time.now()`
+// itself, same documented exception `ws.mo`/`actor_mixin.mo` already
+// are — see canister_players.mo's own doc header). A `T0` comparable in
+// magnitude to that keeps every claim-win/idle-timeout check in this
+// file measuring genuine elapsed time relative to it, not an arbitrary
+// gap that would read as "already long overdue" the moment ANY
+// nudge-triggered move lands.
+let T0 : Int = 1_000_000_000;
 
 func fresh() : Reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT);
 
@@ -45,6 +56,7 @@ func atTableView(reg : Reg, at : Int, session : Text) : TP.View<Rules.State> = s
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
 let sidBot1 = CanisterPlayers.sidForCanister(bot1);
+let sidBot2 = CanisterPlayers.sidForCanister(bot2);
 
 // ── 1. sidForCanister / isCanisterSession ───────────────────────────────
 assert sidBot1 == "cp:" # Principal.toText(bot1);
@@ -222,5 +234,94 @@ switch (reg9.status(spec, T0, sidBot1)) {
 };
 expectErr(await* cp9.leave(bot1, 0), "bot1 (not seated anywhere) tries to leave again");
 Debug.print("9. leave / ackEnded forward correctly, deriving the session from the caller's own principal OK");
+
+// ── 10. Flow 2, eager dual-seat assignment (registry.createTableReserving,
+//          see ../../CLAUDE.md's "Canister players" note): a canister seated
+//          this way is ALREADY due the instant the table exists — no
+//          joinTable of its own, no eager-trigger call needed at all, just
+//          the next ordinary nudge tick ────────────────────────────────────
+let reg10 = fresh();
+let counter10 = newAfterMutationCounter();
+let cp10 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg10, stubAfterMutation(counter10), constantBot(#gather));
+ignore ok(reg10.createTableReserving(spec, T0, "human", #p1, #open, sidBot1), "human creates a table, atomically reserving bot1 for #p2");
+switch (atTableView(reg10, T0, sidBot1)) {
+  case (#inGame v) assert not v.youSubmitted; // due immediately — bot1 never called joinTable
+  case (_) Runtime.trap("bot1 should already be #inGame, eagerly seated");
+};
+await* cp10.nudge(T0);
+switch (atTableView(reg10, T0, sidBot1)) {
+  case (#inGame v) assert v.youSubmitted; // the ordinary nudge tick picked it up, same as any other due canister seat
+  case (_) Runtime.trap("bot1 should still be in-game");
+};
+switch (atTableView(reg10, T0, "human")) {
+  case (#inGame v) assert v.oppSubmitted;
+  case (_) Runtime.trap("human should see bot1's move landed");
+};
+Debug.print("10. a canister eagerly seated via createTableReserving is due from the start, no joinTable needed OK");
+
+// ── 11. claimWin / reset forward correctly, routing per-table exactly like
+//          leave above (only ever "my own table," never an arbitrary one
+//          by id — see `Attached`'s own doc on why) ────────────────────────
+let reg11 = fresh();
+let counter11 = newAfterMutationCounter();
+let cp11 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg11, stubAfterMutation(counter11), constantBot(#gather));
+expectErr(await* cp11.claimWin(bot1, 0), "bot1 (not seated anywhere) tries to claim a win");
+expectErr(await* cp11.reset(bot1, 0), "bot1 (not seated anywhere) tries to reset");
+let id11 = ok(await* cp11.createTable(bot1, #p1, #open), "bot1 creates a table");
+ignore ok(reg11.joinTable(spec, T0, "human", id11, #p2, null), "human joins; game live");
+await* cp11.nudge(T0); // bot1 gathers; now waiting on human
+let g11 = switch (atTableView(reg11, T0, sidBot1)) { case (#inGame v) v.gen; case (_) Runtime.trap("n/a") };
+switch (await* cp11.claimWin(bot1, g11)) {
+  case (#err(#notOverdue _)) {};
+  case (other) Runtime.trap("bot1's own claim window hasn't elapsed yet, got " # debug_show (other));
+};
+ok(await* cp11.reset(bot1, g11), "bot1 resets its own live game — a shared #aborted debrief, same as leave");
+switch (atTableView(reg11, T0, sidBot1)) {
+  case (#debrief d) switch (d.end) {
+    case (#aborted(#p1)) {};
+    case (_) Runtime.trap("bot1's own reset (while seated) should abort as leave does");
+  };
+  case (_) Runtime.trap("bot1 should be in the shared debrief its own reset just created");
+};
+Debug.print("11. claimWin / reset forward correctly and route per-table OK");
+
+// ── 12. unattended, canister-vs-canister: bot2 never answers at all — once
+//          bot1's own move has sat pending against bot2's silence for
+//          longer than claimTimeoutNs, the NEXT ordinary nudge tick claims
+//          the win on bot1's behalf automatically. No human is ever
+//          involved — the milestone-04 "two bots finish a game with no
+//          human ever present" case ────────────────────────────────────────
+// One shared `callBot`, dispatching per-SESSION rather than per-`attach`
+// (unlike test 7's "a fresh attach stands in for a bot that starts
+// answering" trick) — a real deployment wires exactly ONE `attach` per
+// host actor, whose own `callBot` closure is what tells two different
+// canister players apart in the first place (by looking at which
+// principal `session` actually names); reusing test 7's per-attach
+// pattern here would let bot1's OWN join-triggered eager check run
+// through bot2's silent closure instead of its own.
+func perSessionBot(silent : TP.SessionId) : (TP.SessionId, TP.MoveRequest<Rules.State>, (?Rules.Action) -> async* ()) -> async* () {
+  func(session : TP.SessionId, _req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
+    if (session == silent) { await* k(null) } else { await* k(?#gather) };
+  };
+};
+let reg12 = fresh();
+let counter12 = newAfterMutationCounter();
+let cp12 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg12, stubAfterMutation(counter12), perSessionBot(sidBot2));
+let id12 = ok(await* cp12.createTable(bot1, #p1, #open), "bot1 creates a table");
+ignore ok(await* cp12.joinTable(bot2, id12, #p2, null), "bot2 joins; game starts — bot1's own eager join-trigger gathers, bot2 stays silent");
+switch (atTableView(reg12, T0, sidBot1), atTableView(reg12, T0, sidBot2)) {
+  case (#inGame v1, #inGame v2) { assert v1.youSubmitted; assert not v2.youSubmitted };
+  case (_, _) Runtime.trap("bot1 should be waiting, bot2 should still be due");
+};
+let PAST_CLAIM : Int = T0 + CLAIM_TIMEOUT + 1_000_000_000; // safely past bot1's own claim window
+await* cp12.nudge(PAST_CLAIM); // bot2 is asked again (still silent, no progress) AND bot1's stall is now claimable
+switch (atTableView(reg12, PAST_CLAIM, sidBot1)) {
+  case (#debrief d) switch (d.end) {
+    case (#claimed(#p1)) {};
+    case (_) Runtime.trap("bot1's own automatic claim should credit p1");
+  };
+  case (other) Runtime.trap("expected a #claimed debrief, got " # debug_show (other));
+};
+Debug.print("12. an unattended canister-vs-canister match finishes via nudge's own automatic claim-win, no human involved OK");
 
 Debug.print("ALL CANISTER-PLAYERS CHECKS PASSED");

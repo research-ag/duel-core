@@ -95,8 +95,26 @@ particular game — that's supplied by whoever builds a game on top.
   canister seat again after a HUMAN's own move resolves a round (`ws.mo`
   itself stays completely unchanged); a canister-driven mutation
   eagerly re-checks the same thing immediately, so a bot-vs-bot match
-  never waits on a tick for the common case. See `backend/README.md`'s
-  "Canister players" section for the full design and worked example.
+  never waits on a tick for the common case. `nudge` also claims the win
+  automatically on behalf of any canister seat that's the WAITING one
+  once `claimWinAvailable` turns true — the unattended, canister-vs-
+  canister case, where nobody's around to click "claim win" themselves;
+  `claim_win_as_canister`/`reset_as_canister` additionally let a canister
+  PARTICIPANT act the instant it's entitled to rather than wait for the
+  next tick, routed through its own `cp:` session exactly like
+  `leave_as_canister` (only ever "my own table," never an arbitrary one
+  by id — a supervising tournament-orchestrator canister is out of scope
+  here). `registry.mo`'s `createTableReserving` is a separate, small
+  addition alongside plain `createTable`: it seats BOTH sides atomically
+  in one call — the creator, and a `reservedFor` session named
+  up front — landing the table directly in `#active` with no second
+  `joinTable` needed from either side (Flow 2, "eager dual-seat
+  assignment," proven against `canister_players.mo` in
+  `backend/test/CanisterPlayers.test.mo`; deliberately not wired any
+  further than that — see `backend/README.md`'s own note on why a
+  human-facing "invite this bot" button is a separate feature). See
+  `backend/README.md`'s "Canister players" section for the full design
+  and worked example.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
   client plumbing (session identity, real-time push, the generic
   multi-table lobby/staging/rematch/busy/debrief screens, Candid IDL
@@ -149,14 +167,32 @@ particular game — that's supplied by whoever builds a game on top.
   counterpart to `FakeGame.mo`; `Registry`'s own routing is mode-agnostic
   and already covered generically by `Lobby.test.mo`/
   `LobbyLifecycle.test.mo`, so there is no separate registry-level
-  alternating suite. `CanisterPlayers.test.mo` covers
+  alternating suite — `Lobby.test.mo` also covers `createTableReserving`
+  (Flow 2's atomic dual-seat assignment) on its own, engine-only terms:
+  both sides land `#inGame` from one call, rejecting a self-reservation
+  and a `reservedFor` session that's already busy elsewhere.
+  `CanisterPlayers.test.mo` covers
   `canister_players.mo`'s own orchestration — due-seat detection via
   `Registry.status`, the retry-once-on-illegal-move then silence
-  behavior, the in-flight guard clearing correctly, and the eager
-  bot-vs-bot trigger — against `FakeGame.mo` again, with `afterMutation`
+  behavior, the in-flight guard clearing correctly, the eager
+  bot-vs-bot trigger, `claimWin`/`reset` forwarding, `nudge`'s own
+  automatic claim-win once a canister seat's stall turns overdue (a
+  fully unattended, canister-vs-canister match, start to finish, with no
+  human ever involved), and a canister seated via `createTableReserving`
+  being due from the very first ordinary `nudge` tick with no
+  `joinTable` of its own — against `FakeGame.mo` again, with
+  `afterMutation`
   stubbed (a plain call counter) rather than a real `Ws.attach`, same
   caveat `Hub.test.mo` documents for why the full `IcWebSocketCdk` actor
-  machinery isn't exercisable here. The `*.test.mo` suffix is what `mops test`
+  machinery isn't exercisable here. (Its own `T0` baseline is
+  deliberately small, unlike other suites': several of
+  `canister_players.mo`'s own ops call `Time.now()` internally —
+  playing the host's own role, the same documented exception `ws.mo`/
+  `actor_mixin.mo` already are — which under the `moc -r` interpreter is
+  a fixed, tiny constant, not real wall time; a `T0` far larger than
+  that would make every canister-landed move look artificially,
+  arbitrarily "long ago" the moment a later check queries
+  `claimWinAvailable` against it.) The `*.test.mo` suffix is what `mops test`
   discovers — a file named `FooTest.mo` is silently skipped, so keep the
   suffix when adding
   suites.

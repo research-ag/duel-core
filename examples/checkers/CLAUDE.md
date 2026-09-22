@@ -19,6 +19,12 @@ either package itself.
   `../../skills/duel-game-core/references/alternating-turn-games.md`).
   See the module's own doc header for the full rules text and its
   deliberate simplifications against tournament draughts.
+  `legalActions(s, seat)` enumerates every legal `Action` for `seat` on
+  the current board — the same legality `validate` enforces (only
+  `#jump`s, each already carrying its full maximal chain, when a capture
+  is mandatory), exported specifically so a caller doesn't have to
+  re-derive those rules itself; `BotLogic.mo`'s canister player is its
+  first real consumer, but it's plain, pure, reusable data either way.
 - **`src/Host.mo`** — the host actor: forwards every call to a
   `TP.Registry<Rules.State, Rules.Action>` (built with `Registry.new`
   from `mo:duel-game-core/registry`; a multi-table lobby — anyone may
@@ -45,6 +51,56 @@ either package itself.
   this is entirely optional instrumentation — see
   `../../backend/README.md`'s "Metrics" section for the metrics it
   exposes and the full reasoning.
+  `Host.mo` also wires canister players (`mo:duel-game-core/canister_players`,
+  see `../../CLAUDE.md`'s "Canister players" note): `CanisterPlayers.attach`
+  shares this same `registry` and reuses `attached.afterMutation` (`Ws.attach`'s
+  own push fan-out) so a bot's move reaches a human opponent's browser in
+  real time, same as `ws.mo` itself; the `callBot` closure passed to it is
+  where the actual `await bot.make_move(req)` inter-canister call happens
+  (a `try`/`catch` around it, since `Rules.Action` is concrete only here —
+  see `CanisterPlayers.attach`'s own doc for why that can't live inside the
+  module). `create_table_as_canister`/`join_table_as_canister`/
+  `leave_as_canister`/`rematch_as_canister`/`ack_ended_as_canister`/
+  `claim_win_as_canister`/`reset_as_canister` forward
+  straight to `cpAttached`'s matching operation, deriving the caller's
+  `cp:` session from `msg.caller` (never client-supplied — nothing to
+  spoof); there is no `submit_as_canister` at all, since a canister
+  player's move only ever arrives as the direct reply to a call this
+  module made, never a separately-arriving request. A fast 3-second
+  `Timer.recurringTimer<system>` (alongside the existing 30s idle-sweep
+  one wired inside `ActorMixin`) drives `cpAttached.nudge`, asking every
+  due canister seat for its next move — for an `#alternating` game like
+  this one, that's whichever ONE seat is currently on turn, never both at
+  once (see `canister_players.mo`'s own `dueRequest` doc on why
+  `youSubmitted` already means the right thing in either mode) — and
+  claiming the win automatically on behalf of any canister seat that's
+  the WAITING one once it's entitled to (the unattended, canister-vs-
+  canister case); `claim_win_as_canister`/`reset_as_canister` exist
+  mainly so a canister participant can act the instant it's entitled to
+  instead of waiting on the next tick.
+- **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
+  canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
+  -> async Rules.Action`, the exact counterpart to a browser's own
+  `GamePlugin`.
+- **`src/BotLogic.mo`** — the checkers bot's move-selection logic, as a
+  plain pure module (no actor, no `Time`, matching `CheckersRules.mo`'s
+  own style): `chooseMove` reuses `CheckersRules.legalActions` directly
+  (never re-deriving mandatory-capture/maximal-chain itself) and picks one
+  result deterministically from `req.turn` and the position — no
+  lookahead, no material evaluation, the milestone-02 baseline. Kept
+  separate from `Bot.mo` specifically so `test/Bot.test.mo` can call
+  `chooseMove` directly, with no actor/Candid round-trip.
+- **`src/Bot.mo`** — the bot canister itself: implements
+  `BotIface.CanisterPlayer`'s `make_move` (a thin shell over
+  `BotLogic.chooseMove`), plus `play(host, tableId, seat, code)`, this
+  bot's own Flow 1 "self-join" entry point (see the canister-players
+  design's "Lobby & opponent selection" section) — hand it a checkers
+  `Host.mo`-shaped canister's id, a table id, a seat, and that table's
+  access code (however you like; entirely outside this engine's concern),
+  and it calls that canister's own `join_table_as_canister` on its own
+  account. Deploy target (see `icp.yaml` below). Because every reply is
+  drawn from `legalActions`, this bot can never submit an illegal move,
+  even without any lookahead of its own.
 - **`test/*.test.mo`** — interpreter-run suites. `RulesUnit.test.mo`
   drives `validate`/`resolve` directly against synthetic boards (no
   engine, no actor) — the bulk of the rule coverage: forward-only men,
@@ -62,11 +118,23 @@ either package itself.
   `../../skills/duel-game-core/references/testing-deep-dive.md`'s
   technique) the live board is seeded directly via `Table.phase`'s own
   public `var` field to a position one legal capture from finishing, so
-  the ending itself is still exercised for real. The `*.test.mo` suffix
+  the ending itself is still exercised for real. `test/Bot.test.mo`
+  covers `BotLogic.mo`: it confirms `chooseMove` only ever returns a
+  `CheckersRules.legalActions`-listed move on a handful of synthetic
+  positions (including one with a mandatory capture, where exactly one
+  result exists at all) with no engine involved, then separately wires
+  `BotLogic.chooseMove` through a live `mo:duel-game-core/canister_players`
+  as the `callBot` continuation (no real second canister needed for
+  this — see the file's own doc header) so TWO canister-seated bots play
+  each other through several real `#alternating` plies — the specific
+  proof this milestone calls for: `#p1` moving first, then the due seat
+  correctly alternating as the turn passes. The `*.test.mo` suffix
   is what `mops test` discovers — a file named `FooTest.mo` is silently
   skipped, so keep the suffix when adding suites.
 - **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as canister
-  `backend` and `frontend/dist` (esbuild's bundled output — see this
+  `backend`, `src/Bot.mo` as canister `bot` (this example's own
+  milestone-02 canister player — see that file's own doc header), and
+  `frontend/dist` (esbuild's bundled output — see this
   file's "Build & test" section, NOT `frontend/` itself) as an asset
   canister.
 - **`frontend/`** — vanilla-JS web client (no framework), bundled with
@@ -131,7 +199,10 @@ either package itself.
   `mops.toml` first declared a package. Never import `mo:base` directly
   in this game's own code — it's the legacy library; `ic-websocket-cdk`
   pulling it in transitively is a documented, contained exception, not
-  license to import it yourself.
+  license to import it yourself. `src/Host.mo`'s third opt-in,
+  `mo:duel-game-core/canister_players`, needs nothing further: that
+  module depends on nothing but `core` and its sibling engine modules,
+  already pulled in regardless.
 - The frontend's npm dependencies split the same way `examples/007`'s
   do: `duel-game-core` (`file:../../../frontend`) and `@icp-sdk/core`
   are what `app.js` itself needs; esbuild bundles both, plus everything
@@ -159,9 +230,10 @@ moc --check $(mops sources) src/Host.mo
 
 # Run the test suites (interpreter mode; they Debug.print progress and end
 # with "ALL ... CHECKS PASSED"; any trap = a FAIL, exit code 1):
-mops test                  # all three
+mops test                  # all four
 mops test Engine           # one suite — the filter is a path substring
 mops test Rules            # ...so this matches RulesUnit
+mops test Bot              # BotLogic.mo, offline and wired through canister_players
 ```
 
 ```bash
@@ -269,7 +341,7 @@ points to (the duel-game-core-specific playbook instead lives in the
 tracked `../../skills/duel-game-core/`, whose
 `references/alternating-turn-games.md` this example itself is the
 worked reference for). Consult those before editing
-`src/CheckersRules.mo` or `src/Host.mo`.
+`src/CheckersRules.mo`, `src/Host.mo`, or `src/Bot.mo`/`src/BotLogic.mo`.
 
 ## Conventions
 
@@ -279,6 +351,8 @@ worked reference for). Consult those before editing
   Extend in kind. (In mo:core, `trap` lives in `Runtime`; `Debug` only
   has `print`.)
 - `msg`, not `label`, for text parameters (`label` is a reserved word).
-- Update all three test suites when touching `src/CheckersRules.mo`'s
-  semantics, and keep `checkers-plugin.js`'s move-generation mirror in
+- Update `RulesUnit.test.mo`/`Engine.test.mo`/`Lifecycle.test.mo` when
+  touching `src/CheckersRules.mo`'s semantics (including `legalActions` —
+  it must keep returning exactly what `validate` would accept), and keep
+  `checkers-plugin.js`'s move-generation mirror in
   sync (see Architecture rule 3 above).

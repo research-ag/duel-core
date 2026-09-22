@@ -55,6 +55,52 @@ first to complete the lap wins.
   metrics, no `Tracker` of its own needed). Unlike `ws.mo`, this is
   entirely optional instrumentation — see `../../backend/README.md`'s
   "Metrics" section for the metrics it exposes and the full reasoning.
+  `Host.mo` also wires canister players (`mo:duel-game-core/canister_players`,
+  see `../../CLAUDE.md`'s "Canister players" note): `CanisterPlayers.attach`
+  shares this same `registry` and reuses `attached.afterMutation` (`Ws.attach`'s
+  own push fan-out) so a bot's move reaches a human opponent's browser in
+  real time, same as `ws.mo` itself; the `callBot` closure passed to it is
+  where the actual `await bot.make_move(req)` inter-canister call happens
+  (a `try`/`catch` around it, since `Rules.Action` is concrete only here —
+  see `CanisterPlayers.attach`'s own doc for why that can't live inside the
+  module). `create_table_as_canister`/`join_table_as_canister`/
+  `leave_as_canister`/`rematch_as_canister`/`ack_ended_as_canister`/
+  `claim_win_as_canister`/`reset_as_canister` forward
+  straight to `cpAttached`'s matching operation, deriving the caller's
+  `cp:` session from `msg.caller` (never client-supplied — nothing to
+  spoof); there is no `submit_as_canister` at all, since a canister
+  player's move only ever arrives as the direct reply to a call this
+  module made, never a separately-arriving request. A fast 3-second
+  `Timer.recurringTimer<system>` (alongside the existing 30s idle-sweep
+  one wired inside `ActorMixin`) drives `cpAttached.nudge`, asking every
+  due canister seat for its next move — and claiming the win, automatically,
+  on behalf of any canister seat that's the WAITING one once it's entitled
+  to (the unattended, canister-vs-canister case); `claim_win_as_canister`/
+  `reset_as_canister` exist mainly so a canister participant can act the
+  instant it's entitled to instead of waiting on the next tick.
+- **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a racing
+  canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
+  -> async Rules.Action`, the exact counterpart to a browser's own
+  `GamePlugin`.
+- **`src/BotLogic.mo`** — the racing bot's move-selection logic, as a
+  plain pure module (no actor, no `Time`, matching `RacingRules.mo`'s own
+  style): `SCRIPT`, a fixed array of arcs baked in offline (see the
+  module's own doc comment for how they were derived and why the sequence
+  stays legal forever once it converges to a steady cruising speed), and
+  `chooseMove`, a pure lookup into it by `req.turn` — no lookahead, no
+  awareness of `req.game` at all. Kept separate from `Bot.mo` specifically
+  so `test/Bot.test.mo` can call `chooseMove` directly, with no
+  actor/Candid round-trip.
+- **`src/Bot.mo`** — the bot canister itself: implements
+  `BotIface.CanisterPlayer`'s `make_move` (a thin shell over
+  `BotLogic.chooseMove`), plus `play(host, tableId, seat, code)`, this
+  bot's own Flow 1 "self-join" entry point (see the canister-players
+  design's "Lobby & opponent selection" section) — hand it a racing
+  `Host.mo`-shaped canister's id, a table id, a seat, and that table's
+  access code (however you like; entirely outside this engine's concern),
+  and it calls that canister's own `join_table_as_canister` on its own
+  account. Deploy target (see `icp.yaml` below) — a deliberately "dumb"
+  bot that proves the wiring end to end, not a competitive racer.
 - **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
   `Rules.test.mo` are scenario walks (one long session / the headline game
   rules); `Engine.test.mo` and `RulesUnit.test.mo` are per-operation unit
@@ -67,12 +113,24 @@ first to complete the lap wins.
   fixture module (see its doc header for why: driving a full, physics-real
   2-lap race would make the suites slow and non-deterministic, so it seeds
   a live table with a car one legal step from the finish line instead of
-  simulating a whole race). The `*.test.mo` suffix is what `mops test`
+  simulating a whole race). `test/Bot.test.mo` covers `BotLogic.mo`: it
+  replays `SCRIPT` (plus several rounds of the post-script "hold the last
+  entry" clamp) through the REAL `RacingRules.validate`/`resolve` — a
+  permanent regression guard on the offline-derived numbers actually
+  staying legal against real collision checks, not just the idealized,
+  no-wall formula they were derived from — and separately wires
+  `BotLogic.chooseMove` through a live `mo:duel-game-core/canister_players`
+  as the `callBot` continuation (no real second canister needed for
+  this — see the file's own doc header) to prove a canister-seated bot
+  drives several rounds against a human with no illegal move. The
+  `*.test.mo` suffix is what `mops test`
   discovers — a file named `FooTest.mo` is silently skipped, so keep the
   suffix when adding suites.
 - **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as canister
-  `backend` and `frontend/dist` (esbuild's bundled output — see
-  `frontend/README.md`, NOT `frontend/` itself) as an asset canister.
+  `backend`, `src/Bot.mo` as canister `bot` (this example's own
+  milestone-01 canister player — see that file's own doc header), and
+  `frontend/dist` (esbuild's bundled output — see `frontend/README.md`,
+  NOT `frontend/` itself) as an asset canister.
 - **`frontend/`** — a plain-TypeScript (no framework) Three.js racing
   client, bundled with esbuild (`npm run build`, see `frontend/README.md`).
   The 3D engine (physics, rendering, camera, click-to-drive control) is
@@ -135,7 +193,10 @@ first to complete the lap wins.
   here — both arrive transitively through `duel-game-core`'s own
   `mops.toml`, same as `ic-websocket-cdk` already did before promtracker
   existed; `mops sources` resolves the whole tree regardless of which
-  `mops.toml` first declared a package. Never import `mo:base` directly
+  `mops.toml` first declared a package. `src/Host.mo`'s third opt-in,
+  `mo:duel-game-core/canister_players`, needs nothing further: that
+  module depends on nothing but `core` and its sibling engine modules,
+  already pulled in regardless. Never import `mo:base` directly
   in this game's own code — it's the legacy library; `ic-websocket-cdk`
   pulling it in transitively is a documented, contained exception, not
   license to import it yourself. `duel-game-core` re-exports nothing of
@@ -188,9 +249,10 @@ moc --check $(mops sources) src/Host.mo
 
 # Run the test suites (interpreter mode; they Debug.print progress and end
 # with "ALL ... CHECKS PASSED"; any trap = a FAIL, exit code 1):
-mops test                  # all four
+mops test                  # all five
 mops test Engine           # one suite — the filter is a path substring
 mops test Rules            # ...so this matches Rules AND RulesUnit
+mops test Bot              # BotLogic.mo, offline and wired through canister_players
 ```
 
 Install the frontend's own dependencies, then deploy (icp-cli; `icp
@@ -275,7 +337,7 @@ Local copies of the relevant Motoko-authoring SKILL.md playbooks live in
 this repo under `../../.agents/skills/` — the same set `../../CLAUDE.md`
 points to (the duel-game-core-specific playbook instead lives in the
 tracked `../../skills/duel-game-core/`). Consult those before editing
-`src/RacingRules.mo` or `src/Host.mo`.
+`src/RacingRules.mo`, `src/Host.mo`, or `src/Bot.mo`/`src/BotLogic.mo`.
 
 ## Conventions
 
@@ -283,10 +345,14 @@ tracked `../../skills/duel-game-core/`). Consult those before editing
   `ok`/`expectErr` helpers + `Runtime.trap` on violation. Extend in kind.
   (In mo:core, `trap` lives in `Runtime`; `Debug` only has `print`.)
 - `msg`, not `label`, for text parameters (`label` is a reserved word).
-- Update ALL FOUR test suites when touching `RacingRules.mo`'s semantics —
-  and if a change moves where the finish line / wrap segment / grid
-  positions are, re-derive `RaceTestHelpers.mo`'s `nearFinish()` numbers
-  (see `Rules.test.mo`'s comment on it for how they were computed).
+- Update `Lifecycle.test.mo`/`Rules.test.mo`/`Engine.test.mo`/`RulesUnit.test.mo`
+  when touching `RacingRules.mo`'s semantics — and if a change moves where
+  the finish line / wrap segment / grid positions are, re-derive
+  `RaceTestHelpers.mo`'s `nearFinish()` numbers (see `Rules.test.mo`'s
+  comment on it for how they were computed). If the change alters
+  `nextStepArea`, the car's tuning constants, or `Track`'s starting grid,
+  also re-derive `BotLogic.mo`'s `SCRIPT` the same way its own doc
+  comment describes, and confirm `mops test Bot` still passes.
 - This file, `frontend/README.md`, and `frontend/CLAUDE.md` must stay in
   sync with the code. When a change moves, renames, or removes something
   one of them describes, update the affected doc in the same change —
