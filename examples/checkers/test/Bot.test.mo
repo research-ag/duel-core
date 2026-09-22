@@ -151,11 +151,16 @@ switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
   case (_, _) {
     // one seat may have already won (a real, if unlikely, outcome of two
     // rule-following-but-lookahead-free bots after this many plies) —
-    // either way it must be a real #debrief, never a stuck #inGame with
-    // an unmet due seat.
+    // either a real #debrief, or (just as likely, since an all-canister
+    // debrief now gets acked on both sides immediately — see
+    // `canister_players.mo`'s own "canister vs canister" debrief-ack
+    // note) already settled all the way back to #browsing within the
+    // very same nudge tick that ended it; either way, never a stuck
+    // #inGame with an unmet due seat.
     switch (reg.status(spec, T0, sidBot1)) {
       case (#atTable { view = #debrief _ }) {};
-      case (other) Runtime.trap("expected either both still in-game or a real debrief, got " # debug_show (other));
+      case (#browsing _) {};
+      case (other) Runtime.trap("expected in-game, a real debrief, or an already-settled browsing state, got " # debug_show (other));
     };
   };
 };
