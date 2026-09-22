@@ -500,13 +500,11 @@ sanity-check it against a real deploy before relying on it.
 
 ### Canister players
 
-`mo:duel-game-core/canister_players` lets a CANISTER — a hardcoded-script
-bot, a rules-following bot, an LLM-backed agent, anything with a
-principal — take a seat at a table and play, against a human or another
-canister, with no polling and no second inbound entry point for a move
-to arrive through. The key simplification: `ws.mo` exists only because
-the IC has no native WebSocket, so a browser has to fake real-time push.
-A canister player needs none of that — two canisters calling each other
+`mo:duel-game-core/canister_players` lets a CANISTER take a seat at a table 
+and play, against a human or another canister, with no polling and no second 
+inbound entry point for a move to arrive through. The key simplification: `ws.mo` 
+exists only because the IC has no native WebSocket, so a browser has to fake real-time 
+push. A canister player needs none of that — two canisters calling each other
 with `async`/`await` already IS a real, ordered, request-response
 channel, the primitive the whole IC is built on. So the whole feature
 reframes to "let the GAME canister call the PLAYER canister directly and

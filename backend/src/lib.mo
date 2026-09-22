@@ -126,8 +126,8 @@
 /// "Metrics" section for the metrics it exposes and the full wiring
 /// (`examples/racing/src/Host.mo` is a worked example).
 ///
-/// A host actor may also let a CANISTER (a bot, an LLM-backed agent, ...)
-/// take a seat, via `mo:duel-game-core/canister_players` — a third module
+/// A host actor may also let a CANISTER take a seat, via
+/// `mo:duel-game-core/canister_players` — a third module
 /// layered on `Registry` the same way `mo:duel-game-core/ws` is, reusing
 /// its exact push fan-out so a human opponent still learns about a
 /// canister-driven move in real time. See `backend/README.md`'s

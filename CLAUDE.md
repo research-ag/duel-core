@@ -78,8 +78,7 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   `backend/src/canister_players.mo` (`mo:duel-game-core/canister_players`)
   is a fifth module, OPTIONAL (unlike `ws.mo`, wiring it is never
   required — a host that never imports it just has no canister-seatable
-  players): it lets a CANISTER (a hardcoded-script bot, a
-  rules-following bot, an LLM-backed agent) take a seat and play, using
+  players): it lets a CANISTER take a seat and play, using
   a third reserved `sid` namespace (`cp:`, `sidForCanister`, mirroring
   `ws.mo`'s `ii:`/`an:`) derived from `msg.caller` — never a
   client-supplied `sid`, so there's nothing to spoof. The whole protocol

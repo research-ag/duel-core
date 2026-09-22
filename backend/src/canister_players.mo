@@ -1,6 +1,5 @@
 /// ═══════════════════════════════════════════════════════════════════════════
-/// duel-game-core/canister_players — lets a CANISTER (a hardcoded-script
-/// bot, a rules-following bot, an LLM-backed agent, ...) take a seat at a
+/// duel-game-core/canister_players — lets a CANISTER take a seat at a
 /// `Registry` table and play, against a human or another canister, with no
 /// polling and no second inbound entry point for a move to arrive through.
 ///
