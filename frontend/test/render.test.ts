@@ -317,6 +317,8 @@ test("renderView: inGame uses turn-accurate copy for an #alternating table", () 
     },
     plugin,
   );
+  assert.match(html, /Move <strong>1<\/strong>/);
+  assert.doesNotMatch(html, /Round </);
   assert.match(html, /◉ Your turn/);
   assert.doesNotMatch(html, /Opponent has locked in/);
   assert.match(html, /Pass/); // it's this seat's turn — actions are shown

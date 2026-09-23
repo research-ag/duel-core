@@ -399,7 +399,7 @@ function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
 
   return `
     <div class="turnbar">
-      <span>Round <strong>${v.turn + 1n}</strong></span>
+      <span>${alternating ? "Move" : "Round"} <strong>${v.turn + 1n}</strong></span>
       <span class="${v.oppSubmitted ? "locked" : "muted"}">${
         alternating
           ? v.oppSubmitted
