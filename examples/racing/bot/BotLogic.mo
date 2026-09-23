@@ -1,9 +1,3 @@
-/// The racing bot's move-selection logic, factored out of `Bot.mo` as a
-/// plain, pure module — so it can be exercised directly in
-/// `test/Bot.test.mo` (constructing a synthetic `TP.MoveRequest` by hand
-/// and calling `chooseMove`, no actor/Candid round-trip at all — the same
-/// "testing offline" pattern `../../../CLAUDE.md`'s "Canister players"
-/// note describes) as well as wired live from `Bot.mo`'s own `make_move`.
 import Nat "mo:core/Nat";
 import Float "mo:core/Float";
 
@@ -136,11 +130,6 @@ module {
     { l = 55.01751287490851; c = 0.005903987969513282 },
   ];
 
-  /// Ignores everything about `req` except `turn` — see `SCRIPT`'s own doc
-  /// comment for why that's enough. Clamps to the script's last entry once
-  /// `turn` runs past it, rather than reaching for `req.game`/physics at
-  /// all: this bot is deliberately as simple as `canister_players.mo`'s
-  /// own protocol allows.
   public func chooseMove(req : TP.MoveRequest<Rules.State>) : Rules.Action {
     let (state, script) = switch (req.seat) {
       case (#p1) (req.game.p1, SCRIPT_P1);
