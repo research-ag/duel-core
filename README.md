@@ -33,7 +33,8 @@ npx skills add research-ag/duel-core --skill duel-game-core
 this repo's Motoko/TypeScript tooling: an Internet Identity login, a
 developer's own editable display name, and a public, filterable grid of
 every registered game — not part of either package above and not a game
-built on the session engine.
+built on the session engine. Live at
+[n6plc-4yaaa-aaaaj-qshia-cai.icp.net](https://n6plc-4yaaa-aaaaj-qshia-cai.icp.net/).
 
 ### Format the code
 
