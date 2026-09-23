@@ -646,7 +646,11 @@ persistent actor {
 
   transient let wsHub : Ws.Hub = Ws.createHub();
   transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
-    Rules.spec(), registry, wsHub, codec, wsParams,
+    Rules.spec(),
+    registry,
+    wsHub,
+    codec,
+    wsParams,
     ?settle, // see `Ws.attach`'s own `onSettled` doc
   );
   attached.ws.init<system>();
@@ -663,9 +667,12 @@ persistent actor {
       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
     },
     func(id : TP.TableId, secs : Nat) : async* () {
-      ignore Timer.setTimer<system>(#seconds secs, func() : async () {
-        await* settle(Time.now(), id);
-      });
+      ignore Timer.setTimer<system>(
+        #seconds secs,
+        func() : async () {
+          await* settle(Time.now(), id);
+        },
+      );
     },
   );
   settleTable := ?cpAttached.settle;

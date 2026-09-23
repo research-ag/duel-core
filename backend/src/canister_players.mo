@@ -437,7 +437,8 @@ module {
 
       settle = maybeSettleBoth;
 
-      sweep = func(now : Int) : async* () { // slow full-registry fallback for whatever `settle` misses
+      sweep = func(now : Int) : async* () {
+        // slow full-registry fallback for whatever `settle` misses
         for ((id, _) in registry.tables.toArray().values()) {
           await* maybeSettleBoth(now, id);
         };
