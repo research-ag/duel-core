@@ -464,7 +464,9 @@ you already built for `start()`, with no `ws` round-trip:
 import { renderLeaderboard } from "duel-game-core/render.js";
 
 const entries = await actor.get_leaderboard(); // LeaderboardEntry[], ranked, highest score first
-leaderboardPanelEl.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid });
+leaderboardPanelEl.innerHTML = renderLeaderboard(entries, plugin, {
+  yourSid: session.sid,
+});
 ```
 
 Unlike the lobby/staging/debrief chrome `render.js` also supplies, a
@@ -511,19 +513,19 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 
 ## Modules
 
-| Module                    | Exports                                                                                                                                                                                                                                              |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`/`get_leaderboard`'s own types plus the `ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on                                  |
+| Module                    | Exports                                                                                                                                                                                                                                                                                                  |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`/`get_leaderboard`'s own types plus the `ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on                                                                                      |
 | `render.js`               | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `renderLeaderboard(entries, plugin, opts?)`, `playerKeyOf(sid)`, `isCanisterPlayer(player)`, `displayPlayerId(player)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
-| `app.js`                  | `start({ plugin, ws, session, ...elIds })`                                                                                                                                                                                                           |
-| `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)` — see "Logging in with Internet Identity"; depends on `@icp-sdk/auth`/`@icp-sdk/core/identity`, same narrow-exception treatment as `ws/gateway-*.js`                                           |
-| `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX` — the persisted-keypair anonymous identity `identity.js` re-exports; depends only on `@icp-sdk/core/identity`, not `@icp-sdk/auth` |
-| `ic-env.js`               | `readIcEnv()`, `deriveHost()` (optional)                                                                                                                                                                                                             |
-| `ws.js`                   | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result                                                                                                                                       |
-| `ws/gateway-client.js`    | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds                                                                                                                                                                                        |
-| `ws/gateway-transport.js` | `SelfGatewayTransport` — moves bytes (the embedded-Gateway registration/poll/send/close calls); swap this for a real-external-Gateway transport without touching the other two `ws/gateway-*.js` files                                               |
-| `ws/gateway-protocol.js`  | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, and interpreting a decoded envelope; transport-agnostic                                                                                                                              |
-| `style.css`               | generic layout primitives                                                                                                                                                                                                                            |
+| `app.js`                  | `start({ plugin, ws, session, ...elIds })`                                                                                                                                                                                                                                                               |
+| `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)` — see "Logging in with Internet Identity"; depends on `@icp-sdk/auth`/`@icp-sdk/core/identity`, same narrow-exception treatment as `ws/gateway-*.js`                                                                                               |
+| `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX` — the persisted-keypair anonymous identity `identity.js` re-exports; depends only on `@icp-sdk/core/identity`, not `@icp-sdk/auth`                                                     |
+| `ic-env.js`               | `readIcEnv()`, `deriveHost()` (optional)                                                                                                                                                                                                                                                                 |
+| `ws.js`                   | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result                                                                                                                                                                                           |
+| `ws/gateway-client.js`    | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds                                                                                                                                                                                                                                            |
+| `ws/gateway-transport.js` | `SelfGatewayTransport` — moves bytes (the embedded-Gateway registration/poll/send/close calls); swap this for a real-external-Gateway transport without touching the other two `ws/gateway-*.js` files                                                                                                   |
+| `ws/gateway-protocol.js`  | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, and interpreting a decoded envelope; transport-agnostic                                                                                                                                                                                  |
+| `style.css`               | generic layout primitives                                                                                                                                                                                                                                                                                |
 
 See [`../backend/README.md`](../backend/README.md) for the matching
 backend `Spec` contract.
