@@ -101,6 +101,29 @@ Http(renderer.renderExposition, "/metrics")`, from
   safety net for whatever `settle` never gets called for — is folded into
   the SAME already-mandatory 30s idle-sweep timer `ActorMixin` runs, so
   none of this costs a separate timer of its own.
+  `Host.mo` also wires an ELO leaderboard: a stable
+  `leaderboard : Leaderboard.Board` field (`mo:duel-game-core/leaderboard`,
+  `Leaderboard.new(50, STARTING_ELO)` — 50 kept, 25 shown;
+  `STARTING_ELO = 1200` is this game's OWN local constant, since
+  `mo:duel-game-core/elo` takes no view on a new player's starting
+  rating), filled in by an `onGameEnded` closure wired to `Ws.attach`'s
+  own optional parameter of that name — every ending
+  (`#finished`/`#claimed`/`#aborted` alike, and mode-agnostic: this reads
+  only `Debrief.end`, never `finalGame`, so it works the same way for
+  this `#alternating` game as it does for `#simultaneous` ones) maps to a
+  win/loss/draw `Elo.Outcome` (`mo:duel-game-core/elo`), re-rating both
+  seats via `Elo.update` (`k = 32`) against `Leaderboard.scoreOf`'s own
+  current ratings — and read back through `get_leaderboard()`, supplied
+  by `include LeaderboardActorMixin(leaderboard, 25)`
+  (`mo:duel-game-core/leaderboard_actor_mixin`), no hand-declared query
+  needed. A local `playerKey` wrapper
+  special-cases a `cp:` canister-player session down to
+  `CanisterPlayers.principalOfCanisterSession(sid)` before falling back
+  to `Ws.playerKey` for everything else — the one place this actor
+  already has both `Ws`/`CanisterPlayers` wired — so a bot's rating
+  accumulates across every table it plays instead of resetting per
+  board. See `../../backend/README.md`'s "Leaderboard" section for the
+  full worked example this Host.mo follows.
 - **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
 -> async Rules.Action`, the exact counterpart to a browser's own
@@ -237,6 +260,21 @@ session.principal, gameIdlTypes: plugin.idlTypes })` for the real push
   board-grid visuals, layered on top of `duel-game-core.css` (a copy of
   `duel-game-core`'s own `style.css`, placed in `dist/` by `build.js`,
   loaded first in `index.html`), which supplies the page chrome.
+  `app.js` also wires a header 🏆 toggle button (`index.html`'s
+  `#leaderboard-toggle` — icon-only, no "Leaderboard" label, positioned
+  FIRST in `.session`, before the Player ID — that opens
+  `#leaderboard-panel`, a full-page overlay sibling of `#screen`, not a
+  small inline panel, so the generic chrome's own live status pushes
+  updating `#screen` underneath can never clobber it) that, on click,
+  calls the SAME `actor` `start()` already uses for
+  `actor.get_leaderboard()` — a plain Candid `query`, no `ws` round-trip
+  — and renders the result via `duel-game-core/render.js`'s
+  `renderLeaderboard(entries, plugin, { yourSid: session.sid })`, which
+  badges the caller's own row ("You") if they're on the ranked list;
+  `#leaderboard-back` (inside the overlay) closes it back to `#screen`.
+  `checkers-plugin.js` supplies no `formatScore` of its own, so
+  `renderLeaderboard`'s default (the plain ELO integer) is already
+  correct.
 
 ## Toolchain
 

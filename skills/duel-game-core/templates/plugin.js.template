@@ -73,4 +73,17 @@ export const plugin = {
         </button>`;
     }).join("");
   },
+
+  // Optional — only add this if the backend wires
+  // mo:duel-game-core/leaderboard (see the engine README's "Leaderboard"
+  // section). Renders one leaderboard entry's raw score for display; omit
+  // it entirely for an ELO-scored game (the library's own default — the
+  // plain integer — is already correct). Only needed if this game's own
+  // backend stores a CONVERTED score instead (e.g. a best-lap-time game
+  // storing `3_600_000 - lapMs` so higher still means better):
+  //
+  // formatScore(score) {
+  //   const ms = 3_600_000n - score;
+  //   ...format ms as a time string...
+  // },
 };

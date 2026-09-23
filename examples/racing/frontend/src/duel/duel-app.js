@@ -29,7 +29,7 @@ import { start } from 'duel-game-core/app.js';
 import { connectWs } from 'duel-game-core/ws.js';
 import { resolveIdentity } from 'duel-game-core/identity.js';
 import { readIcEnv, deriveHost } from 'duel-game-core/ic-env.js';
-import { errText, tag } from 'duel-game-core/render.js';
+import { errText, renderLeaderboard, tag } from 'duel-game-core/render.js';
 import { plugin } from './duel-racing-plugin.js';
 
 // `window.duelActorReady` / `window.__resolveDuelActor` are set up by an
@@ -116,6 +116,37 @@ const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin
 window.__resolveDuelWs(ws);
 
 start({ plugin, ws, session });
+
+// The leaderboard: a dedicated full-page overlay (#leaderboard-panel,
+// styled `position: fixed; inset: 0` — see duel-game-core.css — and also
+// hidden outright during an active race, alongside #duel-header/
+// #play-vs-bot-panel, by style.css's own body.in-race rules), fetched
+// fresh via a plain Candid query on the SAME actor built above
+// (get_leaderboard needs no `ws` round-trip — see
+// duel-game-core/README.md's "Leaderboard" section) each time it's
+// opened, rather than kept live-pushed like the game screen itself.
+// `plugin.formatScore` (duel-racing-plugin.js) converts each stored
+// score back into a real lap time for display; `yourSid: session.sid`
+// lets renderLeaderboard pick out and badge this player's own row, if
+// they're on the ranked list.
+const leaderboardToggle = document.getElementById('leaderboard-toggle');
+const leaderboardBack = document.getElementById('leaderboard-back');
+const leaderboardPanel = document.getElementById('leaderboard-panel');
+const leaderboardBody = document.getElementById('leaderboard-body');
+leaderboardToggle.addEventListener('click', async () => {
+  leaderboardPanel.hidden = false;
+  leaderboardBody.innerHTML = `<p class="muted">Loading…</p>`;
+  try {
+    const entries = await actor.get_leaderboard();
+    leaderboardBody.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid });
+  } catch (err) {
+    leaderboardBody.innerHTML = `<p class="error">Could not load the leaderboard.</p>`;
+    console.error(err);
+  }
+});
+leaderboardBack.addEventListener('click', () => {
+  leaderboardPanel.hidden = true;
+});
 
 // ── "Add Bot" — Flow 1, self-join (see ../../../../../CLAUDE.md's
 // "Canister players" note) ───────────────────────────────────────────

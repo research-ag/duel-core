@@ -101,6 +101,8 @@
 ///     },
 ///     IcWebSocketCdkTypes.WsInitParams(null, null),
 ///     null, // no `mo:duel-game-core/canister_players` wired — see `OnSettled`'s own doc otherwise
+///     null, // no leaderboard wired — see `OnGameEnded`'s own doc otherwise
+///     null, // no match-start timing needed — see `OnGameStarted`'s own doc otherwise
 ///   );
 ///   attached.ws.init<system>();  // starts the CDK's ack timers — this bare
 ///                                // top-level call reruns automatically on
@@ -282,6 +284,31 @@ module {
     false;
   };
 
+  /// Normalizes a session id down to a stable per-PLAYER key — for a host
+  /// that wants to accumulate score/rating across many separate tables
+  /// (e.g. `mo:duel-game-core/leaderboard`) rather than treat each table's
+  /// own session as a distinct player. `ii:`/`an:` sids already ARE one
+  /// player's permanent (or locally persisted) principal, so this just
+  /// strips the reserved prefix down to the bare principal text; any other
+  /// sid is returned unchanged. That "any other" case matters: a `cp:`
+  /// canister-player session (`mo:duel-game-core/canister_players`'s
+  /// `sidForCanister`) is deliberately PER-TABLE, not per-player, so this
+  /// module — which has no business knowing that module exists — cannot
+  /// safely collapse it any further on its own. A host wiring
+  /// `canister_players.mo` alongside a leaderboard should special-case
+  /// `CanisterPlayers.principalOfCanisterSession(sid)` itself before
+  /// falling back to this function for everything else — see
+  /// `../README.md`'s "Leaderboard" section for the worked example.
+  public func playerKey(sid : TP.SessionId) : Text {
+    if (sid.startsWith(#text PRINCIPAL_SID_PREFIX)) {
+      return sid.trimStart(#text PRINCIPAL_SID_PREFIX);
+    };
+    if (sid.startsWith(#text ANON_SID_PREFIX)) {
+      return sid.trimStart(#text ANON_SID_PREFIX);
+    };
+    sid;
+  };
+
   // ────────────────────────── sid <-> principal bridge ────────────────────
 
   /// Which live WebSocket connection (if any) belongs to a session, and
@@ -444,6 +471,53 @@ module {
   /// polling. `null` if a host never wires canister players.
   public type OnSettled = (Int, TP.TableId) -> async* ();
 
+  /// Fires exactly once per game ending — right after `afterMutation`
+  /// finds the mutating request (`submit`/`claimWin`/`leave`, the only
+  /// three engine calls that ever call `Table.enterDebrief`) left the
+  /// table in a table `#debrief` phase FRESHLY created by THIS call
+  /// (`Debrief.since == now`), never for a later request (`ackEnded`,
+  /// another `leave`, `status`, ...) against an already-existing debrief.
+  /// A host wanting a leaderboard (`mo:duel-game-core/leaderboard`,
+  /// `mo:duel-game-core/elo`) supplies a closure here that reads the
+  /// `Debrief`'s own `end`/`finalGame` and updates its own stable
+  /// `Leaderboard.Board` — this module has no idea what either module is;
+  /// it only ever hands back the raw, already-decided outcome. Purely
+  /// synchronous (never `async*`, unlike `OnSettled`): it only ever
+  /// writes into the host's own state, no inter-canister call to await.
+  /// `null` if a host never wires a leaderboard — every other caller of
+  /// `attach` pays nothing for this parameter existing. Never fires for
+  /// an idle-sweep eviction (`sweepAndPush`, below): `Registry.sweep`
+  /// never calls `enterDebrief` — a stalled ACTIVE game it reclaims is
+  /// recorded in `lastEnded`/`#endedByOther` instead, with no `Verdict`
+  /// to score in the first place (see the root `CLAUDE.md`'s
+  /// architecture rule 7).
+  public type OnGameEnded<S> = (TP.TableId, TP.SessionId, TP.SessionId, TP.Debrief<S>) -> ();
+
+  /// Fires exactly once per match, the instant a table transitions into
+  /// `#active` for a FRESH match — a `joinTable`/`rematch` completing the
+  /// pair, or a canister player's `join_table_as_canister`
+  /// (`mo:duel-game-core/canister_players`'s own mutations reuse this
+  /// SAME `afterMutation`, so both paths are covered without this module
+  /// needing to know that other one exists). Detected from the resulting
+  /// `Active` record's own shape — `turn == 0`, neither seat has a move
+  /// pending, `lastActivity == now` — a combination only ever true at
+  /// that one instant: `turn` only ever increases from there, and even a
+  /// `#simultaneous` game's very first submit already fills one pending
+  /// slot, so neither can recur once a real round is underway (unlike
+  /// `OnGameEnded`, `Table`/`Registry` have no dedicated "just created"
+  /// field for `#active` to compare against — `Active` has no `since` of
+  /// its own — so this is inferred from field combination instead of a
+  /// single timestamp check).
+  ///
+  /// Purely synchronous, like `OnGameEnded`. A host wanting to time a
+  /// match's own real-world duration — `examples/racing`'s best-lap
+  /// leaderboard has no other way to learn when a race began, since
+  /// `RacingRules.State` can't self-timestamp (`init` is pure, no `Time`)
+  /// — keeps its own `Map<TableId, Int>` of match-start times, set here
+  /// and read back in `OnGameEnded`; see `../README.md`'s "Leaderboard"
+  /// section. `null` if a host never needs this.
+  public type OnGameStarted = (TP.TableId, TP.SessionId, TP.SessionId) -> ();
+
   /// `async*`/`await*`, not `async`/`await`, on `sweep` here and on every
   /// push helper below (`pushTo`/`pushStatus`/`afterMutation`/
   /// `finishClose`/`sweepAndPush`): only `pushTo`'s own call to
@@ -512,6 +586,26 @@ module {
     };
   };
 
+  /// Whether `g` is an `Active` record for a match that JUST started this
+  /// exact call — see `OnGameStarted`'s own doc for the full reasoning.
+  /// `Active` carries no `since` of its own (unlike `Staging`/`Debrief`)
+  /// to compare against `now` directly, so this instead checks the one
+  /// combination of fields only ever true at creation: no round has
+  /// resolved yet (`turn == 0`) and neither seat has a pending move
+  /// (`#simultaneous`'s very first submit already fills one slot;
+  /// `#alternating` never has a pending move at all, but its own first
+  /// submit already bumps `turn` to 1 before this could ever see it at 0
+  /// again). Pulled out of `attach()`'s own `afterMutation` for the same
+  /// reason `rematchOpenedLobby` above is: testable without the
+  /// `IcWebSocketCdk` actor machinery `attach()` itself needs.
+  public func isFreshMatch<S, M>(g : TP.Active<S, M>, now : Int) : Bool {
+    let noPending = switch (g.pending1, g.pending2) {
+      case (null, null) true;
+      case (_, _) false;
+    };
+    g.turn == 0 and noPending and g.lastActivity == now;
+  };
+
   /// Builds a ready-to-forward `IcWebSocketCdk.IcWebSocket` bound to one
   /// game's `Spec`/`Registry`: every inbound `#req` is dispatched to
   /// the matching `Registry` operation, and every session that needs to
@@ -532,6 +626,8 @@ module {
     codec : Codec<S, M>,
     wsParams : IcWebSocketCdkTypes.WsInitParams,
     onSettled : ?OnSettled,
+    onGameEnded : ?OnGameEnded<S>,
+    onGameStarted : ?OnGameStarted,
   ) : Attached {
     let wsState = IcWebSocketCdkState.IcWebSocketState(wsParams);
 
@@ -595,10 +691,22 @@ module {
               case (#active g) {
                 if (g.p1 != sid) { await* pushStatus(now, g.p1, null) };
                 if (g.p2 != sid) { await* pushStatus(now, g.p2, null) };
+                if (isFreshMatch(g, now)) {
+                  switch (onGameStarted) {
+                    case (?f) f(id, g.p1, g.p2);
+                    case null {};
+                  };
+                };
               };
               case (#debrief d) {
                 if (d.p1 != sid) { await* pushStatus(now, d.p1, null) };
                 if (d.p2 != sid) { await* pushStatus(now, d.p2, null) };
+                if (d.since == now) {
+                  switch (onGameEnded) {
+                    case (?f) f(id, d.p1, d.p2, d);
+                    case null {};
+                  };
+                };
               };
             };
           };

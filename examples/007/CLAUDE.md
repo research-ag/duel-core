@@ -48,6 +48,21 @@ Http(renderer.renderExposition, "/metrics")`, from
   metrics, no `Tracker` of its own needed). Unlike `ws.mo`, this is
   entirely optional instrumentation — see `../../backend/README.md`'s
   "Metrics" section for the metrics it exposes and the full reasoning.
+  `Host.mo` also wires an ELO leaderboard: a stable
+  `leaderboard : Leaderboard.Board` field (`mo:duel-game-core/leaderboard`,
+  `Leaderboard.new(50, STARTING_ELO)` — 50 kept, 25 shown;
+  `STARTING_ELO = 1200` is this game's OWN local constant, since
+  `mo:duel-game-core/elo` takes no view on a new player's starting
+  rating), filled in by an `onGameEnded` closure wired to `Ws.attach`'s
+  own optional parameter of that name — every ending
+  (`#finished`/`#claimed`/`#aborted` alike) maps to a win/loss/draw
+  `Elo.Outcome` (`mo:duel-game-core/elo`), re-rating both seats via
+  `Elo.update` (`k = 32`) against `Leaderboard.scoreOf`'s own current
+  ratings — and read back through `get_leaderboard()`, supplied by
+  `include LeaderboardActorMixin(leaderboard, 25)`
+  (`mo:duel-game-core/leaderboard_actor_mixin`), no hand-declared query
+  needed. See `../../backend/README.md`'s "Leaderboard" section for the
+  full worked example this Host.mo follows.
 - **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
   `Rules.test.mo` are scenario walks (one long session / the headline
   game rules); `Engine.test.mo` and `RulesUnit.test.mo` are per-operation
@@ -102,6 +117,21 @@ plugin.idlTypes })` for the real push transport `start()` requires —
   `duel-game-core`'s own `style.css`, placed in `dist/` by `build.js`,
   loaded first in `index.html`), which supplies the page chrome and the
   CSS custom properties this file reuses.
+  `app.js` also wires a header 🏆 toggle button (`index.html`'s
+  `#leaderboard-toggle` — icon-only, no "Leaderboard" label, positioned
+  FIRST in `.session`, before the Agent ID — that opens
+  `#leaderboard-panel`, a full-page overlay sibling of `#screen`, not a
+  small inline panel, so the generic chrome's own live status pushes
+  updating `#screen` underneath can never clobber it) that, on click,
+  calls the SAME `actor` `start()` already uses for
+  `actor.get_leaderboard()` — a plain Candid `query`, no `ws` round-trip
+  — and renders the result via `duel-game-core/render.js`'s
+  `renderLeaderboard(entries, plugin, { yourSid: session.sid })`, which
+  badges the caller's own row ("You") if they're on the ranked list;
+  `#leaderboard-back` (inside the overlay) closes it back to `#screen`.
+  `duel007-plugin.js` supplies no `formatScore` of its own, so
+  `renderLeaderboard`'s default (the plain ELO integer) is already
+  correct.
 
 ## Toolchain
 

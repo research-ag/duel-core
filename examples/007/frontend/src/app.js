@@ -22,6 +22,7 @@ import { start } from "duel-game-core/app.js";
 import { connectWs } from "duel-game-core/ws.js";
 import { resolveIdentity } from "duel-game-core/identity.js";
 import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
+import { renderLeaderboard } from "duel-game-core/render.js";
 import { plugin } from "./duel007-plugin.js";
 
 const env = readIcEnv();
@@ -65,3 +66,31 @@ const actor = Actor.createActor(idlFactory, { agent, canisterId });
 const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
 
 start({ plugin, ws, session });
+
+// The leaderboard: a dedicated full-page overlay (#leaderboard-panel,
+// styled `position: fixed; inset: 0` — see duel-game-core.css — so the
+// generic chrome's own live status pushes updating #screen underneath it
+// can never clobber it), fetched fresh via a plain Candid query on the
+// SAME actor `start()` already built (get_leaderboard needs no `ws`
+// round-trip — see duel-game-core/README.md's "Leaderboard" section)
+// each time it's opened, rather than kept live-pushed like the game
+// screen itself. `yourSid: session.sid` lets renderLeaderboard pick out
+// and badge this player's own row, if they're on the ranked list.
+const leaderboardToggle = document.getElementById("leaderboard-toggle");
+const leaderboardBack = document.getElementById("leaderboard-back");
+const leaderboardPanel = document.getElementById("leaderboard-panel");
+const leaderboardBody = document.getElementById("leaderboard-body");
+leaderboardToggle.addEventListener("click", async () => {
+  leaderboardPanel.hidden = false;
+  leaderboardBody.innerHTML = `<p class="muted">Loading…</p>`;
+  try {
+    const entries = await actor.get_leaderboard();
+    leaderboardBody.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid });
+  } catch (err) {
+    leaderboardBody.innerHTML = `<p class="error">Could not load the leaderboard.</p>`;
+    console.error(err);
+  }
+});
+leaderboardBack.addEventListener("click", () => {
+  leaderboardPanel.hidden = true;
+});

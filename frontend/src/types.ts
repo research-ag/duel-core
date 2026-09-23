@@ -209,6 +209,19 @@ export type View<S = unknown> =
   | { debrief: DebriefView<S> }
   | { endedByOther: null };
 
+/// One player's entry on a `mo:duel-game-core/leaderboard` `Board` —
+/// mirrors that module's own `Entry` exactly. Every board this framework
+/// ships sorts highest-`score`-first, always: a game whose own metric
+/// runs the other way (e.g. `examples/racing`'s best lap time, lower is
+/// better) converts it to a higher-is-better score on the BACKEND before
+/// it's ever stored — see `GamePlugin.formatScore`'s own doc for how a
+/// game converts it back for display.
+export interface LeaderboardEntry {
+  player: string;
+  score: bigint;
+  updatedAt: bigint;
+}
+
 /// A game's plugin contract — see ../README.md's "The GamePlugin
 /// contract" section. `S` is the game's own State shape; only
 /// `renderBoard`/`renderActions` ever see it, and only `idlTypes` ever
@@ -219,6 +232,19 @@ export interface GamePlugin<S = unknown> {
   /// `{ IDL }` the Candid tooling passes to an idlFactory.
   idlTypes(args: { IDL: typeof IDL }): { Action: IDL.Type; State: IDL.Type };
   seatLabel(seat: SeatTag): string;
+  /// Renders one `LeaderboardEntry.score` for display — the library owns
+  /// the leaderboard's layout (rank, truncated player id, this string),
+  /// the game owns what a score MEANS. Optional: the default (used by
+  /// `renderLeaderboard` in render.ts when a plugin omits this) is just
+  /// the plain integer, already correct for a game whose score IS an ELO
+  /// rating with nothing to invert. A game whose backend instead stores a
+  /// converted score (`examples/racing`'s best lap time, stored as
+  /// `3,600,000 − lapMs` — see `../../backend/README.md`'s "Leaderboard"
+  /// section) supplies the inverse here, e.g.
+  /// `score => mmss(3_600_000n - score)`,
+  /// so the panel reads "1:38.204", never the padded number the board
+  /// actually sorts on.
+  formatScore?(score: bigint): string;
   /// `yourTurn` is `true` while `mySeat` currently has a move to make
   /// (mirrors whether `renderActions` gets called this same render —
   /// see its own doc), `false` while waiting on the opponent, and

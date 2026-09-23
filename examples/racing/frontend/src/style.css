@@ -79,7 +79,8 @@ body.in-race {
 }
 
 body.in-race #duel-header,
-body.in-race #play-vs-bot-panel {
+body.in-race #play-vs-bot-panel,
+body.in-race #leaderboard-panel {
   display: none;
 }
 

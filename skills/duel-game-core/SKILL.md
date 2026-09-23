@@ -356,8 +356,8 @@ import BotIface "BotIface"; // one method: make_move : (TP.MoveRequest<Rules.Sta
 
 persistent actor {
   // ...registry/status/Ws.attach exactly as the template already has,
-  // except Ws.attach's LAST argument becomes `?settle` (below), not
-  // `null`...
+  // except Ws.attach's `onSettled` argument (the first `null` after
+  // `WsInitParams(...)`) becomes `?settle` (below)...
 
   // `Ws.attach` and `CanisterPlayers.attach` each need the other's
   // result before either exists — this mutable indirection breaks that
@@ -414,6 +414,139 @@ protocol, the `settle`/`armClaimCheck` wiring, unattended
 canister-vs-canister matches — and `examples/racing/src/Host.mo`/
 `examples/checkers/src/Host.mo` in `research-ag/duel-core` for it wired
 end to end, bot canister included.
+
+**Leaderboard (optional).** Also not part of the six required pieces —
+skip it unless the user asks for rankings, ratings, or a "top players"
+screen. If they do, first work out which shape your game needs: a
+win/lose/draw game (any `Spec`, either `Mode`) wants a classic chess-ELO
+rating, always moving after every game — `#claimed`/`#aborted` count the
+same as a clean `#finished` win, since leaving mid-game or stalling out
+shouldn't be a free way to protect a rating. A game scored by some other
+metric (a personal-best time, a high score, ...) wants that metric
+tracked directly instead — every `Board` this framework ships sorts
+highest-score-first, always, so a metric where LOWER is better (a lap
+time, say) needs converting to a higher-is-better score before it's ever
+stored (see the worked "best lap" example below). Add nothing to
+`mops.toml` — none of `mo:duel-game-core/leaderboard`,
+`mo:duel-game-core/elo`, or `mo:duel-game-core/leaderboard_actor_mixin`
+depends on anything beyond `core`/`leaderboard.mo` itself — and extend
+`Host.mo` with:
+
+```motoko
+import Leaderboard "mo:duel-game-core/leaderboard";
+import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
+import Elo "mo:duel-game-core/elo"; // only for the ELO shape, below
+
+persistent actor {
+  // ...registry/status exactly as the template already has...
+
+  // keep 50, show the top 25 — pick your own two numbers. Second argument
+  // is YOUR starting-score choice for a never-recorded player — elo.mo
+  // takes no view on it; 1200 is the common chess convention.
+  let STARTING_ELO : Int = 1200;
+  let leaderboard = Leaderboard.new(50, STARTING_ELO);
+
+  // ── ELO shape (win/lose/draw games) ──────────────────────────────────
+  func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
+    let outcome : Elo.Outcome = switch (d.end) {
+      case (#finished(#p1Wins)) #aWins;
+      case (#finished(#p2Wins)) #bWins;
+      case (#finished(#draw)) #draw;
+      case (#claimed(#p1)) #aWins;
+      case (#claimed(#p2)) #bWins;
+      case (#aborted(#p1)) #bWins; // p1 left — p2 credited with the win
+      case (#aborted(#p2)) #aWins;
+    };
+    let k1 = Ws.playerKey(p1);
+    let k2 = Ws.playerKey(p2);
+    let (r1, r2) = Elo.update(Leaderboard.scoreOf(leaderboard, k1), Leaderboard.scoreOf(leaderboard, k2), outcome, 32);
+    let now = Time.now();
+    Leaderboard.setScore(leaderboard, k1, r1, now);
+    Leaderboard.setScore(leaderboard, k2, r2, now);
+  };
+
+  // ...registry/status/Ws.attach exactly as the template already has,
+  // except Ws.attach's `onGameEnded` argument (the second `null` after
+  // `WsInitParams(...)`) becomes `?onGameEnded`...
+
+  // Supplies get_leaderboard() — no hand-declared query needed:
+  include LeaderboardActorMixin(leaderboard, 25);
+};
+
+```
+
+The other shape — a metric that isn't a `Verdict`-driven rating, like a
+best-completed-lap-time leaderboard — needs to know when a match STARTED
+too, since nothing in the engine timestamps that on its own. First check
+whether your own game state can already tell you: `examples/racing`'s
+own `Host.mo` never wires `onGameStarted` at all, because that game
+resolves one fixed-duration round per submission — its `lapMsFor` derives
+the winner's exact in-game time straight from `Debrief.turns` (rounds
+resolved × that fixed duration) and the winning car's own final state
+(how far PAST the finish line its last round's motion carried it, over
+how fast it was going, gives the fraction of that final round still left
+over — see that file's own doc comment for the full reasoning). If YOUR
+game has a similar "one round = one fixed slice of in-game time"
+property, prefer that: it's exact, and needs no bookkeeping at all.
+
+Only reach for real-world wall-clock time — via `Ws.attach`'s
+`onGameStarted` parameter (the THIRD `null` after `WsInitParams(...)`,
+right after `onGameEnded`) — when your metric genuinely has no
+from-game-state shortcut (nothing about "how long this took" is
+recoverable from the final state alone). This shape never looks up a
+"current" score before computing a new one, so `Leaderboard.new`'s own
+`defaultScore` argument is inert here — any placeholder value works:
+
+```motoko
+let leaderboard = Leaderboard.new(50, 0); // 0 is a placeholder — this shape never reads it
+
+let ONE_HOUR_MS : Int = 3_600_000; // headroom for the conversion below — pick your own ceiling
+func scoreFromYourMetric(raw : Int) : Int = Int.max(0, ONE_HOUR_MS - raw); // "lower is better" -> "higher is better"
+
+let matchStarts = Map.empty<TP.TableId, Int>();
+func onGameStarted(id : TP.TableId, _p1 : TP.SessionId, _p2 : TP.SessionId) {
+  matchStarts.add(id, Time.now());
+};
+func onGameEnded(id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
+  // ...read whatever you need out of d.end/d.finalGame, look up
+  // matchStarts.get(id) for the elapsed real-world time since
+  // onGameStarted fired, and call
+  // Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(winner), scoreFromYourMetric(raw), Time.now())...
+  matchStarts.remove(id);
+};
+
+```
+
+If your game also wires canister players (above), a bot's session id is
+PER-TABLE (`sidForCanister`), not per-player — special-case
+`CanisterPlayers.principalOfCanisterSession(sid)` before falling back to
+`Ws.playerKey`, so one bot's score accumulates across every table it
+plays instead of resetting per board. On the frontend, `get_leaderboard`
+is already declared on every actor `idl.js` builds and needs no wiring
+of your own; call `actor.get_leaderboard()` and render the result with
+`duel-game-core/render.js`'s
+`renderLeaderboard(entries, plugin, { yourSid: session.sid })` wherever
+your own layout puts the panel — `yourSid` (the caller's own
+`session.sid`) badges that player's own row ("You") if they're on the
+ranked list, via a small `playerKeyOf(sid)` helper `renderLeaderboard`
+already calls internally, so nothing on your side needs to derive the
+key itself. All three reference examples use the same panel shape, worth
+copying rather than inventing your own: an icon-only 🏆 toggle button —
+NOT a "Leaderboard"-labeled one — positioned FIRST in `.session`, before
+the player id, that opens a dedicated full-page overlay
+(`#leaderboard-panel`, styled `position: fixed; inset: 0` by
+`duel-game-core.css`) with its own "← Back" button, rather than a small
+inline panel next to `#screen` — a full takeover avoids any risk of the
+generic chrome's own live status pushes re-rendering `#screen` out from
+under an inline panel sitting alongside it. Add `formatScore(score)` to
+your `plugin.js` only if you used the second (converted-metric) shape
+above, to invert that conversion for display (see
+`templates/plugin.js.template`'s own commented-out example). See
+`mo:duel-game-core`'s own `backend/README.md` "Leaderboard" section
+(shipped in the package) for the full design and both worked examples in
+detail, and `examples/007/src/Host.mo` (ELO) /
+`examples/racing/src/Host.mo` (best lap) in `research-ag/duel-core` for
+them wired end to end, frontend panel included.
 
 ## Step 5 — Write the rules unit tests
 
@@ -491,6 +624,11 @@ npm package itself, via `render.js`/`app.js`.
   move isn't currently legal — this is cosmetic only (the engine calls
   the REAL `validate` for both seats on every submission regardless), so
   keep the two in sync but never rely on this half alone.
+- `formatScore(score)` — optional, and only relevant if you wired the
+  Leaderboard section above with the converted-metric shape (a
+  best-lap-time game, say): renders one leaderboard entry's raw `score`
+  back into what a player should actually see. Omit it for the ELO shape
+  — the library's own default (the plain integer) is already correct.
 
 Then copy `templates/index.html.template` → `frontend/src/index.html`,
 `templates/app.js.template` → `frontend/src/app.js`, and

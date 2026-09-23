@@ -35,7 +35,9 @@ persistent actor {
       decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
     IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
-    null,
+    null, // no `mo:duel-game-core/canister_players` wired — see the engine README's "Canister players" section otherwise
+    null, // no leaderboard wired — see the engine README's "Leaderboard" section otherwise
+    null, // no match-start timing needed either — see "Leaderboard" above
   );
   attached.ws.init<system>();
 

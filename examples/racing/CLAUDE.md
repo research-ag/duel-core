@@ -102,6 +102,50 @@ Http(renderer.renderExposition, "/metrics")`, from
   `settle` never gets called for — is folded into the SAME
   already-mandatory 30s idle-sweep timer `ActorMixin` runs, so none of
   this costs a separate timer of its own.
+  `Host.mo` also wires a best-lap leaderboard: a stable
+  `leaderboard : Leaderboard.Board` field (`mo:duel-game-core/leaderboard`,
+  `Leaderboard.new(50, 0)` — 50 kept, 25 shown; the second argument,
+  `defaultScore`, is inert for this game — a lap time is never "computed
+  FROM" a prior score the way an ELO rating is, so `0` is just a
+  placeholder `Leaderboard.new` requires) — but unlike the two
+  win/lose/draw examples, racing has no `Verdict`-shaped rating to
+  re-compute; it converts its own best-LAP-TIME metric (lower is better)
+  into a higher-is-better score itself before ever storing it:
+  `scoreFromLapMs(ms) = max(0, 3_600_000 - ms)`, one hour of headroom in
+  milliseconds, floored at zero. The lap time itself is computed from
+  game state alone, NOT `Ws.attach`'s `onGameStarted`/real-world
+  wall-clock elapsed time (which would count however long the two humans
+  took to think between clicks — nothing to do with the simulated
+  race): each resolved round is a fixed `STEP_DURATION_MS` (1000, must
+  stay in sync with `frontend/src/app/modules/gameplay/game-shared/services/game-state.service.ts`'s
+  own `stepDuration` constant — the frontend's HUD clock this is meant
+  to match) of in-game time, so `Debrief.turns` rounds is
+  `turns * STEP_DURATION_MS` of raw race time — except the winning car
+  doesn't necessarily need the WHOLE of its final round to cross the
+  line. `RacingRules.CarState.distanceFromStart` is documented as
+  "progress ... THIS LAP PASS," reckoned fresh from zero the instant a
+  round's motion wraps past the track's own loop point — so in the
+  state that just won, it's exactly how far PAST the finish line that
+  final round's own motion carried the car, and `speed` (world units per
+  WHOLE round) how fast; `distanceFromStart / speed` (`lapMsFor`,
+  clamped to `[0, 1)`) is therefore that round's own overshoot, as a
+  fraction of one round, subtracted back out so the reported time lines
+  up with the actual crossing instant, not the round boundary after it.
+  Only a clean `#finished` win records a lap time at all — a draw,
+  `#claimed`, or `#aborted` ending means nobody actually crossed the
+  line, so none of those touches the leaderboard
+  (`Leaderboard.recordIfBetter`, not `setScore` — a personal best should
+  never regress). Read back through
+  `get_leaderboard()`, supplied by
+  `include LeaderboardActorMixin(leaderboard, 25)`
+  (`mo:duel-game-core/leaderboard_actor_mixin`), no hand-declared query
+  needed. The SAME `playerKey` wrapper 007/checkers use (special-casing a
+  `cp:` canister-player session down to
+  `CanisterPlayers.principalOfCanisterSession(sid)`, falling back to
+  `Ws.playerKey` otherwise) applies here too, so a bot's best lap
+  accumulates across every table it races on. See
+  `../../backend/README.md`'s "Leaderboard" section for the full worked
+  example this Host.mo follows.
 - **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a racing
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
 -> async Rules.Action`, the exact counterpart to a browser's own
@@ -206,6 +250,25 @@ gateway-*.js` does, registering this tab as its own WS Gateway).
   their own seat, now waiting on the other one). `PUBLIC_CANISTER_ID:bot`
   missing from this deploy's `ic_env` cookie (a fork with no `bot`
   canister declared in `icp.yaml`) leaves the panel hidden for good.
+  `duel-app.js` also wires a header 🏆 toggle button (`index.html`'s
+  `#leaderboard-toggle` — icon-only, no "Leaderboard" label, positioned
+  FIRST in `.session`, before the Driver ID — that opens
+  `#leaderboard-panel`, a full-page overlay sibling of
+  `#duel-header`/`#screen`, hidden outright during an active race the
+  same way `#duel-header`/`#play-vs-bot-panel` already are — see
+  `style.css`'s `body.in-race` rules) that, on click, calls the SAME
+  `actor` `duel-app.js` already built for `actor.get_leaderboard()` — a
+  plain Candid `query`, no `ws` round-trip — and renders the result via
+  `duel-game-core/render.js`'s
+  `renderLeaderboard(entries, plugin, { yourSid: session.sid })`, which
+  badges the caller's own row ("You") if they're on the ranked list;
+  `#leaderboard-back` (inside the overlay) closes it back to `#screen`.
+  `duel-racing-plugin.js` supplies its own `formatScore`, inverting
+  `Host.mo`'s own `scoreFromLapMs` (`3,600,000n - score`, formatted as
+  `m:ss.mmm`) so the panel shows a real lap time instead of the padded
+  number the board actually sorts on — the one place this constant is
+  duplicated on the frontend, so keep it in sync with `Host.mo`'s own
+  `ONE_HOUR_MS` if it ever changes.
   `frontend/src/main.ts`'s own gameplay code (really
   `lobby-connection.service.ts`, wired in via `gameplay.service.ts`)
   shares that EXACT connection (`duel-app.js` publishes it on

@@ -22,6 +22,7 @@
 // it lingers and gets mistaken for a second browsing session.
 // Run: moc -r --package core <core/src> --package ic-websocket-cdk <cdk/src> ... test/Hub.test.mo
 import Ws "../src/ws";
+import TP "../src/lib";
 import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
@@ -356,6 +357,64 @@ do {
   expectPrincipal(hub, PA, ?"sid-2", "16b: byPrincipal must point at the new sid");
   expectSid(hub, "sid-1", null, "16c: the abandoned sid's own bySid entry must be gone");
   Debug.print("16. remember() on a same-connection sid swap scrubs the old sid's bySid entry OK");
+};
+
+// ── 17. playerKey(): strips a recognized namespace prefix down to the
+//       bare principal text, for a host that wants to key something
+//       (e.g. `mo:duel-game-core/leaderboard`) per PLAYER rather than per
+//       session — and leaves anything outside those two namespaces (most
+//       notably a `cp:` canister-player session, deliberately per-table,
+//       not per-player) untouched, since this module has no business
+//       knowing `canister_players.mo` exists.
+// ────────────────────────────────────────────────────────────────────
+do {
+  let iiSid = Ws.sidForPrincipal(PA);
+  let anSid = Ws.sidFor(Ws.ANON_SID_PREFIX, PA);
+  if (Ws.playerKey(iiSid) != PA.toText()) {
+    Runtime.trap("17a: playerKey() must strip the ii: prefix down to the bare principal text");
+  };
+  if (Ws.playerKey(anSid) != PA.toText()) {
+    Runtime.trap("17b: playerKey() must strip the an: prefix the same way");
+  };
+  if (Ws.playerKey("cp:" # PA.toText() # ":7") != "cp:" # PA.toText() # ":7") {
+    Runtime.trap("17c: an unrecognized (e.g. cp:) sid must be returned unchanged, not mangled");
+  };
+  Debug.print("17. playerKey() strips ii:/an: prefixes and leaves anything else alone OK");
+};
+
+// ── 18. isFreshMatch(): the field combination `OnGameStarted` fires on —
+//       true only for a brand-new match (turn 0, nobody's move pending,
+//       touched THIS instant), false for every other shape an `Active`
+//       record can take (a later round, a pending first submit, or an
+//       untouched table caught by an unrelated call at a different
+//       `now`).
+// ────────────────────────────────────────────────────────────────────
+do {
+  func active(pending1 : ?Nat, pending2 : ?Nat, turn : Nat, lastActivity : Int) : TP.Active<Nat, Nat> = {
+    p1 = "sid-1";
+    p2 = "sid-2";
+    game = 0;
+    pending1;
+    pending2;
+    turn;
+    lastActivity;
+  };
+  if (not Ws.isFreshMatch(active(null, null, 0, 100), 100)) {
+    Runtime.trap("18a: turn=0, no pending, lastActivity==now must read as a fresh match");
+  };
+  if (Ws.isFreshMatch(active(?7, null, 0, 100), 100)) {
+    Runtime.trap("18b: a pending move (round 1's first partial submit) must NOT read as fresh");
+  };
+  if (Ws.isFreshMatch(active(null, ?7, 0, 100), 100)) {
+    Runtime.trap("18c: ...whichever seat's move is pending");
+  };
+  if (Ws.isFreshMatch(active(null, null, 1, 100), 100)) {
+    Runtime.trap("18d: turn > 0 (a later, resolved round) must NOT read as fresh");
+  };
+  if (Ws.isFreshMatch(active(null, null, 0, 50), 100)) {
+    Runtime.trap("18e: an untouched table this call (lastActivity != now) must NOT read as fresh");
+  };
+  Debug.print("18. isFreshMatch() identifies exactly the brand-new-match shape OK");
 };
 
 Debug.print("ALL HUB CHECKS PASSED");

@@ -70,6 +70,19 @@ const plugin = {
   renderActions(gameState, mySeat) {
     return `<button ${actionAttr({ pass: null })}>Pass</button>`;
   },
+
+  // Optional. Renders one leaderboard entry's raw `score` (a `bigint`,
+  // via `get_leaderboard()` — see "Leaderboard" below) for display.
+  // Omit it entirely if your score already IS the number to show, e.g.
+  // an ELO rating — that's the default `renderLeaderboard` falls back to.
+  // Supply it when your backend stores a CONVERTED score instead (a
+  // best-lap-time game storing `3,600,000 - lapMs` so higher still means
+  // better — see `../backend/README.md`'s "Leaderboard" section) and
+  // invert that conversion here, so the panel shows a real time instead
+  // of the padded number the board actually sorts on.
+  formatScore(score) {
+    return score.toString();
+  },
 };
 ```
 
@@ -438,6 +451,57 @@ legal `SessionId` is principal-bound at the transport layer regardless of
 which kind produced it (see `../backend/README.md`'s "Player identity"
 section).
 
+## Leaderboard
+
+Optional, and independent of `start()`/`ws` entirely: a host that wires
+`mo:duel-game-core/leaderboard` (see `../backend/README.md`'s
+"Leaderboard" section) exposes `get_leaderboard()` as a plain, read-only
+Candid `query` — `idl.js` declares it unconditionally on every actor
+`makeIdlFactory` builds, so it's callable directly off the same `actor`
+you already built for `start()`, with no `ws` round-trip:
+
+```js
+import { renderLeaderboard } from "duel-game-core/render.js";
+
+const entries = await actor.get_leaderboard(); // LeaderboardEntry[], ranked, highest score first
+leaderboardPanelEl.innerHTML = renderLeaderboard(entries, plugin, {
+  yourSid: session.sid,
+});
+```
+
+Unlike the lobby/staging/debrief chrome `render.js` also supplies, a
+leaderboard has no fixed place in every game's own layout, so
+`renderLeaderboard` is never wired into `renderView`/`renderStatus`
+automatically — call it wherever you mount your own panel. The common
+shape (all three example games use it, see each one's own `CLAUDE.md`):
+a small icon-only 🏆 toggle button in the header, positioned FIRST in
+`.session` — before the player id, `new`, and `duel-auth-btn` — that
+opens a dedicated full-page overlay (`position: fixed; inset: 0`, styled
+by `style.css`'s own `#leaderboard-panel` rules) with its own "← Back"
+button, rather than a small inline panel: a leaderboard fetch is a plain
+one-off query, not something the generic chrome's own live status pushes
+need to coexist with underneath it, so a full takeover avoids any risk of
+a push re-rendering `#screen` out from under an inline panel sitting
+alongside it. `opts.yourSid` — pass the caller's own `session.sid` —
+picks out and badges that player's own row (a "You" pill, plus a `.you`
+class row highlight in `style.css`) if they're on the ranked list; omit
+it, or a caller simply not being ranked yet, and no row is marked. A
+canister-seated player's own row gets a 🤖 icon, and shows its bare
+principal with no `cp:` marker — same as a human's own key, which
+already carries no prefix at all (`Ws.playerKey` strips `ii:`/`an:`
+before a score is ever stored; a `cp:` one is added back deliberately by
+whichever `Host.mo` wires canister players, to key a bot by its own
+stable principal rather than one of its many per-table sids — see
+`isCanisterPlayer`/`displayPlayerId`, exported from `render.js` for a
+game that wants the same distinction elsewhere). It renders a ranked
+list (rank, each entry's own `score` run through `plugin.formatScore` —
+see "The GamePlugin contract" above; the player id itself is rendered in
+full and left to `.leaderboard-player`'s own CSS to clip responsively
+against whatever width it actually gets, rather than pre-truncated to a
+fixed character count the way `renderTableRow`'s lobby rows are — a
+leaderboard panel has real width to spare) and an empty-state message
+instead of an empty list when nobody's finished a game yet.
+
 ## Optional: `ic-env.js`
 
 If you're deploying to the Internet Computer via an asset canister,
@@ -449,19 +513,19 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 
 ## Modules
 
-| Module                    | Exports                                                                                                                                                                                                                                              |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`'s own type plus the `ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on                                                     |
-| `render.js`               | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc`                                                                     |
-| `app.js`                  | `start({ plugin, ws, session, ...elIds })`                                                                                                                                                                                                           |
-| `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)` — see "Logging in with Internet Identity"; depends on `@icp-sdk/auth`/`@icp-sdk/core/identity`, same narrow-exception treatment as `ws/gateway-*.js`                                           |
-| `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX` — the persisted-keypair anonymous identity `identity.js` re-exports; depends only on `@icp-sdk/core/identity`, not `@icp-sdk/auth` |
-| `ic-env.js`               | `readIcEnv()`, `deriveHost()` (optional)                                                                                                                                                                                                             |
-| `ws.js`                   | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result                                                                                                                                       |
-| `ws/gateway-client.js`    | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds                                                                                                                                                                                        |
-| `ws/gateway-transport.js` | `SelfGatewayTransport` — moves bytes (the embedded-Gateway registration/poll/send/close calls); swap this for a real-external-Gateway transport without touching the other two `ws/gateway-*.js` files                                               |
-| `ws/gateway-protocol.js`  | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, and interpreting a decoded envelope; transport-agnostic                                                                                                                              |
-| `style.css`               | generic layout primitives                                                                                                                                                                                                                            |
+| Module                    | Exports                                                                                                                                                                                                                                                                                                  |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`/`get_leaderboard`'s own types plus the `ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on                                                                                      |
+| `render.js`               | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `renderLeaderboard(entries, plugin, opts?)`, `playerKeyOf(sid)`, `isCanisterPlayer(player)`, `displayPlayerId(player)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
+| `app.js`                  | `start({ plugin, ws, session, ...elIds })`                                                                                                                                                                                                                                                               |
+| `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)` — see "Logging in with Internet Identity"; depends on `@icp-sdk/auth`/`@icp-sdk/core/identity`, same narrow-exception treatment as `ws/gateway-*.js`                                                                                               |
+| `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX` — the persisted-keypair anonymous identity `identity.js` re-exports; depends only on `@icp-sdk/core/identity`, not `@icp-sdk/auth`                                                     |
+| `ic-env.js`               | `readIcEnv()`, `deriveHost()` (optional)                                                                                                                                                                                                                                                                 |
+| `ws.js`                   | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result                                                                                                                                                                                           |
+| `ws/gateway-client.js`    | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds                                                                                                                                                                                                                                            |
+| `ws/gateway-transport.js` | `SelfGatewayTransport` — moves bytes (the embedded-Gateway registration/poll/send/close calls); swap this for a real-external-Gateway transport without touching the other two `ws/gateway-*.js` files                                                                                                   |
+| `ws/gateway-protocol.js`  | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, and interpreting a decoded envelope; transport-agnostic                                                                                                                                                                                  |
+| `style.css`               | generic layout primitives                                                                                                                                                                                                                                                                                |
 
 See [`../backend/README.md`](../backend/README.md) for the matching
 backend `Spec` contract.
