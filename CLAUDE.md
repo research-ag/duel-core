@@ -241,7 +241,13 @@ defaultScore)` (`keep` is a buffer, typically 2x however many entries a
   — a bot's games are scored exactly like a human's, with no separate
   wiring. `null` for either costs a host nothing, same as every other
   optional hook here; see `backend/README.md`'s "Leaderboard" section for
-  the full worked wiring (both the ELO and best-lap shape) and the
+  the full worked wiring (both the ELO and best-lap shape — `onGameEnded`
+  alone, in both cases: `examples/racing` computes its winner's exact
+  in-game time straight from `Debrief.turns` and the winning car's own
+  `CarState`, needing no wall clock at all — `onGameStarted`'s own worked
+  example instead lives in `skills/duel-game-core/SKILL.md`'s
+  "Leaderboard" step, for a game whose metric genuinely has no
+  from-game-state shortcut and needs real elapsed time) and the
   player-identity note (`Ws.playerKey` normalizes `ii:`/`an:` sids to a
   stable per-player key; a `cp:` canister-player session is deliberately
   per-TABLE, so a host wiring `canister_players.mo` alongside a

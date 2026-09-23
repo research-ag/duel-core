@@ -476,12 +476,26 @@ persistent actor {
 ```
 
 The other shape — a metric that isn't a `Verdict`-driven rating, like a
-best-completed-lap-time leaderboard — needs `onGameStarted` too (the
-THIRD `null` after `WsInitParams(...)`, right after `onGameEnded`),
-since nothing in the engine timestamps when a match started. This shape
-never looks up a "current" score before computing a new one, so
-`Leaderboard.new`'s own `defaultScore` argument is inert here — any
-placeholder value works:
+best-completed-lap-time leaderboard — needs to know when a match STARTED
+too, since nothing in the engine timestamps that on its own. First check
+whether your own game state can already tell you: `examples/racing`'s
+own `Host.mo` never wires `onGameStarted` at all, because that game
+resolves one fixed-duration round per submission — its `lapMsFor` derives
+the winner's exact in-game time straight from `Debrief.turns` (rounds
+resolved × that fixed duration) and the winning car's own final state
+(how far PAST the finish line its last round's motion carried it, over
+how fast it was going, gives the fraction of that final round still left
+over — see that file's own doc comment for the full reasoning). If YOUR
+game has a similar "one round = one fixed slice of in-game time"
+property, prefer that: it's exact, and needs no bookkeeping at all.
+
+Only reach for real-world wall-clock time — via `Ws.attach`'s
+`onGameStarted` parameter (the THIRD `null` after `WsInitParams(...)`,
+right after `onGameEnded`) — when your metric genuinely has no
+from-game-state shortcut (nothing about "how long this took" is
+recoverable from the final state alone). This shape never looks up a
+"current" score before computing a new one, so `Leaderboard.new`'s own
+`defaultScore` argument is inert here — any placeholder value works:
 
 ```motoko
 let leaderboard = Leaderboard.new(50, 0); // 0 is a placeholder — this shape never reads it
@@ -495,9 +509,9 @@ func onGameStarted(id : TP.TableId, _p1 : TP.SessionId, _p2 : TP.SessionId) {
 };
 func onGameEnded(id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
   // ...read whatever you need out of d.end/d.finalGame, look up
-  // matchStarts.get(id) for the elapsed time, and call
-  // Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(winner), scoreFromYourMetric(raw), Time.now())
-  // — see examples/racing/src/Host.mo for the complete worked version...
+  // matchStarts.get(id) for the elapsed real-world time since
+  // onGameStarted fired, and call
+  // Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(winner), scoreFromYourMetric(raw), Time.now())...
   matchStarts.remove(id);
 };
 

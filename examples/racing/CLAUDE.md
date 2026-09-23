@@ -112,16 +112,30 @@ Http(renderer.renderExposition, "/metrics")`, from
   re-compute; it converts its own best-LAP-TIME metric (lower is better)
   into a higher-is-better score itself before ever storing it:
   `scoreFromLapMs(ms) = max(0, 3_600_000 - ms)`, one hour of headroom in
-  milliseconds, floored at zero. Nothing in the engine timestamps when a
-  match started, and `RacingRules.State` can't self-timestamp either
-  (`init` is pure, no `Time`), so `Host.mo` also wires `Ws.attach`'s
-  `onGameStarted` parameter — a small `raceStarts : Map<TP.TableId, Int>`
-  side map, set the instant a table freshly enters `#active` and read
-  back (then removed) in the matching `onGameEnded`. Only a clean
-  `#finished` win records a lap time at all — a draw, `#claimed`, or
-  `#aborted` ending means nobody actually crossed the line, so none of
-  those touches the leaderboard (`Leaderboard.recordIfBetter`, not
-  `setScore` — a personal best should never regress). Read back through
+  milliseconds, floored at zero. The lap time itself is computed from
+  game state alone, NOT `Ws.attach`'s `onGameStarted`/real-world
+  wall-clock elapsed time (which would count however long the two humans
+  took to think between clicks — nothing to do with the simulated
+  race): each resolved round is a fixed `STEP_DURATION_MS` (1000, must
+  stay in sync with `frontend/src/app/modules/gameplay/game-shared/services/game-state.service.ts`'s
+  own `stepDuration` constant — the frontend's HUD clock this is meant
+  to match) of in-game time, so `Debrief.turns` rounds is
+  `turns * STEP_DURATION_MS` of raw race time — except the winning car
+  doesn't necessarily need the WHOLE of its final round to cross the
+  line. `RacingRules.CarState.distanceFromStart` is documented as
+  "progress ... THIS LAP PASS," reckoned fresh from zero the instant a
+  round's motion wraps past the track's own loop point — so in the
+  state that just won, it's exactly how far PAST the finish line that
+  final round's own motion carried the car, and `speed` (world units per
+  WHOLE round) how fast; `distanceFromStart / speed` (`lapMsFor`,
+  clamped to `[0, 1)`) is therefore that round's own overshoot, as a
+  fraction of one round, subtracted back out so the reported time lines
+  up with the actual crossing instant, not the round boundary after it.
+  Only a clean `#finished` win records a lap time at all — a draw,
+  `#claimed`, or `#aborted` ending means nobody actually crossed the
+  line, so none of those touches the leaderboard
+  (`Leaderboard.recordIfBetter`, not `setScore` — a personal best should
+  never regress). Read back through
   `get_leaderboard()`, supplied by
   `include LeaderboardActorMixin(leaderboard, 25)`
   (`mo:duel-game-core/leaderboard_actor_mixin`), no hand-declared query

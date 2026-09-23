@@ -1,5 +1,5 @@
+import Float "mo:core/Float";
 import Int "mo:core/Int";
-import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Time "mo:core/Time";
 import Timer "mo:core/Timer";
@@ -51,15 +51,36 @@ persistent actor {
   let ONE_HOUR_MS : Int = 3_600_000;
   func scoreFromLapMs(ms : Int) : Int = Int.max(0, ONE_HOUR_MS - ms);
 
-  // See `Ws.OnGameStarted`'s own doc: nothing in the engine timestamps
-  // when a match started, and `RacingRules.State` can't self-timestamp
-  // either (`init` is pure, no `Time`) — so this actor keeps its own
-  // small side map, populated the instant a table goes `#active` and
-  // consumed (removed) the instant that same table's game ends.
-  let raceStarts = Map.empty<TP.TableId, Int>();
-
-  func onGameStarted(id : TP.TableId, _p1 : TP.SessionId, _p2 : TP.SessionId) {
-    raceStarts.add(id, Time.now());
+  // The winner's lap time as the frontend's own HUD clock would compute
+  // it (see examples/racing/frontend/src/app/modules/gameplay/game-shared/services/game-state.service.ts's
+  // `raceTime` getter) — NOT real-world wall-clock time between the race
+  // starting and this debrief landing, which would count however long
+  // the two humans took to think between clicks, nothing to do with the
+  // simulated race itself. Each resolved round is a fixed
+  // `STEP_DURATION_MS` of in-game time (matching that same file's own
+  // `stepDuration` constant — keep both in sync), so `turns` rounds is
+  // `turns * STEP_DURATION_MS` of raw race time — except the winning car
+  // doesn't necessarily need the WHOLE of its final round to cross the
+  // line. `RacingRules.resolve`'s own lap-count logic increments `lap`
+  // the instant a round's motion wraps `distanceFromStart` past the
+  // track's own loop point (see that module's own `distanceFromStart`
+  // field doc: "progress ... THIS LAP PASS" — it's reckoned fresh from
+  // zero the moment a wrap happens) — so a car's `distanceFromStart` in
+  // the very state that just won IS exactly how far PAST the finish line
+  // that final round's own motion carried it, and `speed` (world units
+  // per WHOLE round) how fast. `distanceFromStart / speed` is therefore
+  // that round's own overshoot, expressed as a fraction of one round,
+  // which gets subtracted back out of the raw round count so the
+  // reported time lines up with the actual instant the car crossed, not
+  // the round boundary after it. Clamped to `[0, 1)`: floating-point
+  // slack (or a `speed` of exactly 0, guarded separately) could otherwise
+  // push it slightly out of the one round it's meant to describe.
+  let STEP_DURATION_MS : Int = 1000;
+  func lapMsFor(car : Rules.CarState, turns : Nat) : Int {
+    let overshootSteps = if (car.speed > 0.0) {
+      Float.max(0.0, Float.min(0.999, car.distanceFromStart / car.speed));
+    } else 0.0;
+    Float.nearest((turns.toFloat() - overshootSteps) * STEP_DURATION_MS.toFloat()).toInt();
   };
 
   // Normalizes a session id down to a stable per-PLAYER key. `Ws.playerKey`
@@ -81,23 +102,19 @@ persistent actor {
   // clean `#finished` win records a lap time — a draw (an exact
   // photo-finish tie) has no completed winner, and `#claimed`/`#aborted`
   // mean nobody actually crossed the line either, so neither produces a
-  // lap to score. A race with no recorded start (this table's own
-  // `onGameStarted` never fired, which shouldn't happen in practice) is
-  // silently skipped rather than scored against a made-up baseline.
-  func onGameEnded(id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
-    let winner : ?TP.SessionId = switch (d.end) {
-      case (#finished(#p1Wins)) ?p1;
-      case (#finished(#p2Wins)) ?p2;
-      case (_) null; // draw, claimed, or aborted — nobody finished a lap
-    };
-    switch (winner, raceStarts.get(id)) {
-      case (?w, ?startedAt) {
-        let lapMs = (d.since - startedAt) / 1_000_000;
-        ignore Leaderboard.recordIfBetter(leaderboard, playerKey(w), scoreFromLapMs(lapMs), Time.now());
+  // lap to score.
+  func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
+    switch (d.end) {
+      case (#finished(#p1Wins)) {
+        let lapMs = lapMsFor(d.finalGame.p1, d.turns);
+        ignore Leaderboard.recordIfBetter(leaderboard, playerKey(p1), scoreFromLapMs(lapMs), Time.now());
       };
-      case (_, _) {};
+      case (#finished(#p2Wins)) {
+        let lapMs = lapMsFor(d.finalGame.p2, d.turns);
+        ignore Leaderboard.recordIfBetter(leaderboard, playerKey(p2), scoreFromLapMs(lapMs), Time.now());
+      };
+      case (_) {}; // draw, claimed, or aborted — nobody finished a lap
     };
-    raceStarts.remove(id);
   };
 
   // Breaks the circular dependency between `attached` and `cpAttached`
@@ -122,7 +139,7 @@ persistent actor {
     IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
     ?settle,
     ?onGameEnded,
-    ?onGameStarted,
+    null,
   );
   attached.ws.init<system>();
 

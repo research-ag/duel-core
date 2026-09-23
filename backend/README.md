@@ -941,41 +941,56 @@ include LeaderboardActorMixin(leaderboard, 25); // supplies get_leaderboard()
 
 ```
 
-A worked best-lap example (`examples/racing`) is different in two ways:
-its score needs `onGameStarted` (nothing else times a match), and its
-own metric runs the OPPOSITE direction from ELO, so it's converted to a
-higher-is-better score before ever touching `Leaderboard`. `defaultScore`
-is inert for this game — a lap time is never "computed FROM" a prior
-score the way an ELO rating is, so `Leaderboard.new`'s second argument is
-just a placeholder `0` here:
+A worked best-lap example (`examples/racing`) runs the OPPOSITE direction
+from ELO, so it's converted to a higher-is-better score before ever
+touching `Leaderboard`. `defaultScore` is inert for this game — a lap
+time is never "computed FROM" a prior score the way an ELO rating is, so
+`Leaderboard.new`'s second argument is just a placeholder `0` here. It
+does NOT wire `onGameStarted`: rather than approximate a lap time from
+real-world wall-clock elapsed time (which would count however long the
+two humans took to think between clicks, nothing to do with the
+simulated race), this game's own round-based physics lets it compute the
+winner's exact in-game time directly from `Debrief.turns` and the
+winning car's own final `CarState` — each resolved round is a fixed
+1000ms of in-game time, and `distanceFromStart / speed` (in the state
+that JUST crossed the finish, where `distanceFromStart` is "progress
+this lap pass," i.e. exactly the overshoot past the line) is that final
+round's own overshoot, as a fraction of one round, subtracted back out
+so the reported time matches the instant the car actually crossed, not
+the round boundary after it:
 
 ```motoko
 let leaderboard = Leaderboard.new(50, 0);
 let ONE_HOUR_MS : Int = 3_600_000;
 func scoreFromLapMs(ms : Int) : Int = Int.max(0, ONE_HOUR_MS - ms);
 
-let raceStarts = Map.empty<TP.TableId, Int>();
-func onGameStarted(id : TP.TableId, _p1 : TP.SessionId, _p2 : TP.SessionId) {
-  raceStarts.add(id, Time.now());
+let STEP_DURATION_MS : Int = 1000;
+func lapMsFor(car : Rules.CarState, turns : Nat) : Int {
+  let overshootSteps = if (car.speed > 0.0) {
+    Float.max(0.0, Float.min(0.999, car.distanceFromStart / car.speed));
+  } else 0.0;
+  Float.nearest((turns.toFloat() - overshootSteps) * STEP_DURATION_MS.toFloat()).toInt();
 };
 
-func onGameEnded(id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
-  let winner : ?TP.SessionId = switch (d.end) {
-    case (#finished(#p1Wins)) ?p1;
-    case (#finished(#p2Wins)) ?p2;
-    case (_) null; // draw, claimed, or aborted — nobody finished a lap
-  };
-  switch (winner, raceStarts.get(id)) {
-    case (?w, ?startedAt) {
-      let lapMs = (d.since - startedAt) / 1_000_000;
-      ignore Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(w), scoreFromLapMs(lapMs), Time.now());
+func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
+  switch (d.end) {
+    case (#finished(#p1Wins)) {
+      ignore Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(p1), scoreFromLapMs(lapMsFor(d.finalGame.p1, d.turns)), Time.now());
     };
-    case (_, _) {};
+    case (#finished(#p2Wins)) {
+      ignore Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(p2), scoreFromLapMs(lapMsFor(d.finalGame.p2, d.turns)), Time.now());
+    };
+    case (_) {}; // draw, claimed, or aborted — nobody finished a lap
   };
-  raceStarts.remove(id);
 };
 
 ```
+
+A different racing-shaped game without round-based physics this precise
+— or any game whose "best" metric genuinely needs real-world elapsed
+time, not a value derivable from game state alone — is exactly what
+`onGameStarted` is for instead; see `skills/duel-game-core/SKILL.md`'s
+own "Leaderboard" step for that generic wall-clock recipe.
 
 The frontend side is exactly as small: `get_leaderboard` is a plain
 `query`, so `duel-game-core`'s `idl.js` declares it unconditionally on
