@@ -49,14 +49,11 @@
 /// leaves, or gets idle-swept while the bot is still thinking), then apply
 /// the reply via `registry.submit` and run the exact same push fan-out
 /// `ws.mo` itself runs, so a human opponent's browser learns about a
-/// canister-driven move in real time. `nudge` is what decides WHEN to call
-/// it: swept periodically (see a host's own fast timer, alongside the
-/// existing idle-sweep one) rather than hooked eagerly into `ws.mo` itself
-/// (which stays completely unchanged — see architecture rule 11: it is
-/// still the ONLY transport a human ever mutates through) — a canister
-/// seat's own mutations (its own `joinTable`/its own move landing in a
-/// bot-vs-bot match) additionally trigger `nudge` eagerly right after they
-/// succeed, so the common case never waits for the next tick.
+/// canister-driven move in real time. `settle` decides WHEN to call it —
+/// eagerly, right after whichever mutation (canister- or, via
+/// `Ws.attach`'s `onSettled`, human-driven) just made a seat due. No
+/// polling timer involved; see `backend/README.md`'s "Canister players"
+/// section for the full wiring.
 ///
 /// A bot canister can fail in every ordinary way software fails: it traps,
 /// it's out of cycles, it's mid-upgrade, it times out, or it just returns
@@ -76,69 +73,27 @@
 ///
 /// ── A finished game still needs acking ───────────────────────────────────
 ///
-/// A game ending puts BOTH seats in a `#debrief` — a human's own frontend
-/// acks it (`leave`/`ackEnded`, wired to a "return to lobby" click) the
-/// instant they're not rematching, freeing their session for a fresh
-/// `createTable`/`joinTable` elsewhere. A canister seat has no such click:
-/// left alone, it stays pinned to that finished table — `Registry` still
-/// considers it "at a table" — until the much slower, passive idle-sweep
-/// timer eventually force-clears it, often minutes later. `nudge` covers
-/// this too, the same way it covers a stalled `#active` game: once the
-/// OTHER seat is no longer a live participant of that SAME debrief either
-/// (already acked, or never filled), it acks the canister seat's own side
-/// immediately — never cutting short a still-deciding HUMAN partner's own
-/// rematch window, since that partner not having acked yet is exactly what
-/// keeps this from firing. When the other seat is ALSO canister-seated
-/// (nobody around to decide anything), both seats ack unconditionally
-/// instead of waiting on each other — see `maybeAckDebrief`'s own doc for
-/// why the mirrored "wait for my partner" rule would otherwise deadlock
-/// two canister seats forever.
+/// A game ending puts BOTH seats in a `#debrief`. A human's own frontend
+/// acks it on "return to lobby"; a canister seat has no such click, so
+/// `settle` acks it on the seat's behalf once the OTHER seat is no longer
+/// a live participant either (already acked, gone, or itself
+/// canister-seated) — never cutting short a still-deciding human
+/// partner's own rematch window. `sweep` (below) is the slow fallback for
+/// whatever `settle` never gets called for at all.
 ///
 /// ── How a host actor wires it ──────────────────────────────────────────
 ///
-///   import CanisterPlayers "mo:duel-game-core/canister_players";
-///
 ///   let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
-///     Rules.spec(),
-///     registry,
-///     attached.afterMutation, // from `Ws.attach` — see its own `Attached` doc
-///     // Continuation-passing, not a plain `async Rules.Action` return —
-///     // Motoko rejects `async M` for an unconstrained generic `M` (this
-///     // module's own `S`/`M` stay fully generic), so the actual
-///     // inter-canister call, and the one place a trap/reject is
-///     // catchable, lives here, where `Rules.Action` is concrete:
-///     func(session, req, k) : async* () {
-///       let p = Principal.fromText(
-///         session.trimStart(#text (CanisterPlayers.CP_SID_PREFIX))
-///       );
-///       let bot : BotIface.CanisterPlayer = actor (p.toText());
-///       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
-///     },
+///     Rules.spec(), registry, attached.afterMutation, callBot, armClaimCheck,
 ///   );
 ///
-///   public shared ({ caller }) func create_table_as_canister(seat : TP.Seat, visibility : TP.TableVisibility) : async TP.Res<TP.TableId> {
-///     await* cpAttached.createTable(caller, seat, visibility);
-///   };
-///   // ...join_table_as_canister / leave_as_canister / rematch_as_canister /
-///   // ack_ended_as_canister / claim_win_as_canister / reset_as_canister
-///   // forward the same way — see `Attached`'s own doc for the full set.
-///   // `submit` is deliberately absent: a canister player's move never
-///   // arrives as an independent inbound call under this design (see this
-///   // module's doc header above). `claim_win_as_canister`/
-///   // `reset_as_canister` matter most for an unattended, canister-vs-
-///   // canister match: `nudge` below already claims a stalled game
-///   // automatically, but a canister participant that wants to act the
-///   // instant it's entitled to, rather than wait for the next tick, can
-///   // call either directly.
-///
-///   // Alongside the existing 30s idle-sweep timer:
-///   ignore Timer.recurringTimer<system>(#seconds(3), func() : async () {
-///     await* cpAttached.nudge(Time.now());
-///   });
-///
+/// `attached` (`Ws.attach`) and `cpAttached` each need the other's result,
+/// so a host resolves the cycle with a small mutable indirection —
+/// `armClaimCheck` schedules a `Timer.setTimer` back into `cpAttached.settle`.
 /// See `../README.md`'s "Canister players" section for the full worked
-/// example, `examples/racing/bot/Bot.mo` for a minimal hardcoded-script
-/// bot, and `skills/duel-game-core/SKILL.md` for the authoring guide.
+/// example (including that indirection), `examples/racing/bot/Bot.mo` for
+/// a minimal bot, and `skills/duel-game-core/SKILL.md` for the authoring
+/// guide.
 /// ═══════════════════════════════════════════════════════════════════════════
 
 import Map "mo:core/Map";
@@ -174,28 +129,14 @@ module {
   /// Whether `session` names a canister-seated player under this module's
   /// namespace — a purely cosmetic check for a lobby frontend wanting to
   /// render "vs 🤖" (`TableSummary.p1Session`/`p2Session` already carry the
-  /// raw text), and the check `nudge` itself uses to decide which seats
-  /// are its own responsibility.
+  /// raw text), and the check `settle`/`sweep` themselves use to decide
+  /// which seats are their own responsibility.
   public func isCanisterSession(session : T.SessionId) : Bool = session.startsWith(#text CP_SID_PREFIX);
 
-  /// What a host actor gets back from `attach` — seven table-lifecycle
-  /// operations (never `submit`: a canister player's move is always
-  /// applied by `notifyAndApply` below, as the direct reply to a call THIS
-  /// module made, not as a separately-arriving request — see this
-  /// module's own doc header) plus `nudge`, the periodic sweep a host
-  /// wires onto its own timer that, per table, either asks a due, idle
-  /// canister seat for its next move, claims the win against a stalled
-  /// opponent on that seat's behalf, or acks a finished `#debrief` on that
-  /// seat's behalf once nobody's plausibly still deciding on a rematch —
-  /// see `maybeNotify`/`maybeAckDebrief` below for exactly which of the
-  /// three applies (this module's own doc header's §3 note on the
-  /// unattended, canister-vs-canister case covers both the claim-win and
-  /// the debrief-ack side of that: `claimWin`/`reset` exist mainly so a
-  /// canister participant CAN act immediately instead of waiting for the
-  /// next `nudge` tick, not because `nudge` itself needs them called from
-  /// the outside). Each lifecycle op takes the CALLING canister's own
-  /// principal (from `msg.caller` at the host actor's own entry point —
-  /// never a client-supplied `sid`) and derives `sidForCanister` itself.
+  /// What a host actor gets back from `attach`: `submit` is deliberately
+  /// absent (see this module's own doc header), and `settle`/`sweep` are
+  /// the eager and slow-fallback ways to ask/claim/ack a canister seat —
+  /// see `maybeSettleBoth` below.
   public type Attached = {
     createTable : (Principal.Principal, T.Seat, T.TableVisibility) -> async* T.Res<T.TableId>;
     joinTable : (Principal.Principal, T.TableId, T.Seat, ?Text) -> async* T.Res<T.JoinOk>;
@@ -204,23 +145,14 @@ module {
     ackEnded : (Principal.Principal) -> async* ();
     claimWin : (Principal.Principal, Nat) -> async* T.Res<()>;
     reset : (Principal.Principal, Nat) -> async* T.Res<()>;
-    nudge : (Int) -> async* ();
+    settle : (Int, T.TableId) -> async* ();
+    sweep : (Int) -> async* ();
   };
 
-  /// Builds a ready-to-wire `Attached` bound to one game's `Spec`/
-  /// `Registry`. `afterMutation` is `Ws.Attached.afterMutation` — reusing
-  /// the EXACT push fan-out `ws.mo` itself runs after a human-driven
-  /// mutation, so a canister-driven one (a bot joining, moving, leaving,
-  /// ...) reaches a human opponent's browser in real time too, with no
-  /// second, divergent implementation of that fan-out (see this module's
-  /// doc header). `callBot` is the one piece only the host actor can
-  /// supply: given the acting session (to recover the target canister's
-  /// own principal — see `sidForCanister`'s doc) and a `T.MoveRequest<S>`,
-  /// make the actual inter-canister call and return its `M`. Kept as a
-  /// plain function parameter (never stored — architecture rule 1's
-  /// "`Spec` is passed per call, never stored" applies here too, for the
-  /// same reason) so this module never has to know the game's own
-  /// `CanisterPlayer` Candid interface.
+  /// `armClaimCheck(id, secs)` schedules one future `settle(now, id)` —
+  /// a host-supplied hook since only an actor holds `Timer.setTimer`'s
+  /// `<system>` capability, which keeps this module `<system>`-free and
+  /// testable with a plain stub (see `CanisterPlayers.test.mo`).
   public func attach<S, M>(
     spec : T.Spec<S, M>,
     registry : T.Registry<S, M>,
@@ -232,17 +164,13 @@ module {
     // trapped/errored call — the one place able to `try`/`catch` the
     // actual inter-canister call, since `M` is concrete there.
     callBot : (T.SessionId, T.MoveRequest<S>, (?M) -> async* ()) -> async* (),
+    armClaimCheck : (T.TableId, Nat) -> async* (), // async* so its body can reach `system` — see `ws.mo`'s `onClose`
+
   ) : Attached {
 
-    // One bit per (table, seat) currently mid-`callBot` — guards against
-    // asking the SAME due seat twice before the first ask resolves (a
-    // fresh eager trigger racing an overlapping `nudge` tick). Keyed as
-    // plain text rather than a nested mutable record: simpler, and this
-    // module's own traffic is never hot enough for the allocation to
-    // matter. Transient by construction (a local `var` closed over by the
-    // functions below, never stored in stable state) — safe to lose across
-    // an upgrade, since it only ever suppresses a redundant ask, never
-    // correctness.
+    // Guards against asking the SAME due seat twice before the first ask
+    // resolves. Lost across an upgrade harmlessly (only suppresses a
+    // redundant ask).
     let inFlight = Map.empty<Text, ()>();
     func flightKey(id : T.TableId, seat : T.Seat) : Text {
       id.toText() # (switch (seat) { case (#p1) "/p1"; case (#p2) "/p2" });
@@ -327,15 +255,12 @@ module {
       inFlight.remove(key);
     };
 
-    /// If `session` is due to move right now (and not already
-    /// mid-`callBot`), ask and apply — see `notifyAndApply`. Otherwise, if
-    /// `session` is the WAITING seat and may `claimWin` against a stalled
-    /// opponent, claim it on `session`'s own behalf: this module's own
-    /// account of "there's nobody looking at a screen to click Claim Win"
-    /// in an unattended, canister-vs-canister match (see this module's own
-    /// doc header §3). A no-op either way if neither condition currently
-    /// holds, or the table isn't `#active` at all. Shared by every eager
-    /// trigger below and by `nudge`'s own periodic scan.
+    /// If `session` is due, ask and apply — see `notifyAndApply`. If it's
+    /// the WAITING seat and overdue, claim the win on its behalf. If
+    /// waiting but not yet overdue, arm `armClaimCheck` for the remaining
+    /// `secondsUntilClaimable` instead of polling for it (redundant
+    /// re-arming is harmless — each wakeup re-reads truth fresh). No-op
+    /// outside `#active`. Shared by every eager trigger and by `sweep`.
     func maybeNotify(now : Int, id : T.TableId, session : T.SessionId) : async* () {
       if (not isCanisterSession(session)) return;
       switch (registry.status(spec, now, session)) {
@@ -347,40 +272,22 @@ module {
           } else if (ig.claimWinAvailable) {
             switch (registry.claimWin(spec, now, session, ig.gen)) {
               case (#ok _) await* afterMutation(now, session, null, ?id, true);
-              case (#err _) {}; // raced/stale by the time this ran — harmless; the next nudge tick re-checks
+              case (#err _) {}; // raced/stale by the time this ran — harmless; the next check re-verifies
             };
+          } else {
+            await* armClaimCheck(id, ig.secondsUntilClaimable);
           };
         };
         case (_) {};
       };
     };
 
-    /// Auto-acks a canister-seated occupant's own finished `#debrief` —
-    /// the debrief-phase counterpart to `maybeNotify`'s `#active`-phase
-    /// checks above, and the fix for a gap this module otherwise leaves
-    /// wide open: nothing ever tells a canister-seated player its own game
-    /// just ended (`ws.mo` stays untouched — rule 11 — and a bot has no
-    /// browser polling `status` on its own initiative), so left unhandled
-    /// it stays pinned to that finished table indefinitely from
-    /// `Registry`'s point of view — refusing `createTable`/`joinTable` for
-    /// that same `cp:` session — until the much slower, passive idle-sweep
-    /// timer eventually force-clears it, often minutes later. Acks via
-    /// `registry.leave` — the exact call a human's own "return to lobby"
-    /// makes for a `#debrief` — the instant the OTHER seat is no longer a
-    /// live participant of THIS SAME debrief either:
-    /// `Table.activeDebriefSeat` already returns `null` for a seat that
-    /// acked or was never filled, the identical "partner's gone for good"
-    /// signal `Table.rematchPartner` already uses to decide a rematch
-    /// reservation is pointless — so a still-deciding HUMAN partner's own
-    /// rematch window is never cut short by this. When the other seat is
-    /// ALSO canister-seated there is nobody deciding anything at all (the
-    /// same unattended, canister-vs-canister case `maybeNotify`'s own
-    /// claim-win branch already covers), so both seats ack unconditionally
-    /// — independent of whether the OTHER one has acked yet — rather than
-    /// each waiting on the other's own ack first: mirroring the human-side
-    /// rule literally (ack once my partner's gone) would have two canister
-    /// seats wait on each other forever, since neither's `nudge` tick
-    /// would ever see the other as "gone".
+    /// Auto-acks a canister seat's own finished `#debrief` (via
+    /// `registry.leave`, same as a human's "return to lobby") once the
+    /// OTHER seat is no longer a live participant either — never cutting
+    /// short a still-deciding human partner's rematch window. If the
+    /// other seat is ALSO canister-seated, both ack unconditionally
+    /// instead of deadlocking on each other's ack.
     func maybeAckDebrief(now : Int, id : T.TableId, t : T.Table<S, M>, d : T.Debrief<S>, session : T.SessionId) : async* () {
       if (not isCanisterSession(session)) return;
       if (t.activeDebriefSeat(d, session) == null) return; // already acked — nothing to do
@@ -389,7 +296,7 @@ module {
       if (not partnerGoneOrCanister) return;
       switch (registry.leave(now, session, t.gen)) {
         case (#ok _) await* afterMutation(now, session, null, ?id, true);
-        case (#err _) {}; // raced/stale by the time this ran — harmless; the next nudge tick re-checks
+        case (#err _) {}; // raced/stale by the time this ran — harmless; the next check re-verifies
       };
     };
 
@@ -410,13 +317,8 @@ module {
       };
     };
 
-    /// Both seats of `id`'s CURRENT phase, checked for whatever's due right
-    /// now: due-to-move or claim-win-eligible in `#active` (`maybeNotify`),
-    /// or ack-eligible in `#debrief` (`maybeAckDebrief`) — a no-op in every
-    /// other phase. Shared by every eager trigger (a canister-driven join,
-    /// rematch, or move landing) and by `nudge`'s own periodic scan, so
-    /// neither a bot-vs-bot match starting nor one settling ever waits on
-    /// the next tick for the common case.
+    /// Checks both seats of `id`'s current phase — exposed to the host as
+    /// `settle`; also driven by `sweep`'s full-registry scan.
     func maybeSettleBoth(now : Int, id : T.TableId) : async* () {
       switch (registry.tables.get(id)) {
         case null {};
@@ -453,9 +355,7 @@ module {
         switch (registry.joinTable(spec, now, session, id, seat, code)) {
           case (#ok j) {
             await* afterMutation(now, session, null, ?id, true);
-            // Eager trigger: if this join just started the game (or the
-            // OTHER seat is also canister-seated and was already waiting),
-            // don't wait for the next `nudge` tick.
+            // Eager trigger: don't wait for `sweep` if this join settles anything now.
             await* maybeSettleBoth(Time.now(), id);
             #ok(j);
           };
@@ -503,14 +403,8 @@ module {
         await* afterMutation(now, session, null, priorId, true);
       };
 
-      // `claimWin`/`reset` below give a canister PARTICIPANT the same
-      // agency a human has — act immediately rather than wait for the
-      // next `nudge` tick's own auto-claim (see `maybeNotify`'s doc).
-      // Both route through `registry.bySession`, exactly like `leave`
-      // above: only ever "my own table," never an arbitrary one by id —
-      // a supervising orchestrator resetting/claiming ANY table (not just
-      // one it's seated at) is tournament-orchestrator territory, out of
-      // scope here (see `../../CLAUDE.md`'s "Canister players" note).
+      // Lets a canister participant act immediately instead of waiting on
+      // `armClaimCheck`'s wakeup; routes through `registry.bySession` like `leave`.
       claimWin = func(caller : Principal.Principal, gen : Nat) : async* T.Res<()> {
         let session = sidForCanister(caller);
         let now = Time.now();
@@ -541,7 +435,9 @@ module {
         };
       };
 
-      nudge = func(now : Int) : async* () {
+      settle = maybeSettleBoth;
+
+      sweep = func(now : Int) : async* () { // slow full-registry fallback for whatever `settle` misses
         for ((id, _) in registry.tables.toArray().values()) {
           await* maybeSettleBoth(now, id);
         };

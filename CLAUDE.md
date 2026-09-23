@@ -89,26 +89,36 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   opponent still learns about a canister-driven move in real time, and
   falling silent (letting `claimTimeoutNs`/`idleTimeoutNs` take over,
   same as an unresponsive human) on a trap, an error, or a move still
-  illegal after one retry. `nudge(now)`, wired onto a host's own fast
-  timer alongside the existing 30s idle-sweep one, is what asks a due
-  canister seat again after a HUMAN's own move resolves a round (`ws.mo`
-  itself stays completely unchanged); a canister-driven mutation
-  eagerly re-checks the same thing immediately, so a bot-vs-bot match
-  never waits on a tick for the common case. `nudge` also claims the win
-  automatically on behalf of any canister seat that's the WAITING one
-  once `claimWinAvailable` turns true — the unattended, canister-vs-
-  canister case, where nobody's around to click "claim win" themselves;
+  illegal after one retry. `settle(now, id)` is what asks a due canister
+  seat for one table, claims the win on a stalled WAITING seat's behalf,
+  or acks its own finished `#debrief` once nobody's left to still want a
+  rematch; a canister-driven mutation calls it on itself directly, and
+  `Ws.attach`'s own optional `onSettled` parameter calls the exact same
+  `settle` right after every successful HUMAN-driven mutation too (`ws.mo`
+  itself needs no game-specific knowledge to do this — it just calls
+  whatever hook the host handed it), so a canister opponent is asked
+  the instant either side makes it due, with no polling timer for
+  either half of that pairing. The one thing nothing ever calls back in
+  about on its own is a stalled opponent's silence — `armClaimCheck`,
+  a host-supplied hook using `Timer.setTimer`'s own `<system>`
+  capability (which is why it's a parameter `canister_players.mo` takes
+  rather than something the module does itself, keeping it `<system>`-free
+  and interpreter-testable), schedules exactly one precisely-timed wakeup
+  back into `settle` for the moment `claimWinAvailable` will turn true —
+  the unattended, canister-vs-canister case, where nobody's around to
+  click "claim win" themselves, included, since it fires the same way
+  regardless of whether the opponent is human or canister.
   `claim_win_as_canister`/`reset_as_canister` additionally let a canister
-  PARTICIPANT act the instant it's entitled to rather than wait for the
-  next tick, routed through its own `cp:` session exactly like
+  PARTICIPANT act the instant it's entitled to rather than wait on that
+  wakeup, routed through its own `cp:` session exactly like
   `leave_as_canister` (only ever "my own table," never an arbitrary one
   by id — a supervising tournament-orchestrator canister is out of scope
-  here). `nudge` also acks a canister seat's own finished `#debrief` —
+  here). `settle` also acks a canister seat's own finished `#debrief` —
   a human's frontend does this itself (`leave`/`ackEnded`, on "return to
   lobby") the moment they're not rematching, but a canister seat has no
-  such click, so left alone it stays pinned to that finished table
+  such click, so left alone it would stay pinned to that finished table
   (refusing `createTable`/`joinTable` for that same `cp:` session) until
-  the far slower idle-sweep timer eventually clears it; `nudge` acks it
+  the far slower idle-sweep timer eventually clears it; `settle` acks it
   immediately instead, once the OTHER seat is no longer a live
   participant of that SAME debrief either (already acked, or never
   filled) — never cutting short a still-deciding HUMAN partner's own
@@ -116,7 +126,13 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   keeps this from firing. When the other seat is ALSO canister-seated
   (nobody around to decide on a rematch at all), both ack unconditionally
   instead of each waiting on the other's own ack first, which would
-  otherwise deadlock two canister seats against each other forever.
+  otherwise deadlock two canister seats against each other forever. A
+  host also folds `sweep` — the slow, full-registry counterpart to
+  `settle`, catching whatever it never gets called for (most commonly the
+  OTHER seat vanishing without ever sending a mutating request at all) —
+  into its own already-mandatory 30s idle-sweep timer, so none of this
+  costs a canister-less host anything and none of it needs a dedicated
+  timer of its own either.
   `registry.mo`'s `createTableReserving` is a separate, small
   addition alongside plain `createTable`: it seats BOTH sides atomically
   in one call — the creator, and a `reservedFor` session named
@@ -193,17 +209,23 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   `canister_players.mo`'s own orchestration — due-seat detection via
   `Registry.status`, the retry-once-on-illegal-move then silence
   behavior, the in-flight guard clearing correctly, the eager
-  bot-vs-bot trigger, `claimWin`/`reset` forwarding, `nudge`'s own
+  bot-vs-bot trigger, `claimWin`/`reset` forwarding, `sweep`'s own
   automatic claim-win once a canister seat's stall turns overdue (a
   fully unattended, canister-vs-canister match, start to finish, with no
   human ever involved), a canister seated via `createTableReserving`
-  being due from the very first ordinary `nudge` tick with no
-  `joinTable` of its own, `nudge`'s own debrief-ack freeing a canister
+  being due from the very first ordinary `sweep` call with no
+  `joinTable` of its own, `sweep`'s own debrief-ack freeing a canister
   seat pinned to a game a HUMAN'S own action just ended (never routed
   through `canister_players.mo` at all) — staying pinned while that human
   partner could still rematch, then freeing the instant they're gone for
-  good — and the canister-vs-canister case settling both seats'
-  debriefs immediately with no partner-vs-partner deadlock — against
+  good — the canister-vs-canister case settling both seats'
+  debriefs immediately with no partner-vs-partner deadlock — `settle`
+  asking a due seat for one specific table rather than scanning the whole
+  registry — and `armClaimCheck` getting armed with exactly
+  `secondsUntilClaimable` the moment a canister seat becomes the WAITING
+  side but isn't yet overdue, verified with a stubbed spy in place of a
+  real `Timer.setTimer` (this module needs no `<system>` capability of
+  its own to make that possible — see `attach`'s own doc) — against
   `FakeGame.mo` again, with `afterMutation`
   stubbed (a plain call counter) rather than a real `Ws.attach`, same
   caveat `Hub.test.mo` documents for why the full `IcWebSocketCdk` actor

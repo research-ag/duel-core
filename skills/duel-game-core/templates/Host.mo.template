@@ -35,6 +35,7 @@ persistent actor {
       decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
     IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
+    null, // no `mo:duel-game-core/canister_players` wired here — see `Ws.attach`'s own `onSettled` doc otherwise
   );
   attached.ws.init<system>();
 

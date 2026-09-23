@@ -92,6 +92,7 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
     await* k(?BotLogic.chooseMove(req));
   },
+  func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
 );
 
 let id = ok(await* cp.createTable(bot1, #p1, #open), "bot creates a table");
@@ -103,7 +104,7 @@ ignore ok(reg.joinTable(spec, T0, "human", id, #p2, null), "human joins bot1's t
 var round = 0;
 var finished = false;
 while (round < BotLogic.SCRIPT_P1.size() + 2 and not finished) {
-  await* cp.nudge(T0);
+  await* cp.sweep(T0);
   switch (atTableView(reg, T0, sidBot1)) {
     case (#inGame v) assert v.youSubmitted; // the bot's scripted move landed legally
     case (#debrief d) switch (d.end) {

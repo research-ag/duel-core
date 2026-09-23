@@ -66,18 +66,30 @@ Http(renderer.renderExposition, "/metrics")`, from
   `cp:` session from `msg.caller` (never client-supplied — nothing to
   spoof); there is no `submit_as_canister` at all, since a canister
   player's move only ever arrives as the direct reply to a call this
-  module made, never a separately-arriving request. A fast 3-second
-  `Timer.recurringTimer<system>` (alongside the existing 30s idle-sweep
-  one wired inside `ActorMixin`) drives `cpAttached.nudge`, asking every
-  due canister seat for its next move — for an `#alternating` game like
-  this one, that's whichever ONE seat is currently on turn, never both at
-  once (see `canister_players.mo`'s own `dueRequest` doc on why
-  `youSubmitted` already means the right thing in either mode) — and
-  claiming the win automatically on behalf of any canister seat that's
-  the WAITING one once it's entitled to (the unattended, canister-vs-
-  canister case); `claim_win_as_canister`/`reset_as_canister` exist
-  mainly so a canister participant can act the instant it's entitled to
-  instead of waiting on the next tick.
+  module made, never a separately-arriving request. `Host.mo` also wires
+  `Ws.attach`'s own optional `onSettled` parameter to `cpAttached.settle`
+  through a small mutable indirection (breaking the circular dependency
+  between the two `attach` calls — see `canister_players.mo`'s own doc
+  header for why), so a HUMAN's own move/leave/rematch asks a canister
+  opponent to move (or acks its own finished debrief) the instant that
+  human's own action makes it due — for an `#alternating` game like this
+  one, that's whichever ONE seat is currently on turn, never both at once
+  (see `canister_players.mo`'s own `dueRequest` doc on why `youSubmitted`
+  already means the right thing in either mode). A canister-driven
+  mutation reaches the same `settle` directly, in-line, with no
+  `onSettled` hop needed. The one case neither eager path reaches — a
+  stalled opponent's silence — is covered by `armClaimCheck`, a host
+  closure using `Timer.setTimer`'s own `<system>` capability to schedule
+  exactly one precisely-timed wakeup back into `settle`, claiming the win
+  automatically on behalf of any canister seat that's the WAITING one
+  once it's entitled to (the unattended, canister-vs-canister case
+  included, since it fires the same way regardless of who the opponent
+  is); `claim_win_as_canister`/`reset_as_canister` exist mainly so a
+  canister participant can act the instant it's entitled to instead of
+  waiting on that wakeup. `cpAttached.sweep` — the slow, full-registry
+  safety net for whatever `settle` never gets called for — is folded into
+  the SAME already-mandatory 30s idle-sweep timer `ActorMixin` runs, so
+  none of this costs a separate timer of its own.
 - **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
 -> async Rules.Action`, the exact counterpart to a browser's own

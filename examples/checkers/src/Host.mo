@@ -37,6 +37,16 @@ persistent actor {
     registry.status(Rules.spec(), Time.now(), sid);
   };
 
+  // Breaks the circular dependency between `attached` and `cpAttached`
+  // below — see `mo:duel-game-core/canister_players`'s doc header.
+  transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
+  transient let settle = func(now : Int, id : TP.TableId) : async* () {
+    switch (settleTable) {
+      case (?f) await* f(now, id);
+      case null {};
+    };
+  };
+
   transient let wsHub : Ws.Hub = Ws.createHub();
   transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
     Rules.spec(),
@@ -47,24 +57,12 @@ persistent actor {
       decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
     IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
+    ?settle,
   );
   attached.ws.init<system>();
 
-  // `attached.sweep` (not a bare `registry.sweep(Time.now())`)
-  // pushes a fresh status to every session the idle sweep just evicted.
-  include ActorMixin<system>(attached.ws, attached.sweep);
-
-  include Http(renderer.renderExposition, "/metrics");
-
   // Canister players (Flow 1, self-join — see ../../CLAUDE.md's "Canister
-  // players" note): lets a bot canister, e.g. `Bot.mo`, take a seat and
-  // play via the `*_as_canister` methods below, reusing `attached`'s own
-  // push fan-out (`afterMutation`) so a human opponent learns about a
-  // bot's move in real time, same as `ws.mo` itself. `callBot` is where
-  // the actual inter-canister call lives — the one place able to
-  // `try`/`catch` it, since `Rules.Action` is concrete here (see
-  // `CanisterPlayers.attach`'s own doc for why that can't live inside the
-  // module itself).
+  // players" note).
   transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
@@ -74,7 +72,19 @@ persistent actor {
       let bot : BotIface.CanisterPlayer = actor (p.toText());
       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
     },
+    func(id : TP.TableId, secs : Nat) : async* () {
+      ignore Timer.setTimer<system>(#seconds secs, func() : async () { await* settle(Time.now(), id) });
+    },
   );
+  settleTable := ?cpAttached.settle;
+
+  transient let combinedSweep = func(now : Int) : async* () {
+    await* attached.sweep(now);
+    await* cpAttached.sweep(now);
+  };
+  include ActorMixin<system>(attached.ws, combinedSweep);
+
+  include Http(renderer.renderExposition, "/metrics");
 
   public shared ({ caller }) func create_table_as_canister(seat : TP.Seat, visibility : TP.TableVisibility) : async TP.Res<TP.TableId> {
     await* cpAttached.createTable(caller, seat, visibility);
@@ -103,13 +113,4 @@ persistent actor {
   public shared ({ caller }) func reset_as_canister(gen : Nat) : async TP.Res<()> {
     await* cpAttached.reset(caller, gen);
   };
-
-  // Alongside the existing 30s idle-sweep timer (wired inside
-  // `ActorMixin` above): a much faster tick asking every due canister
-  // seat for its next move. `ws.mo` stays completely unchanged — see
-  // `canister_players.mo`'s own doc on why this lives here instead.
-  ignore Timer.recurringTimer<system>(
-    #seconds(3),
-    func() : async () { await* cpAttached.nudge(Time.now()) },
-  );
 };

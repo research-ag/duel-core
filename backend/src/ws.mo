@@ -100,6 +100,7 @@
 ///       decode = func(b) = from_candid (b);
 ///     },
 ///     IcWebSocketCdkTypes.WsInitParams(null, null),
+///     null, // no `mo:duel-game-core/canister_players` wired — see `OnSettled`'s own doc otherwise
 ///   );
 ///   attached.ws.init<system>();  // starts the CDK's ack timers — this bare
 ///                                // top-level call reruns automatically on
@@ -437,6 +438,12 @@ module {
     afterMutation : (Int, TP.SessionId, ?Nat64, ?TP.TableId, Bool) -> async* ();
   };
 
+  /// Runs after `afterMutation`'s push fan-out, for every successful
+  /// mutation that touched a table — wired to `canister_players.mo`'s
+  /// `settle` so a canister opponent reacts to a human's move with no
+  /// polling. `null` if a host never wires canister players.
+  public type OnSettled = (Int, TP.TableId) -> async* ();
+
   /// `async*`/`await*`, not `async`/`await`, on `sweep` here and on every
   /// push helper below (`pushTo`/`pushStatus`/`afterMutation`/
   /// `finishClose`/`sweepAndPush`): only `pushTo`'s own call to
@@ -524,6 +531,7 @@ module {
     hub : Hub,
     codec : Codec<S, M>,
     wsParams : IcWebSocketCdkTypes.WsInitParams,
+    onSettled : ?OnSettled,
   ) : Attached {
     let wsState = IcWebSocketCdkState.IcWebSocketState(wsParams);
 
@@ -561,7 +569,7 @@ module {
     /// which tables are open to begin with; `#rematch`'s own call site
     /// computes this per-outcome via `rematchOpenedLobby` above instead
     /// of a fixed `false`, since ONE of its outcomes (the partner already
-    /// left) does open a fresh listing.
+    /// left) does open a fresh listing. `onSettled` (see its own doc) runs last.
     func afterMutation(now : Int, sid : TP.SessionId, reqId : ?Nat64, id : ?TP.TableId, broadcastLobby : Bool) : async* () {
       await* pushStatus(now, sid, reqId);
       switch (id) {
@@ -605,6 +613,10 @@ module {
             };
           };
         };
+      };
+      switch (onSettled, id) {
+        case (?f, ?id) await* f(now, id);
+        case (_, _) {};
       };
     };
 

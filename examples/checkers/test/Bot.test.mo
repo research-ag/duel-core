@@ -108,10 +108,11 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
     await* k(?BotLogic.chooseMove(req));
   },
+  func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
 );
 
 let id = ok(await* cp.createTable(bot1, #p1, #open), "bot1 creates a table");
-// bot2's own joinTable eagerly triggers the FIRST ply with no nudge at
+// bot2's own joinTable eagerly triggers the FIRST ply with no sweep at
 // all — the #alternating counterpart to backend/test/CanisterPlayers.test.mo's
 // own "bot-vs-bot: the SECOND bot's own joinTable eagerly triggers"
 // check, proving #p1 moves first when canister-seated at game start.
@@ -122,11 +123,11 @@ switch (atTableView(reg, T0, sidBot1)) {
 };
 
 // `maybeNotifyBoth` re-reads status fresh between checking p1 and p2 (see
-// `canister_players.mo`'s own doc), so one `nudge` tick typically resolves
+// `canister_players.mo`'s own doc), so one `sweep` call typically resolves
 // TWO plies here (whichever seat is due, then — immediately due in
 // turn — the other), not one; this loop doesn't depend on that exact
-// count, only that #inGame never stalls (a nudge tick that finds a due
-// seat but makes no progress at all) across several ticks.
+// count, only that #inGame never stalls (a sweep call that finds a due
+// seat but makes no progress at all) across several calls.
 var round = 0;
 var lastTurn = switch (atTableView(reg, T0, sidBot1)) {
   case (#inGame v) v.turn;
@@ -134,10 +135,10 @@ var lastTurn = switch (atTableView(reg, T0, sidBot1)) {
 };
 var stalled = false;
 while (round < 8) {
-  await* cp.nudge(T0);
+  await* cp.sweep(T0);
   switch (reg.status(spec, T0, sidBot1)) {
     case (#atTable { view = #inGame v }) {
-      if (v.turn == lastTurn) stalled := true; // a due seat's nudge produced no progress at all
+      if (v.turn == lastTurn) stalled := true; // a due seat's sweep produced no progress at all
       lastTurn := v.turn;
     };
     case (_) {}; // the game already ended — see the check right below
@@ -148,7 +149,7 @@ assert not stalled;
 switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
   case (#atTable { view = #inGame v1 }, #atTable { view = #inGame v2 }) {
     assert v1.turn == v2.turn;
-    assert v1.turn > 0; // at least the opening ply, and no nudge tick ever stalled
+    assert v1.turn > 0; // at least the opening ply, and no sweep call ever stalled
   };
   case (_, _) {
     // one seat may have already won (a real, if unlikely, outcome of two
@@ -157,7 +158,7 @@ switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
     // debrief now gets acked on both sides immediately — see
     // `canister_players.mo`'s own "canister vs canister" debrief-ack
     // note) already settled all the way back to #browsing within the
-    // very same nudge tick that ended it; either way, never a stuck
+    // very same sweep call that ended it; either way, never a stuck
     // #inGame with an unmet due seat.
     switch (reg.status(spec, T0, sidBot1)) {
       case (#atTable { view = #debrief _ }) {};
