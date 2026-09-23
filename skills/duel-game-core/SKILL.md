@@ -11,7 +11,7 @@ description: Build a complete, deployable 2-player game on duel-game-core from n
 rules-agnostic packages — a Motoko mops package (session engine) and an
 npm package (matching browser client) — that together implement
 everything a simultaneous-reveal, turn-based 2-player game needs
-*except* the game itself: a multi-table lobby (anyone may open a table,
+_except_ the game itself: a multi-table lobby (anyone may open a table,
 open or access-code protected, and any number run simultaneously),
 seating, round submission, debrief, idle takeover, rematch, session
 identity, real-time push, and the generic lobby/staging/rematch/debrief
@@ -22,7 +22,7 @@ you rules, nothing else, and you produce the whole game — every file
 below — from that description alone. You are expected to make the
 State/Action/rendering design calls yourself; only ask the user a
 clarifying question when the rules text is genuinely ambiguous about
-game *logic* (a win condition, a resource limit), never about
+game _logic_ (a win condition, a resource limit), never about
 `duel-game-core` mechanics itself (seating, rematch, idle timeouts — all
 already handled, not the user's decision to make).
 
@@ -38,8 +38,9 @@ which this skill walks you through in order:
    you're not re-testing join/leave/rematch/idle-takeover).
 4. `frontend/<game>-plugin.js` — a `GamePlugin`: two Candid types, seat
    labels, and how to draw the board and action buttons.
-5. `frontend/index.html` + `frontend/app.js` — copy the templates
-   verbatim; they wire the actor and hand off to the generic client.
+5. `frontend/index.html` + `frontend/app.js` + `frontend/style.css` —
+   copy the templates (the first two verbatim; `style.css` may start
+   empty); they wire the actor and hand off to the generic client.
 6. `icp.yaml`, `mops.toml`, `frontend/package.json`, `frontend/.npmrc` —
    project/deploy config. Copy the templates, filling in names.
 
@@ -129,7 +130,7 @@ of this skill that requires judgment rather than copying a template:
    - **`#simultaneous`** (the common case — rock-paper-scissors,
      simultaneous card reveals, a duel): the round resolves the instant
      BOTH seats have submitted one move each; `resolve : (State, Action,
-     Action) -> ...` takes both. This is what
+Action) -> ...` takes both. This is what
      `templates/Rules.mo.template` is written for — use it as-is.
    - **`#alternating`** (chess, checkers, tic-tac-toe — seats take turns
      in order): the round resolves the instant the ONE seat on turn
@@ -161,7 +162,7 @@ of this skill that requires judgment rather than copying a template:
    engine plumbing.
 4. **What ends the game, and how?** Map every win/lose/draw condition in
    the rules to `resolve`'s `verdict : ?TP.Verdict`, where `TP.Verdict =
-   { #p1Wins; #p2Wins; #draw }`. Returning `null` means "round happened,
+{ #p1Wins; #p2Wins; #draw }`. Returning `null` means "round happened,
    game continues" — don't confuse that with `?#draw`, which permanently
    ends the game as a draw.
 5. **Is a number in the rules genuinely a player choice, or just fixed
@@ -171,7 +172,7 @@ of this skill that requires judgment rather than copying a template:
    picks it.
 6. **Two Motoko-specific traps, both easy to hit while translating rules
    into code:**
-   - A module-level `let` in Motoko must be a *static* expression — no
+   - A module-level `let` in Motoko must be a _static_ expression — no
      function calls. `let x = computeSomething();` at the top of the
      module fails with `M0014`. Compute derived constants inline inside
      whichever function needs them instead.
@@ -199,16 +200,16 @@ what `Action`'s variants are, what `validate` rejects, and what
 
 ### Worked mini example
 
-Rules: *"Rock-paper-scissors. Each round both players pick rock, paper,
+Rules: _"Rock-paper-scissors. Each round both players pick rock, paper,
 or scissors; the usual beats-relationship decides the round. First to 3
-round wins takes the match; a tied round scores nobody."*
+round wins takes the match; a tied round scores nobody."_
 
 - `Action = { #rock; #paper; #scissors }` — a raw pick, nothing derived.
 - `State = { p1Score : Nat; p2Score : Nat }` — only the running score
   needs to survive between rounds.
 - `validate` — every move is always legal; return `null` unconditionally
   (not every game has illegal moves, and that's fine).
-- `resolve` — compute who won *this round* from `(a1, a2)`, bump the
+- `resolve` — compute who won _this round_ from `(a1, a2)`, bump the
   winner's score, then check `p1Score == 3`/`p2Score == 3` for the
   match's own `?TP.Verdict`; otherwise `null`. No `Nat` subtraction
   needed here at all, so no underflow guard applies.
@@ -256,7 +257,7 @@ outright instead of waiting the opponent out; see "Claim a win" below).
 Nothing else in this file should change between games — do not hand-roll
 `createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
 `ackEnded` as plain Candid methods on this actor. `mo:duel-game-core/ws` (wired here
-via `Ws.attach` + `ActorMixin`) is the *only* way a client can mutate
+via `Ws.attach` + `ActorMixin`) is the _only_ way a client can mutate
 game state; a direct update call bypassing it reopens exactly the
 ordering race a single WS channel exists to close (see
 `mo:duel-game-core/ws`'s own doc header, shipped in the package, for the
@@ -308,8 +309,7 @@ persistent actor {
   renderer.addValue(PT.allSystemMetrics); // IC/RTS metrics — optional but nearly free
   renderer.addValue(pt.toValue());
 
-  let registry : TP.Registry<Rules.State, Rules.Action> =
-    Registry.new(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__);
+  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__);
   registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
 
   // ...status/Ws.attach/ActorMixin exactly as the template already has...
@@ -330,6 +330,91 @@ does for `mo:duel-game-core/ws`. See `mo:duel-game-core`'s own
 each metric means, and `examples/racing/src/Host.mo` in
 `research-ag/duel-core` for a complete worked example.
 
+**Canister players (optional).** Also not part of the six required
+pieces — skip it unless the user asks for a "bot"/"AI opponent"/
+"canister player" that takes a seat and plays on its own account. If
+they do, this lets a SECOND canister (yours or someone else's) join a
+table and submit moves via a plain inter-canister call, with the same
+server-side legality (`validate` still runs) and the same real-time push
+to a human opponent as a browser tab gets. The same canister principal
+may hold a live seat at more than one table at once — each board gets
+its own independent session (see `canister_players.mo`'s own
+`sidForCanister` doc) — with no extra wiring needed on your part beyond
+what's below. Add nothing to `mops.toml` —
+`mo:duel-game-core/canister_players` depends on nothing beyond `core`
+and its sibling engine modules, already pulled in regardless — and
+extend `Host.mo` with:
+
+```motoko
+import Principal "mo:core/Principal"; // enables p.toText() dot notation below
+import Timer "mo:core/Timer";
+
+import CanisterPlayers "mo:duel-game-core/canister_players";
+import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
+
+import BotIface "BotIface"; // one method: make_move : (TP.MoveRequest<Rules.State>) -> async Rules.Action
+
+persistent actor {
+  // ...registry/status/Ws.attach exactly as the template already has,
+  // except Ws.attach's LAST argument becomes `?settle` (below), not
+  // `null`...
+
+  // `Ws.attach` and `CanisterPlayers.attach` each need the other's
+  // result before either exists — this mutable indirection breaks that
+  // cycle (see `canister_players.mo`'s own doc header for why):
+  transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
+  transient let settle = func(now : Int, id : TP.TableId) : async* () {
+    switch (settleTable) {
+      case (?f) await* f(now, id);
+      case null {};
+    };
+  };
+
+  // ...attached.ws.init<system>()...
+
+  transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
+    Rules.spec(),
+    registry,
+    attached.afterMutation, // reuses ws.mo's own push fan-out
+    func(session, req, k) : async* () {
+      let p = CanisterPlayers.principalOfCanisterSession(session);
+      let bot : BotIface.CanisterPlayer = actor (p.toText());
+      try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
+    },
+    func(id : TP.TableId, secs : Nat) : async* () {
+      ignore Timer.setTimer<system>(#seconds secs, func() : async () { await* settle(Time.now(), id) });
+    },
+  );
+  settleTable := ?cpAttached.settle;
+
+  // The six `*_as_canister` Candid methods a canister player calls —
+  // no hand-declared forwarding methods. (There's no `rematch_as_canister`:
+  // a canister-vs-canister debrief auto-acks both sides unconditionally
+  // once neither is a live human still deciding.)
+  include CanisterPlayersActorMixin(cpAttached);
+
+  // Fold `cpAttached.sweep` into the SAME idle-sweep timer `ActorMixin`
+  // already runs — no separate timer:
+  transient let combinedSweep = func(now : Int) : async* () {
+    await* attached.sweep(now);
+    await* cpAttached.sweep(now);
+  };
+  include ActorMixin<system>(attached.ws, combinedSweep); // replaces the plain `attached.sweep` the template passes
+};
+
+```
+
+You'll also need a small `BotIface.mo` (the `CanisterPlayer` Candid
+interface your bot canister implements — one method, `make_move`) and,
+if you're also writing the bot itself, a `Bot.mo`/`BotLogic.mo` pair the
+same shape `examples/racing/bot/`/`examples/checkers/bot/` use. See
+`mo:duel-game-core`'s own `backend/README.md` "Canister players" section
+(shipped in the package) for the full design — the call/response
+protocol, the `settle`/`armClaimCheck` wiring, unattended
+canister-vs-canister matches — and `examples/racing/src/Host.mo`/
+`examples/checkers/src/Host.mo` in `research-ag/duel-core` for it wired
+end to end, bot canister included.
+
 ## Step 5 — Write the rules unit tests
 
 Read `templates/RulesUnit.test.mo.template` and write
@@ -343,7 +428,7 @@ Read `templates/RulesUnit.test.mo.template` and write
   (running out of a resource, moving out of turn, etc.) — assert it's
   rejected (`?_`) and every legal case is accepted (`null`).
 - One `resolve` case per win/lose/draw path your rules define, plus any
-  edge case in the *scoring/elimination* logic specifically (simultaneous
+  edge case in the _scoring/elimination_ logic specifically (simultaneous
   outcomes, a tie-breaking rule, a resource hitting exactly its limit).
 
 You do **not** need to test `join`/`leave`/`rematch`/idle-takeover/
@@ -407,10 +492,16 @@ npm package itself, via `render.js`/`app.js`.
   the REAL `validate` for both seats on every submission regardless), so
   keep the two in sync but never rely on this half alone.
 
-Then copy `templates/index.html.template` → `frontend/src/index.html`
-and `templates/app.js.template` → `frontend/src/app.js`, filling in
+Then copy `templates/index.html.template` → `frontend/src/index.html`,
+`templates/app.js.template` → `frontend/src/app.js`, and
+`templates/style.css.template` → `frontend/src/style.css` (fill in
+`__GAME_TITLE__` in its header comment; the file may otherwise stay
+empty — see its own comment for when to add to it), filling in
 `__GAME_TITLE__`, `__PLUGIN_FILE__`, and `__IDLE_TIMEOUT_SECONDS__`
-(match Step 4's timeout). Neither file should need any other change —
+(match Step 4's timeout) in the first two. `build.js` (Step 7) copies
+`src/style.css` to `dist/style.css` unconditionally — skipping this file
+breaks the build, even if you leave it empty. Neither `index.html`/
+`app.js` should need any other change —
 they resolve a real, non-spoofable player identity with no login step
 (`duel-game-core/anon-identity.js`'s `resolveAnonymousIdentity()`), build
 the actor from it, build a real-time-push `ws` over the same identity
@@ -425,7 +516,7 @@ nothing from a CDN and needs no import map.
 Every player gets a real, non-spoofable identity by default — no login,
 no setup — and this template makes no distinction between players beyond
 that, and nothing in Steps 2–5 needs to either. A game that also wants
-real, *permanent* player identity — someone logged in via Internet
+real, _permanent_ player identity — someone logged in via Internet
 Identity, playing in the very same lobby as anonymous players with zero
 rules changes — swaps in `duel-game-core/identity.js`'s
 `resolveIdentity()` instead of this template's own
@@ -452,13 +543,13 @@ existing client (Angular/React/etc.) down to the plain logic underneath.
 Read and fill in each of these (all in `templates/`), placing them at
 the paths shown:
 
-| Template | Destination | Fill in |
-|---|---|---|
-| `mops.toml.template` | `mops.toml` | `__GAME_SLUG__` (dependency line already resolved in Step 1) |
-| `package.json.template` | `frontend/package.json` | `__GAME_SLUG__` (dependency value already resolved in Step 1) |
-| `.npmrc.template` | `frontend/.npmrc` | (none — copy verbatim) |
-| `build.js.template` | `frontend/build.js` | `__PLUGIN_FILE__` (in its header comment only — the entry point itself is always `src/app.js`) |
-| `icp.yaml.template` | `icp.yaml` | (none, unless you rename the canisters) |
+| Template                | Destination             | Fill in                                                                                        |
+| ----------------------- | ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `mops.toml.template`    | `mops.toml`             | `__GAME_SLUG__` (dependency line already resolved in Step 1)                                   |
+| `package.json.template` | `frontend/package.json` | `__GAME_SLUG__` (dependency value already resolved in Step 1)                                  |
+| `.npmrc.template`       | `frontend/.npmrc`       | (none — copy verbatim)                                                                         |
+| `build.js.template`     | `frontend/build.js`     | `__PLUGIN_FILE__` (in its header comment only — the entry point itself is always `src/app.js`) |
+| `icp.yaml.template`     | `icp.yaml`              | (none, unless you rename the canisters)                                                        |
 
 Build/test the whole thing:
 
@@ -517,7 +608,7 @@ here automates an actual two-tab playthrough.
   debrief, idle takeover, and rematch races are entirely the engine's
   job. If you find yourself adding a timestamp field or a "waiting for
   opponent" flag to your own `State`, stop: that's already `duel-game-
-  core`'s job via `Table`'s own bookkeeping, and duplicating it in `State`
+core`'s job via `Table`'s own bookkeeping, and duplicating it in `State`
   is very likely a sign the design has drifted from "just the rules."
 - **A `null` verdict means "continue," not "no winner ever."** Only
   return `?#draw`/`?#p1Wins`/`?#p2Wins` when the rules actually say the

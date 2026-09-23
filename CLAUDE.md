@@ -71,10 +71,119 @@ particular game — that's supplied by whoever builds a game on top.
   — see `backend/README.md`'s "Real-time push" section). `backend/src/actor_mixin.mo`
   (`mo:duel-game-core/actor_mixin`) is a fourth module — a Motoko
   `mixin`, `include`d in the host actor as `include
-  ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
+ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   methods (`ws_open`/`ws_close`/`ws_message`/`ws_get_messages`,
   forwarding each straight to the `ws` built from `Ws.attach`) plus the
   idle-sweep timer, so no host actor hand-declares any of the four.
+  `backend/src/canister_players.mo` (`mo:duel-game-core/canister_players`)
+  is a fifth module, OPTIONAL (unlike `ws.mo`, wiring it is never
+  required — a host that never imports it just has no canister-seatable
+  players): it lets a CANISTER take a seat and play, using
+  a third reserved `sid` namespace (`cp:`, `sidForCanister`, mirroring
+  `ws.mo`'s `ii:`/`an:`) derived from `msg.caller` AND the `TableId` of
+  the specific board it names — never a client-supplied `sid`, so
+  there's nothing to spoof, and never just `msg.caller` alone, so the
+  SAME canister principal can hold a live seat at any number of tables
+  at once, each one an ordinary, fully independent session as far as
+  the engine is concerned (`Registry.peekNextTableId`, a pure read of
+  the registry's own id nonce, is what lets `createTable` derive this
+  session before the id it needs would otherwise exist). The whole protocol
+  is one call: the game canister calls the player canister's own
+  `make_move` and treats the reply AS the move (`registry.submit`,
+  applied by the caller, never a second inbound entry point a move could
+  arrive through) — reusing `Ws.Attached.afterMutation` so a human
+  opponent still learns about a canister-driven move in real time, and
+  falling silent (letting `claimTimeoutNs`/`idleTimeoutNs` take over,
+  same as an unresponsive human) on a trap, an error, or a move still
+  illegal after one retry. `settle(now, id)` is what asks a due canister
+  seat for one table, claims the win on a stalled WAITING seat's behalf,
+  or acks its own finished `#debrief` once nobody's left to still want a
+  rematch; a canister-driven mutation calls it on itself directly, and
+  `Ws.attach`'s own optional `onSettled` parameter calls the exact same
+  `settle` right after every successful HUMAN-driven mutation too (`ws.mo`
+  itself needs no game-specific knowledge to do this — it just calls
+  whatever hook the host handed it), so a canister opponent is asked
+  the instant either side makes it due, with no polling timer for
+  either half of that pairing. The one thing nothing ever calls back in
+  about on its own is a stalled opponent's silence — `armClaimCheck`,
+  a host-supplied hook using `Timer.setTimer`'s own `<system>`
+  capability (which is why it's a parameter `canister_players.mo` takes
+  rather than something the module does itself, keeping it `<system>`-free
+  and interpreter-testable), schedules exactly one precisely-timed wakeup
+  back into `settle` for the moment `claimWinAvailable` will turn true —
+  the unattended, canister-vs-canister case, where nobody's around to
+  click "claim win" themselves, included, since it fires the same way
+  regardless of whether the opponent is human or canister.
+  `claim_win_as_canister`/`reset_as_canister` additionally let a canister
+  PARTICIPANT act the instant it's entitled to rather than wait on that
+  wakeup — each takes the `TableId` it means explicitly (the same one
+  `create_table_as_canister`/`join_table_as_canister` returned), since a
+  canister may be seated at more than one board at once; either way it
+  only ever acts on a board the CALLER'S OWN principal is actually
+  seated at — a supervising tournament-orchestrator canister resetting
+  or claiming a table it isn't itself seated at is out of scope here.
+  `settle` also acks a canister seat's own finished `#debrief` —
+  a human's frontend does this itself (`leave`/`ackEnded`, on "return to
+  lobby") the moment they're not rematching, but a canister seat has no
+  such click, so left alone it would stay pinned to that finished table
+  (refusing a fresh `joinTable`/`leave`/etc. naming that SAME `tableId`
+  — a brand-new `createTable` for an unrelated board is unaffected,
+  since that derives its own fresh, independent session instead) until
+  the far slower idle-sweep timer eventually clears it; `settle` acks it
+  immediately instead, once the OTHER seat is no longer a live
+  participant of that SAME debrief either (already acked, or never
+  filled) — never cutting short a still-deciding HUMAN partner's own
+  rematch window, since their own seat staying unacked is exactly what
+  keeps this from firing. When the other seat is ALSO canister-seated
+  (nobody around to decide on a rematch at all), both ack unconditionally
+  instead of each waiting on the other's own ack first, which would
+  otherwise deadlock two canister seats against each other forever. A
+  host also folds `sweep` — the slow, full-registry counterpart to
+  `settle`, catching whatever it never gets called for (most commonly the
+  OTHER seat vanishing without ever sending a mutating request at all) —
+  into its own already-mandatory 30s idle-sweep timer, so none of this
+  costs a canister-less host anything and none of it needs a dedicated
+  timer of its own either.
+  `registry.mo`'s `createTableReserving` is a separate, small
+  addition alongside plain `createTable`: it seats BOTH sides atomically
+  in one call — the creator, and a `reservedFor` session named
+  up front — landing the table directly in `#active` with no second
+  `joinTable` needed from either side (Flow 2, "eager dual-seat
+  assignment," proven against `canister_players.mo` in
+  `backend/test/CanisterPlayers.test.mo`; deliberately not wired any
+  further than that — see `backend/README.md`'s own note on why a
+  human-facing "invite this bot" button is a separate feature).
+  `examples/racing`'s and `examples/checkers`'s own `Add Bot` controls
+  (see each one's own `CLAUDE.md`) use Flow 1 instead — this call only
+  ever seats both sides of a BRAND NEW table atomically, so it
+  structurally can't fill an already-staged table's open seat, which is
+  what those controls do. See
+  `backend/README.md`'s "Canister players" section for the full design
+  and worked example.
+  `backend/src/canister_players_actor_mixin.mo`
+  (`mo:duel-game-core/canister_players_actor_mixin`) is a sixth module,
+  layered on `canister_players.mo` the same way `actor_mixin.mo` is
+  layered on `ws.mo`: a `mixin` supplying the six `*_as_canister`
+  Candid methods (`create_table_as_canister`/`join_table_as_canister`/
+  `leave_as_canister`/`ack_ended_as_canister`/`claim_win_as_canister`/
+  `reset_as_canister`), `include`d in the host
+  actor as `include CanisterPlayersActorMixin(cpAttached)` — no host
+  hand-declares any of the six. (There is deliberately no
+  `rematch_as_canister`: a canister-vs-canister debrief auto-acks both
+  sides unconditionally the moment neither is a live human still
+  deciding, so a canister seat never needs to request a rematch itself
+  — see `backend/src/canister_players.mo`'s own `Attached` doc.) It's
+  optional in exactly the sense
+  `canister_players.mo` itself is (a host that never wires
+  `CanisterPlayers.attach` never `include`s this either, and pays no
+  cost for skipping it), narrower still than that: a host free to hand-roll
+  those six forwarding methods itself instead may still do so — this
+  mixin exists purely to stop `examples/racing/src/Host.mo` and
+  `examples/checkers/src/Host.mo` (and every future game that opts into
+  canister players) from re-typing the identical six methods verbatim.
+  Unlike `ActorMixin`, it needs no `<system>` capability of its own (none
+  of the six methods touches a timer), so it's declared `mixin
+(cpAttached : CanisterPlayers.Attached)`, not `mixin <system>(...)`.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
   client plumbing (session identity, real-time push, the generic
   multi-table lobby/staging/rematch/busy/debrief screens, Candid IDL
@@ -97,7 +206,7 @@ particular game — that's supplied by whoever builds a game on top.
   its own caller, and the CDK's own sequence-numbered envelopes plus
   keep-alive/close semantics are real, canister-driven state, not a
   client-side illusion — but the transport underneath that surface is
-  Candid calls on an interval, so there's no external relay *process* to
+  Candid calls on an interval, so there's no external relay _process_ to
   run, and no genuine browser WebSocket either. A real Gateway-backed
   transport (swapped in under the same `GatewayWs` surface, see
   `frontend/README.md`'s transport-split table) is what a deployment
@@ -127,7 +236,43 @@ particular game — that's supplied by whoever builds a game on top.
   counterpart to `FakeGame.mo`; `Registry`'s own routing is mode-agnostic
   and already covered generically by `Lobby.test.mo`/
   `LobbyLifecycle.test.mo`, so there is no separate registry-level
-  alternating suite. The `*.test.mo` suffix is what `mops test`
+  alternating suite — `Lobby.test.mo` also covers `createTableReserving`
+  (Flow 2's atomic dual-seat assignment) on its own, engine-only terms:
+  both sides land `#inGame` from one call, rejecting a self-reservation
+  and a `reservedFor` session that's already busy elsewhere.
+  `CanisterPlayers.test.mo` covers
+  `canister_players.mo`'s own orchestration — due-seat detection via
+  `Registry.status`, the retry-once-on-illegal-move then silence
+  behavior, the in-flight guard clearing correctly, the eager
+  bot-vs-bot trigger, `claimWin`/`reset` forwarding, `sweep`'s own
+  automatic claim-win once a canister seat's stall turns overdue (a
+  fully unattended, canister-vs-canister match, start to finish, with no
+  human ever involved), a canister seated via `createTableReserving`
+  being due from the very first ordinary `sweep` call with no
+  `joinTable` of its own, `sweep`'s own debrief-ack freeing a canister
+  seat pinned to a game a HUMAN'S own action just ended (never routed
+  through `canister_players.mo` at all) — staying pinned while that human
+  partner could still rematch, then freeing the instant they're gone for
+  good — the canister-vs-canister case settling both seats'
+  debriefs immediately with no partner-vs-partner deadlock — `settle`
+  asking a due seat for one specific table rather than scanning the whole
+  registry — and `armClaimCheck` getting armed with exactly
+  `secondsUntilClaimable` the moment a canister seat becomes the WAITING
+  side but isn't yet overdue, verified with a stubbed spy in place of a
+  real `Timer.setTimer` (this module needs no `<system>` capability of
+  its own to make that possible — see `attach`'s own doc) — against
+  `FakeGame.mo` again, with `afterMutation`
+  stubbed (a plain call counter) rather than a real `Ws.attach`, same
+  caveat `Hub.test.mo` documents for why the full `IcWebSocketCdk` actor
+  machinery isn't exercisable here. (Its own `T0` baseline is
+  deliberately small, unlike other suites': several of
+  `canister_players.mo`'s own ops call `Time.now()` internally —
+  playing the host's own role, the same documented exception `ws.mo`/
+  `actor_mixin.mo` already are — which under the `moc -r` interpreter is
+  a fixed, tiny constant, not real wall time; a `T0` far larger than
+  that would make every canister-landed move look artificially,
+  arbitrarily "long ago" the moment a later check queries
+  `claimWinAvailable` against it.) The `*.test.mo` suffix is what `mops test`
   discovers — a file named `FooTest.mo` is silently skipped, so keep the
   suffix when adding
   suites.
@@ -271,7 +416,8 @@ fast copy nor a full reinstall picks up a source edit that was never
 compiled; `frontend/dist/` is stale (or missing entirely, on a fresh
 clone) until you do.
 
-`examples/007/frontend` and `examples/racing/frontend` each depend on
+`examples/007/frontend`, `examples/racing/frontend`, and
+`examples/checkers/frontend` each depend on
 `duel-game-core` as `file:../../../frontend`, with `install-links=true`
 in their `.npmrc` — so it's **copied** into their own
 `node_modules/duel-game-core`, not symlinked (an asset canister with no
@@ -288,7 +434,7 @@ directly, no further npm involved, effectively instant:
 
 ```bash
 cd frontend && npm run build && cd ..
-for ex in examples/007/frontend examples/racing/frontend; do
+for ex in examples/007/frontend examples/racing/frontend examples/checkers/frontend; do
   target="$ex/node_modules/duel-game-core"
   rsync -a --delete frontend/dist/ "$target/dist/"
   cp frontend/package.json frontend/style.css frontend/README.md "$target/"
@@ -299,9 +445,9 @@ done
 same set a real `install-links=true` copy or `npm pack` would produce —
 so it never leaks `frontend/src/`/`frontend/test/` source into a
 deployed asset canister.) This is enough for `node --check`/a local
-`dfx` reload; for `examples/racing`, also re-run `npm run build` there
-too (fast, esbuild only — no network) so ITS OWN `dist/` picks up the
-change.
+`dfx` reload; for `examples/racing`/`examples/checkers`, also re-run
+`npm run build` there too (fast, esbuild only — no network) so EACH
+ONE'S OWN `dist/` picks up the change.
 
 **If `frontend/package.json`'s `dependencies` DID change** (e.g. a new
 package added): the copy above is not enough — the new package itself
@@ -311,15 +457,16 @@ too, not just `node_modules/duel-game-core`:
 
 ```bash
 cd frontend && npm run build && cd ..
-cd examples/007/frontend    && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
-cd examples/racing/frontend && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
+cd examples/007/frontend      && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
+cd examples/racing/frontend   && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
+cd examples/checkers/frontend && rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
 ```
 
-`--legacy-peer-deps` is required for BOTH examples now (007 didn't
+`--legacy-peer-deps` is required for every example now (007 didn't
 previously need it): `frontend/package.json`'s own `@icp-sdk/auth`
 dependency (added for `identity.js`, see rule 10 below) declares a peer
 dependency on `@icp-sdk/core@^5`, one major behind the `@icp-sdk/core@^6.1.0`
-this package (and both examples) actually use — `identity.ts`'s own actual
+this package (and every example) actually use — `identity.ts`'s own actual
 surface (`Identity`/`Principal`'s structural methods) is stable across
 that skew, but plain `npm install` still refuses to resolve the conflicting
 peer ranges without this flag. A plain `npm install` inside `frontend/`
@@ -456,6 +603,17 @@ was) should exist afterward, not just `node_modules/duel-game-core`.
     side-effect-free). There is no second transport for the same calls to
     (dis)agree with; a game that ever adds a plain mutating Candid method
     alongside `ws.mo` reopens exactly the race this design closes.
+    `canister_players.mo`'s own `*_as_canister` Candid methods are a
+    narrow, deliberate exception, not a violation: they're reachable
+    only under the separate `cp:` sid namespace `ws.mo`'s own
+    `isAuthorizedSid` never authenticates (it only ever recognizes
+    `ii:`/`an:`) — so no session is EVER claimed by both transports, and
+    the race this rule closes (two independent update calls for the
+    SAME session with no guaranteed relative order) never reopens.
+    `submit` is still never exposed this way even for a `cp:` session —
+    a canister player's move only ever arrives as the direct reply to a
+    call `canister_players.mo` itself made, never a separately-arriving
+    request (see that module's own doc header).
 12. **Leave means left.** `status`/`join`/`rematch` all treat a session
     that already acked its own debrief (via `leave`) as no longer a
     participant of it (`activeDebriefSeat`, not plain `seatInDebrief`),
@@ -506,7 +664,7 @@ because only one of them ships to third parties:
   ordering (core / third-party / local, alphabetical), unused-import
   cleanup. CAUTION: dot notation creates implicit import needs —
   `xs.concat(..)` / `i.toNat()` still require `import Array` / `import
-  Int` even though the module name no longer appears (they carry
+Int` even though the module name no longer appears (they carry
   comments here saying so; don't remove them).
 - `.agents/skills/motoko-dot-notation-migration/SKILL.md` — prefer
   `self.func(...)` dot notation for core functions with a `self` first

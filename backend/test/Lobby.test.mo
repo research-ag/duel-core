@@ -387,4 +387,18 @@ switch (atTableView(reg13, CLAIMABLE, "r")) {
 };
 Debug.print("13. claimWin routes per-table and is gated per-table OK");
 
+// ── 14. createTableReserving: Flow 2's atomic dual-seat assignment ─────────
+let reg14 = fresh();
+let id14 = ok(reg14.createTableReserving(spec, T0, "a", #p1, #open, "b"), "a creates a table reserving b for the other seat");
+switch (atTableView(reg14, T0, "a"), atTableView(reg14, T0, "b")) {
+  case (#inGame va, #inGame vb) { assert va.seat == #p1; assert vb.seat == #p2 };
+  case (_, _) Runtime.trap("both a and b should already be #inGame — no second join call needed");
+};
+expectErr(reg14.createTableReserving(spec, T0, "c", #p1, #open, "c"), "c can't reserve itself for the other seat");
+expectErr(reg14.createTableReserving(spec, T0, "b", #p1, #open, "z"), "b is already seated at the table createTableReserving just started");
+let reg14b = fresh();
+ignore ok(reg14b.createTable(spec, T0, "x", #p1, #open), "x is already elsewhere");
+expectErr(reg14b.createTableReserving(spec, T0, "y", #p1, #open, "x"), "can't reserve x — x is already staged at its own table");
+Debug.print("14. createTableReserving atomically seats both sides, rejecting self-reservation and a busy reservee OK");
+
 Debug.print("ALL LOBBY CHECKS PASSED");

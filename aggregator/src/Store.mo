@@ -52,15 +52,14 @@ module {
 
   // ── Profiles ───────────────────────────────────────────────────────────
 
-  public func getProfile(self : State, who : Principal) : ?T.Profile =
-    Map.get(self.profiles, Principal.compare, who);
+  public func getProfile(self : State, who : Principal) : ?T.Profile = self.profiles.get(who);
 
   public func setDisplayName(self : State, caller : Principal, name : Text) : Res<()> {
-    if (Principal.isAnonymous(caller)) return #err(#anonymousCaller);
-    let trimmed = Text.trim(name, #char ' ');
+    if (caller.isAnonymous()) return #err(#anonymousCaller);
+    let trimmed = name.trim(#char ' ');
     if (trimmed.size() == 0) return #err(#emptyDisplayName);
     if (trimmed.size() > MAX_DISPLAY_NAME) return #err(#displayNameTooLong);
-    Map.add(self.profiles, Principal.compare, caller, { displayName = trimmed });
+    self.profiles.add(caller, { displayName = trimmed });
     #ok(());
   };
 
@@ -68,16 +67,16 @@ module {
 
   func validateBanner(banner : Blob) : ?T.Err {
     if (banner.size() == 0 or banner.size() > BANNER_MAX_BYTES) {
-      ?#invalidBanner("banner must be a PNG file of at most " # Nat.toText(BANNER_MAX_BYTES) # " bytes");
+      ?#invalidBanner("banner must be a PNG file of at most " # BANNER_MAX_BYTES.toText() # " bytes");
     } else {
       switch (Png.dimensions(banner)) {
         case null ?#invalidBanner("banner must be a valid PNG file");
         case (?(w, h)) {
           if (w != BANNER_WIDTH or h != BANNER_HEIGHT) {
             ?#invalidBanner(
-              "banner must be exactly " # Nat.toText(BANNER_WIDTH) # "x" #
-              Nat.toText(BANNER_HEIGHT) # " pixels (got " # Nat.toText(w) #
-              "x" # Nat.toText(h) # ")"
+              "banner must be exactly " # BANNER_WIDTH.toText() # "x" #
+              BANNER_HEIGHT.toText() # " pixels (got " # w.toText() #
+              "x" # h.toText() # ")"
             );
           } else null;
         };
@@ -90,7 +89,7 @@ module {
       case null null;
       case (?d) {
         if (d.size() == 0 or d.size() > MAX_CUSTOM_DOMAIN) ?#invalidCustomDomain else if (
-          not (Text.startsWith(d, #text "https://") or Text.startsWith(d, #text "http://"))
+          not (d.startsWith(#text "https://") or d.startsWith(#text "http://"))
         ) ?#invalidCustomDomain else null;
       };
     };
@@ -107,7 +106,7 @@ module {
 
   func toView(self : State, g : T.Game) : T.GameView = {
     developer = g.developer;
-    developerDisplayName = Option.map<T.Profile, Text>(getProfile(self, g.developer), func(p) = p.displayName);
+    developerDisplayName = self.getProfile(g.developer).map(func(p) = p.displayName);
     title = g.title;
     description = g.description;
     backendCanisterId = g.backendCanisterId;
@@ -118,8 +117,8 @@ module {
   };
 
   public func registerGame(self : State, caller : Principal, now : Int, input : T.GameInput) : Res<T.GameId> {
-    if (Principal.isAnonymous(caller)) return #err(#anonymousCaller);
-    let title = Text.trim(input.title, #char ' ');
+    if (caller.isAnonymous()) return #err(#anonymousCaller);
+    let title = input.title.trim(#char ' ');
     if (title.size() == 0) return #err(#emptyTitle);
     if (title.size() > MAX_TITLE) return #err(#titleTooLong);
     if (input.description.size() > MAX_DESCRIPTION) return #err(#descriptionTooLong);
@@ -131,7 +130,7 @@ module {
       case (?e) return #err(e);
       case null {};
     };
-    if (Map.containsKey(self.games, Principal.compare, input.backendCanisterId)) {
+    if (self.games.containsKey(input.backendCanisterId)) {
       return #err(#gameAlreadyRegistered);
     };
     let game : T.Game = {
@@ -145,18 +144,18 @@ module {
       createdAt = now;
       updatedAt = now;
     };
-    Map.add(self.games, Principal.compare, input.backendCanisterId, game);
+    self.games.add(input.backendCanisterId, game);
     #ok(input.backendCanisterId);
   };
 
   public func updateGame(self : State, caller : Principal, now : Int, id : T.GameId, edit : T.GameEdit) : Res<()> {
-    if (Principal.isAnonymous(caller)) return #err(#anonymousCaller);
-    let existing = switch (Map.get(self.games, Principal.compare, id)) {
+    if (caller.isAnonymous()) return #err(#anonymousCaller);
+    let existing = switch (self.games.get(id)) {
       case null return #err(#noSuchGame);
       case (?g) g;
     };
     if (existing.developer != caller) return #err(#notOwner);
-    let title = Text.trim(edit.title, #char ' ');
+    let title = edit.title.trim(#char ' ');
     if (title.size() == 0) return #err(#emptyTitle);
     if (title.size() > MAX_TITLE) return #err(#titleTooLong);
     if (edit.description.size() > MAX_DESCRIPTION) return #err(#descriptionTooLong);
@@ -183,28 +182,26 @@ module {
       banner;
       updatedAt = now;
     };
-    Map.add(self.games, Principal.compare, id, updated);
+    self.games.add(id, updated);
     #ok(());
   };
 
-  public func getGame(self : State, id : T.GameId) : ?T.GameView =
-    Option.map<T.Game, T.GameView>(Map.get(self.games, Principal.compare, id), func(g) = toView(self, g));
+  public func getGame(self : State, id : T.GameId) : ?T.GameView = self.games.get(id).map(func(g) = toView(self, g));
 
-  public func getBanner(self : State, id : T.GameId) : ?Blob =
-    Option.map<T.Game, Blob>(Map.get(self.games, Principal.compare, id), func(g) = g.banner);
+  public func getBanner(self : State, id : T.GameId) : ?Blob = self.games.get(id).map(func(g) = g.banner);
 
   public func listGames(self : State) : [T.GameView] {
     let out = List.empty<T.GameView>();
-    for (g in Map.values(self.games)) { List.add(out, toView(self, g)) };
-    List.toArray(out);
+    for (g in self.games.values()) { out.add(toView(self, g)) };
+    out.toArray();
   };
 
   public func listGamesByDeveloper(self : State, developer : Principal) : [T.GameView] {
     let out = List.empty<T.GameView>();
-    for (g in Map.values(self.games)) {
-      if (g.developer == developer) { List.add(out, toView(self, g)) };
+    for (g in self.games.values()) {
+      if (g.developer == developer) { out.add(toView(self, g)) };
     };
-    List.toArray(out);
+    out.toArray();
   };
 
   /// Permanently removes a game from the registry. Only the developer who
@@ -212,13 +209,10 @@ module {
   /// ownership gate `updateGame` enforces, and the same two error arms
   /// (`#noSuchGame`/`#notOwner`), so no new `Err` case was needed for it.
   public func deregisterGame(self : State, caller : Principal, id : T.GameId) : Res<()> {
-    if (Principal.isAnonymous(caller)) return #err(#anonymousCaller);
-    let existing = switch (Map.get(self.games, Principal.compare, id)) {
-      case null return #err(#noSuchGame);
-      case (?g) g;
-    };
+    if (caller.isAnonymous()) return #err(#anonymousCaller);
+    let ?existing = self.games.get(id) else return #err(#noSuchGame);
     if (existing.developer != caller) return #err(#notOwner);
-    Map.remove(self.games, Principal.compare, id);
+    self.games.remove(id);
     #ok(());
   };
 };

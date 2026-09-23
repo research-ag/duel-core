@@ -143,4 +143,42 @@ do {
 };
 Debug.print("10. stalemate loss (pieces remain, but no legal move) OK");
 
+// ── 11. legalActions: plain moves when nobody has a capture, the SAME
+//        maximal chains `validate` accepts when a capture is mandatory ──
+do {
+  assert R.legalActions(s0, #p1).size() == 7; // the standard opening's own count
+  for (a in R.legalActions(s0, #p1).values()) {
+    switch (a) {
+      case (#move _) {};
+      case (#jump _) Runtime.trap("no capture is available yet — every result must be a #move");
+    };
+  };
+
+  // chainBoard (test 6, above): #p1 has exactly one capturing piece, and
+  // exactly one maximal chain from it — legalActions must return that
+  // one #jump, nothing else, and validate() must accept it unchanged.
+  let chainMoves = R.legalActions({ board = chainBoard }, #p1);
+  assert chainMoves.size() == 1;
+  switch (chainMoves[0]) {
+    case (#jump { path }) {
+      assert path == [idx(6, 1), idx(4, 3), idx(2, 5)];
+      switch (R.validate({ board = chainBoard }, #p1, #jump { path })) {
+        case null {};
+        case (?why) Runtime.trap("legalActions produced an illegal chain: " # why);
+      };
+    };
+    case (#move _) Runtime.trap("a capture is mandatory here — legalActions must not offer a #move");
+  };
+
+  // a seat with no legal action at all gets back an empty array — the
+  // same condition resolve()'s own win check tests.
+  let stalemateBoard = withPieces([
+    (idx(0, 7), #manP2),
+    (idx(1, 6), #manP1),
+    (idx(2, 5), #manP1),
+  ]);
+  assert R.legalActions({ board = stalemateBoard }, #p2).size() == 0;
+};
+Debug.print("11. legalActions mirrors validate's own legality, including mandatory-capture OK");
+
 Debug.print("ALL CHECKERS RULES UNIT CHECKS PASSED");

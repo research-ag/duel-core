@@ -21,7 +21,7 @@
 // no reconnect) — the old sid's `bySid` entry must also be scrubbed, or
 // it lingers and gets mistaken for a second browsing session.
 // Run: moc -r --package core <core/src> --package ic-websocket-cdk <cdk/src> ... test/Hub.test.mo
-import Ws "../src/Ws";
+import Ws "../src/ws";
 import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
@@ -35,14 +35,14 @@ let PB = Principal.fromText("l2hgx-oicai-baeaq-caiba-eaq");
 let PC = Principal.fromText("5w2os-7qdam-bqgay-dambq-gay");
 let PD = Principal.fromText("ilzwt-kieaq-caiba-eaqca-iba");
 
-func bySid(hub : Ws.Hub, sid : Text) : ?Principal.Principal = Map.get(hub.bySid, Text.compare, sid);
-func byPrincipal(hub : Ws.Hub, p : Principal.Principal) : ?Text = Map.get(hub.byPrincipal, Principal.compare, p);
+func bySid(hub : Ws.Hub, sid : Text) : ?Principal.Principal = hub.bySid.get(sid);
+func byPrincipal(hub : Ws.Hub, p : Principal.Principal) : ?Text = hub.byPrincipal.get(p);
 
 func expectSid(hub : Ws.Hub, sid : Text, want : ?Principal.Principal, msg : Text) {
   let got = bySid(hub, sid);
   let matches = switch (got, want) {
     case (null, null) true;
-    case (?g, ?w) Principal.equal(g, w);
+    case (?g, ?w) g.equal(w);
     case (_, _) false;
   };
   if (not matches) Runtime.trap(msg # ": bySid[" # sid # "] mismatch");
@@ -51,7 +51,7 @@ func expectPrincipal(hub : Ws.Hub, p : Principal.Principal, want : ?Text, msg : 
   let got = byPrincipal(hub, p);
   let matches = switch (got, want) {
     case (null, null) true;
-    case (?g, ?w) Text.equal(g, w);
+    case (?g, ?w) g.equal(w);
     case (_, _) false;
   };
   if (not matches) Runtime.trap(msg # ": byPrincipal mismatch");
@@ -248,7 +248,7 @@ do {
   // ... `finishClose` would run its disconnect/push work here, then
   // re-check before pruning:
   if (Ws.generationOf(hub, "sid-1") == seenGen) {
-    Map.remove(hub.generation, Text.compare, "sid-1");
+    hub.generation.remove("sid-1");
   };
   if (Ws.generationOf(hub, "sid-1") != 0) {
     Runtime.trap("11: a genuine, un-superseded departure must prune its generation entry back to 0");
@@ -274,7 +274,7 @@ do {
   // The re-check right before pruning must now see a mismatch and skip
   // the removal entirely.
   if (Ws.generationOf(hub, "sid-1") == seenGen) {
-    Map.remove(hub.generation, Text.compare, "sid-1");
+    hub.generation.remove("sid-1");
   };
   if (Ws.generationOf(hub, "sid-1") == 0) {
     Runtime.trap("12: a reconnect racing in during finishClose's own awaits must survive the prune, not get reset to 0");
@@ -292,7 +292,7 @@ do {
   if (sidA != Ws.sidForPrincipal(PA)) {
     Runtime.trap("13a: sidForPrincipal must be deterministic for the same principal");
   };
-  if (not Text.startsWith(sidA, #text (Ws.PRINCIPAL_SID_PREFIX))) {
+  if (not sidA.startsWith(#text(Ws.PRINCIPAL_SID_PREFIX))) {
     Runtime.trap("13b: sidForPrincipal's own output must fall in its reserved namespace");
   };
   if (sidA == Ws.sidForPrincipal(PB)) {
@@ -326,7 +326,7 @@ do {
 // ────────────────────────────────────────────────────────────────────
 do {
   let anonSid = Ws.sidFor(Ws.ANON_SID_PREFIX, PA);
-  if (not Text.startsWith(anonSid, #text (Ws.ANON_SID_PREFIX))) {
+  if (not anonSid.startsWith(#text(Ws.ANON_SID_PREFIX))) {
     Runtime.trap("15a: sidFor(ANON_SID_PREFIX, ...) must fall in its own reserved namespace");
   };
   if (not Ws.isAuthorizedSid(anonSid, PA)) {

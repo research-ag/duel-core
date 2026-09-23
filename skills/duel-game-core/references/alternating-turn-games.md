@@ -20,6 +20,7 @@ public func spec() : TP.Spec<State, Action> = #alternating {
   validate;
   resolve;
 };
+
 ```
 
 Only `resolve`'s signature actually differs from the `#simultaneous`
@@ -27,6 +28,7 @@ shape:
 
 ```motoko
 resolve : (State, TP.Seat, Action) -> { state : State; verdict : ?TP.Verdict }
+
 ```
 
 It takes the ONE seat currently on turn and their one move — not two

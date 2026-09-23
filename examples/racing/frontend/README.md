@@ -8,7 +8,7 @@ It has two independent halves that share one page and one canister session:
   `duel-app.js`'s own import, not a separate entry point) — build the
   actor and a push-shaped `ws` over it, then hand off to
   `duel-game-core`'s generic session/render wiring: lobby, staging,
-  rematch, busy countdown, debrief. This is the *only* game-specific
+  rematch, busy countdown, debrief. This is the _only_ game-specific
   piece that package needs (a `GamePlugin`), exactly like the
   `examples/007` frontend. See `duel-racing-plugin.js`'s own header
   comment.

@@ -6,6 +6,11 @@ canisters:
       type: "@dfinity/motoko@v4.1.0"
       configuration:
         main: src/Host.mo
+  - name: bot
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: bot/Bot.mo
   - name: frontend
     recipe:
       # v2.1.0 (used elsewhere) syncs via the `assets` step, which icp-cli

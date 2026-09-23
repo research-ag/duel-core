@@ -44,8 +44,12 @@ to stay a pure `Status -> HTML string` renderer).
    script runs:
    ```html
    <script>
-     window.duelActorReady = new Promise(r => { window.__resolveDuelActor = r; });
-     window.duelWsReady = new Promise(r => { window.__resolveDuelWs = r; });
+     window.duelActorReady = new Promise((r) => {
+       window.__resolveDuelActor = r;
+     });
+     window.duelWsReady = new Promise((r) => {
+       window.__resolveDuelWs = r;
+     });
    </script>
    ```
    This makes load order between the two scripts irrelevant — whichever
@@ -91,7 +95,7 @@ touch three things in a client like this: dependency injection, routing,
 and top-level page composition — and the generic chrome already replaces
 routing and page composition (there's only ever one "page": your game).
 What's usually left after removing those is a pile of plain classes with
-constructor-injected dependencies, which is *already* framework-agnostic
+constructor-injected dependencies, which is _already_ framework-agnostic
 logic wearing a framework's decorators. Concretely, for an Angular app:
 
 - `@Injectable()`/`@Component()`/`@NgModule()` decorators, and their

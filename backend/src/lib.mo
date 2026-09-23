@@ -126,6 +126,14 @@
 /// "Metrics" section for the metrics it exposes and the full wiring
 /// (`examples/racing/src/Host.mo` is a worked example).
 ///
+/// A host actor may also let a CANISTER take a seat, via
+/// `mo:duel-game-core/canister_players` — a third module
+/// layered on `Registry` the same way `mo:duel-game-core/ws` is, reusing
+/// its exact push fan-out so a human opponent still learns about a
+/// canister-driven move in real time. See `backend/README.md`'s
+/// "Canister players" section for the full design and a worked wiring
+/// example.
+///
 /// ── Design guarantees (each maps to a bug class found in the wild) ─────────
 ///
 ///   1. RACE-FREE REMATCH. `rematch` from #debrief stages a new game, on the
@@ -221,6 +229,7 @@ module {
   public type Registry<S, M> = T.Registry<S, M>;
   public type TableSummary = T.TableSummary;
   public type SessionStatus<S> = T.SessionStatus<S>;
+  public type MoveRequest<S> = T.MoveRequest<S>;
   public type Spec<S, M> = T.Spec<S, M>;
   public type Staging = T.Staging;
   public type Active<S, M> = T.Active<S, M>;

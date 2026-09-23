@@ -22,7 +22,7 @@ import Runtime "mo:core/Runtime";
 
 import TP "../src/lib";
 import Registry "../src/registry";
-import Ws "../src/Ws";
+import Ws "../src/ws";
 
 type Reg = TP.Registry<Rules.State, Rules.Action>;
 

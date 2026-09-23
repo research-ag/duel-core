@@ -23,11 +23,13 @@
 // duel-game-core's own `prepare` script from doing it automatically).
 
 import { Actor, HttpAgent } from '@icp-sdk/core/agent';
-import { makeIdlFactory } from 'duel-game-core/idl.js';
+import { Principal } from '@icp-sdk/core/principal';
+import { makeIdlFactory, buildEngineTypes } from 'duel-game-core/idl.js';
 import { start } from 'duel-game-core/app.js';
 import { connectWs } from 'duel-game-core/ws.js';
 import { resolveIdentity } from 'duel-game-core/identity.js';
 import { readIcEnv, deriveHost } from 'duel-game-core/ic-env.js';
+import { errText, tag } from 'duel-game-core/render.js';
 import { plugin } from './duel-racing-plugin.js';
 
 // `window.duelActorReady` / `window.__resolveDuelActor` are set up by an
@@ -114,3 +116,116 @@ const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin
 window.__resolveDuelWs(ws);
 
 start({ plugin, ws, session });
+
+// ── "Add Bot" — Flow 1, self-join (see ../../../../../CLAUDE.md's
+// "Canister players" note) ───────────────────────────────────────────
+// Once you've created a table and landed on the generic "Waiting for an
+// opponent" screen (render.js's `renderStagingYou`), this lets you fill
+// the OTHER seat with this deploy's own bot canister (`bot/Bot.mo`)
+// instead of waiting on a second human tab. `index.html`'s
+// `#play-vs-bot-panel` is a sibling of `#screen`, never touched by
+// `render.js`'s own unconditional `innerHTML` replace (see the
+// duel-game-core skill's rich-UI pattern) — driven here directly off the
+// SAME shared `ws`/`session` the generic chrome above already uses.
+//
+// Unlike Flow 2 ("eager dual-seat assignment", `Registry.createTableReserving`
+// — see ../../../../../backend/README.md's own section on it), this
+// never touches `ws.mo`'s protocol at all: it's a PLAIN Candid call
+// straight to the bot canister's own `play(host, tableId, seat, code)`
+// (see `../../../bot/Bot.mo`), which then calls `host`'s
+// `join_table_as_canister` on ITS OWN account — the exact same path a
+// human clicking "seat open" for themselves would take, just automated.
+// Flow 2 couldn't fill this role even if we wanted: it only ever
+// atomically seats both sides of a BRAND NEW table in one call — it has
+// no way to join an already-staged one, which is exactly this screen's
+// situation (a table this player already created, with one seat still
+// open).
+//
+// `env['PUBLIC_CANISTER_ID:bot']` comes from the same `ic_env` cookie
+// `canisterId` above already reads, populated by icp-cli for every
+// canister `icp.yaml` declares (this example's own `bot` canister — see
+// ../../../icp.yaml) — a deploy of this frontend against a `Host.mo`
+// with no `bot` canister at all (a fork that dropped it) just never sees
+// this key, and the panel stays hidden for good.
+const botCanisterId = env['PUBLIC_CANISTER_ID:bot'];
+const playVsBotPanel = document.getElementById('play-vs-bot-panel');
+const playVsBotBtn = document.getElementById('play-vs-bot');
+const playVsBotErr = document.getElementById('play-vs-bot-error');
+if (botCanisterId && playVsBotPanel && playVsBotBtn && playVsBotErr) {
+  // A minimal, hand-written IDL for just the one bot method this page
+  // calls — `buildEngineTypes` (the SAME function `idlFactory` above is
+  // built from) supplies `Seat`/`TableId`/`Err` so this doesn't carry a
+  // second, divergent copy of those shapes; `Action`/`State` are passed
+  // as `IDL.Null` purely to satisfy that function's signature — `play`'s
+  // own reply never touches either. Candid record decoding tolerates a
+  // declared type naming fewer fields than the value actually carries,
+  // so `JoinOk`'s own two variant arms are enough even though this page
+  // never inspects a successful reply's own payload, only whether it
+  // was `#ok`/`#err`.
+  const botIdlFactory = ({ IDL }) => {
+    const t = buildEngineTypes({ IDL, Action: IDL.Null, State: IDL.Null });
+    const JoinOk = IDL.Variant({ staged: t.Seat, started: t.Seat });
+    const Res = IDL.Variant({ ok: JoinOk, err: t.Err });
+    return IDL.Service({
+      play: IDL.Func([IDL.Principal, t.TableId, t.Seat, IDL.Opt(IDL.Text)], [Res], []),
+    });
+  };
+  const botActor = Actor.createActor(botIdlFactory, { agent, canisterId: botCanisterId });
+  const hostPrincipal = Principal.fromText(canisterId);
+
+  // Refreshed off every status push (see below) with exactly what
+  // `bot.play` needs for THIS table: the open seat (the one this session
+  // ISN'T holding) and the access code, if any (`StagingYouView.visibility`
+  // — known only to this table's own occupant, exactly the caller here).
+  let staging = null;
+
+  // `ws` (GatewayWs) extends EventTarget specifically so more than one
+  // consumer can listen without stealing app.js's own `ws.onmessage` —
+  // see the duel-game-core skill's rich-UI pattern. Shown ONLY for the
+  // "Waiting for an opponent" screen specifically (not merely "at a
+  // table") — browsing/busy/awaitingRematch/inGame/debrief/endedByOther
+  // all hide it; `body.in-race` (style.css) additionally hides the whole
+  // panel once a race actually starts, covering the one of those
+  // (`inGame`) that isn't otherwise ruled out by the tag check below.
+  ws.addEventListener('message', (ev) => {
+    const payload = ev.data;
+    if (!payload || 'err' in payload) { staging = null; playVsBotPanel.hidden = true; return; }
+    const status = payload.view;
+    if (!('atTable' in status) || tag(status.atTable.view) !== 'stagingYou') {
+      staging = null;
+      playVsBotPanel.hidden = true;
+      return;
+    }
+    const v = status.atTable.view.stagingYou;
+    staging = {
+      tableId: status.atTable.id,
+      openSeat: tag(v.seat) === 'p1' ? { p2: null } : { p1: null },
+      code: 'code' in v.visibility ? [v.visibility.code] : [],
+    };
+    playVsBotPanel.hidden = false;
+  });
+
+  playVsBotBtn.addEventListener('click', async () => {
+    if (playVsBotBtn.disabled || !staging) return;
+    const { tableId, openSeat, code } = staging;
+    playVsBotErr.hidden = true;
+    playVsBotBtn.disabled = true;
+    try {
+      const res = await botActor.play(hostPrincipal, tableId, openSeat, code);
+      if ('err' in res) {
+        playVsBotErr.textContent = errText(res.err);
+        playVsBotErr.hidden = false;
+      }
+      // On success the bot's own `join_table_as_canister` call reuses
+      // `attached.afterMutation` (Host.mo) to push a fresh status to
+      // THIS human's own connection in real time — app.js's own
+      // `ws.onmessage` picks it up and re-renders #screen to the fresh
+      // #active game on its own; nothing further to do here.
+    } catch (e) {
+      playVsBotErr.textContent = `Call failed: ${e && e.message ? e.message : e}`;
+      playVsBotErr.hidden = false;
+    } finally {
+      playVsBotBtn.disabled = false;
+    }
+  });
+}

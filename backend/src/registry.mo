@@ -142,7 +142,7 @@ module {
       };
       case (#staging st) {
         let ex = t.isExpired(st.since, now);
-        if (Option.isSome(st.reservedFor) and not ex) { null } else {
+        if (st.reservedFor.isSome() and not ex) { null } else {
           let p1Open = st.seat != #p1 or ex;
           let p2Open = st.seat != #p2 or ex;
           ?{
@@ -204,7 +204,7 @@ module {
     };
   };
 
-  func alreadyAtATable<S, M>(reg : Registry<S, M>, session : T.SessionId) : Bool = Option.isSome(reg.bySession.get(session));
+  func alreadyAtATable<S, M>(reg : Registry<S, M>, session : T.SessionId) : Bool = reg.bySession.get(session).isSome();
 
   /// Drops `session`'s `bySession` mapping if the table it points to no
   /// longer considers them seated `now` (`Table.isStillSeated`) — see
@@ -296,6 +296,20 @@ module {
     withSummaries.toArray().map<(T.TableId, T.TableSummary), T.TableSummary>(func((_, v)) = v);
   };
 
+  /// The `TableId` the next `createTable`/`createTableReserving` call on
+  /// this registry will assign — a pure, side-effect-free peek at
+  /// `tableIdNonce` (as safe to call as `status`; see architecture rule
+  /// 8), not a reservation. Exists so a caller that needs to derive
+  /// something FROM a table's id — `canister_players.mo`'s own
+  /// `sidForCanister`, keyed per board rather than per caller, is the one
+  /// user today — can compute that derivation before the id is otherwise
+  /// knowable, i.e. before `createTable` itself returns. Only valid to
+  /// rely on with no `await`/`await*` between this call and the
+  /// `createTable` call it's paired with: this registry is single-
+  /// threaded within one update call, but nothing stops another table
+  /// being created in between two separate messages.
+  public func peekNextTableId<S, M>(self : Registry<S, M>) : T.TableId = self.tableIdNonce;
+
   /// Create a fresh table and seat `session` in `seat` on it. Rejects
   /// with `#badCode` for a `#code("")` visibility — an empty access code
   /// isn't just pointless, it's unreachable BY CONSTRUCTION: `joinTable`
@@ -333,6 +347,64 @@ module {
         #ok(id);
       };
     };
+  };
+
+  /// Flow 2, "eager dual-seat assignment" (see `../../CLAUDE.md`'s
+  /// "Canister players" note): like `createTable` above, but ALSO seats
+  /// `reservedFor` in the other seat atomically, in this SAME call — the
+  /// table lands directly in `#active`, with no second `joinTable` call
+  /// needed from either side (contrast plain `createTable` plus
+  /// `Table.stage`'s own `reservedFor` widening, which only RESERVES the
+  /// other seat for someone to claim later). Shares `createTable`'s own
+  /// validation (`#badCode`/`#wrongPhase` for `session` already being
+  /// elsewhere); ADDITIONALLY rejects with `#wrongPhase` if `reservedFor`
+  /// is `session` itself (nothing here can atomically seat one session
+  /// against itself) or if `reservedFor` already has unfinished business
+  /// at another table — the exact same one-table-at-a-time invariant
+  /// `releaseIfStale`/`alreadyAtATable` already enforce for `session`,
+  /// just checked for the OTHER seat's own occupant too, since this
+  /// function is the one place seating them doesn't go through
+  /// `joinTable`'s own guard.
+  public func createTableReserving<S, M>(
+    self : Registry<S, M>,
+    spec : T.Spec<S, M>,
+    now : Int,
+    session : T.SessionId,
+    seat : T.Seat,
+    visibility : T.TableVisibility,
+    reservedFor : T.SessionId,
+  ) : T.Res<T.TableId> {
+    switch (visibility) {
+      case (#code c) { if (c.size() == 0) return #err(#badCode) };
+      case (#open) {};
+    };
+    if (reservedFor == session) {
+      return #err(#wrongPhase("cannot reserve yourself for the other seat"));
+    };
+    releaseIfStale(self, session, now);
+    if (alreadyAtATable(self, session)) {
+      return #err(#wrongPhase("you are already at another table"));
+    };
+    releaseIfStale(self, reservedFor, now);
+    if (alreadyAtATable(self, reservedFor)) {
+      return #err(#wrongPhase("the other seat's own session is already at another table"));
+    };
+    let id = self.tableIdNonce;
+    let t = Table.new<S, M>(self.idleTimeoutNs, self.claimTimeoutNs, visibility, session);
+    t.stage(now, session, seat, ?reservedFor);
+    let otherSeat = switch (seat) { case (#p1) #p2; case (#p2) #p1 };
+    switch (t.join(spec, now, reservedFor, otherSeat)) {
+      case (#err e) return #err(e); // unreachable — a fresh staging reserved for exactly this session always accepts its own reservation; kept for exhaustiveness
+      case (#ok _) {};
+    };
+    self.tableIdNonce += 1;
+    self.tables.add(id, t);
+    self.bySession.add(session, id);
+    self.bySession.add(reservedFor, id);
+    bumpGamesStarted(self);
+    recordMatchmakingWait(self, now, ?now); // staged and started in the same instant — zero wait, recorded for consistency with joinTable's own accounting
+    recordActiveGames(self);
+    #ok(id);
   };
 
   /// Join a specific table by id. Covers every case plain `join` above
@@ -527,7 +599,7 @@ module {
   /// `reg.tables` in place, and doing that while an iterator over the
   /// same live `Map` is still walking it is not something to rely on.
   public func sweep<S, M>(self : Registry<S, M>, now : Int) {
-    for ((id, t) in Map.toArray(self.tables).values()) {
+    for ((id, t) in self.tables.toArray().values()) {
       t.sweep(now);
       gcIfQuiesced(self, id, t);
     };

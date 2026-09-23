@@ -104,7 +104,7 @@ separate sibling modules, both built on those same types:
 - `src/table.mo` (`mo:duel-game-core/table`) — `Table<S, M>`, the stable
   session state for ONE board, and the low-level primitive `Registry`
   (below) is built from: `Table.new(idleTimeoutNs, claimTimeoutNs,
-  visibility, createdBy)` plus `join`/`submit`/`rematch`/`leave`/`reset`/
+visibility, createdBy)` plus `join`/`submit`/`rematch`/`leave`/`reset`/
   `claimWin`/`ackEnded`/`status`/`sweep` on the table it returns (Motoko
   dot-notation call sugar — plain functions taking the table as their
   first argument). A game that genuinely wants exactly one fixed board
@@ -120,9 +120,12 @@ separate sibling modules, both built on those same types:
   layer. `sweep` idle-evicts and garbage-collects across every table.
   `attachMetrics(pt : PT.Tracker)`, from `mo:promtracker`, is a separate,
   entirely optional call some time after `Registry.new` — see "Metrics"
-  below.
+  below. `peekNextTableId` is a small pure getter alongside all of the
+  above — as side-effect-free as `status` — returning the `TableId` the
+  NEXT `createTable`/`createTableReserving` call will assign; see
+  "Canister players" below for the one real user of it.
 - Eight per-table operations, on either `Table<S, M>` or `Registry<S,
-  M>`: `join`/`createTable`+`joinTable`, `submit`, `rematch`, `leave`,
+M>`: `join`/`createTable`+`joinTable`, `submit`, `rematch`, `leave`,
   `reset`, `claimWin`, `ackEnded`, `status` (plus `sweep`, not
   caller-facing). Every one that can mutate takes `spec` and the current
   time (`now : Int`, nanoseconds) as explicit parameters — see
@@ -448,6 +451,7 @@ persistent actor {
     // the involuntary-disappearance detection floor as tight as the
     // dependency allows (see this section's "Disappearance handling").
     IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
+    null, // no `mo:duel-game-core/canister_players` wired — see "Canister players" below otherwise
   );
   attached.ws.init<system>(); // starts the CDK's keep-alive/ack timers —
   // this bare top-level call (like `wsHub`/`attached` themselves) reruns
@@ -497,6 +501,316 @@ real canister, a browser tab registering as its own Gateway, and an
 actual push arriving — has not been proven end-to-end.** Treat it as a
 solid, carefully-reasoned starting point, not a battle-tested one, and
 sanity-check it against a real deploy before relying on it.
+
+### Canister players
+
+`mo:duel-game-core/canister_players` lets a CANISTER take a seat at a table
+and play, against a human or another canister, with no polling and no second
+inbound entry point for a move to arrive through. The key simplification: `ws.mo`
+exists only because the IC has no native WebSocket, so a browser has to fake real-time
+push. A canister player needs none of that — two canisters calling each other
+with `async`/`await` already IS a real, ordered, request-response
+channel, the primitive the whole IC is built on. So the whole feature
+reframes to "let the GAME canister call the PLAYER canister directly and
+treat the reply as the move" — never a one-way "your turn" notice
+followed by the player canister calling back independently, which would
+reopen exactly the unordered-second-channel problem `ws.mo`'s own
+architecture rule (11) closes. A single `await` whose return value IS
+the chosen action needs no second inbound entry point at all: nothing
+new is exposed for a stray caller to hit, and there's nothing to spoof —
+the reply can only ever come from the one principal this module itself
+decided to call.
+
+**Identity: a third `sid` namespace, one per board.** Exactly like
+`ws.mo`'s `ii:`/`an:`, `CanisterPlayers.CP_SID_PREFIX` (`"cp:"`) is a
+third reserved namespace. It's actually simpler here than for a
+browser: `ws.mo` has to cross-check a client-ASSERTED `sid` against a
+separately authenticated WebSocket connection, because that transport
+decouples the two. A plain canister-to-canister Candid call has no such
+gap — `msg.caller` already IS the authenticated identity — so every
+entry point computes its own `cp:` session rather than accepting a
+client-supplied `sid`. There's nothing to check, because there's
+nothing to spoof.
+
+A `Registry` table is still exactly one SESSION's worth of "my one
+game" — nothing about that changes. What's not one-to-one any more is a
+canister PRINCIPAL to a session: `CanisterPlayers.sidForCanister(p,
+tableId)` mints a SEPARATE session per board
+(`"cp:" # p.toText() # ":" # tableId.toText()`), so the same bot
+canister can hold a live seat at any number of tables at once, each one
+an ordinary, fully independent session as far as `Table`/`Registry` are
+concerned. `tableId` is free to supply everywhere except `createTable`
+itself, where the id doesn't exist yet at the point a session is needed
+to create it — `Registry.peekNextTableId` (a pure read of the
+registry's own id nonce, as side-effect-free as `status`) supplies it
+one call early, safe as long as nothing `await`s between peeking it and
+creating the table with it. Every OTHER entry point that acts on an
+EXISTING board — `leave_as_canister`/`ack_ended_as_canister`/
+`claim_win_as_canister`/`reset_as_canister` — takes `tableId` as an
+explicit argument instead of trying to infer "my one game": with more
+than one live board per canister that's ambiguous, so the caller says
+which board it means, the same `tableId`
+`create_table_as_canister`/`join_table_as_canister` returned.
+`CanisterPlayers.principalOfCanisterSession` is `sidForCanister`'s own
+inverse — recovers the calling canister's principal from one of its
+`cp:` sessions, used below by a host's own `callBot` closure to know
+which canister to actually call `make_move` on.
+
+**The call/response protocol.** `notifyAndApply` (internal) builds a
+`TP.MoveRequest<S>` from the table's own current, truthful
+`Registry.status` (never a second, divergent read of `Table`'s
+internals — the same field shape `View.#inGame` already reports, minus
+UI countdown cosmetics), hands it to a host-supplied `callBot`, re-reads
+`gen`/`turn` FRESH once the bot replies (never the copies closed over
+from before that call — the table can legitimately change underneath a
+long-running bot call: the human claims a win, leaves, or gets
+idle-swept while the bot is still thinking), applies the move via
+`registry.submit`, and runs the EXACT SAME push fan-out `ws.mo` itself
+runs (`Ws.Attached.afterMutation`, exposed for exactly this reuse — see
+`ws.mo`'s own `Attached` doc), so a human opponent's browser learns
+about a canister-driven move in real time, same as any other. `callBot`
+is continuation-passing —
+`(SessionId, MoveRequest<S>, (?M) -> async* ()) -> async* ()`, not a
+plain `(...) -> async M` — because Motoko rejects `async M` as a type
+for an unconstrained generic `M`; the host's own implementation is the
+one place able to `try`/`catch` the actual inter-canister call, since
+its own game's `Action` type is concrete there, and calls the
+continuation with `?move` on success or `null` on a trapped/errored
+call.
+
+**Silence is already a first-class outcome.** A bot canister can fail in
+every ordinary way software fails: it traps, it's out of cycles, it's
+mid-upgrade, it times out, or it just returns an illegal move. None of
+that needs new machinery — this engine already has a complete story for
+"a seat didn't move" (`claimTimeoutNs`, `idleTimeoutNs`, `#aborted`
+debriefs — see the Design section's guarantee 4), and a misbehaving bot
+is, from the engine's point of view, indistinguishable from a human who
+put the phone down. So `notifyAndApply`'s own failure handling stays
+small: an `#err(#illegalMove _)` reply is retried once; a trapped/
+errored call, or any other rejection (the table moved on underneath the
+bot — a claim, a leave, an idle takeover), is treated exactly like
+silence — do nothing, and let the existing timeout machinery take it
+from there. That one retry still gives the bot something to work with:
+the retried `MoveRequest<S>`'s `retryReason` field carries the exact
+text the game's own `validate` rejected the first reply with, so
+`make_move` can inspect why its move was illegal and correct that
+specifically, rather than just being asked again with no new
+information. `retryReason` is `null` on every non-retry ask; a
+trapped/errored call never reaches a retry at all, since there's no
+rejection text to carry.
+
+**When a canister seat gets asked, claims a win, or acks a finished
+debrief.** `settle(now, id)` is one table's worth of that check: for its
+`#active` phase, per seat, either due to move (`View.#inGame.youSubmitted`
+is `false` — that one Boolean already means "due to move" in EITHER mode,
+the same way it means "the waiting seat" that may `claimWin` — see
+`Table.status`'s own doc), in which case it's asked via `callBot`; the
+WAITING seat with `claimWinAvailable` now true, in which case `settle`
+claims the win on its behalf outright; or the WAITING seat NOT yet
+overdue, in which case it asks the host to schedule exactly one wakeup
+for the moment it will be (`armClaimCheck`, below) instead of polling for
+it. For its `#debrief` phase, per seat: if the OTHER seat is no longer a
+live participant of that SAME debrief either (`Table.activeDebriefSeat`
+returns `null` for a seat that's already acked, or was never filled) — or
+is itself canister-seated, so there's nobody around to decide on a
+rematch at all — `settle` acks the canister seat's own side immediately
+(via `registry.leave`, the same call a human's "return to lobby" makes),
+freeing it for a fresh `createTable`/`joinTable` with no wait. A
+still-deciding HUMAN partner's own rematch window is never cut short by
+this: their own debrief seat staying unacked is exactly what keeps the
+canister seat's from firing. The move-asking case is additionally guarded
+by a one-bit-per-(table, seat) in-flight flag so an overlapping call can
+never ask the same due seat twice while the first ask is still pending.
+
+A canister-initiated mutation calls `settle` on itself directly, in-line
+— `joinTable`/`rematch`'s own implementations call it internally, and so
+does a canister's own move landing via `notifyAndApply` (in case that
+move just ended the game) — so a bot-vs-bot match starting, resolving a
+round, or settling its own debrief never waits on anything else. A
+HUMAN-driven mutation reaches the exact same `settle` through one more
+hop: `Ws.attach`'s own optional `onSettled` parameter (see that module's
+own doc) runs right after `afterMutation`'s push fan-out, for every
+successful WS request that touched a table — so asking a canister
+opponent to move (or acking its own finished debrief) is a same-call
+reaction to whichever mutation just made it due, human- or
+canister-driven alike, with no polling timer needed for either half of
+that pairing. The one thing nothing ever calls back in about on its own
+is the passage of time — a stalled opponent going silent — which is what
+`armClaimCheck(id, secs)` is for: a host-supplied hook that schedules
+exactly one precisely-timed wakeup, calling back into `settle` once
+`secs` have passed, using `Timer.setTimer`'s own `<system>` capability
+(available only inside an actor, which is why this is a parameter
+`canister_players.mo` takes rather than something it does itself — see
+`attach`'s own doc for why this keeps the module free of `<system>`
+entirely, testable in the plain interpreter harness with a stubbed
+`armClaimCheck` the same way `afterMutation` already is).
+
+**Wiring it into a host actor** — extending the `ws.mo` example above.
+`Ws.attach`'s own `onSettled` hook and `CanisterPlayers.attach`'s own
+`armClaimCheck` parameter each need to call back into the OTHER side's
+result before either exists, so a host breaks that cycle with one small
+mutable indirection, filled in once `cpAttached` itself is built. The
+six Candid methods a canister player calls
+(`create_table_as_canister`/`join_table_as_canister`/`leave_as_canister`/
+`ack_ended_as_canister`/`claim_win_as_canister`/`reset_as_canister`)
+come from a single `include CanisterPlayersActorMixin(cpAttached)` —
+`mo:duel-game-core/canister_players_actor_mixin`, the
+`canister_players.mo` counterpart to `ActorMixin` above; no host
+hand-declares any of the six. There is no `rematch_as_canister`: a
+canister-vs-canister debrief auto-acks both sides unconditionally the
+moment neither is a live human still deciding (see "Unattended,
+canister-vs-canister matches" below), so nothing is ever left waiting
+on a canister's own rematch click the way a human's own "Rematch"
+button is:
+
+```motoko
+import CanisterPlayers "mo:duel-game-core/canister_players";
+import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
+import Principal "mo:core/Principal"; // enables p.toText() dot notation below
+import Timer "mo:core/Timer";
+
+import BotIface "BotIface"; // this game's own CanisterPlayer actor type
+
+persistent actor {
+  // ...registry / status from the `ws.mo` example above, unchanged...
+
+  transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
+  transient let settle = func(now : Int, id : TP.TableId) : async* () {
+    switch (settleTable) {
+      case (?f) await* f(now, id);
+      case null {};
+    };
+  };
+
+  transient let wsHub : Ws.Hub = Ws.createHub();
+  transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
+    Rules.spec(),
+    registry,
+    wsHub,
+    codec,
+    wsParams,
+    ?settle, // see `Ws.attach`'s own `onSettled` doc
+  );
+  attached.ws.init<system>();
+
+  transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
+    Rules.spec(),
+    registry,
+    attached.afterMutation, // reuses ws.mo's own push fan-out — see above
+    func(session, req, k) : async* () {
+      let p = CanisterPlayers.principalOfCanisterSession(session);
+      let bot : BotIface.CanisterPlayer = actor (p.toText());
+      try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
+    },
+    func(id : TP.TableId, secs : Nat) : async* () {
+      ignore Timer.setTimer<system>(
+        #seconds secs,
+        func() : async () {
+          await* settle(Time.now(), id);
+        },
+      );
+    },
+  );
+  settleTable := ?cpAttached.settle;
+
+  include CanisterPlayersActorMixin(cpAttached);
+
+  // Fold `cpAttached.sweep` — the slow, full-registry safety net for
+  // whatever `settle` never gets called for (most commonly: the OTHER
+  // seat vanishing without ever sending a mutating request at all) —
+  // into the SAME already-mandatory 30s idle-sweep timer. No separate
+  // timer at all:
+  transient let combinedSweep = func(now : Int) : async* () {
+    await* attached.sweep(now);
+    await* cpAttached.sweep(now);
+  };
+  include ActorMixin<system>(attached.ws, combinedSweep);
+};
+
+```
+
+Note what's absent: no `submit_as_canister`. A canister player's move
+never arrives as an independent inbound call under this design — it's
+always the direct reply to the call `notifyAndApply` itself made, applied
+by the same code that made it (see "The call/response protocol" above).
+
+**Unattended, canister-vs-canister matches.** `claimWin`/`Table.claimWin`
+is shaped for a human: someone looks at the screen and decides to stop
+waiting. In an all-canister match there's nobody looking. `settle`
+already covers the ordinary due-to-move case eagerly for both seats via
+the in-line chain above, and `armClaimCheck`'s own wakeup covers the
+"waiting on silence" case for whichever seat is the WAITING one, without
+either seat needing to be human — claiming the win on its behalf the
+instant `claimWinAvailable` turns true, no separate wiring needed. The
+same "nobody's looking" reasoning applies once that claim (or any other
+route into a shared debrief) leaves both seats canister-occupied: a
+still-deciding human partner is exactly who a canister seat's own
+debrief-ack waits on (see "When a canister seat gets asked, claims a win,
+or acks a finished debrief" above) — but two canister seats waiting on
+EACH OTHER'S own ack first would simply deadlock, since neither would
+ever see the other as "gone" without something eventually re-checking
+both. So when the OTHER seat is also canister-seated, `settle` acks both
+sides unconditionally instead, settling an all-canister match's own
+debrief immediately rather than leaving it stuck until the idle-sweep
+timer eventually clears it. `claim_win_as_canister`/`reset_as_canister`
+exist alongside that mainly so a canister PARTICIPANT that wants to act
+the moment it's entitled to — rather than wait on the armed wakeup —
+can call either directly, naming the `tableId` it means (a canister may
+hold more than one live seat at once — see "Identity" above); each
+still only ever acts on a board the CALLER'S OWN principal is actually
+seated at, since the session a `tableId` derives is always scoped to
+`caller` itself — a supervising tournament-orchestrator canister
+resetting or claiming a table it isn't itself seated at is a further
+capability this module doesn't provide.
+
+A lobby frontend needs no new field to show "vs 🤖" either:
+`TableSummary.p1Session`/`p2Session` already carry the raw `SessionId`
+text, so a client-side check against the `cp:` prefix
+(`CanisterPlayers.isCanisterSession`, or just
+`Text.startsWith(session, #text "cp:")` on the frontend) is purely
+cosmetic, reading data the engine already exposes.
+
+**Flow 2: eager dual-seat assignment.** Flow 1 above (self-join) has the
+bot claim its own seat, on its own account, once someone hands it a
+table id/seat/access code. `Registry.createTableReserving` is the
+alternative: a creator names BOTH seats in one call — themselves, and
+`reservedFor`, some OTHER already-known `SessionId` — and the table
+lands directly in `#active`, with no second `joinTable` needed from
+either side:
+
+```motoko
+let nextId = registry.peekNextTableId(); // safe: nothing else can create a table between this line and the next
+switch (registry.createTableReserving(spec, now, mySession, #p1, #open, CanisterPlayers.sidForCanister(botPrincipal, nextId))) {
+  case (#ok id) { /* both seats are already live, id == nextId */ };
+  case (#err e) { /* ... */ };
+};
+
+```
+
+This is the whole of the feature: a small, generic `Registry` addition
+(rejecting a self-reservation, and a `reservedFor` already busy
+elsewhere, the same way `createTable` itself rejects a creator who's
+already busy elsewhere), proven end to end against `canister_players.mo`
+in `backend/test/CanisterPlayers.test.mo` — a canister seated this way
+is due to move the instant the table exists, picked up by `sweep`'s own
+slow safety-net scan, with no `joinTable` call from the bot at all.
+Deliberately NOT wired any further than that here: `ws.mo`'s own `Msg`
+protocol has no request variant reaching this call, and no game in this
+repo calls it from a browser tab — `examples/racing`'s and
+`examples/checkers`'s own `Add Bot` controls (see each one's own
+`CLAUDE.md`'s `frontend/` bullet) use Flow 1 instead, since it fills an
+ALREADY-STAGED table's open seat, which this call structurally can't do
+(it only ever seats both sides of a BRAND NEW
+table, atomically, in the one call — there's no "join the other seat of
+a table that already exists" version of it). The scenario this call
+_would_ suit — an orchestrator seating two bots against each other with
+nobody waiting on a `#staging` screen at all — is left for whoever wants
+it to build as its own feature: most naturally a privileged Motoko
+caller invoking `registry.createTableReserving` directly (an admin
+canister, a test harness, a tournament orchestrator), not a new
+`ws.mo`/frontend request path, since `ws.mo`'s own request/push protocol
+is built around one human's own browser tab, not a third party
+launching two OTHER sessions' game for them.
 
 ### Metrics
 
@@ -602,22 +916,6 @@ game's `resolve` cost — using the same throwaway `Spec`
 (`test/FakeGame.mo`) the test suites use, across `join`+`leave`, a full
 submitted round, and repeated `status` queries (the one plain Candid
 method a real host actor still exposes directly).
-
-### Format the code
-
-We use `prettier` with the `prettier-plugin-motoko` plugin (configured in `.prettierrc`). The CI checks formatting on every pull request.
-
-To format the code locally run:
-
-```
-npx -y prettier --plugin prettier-plugin-motoko --write '**/*.{mo,json,md}'
-```
-
-To only check the formatting (as CI does) run:
-
-```
-npx -y prettier --plugin prettier-plugin-motoko --check '**/*.{mo,json,md}'
-```
 
 ## Design
 
@@ -741,7 +1039,13 @@ table creation/discovery/routing on top without changing any of them:
   toolchain note), not because wiring it is optional. `src/actor_mixin.mo`
   (`mo:duel-game-core/actor_mixin`) supplies the four `ws_*` Candid
   methods plus the idle-sweep timer, `include`d in the host actor
-  alongside it — see "Real-time push" above.
+  alongside it — see "Real-time push" above. `src/canister_players.mo`
+  (`mo:duel-game-core/canister_players`) is a further, entirely OPTIONAL
+  module letting a canister take a seat; `src/canister_players_actor_mixin.mo`
+  (`mo:duel-game-core/canister_players_actor_mixin`) is its own
+  `ActorMixin` counterpart — the six `*_as_canister` Candid methods a
+  host `include`s alongside it once it wires `CanisterPlayers.attach` —
+  see "Canister players" above.
 - `test/FakeGame.mo` is a deliberately trivial `Spec` used only by the
   test suites and benchmarks to exercise the engine — it is not a real
   game and ships no rendering.

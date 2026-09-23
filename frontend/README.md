@@ -41,8 +41,8 @@ const plugin = {
   // the Candid tooling passes to an idlFactory.
   idlTypes({ IDL }) {
     return {
-      Action: IDL.Variant({ /* ... */ }),
-      State: IDL.Record({ /* ... */ }),
+      Action: IDL.Variant({/* ... */}),
+      State: IDL.Record({/* ... */}),
     };
   },
 
@@ -73,7 +73,7 @@ const plugin = {
 };
 ```
 
-Only `renderBoard` and `renderActions` return markup for *your* game;
+Only `renderBoard` and `renderActions` return markup for _your_ game;
 everything else (turn counter, "opponent is deciding" / "locked in"
 messages, verdict banner, rematch/leave/forfeit buttons) is handled by
 `render.js`'s generic chrome around them — including for a backend game
@@ -106,7 +106,11 @@ const idlFactory = makeIdlFactory(plugin.idlTypes);
 const session = await resolveIdentity();
 const agent = await HttpAgent.create({ host, identity: session.identity });
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
-const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
+const ws = connectWs({
+  actor,
+  principal: session.principal,
+  gameIdlTypes: plugin.idlTypes,
+});
 
 start({ plugin, ws, session });
 ```
@@ -164,7 +168,11 @@ import { resolveIdentity } from "duel-game-core/identity.js"; // or anon-identit
 const session = await resolveIdentity();
 const agent = await HttpAgent.create({ host, identity: session.identity });
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
-const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
+const ws = connectWs({
+  actor,
+  principal: session.principal,
+  gameIdlTypes: plugin.idlTypes,
+});
 start({ plugin, ws, session });
 ```
 
@@ -205,7 +213,7 @@ newer, still-live one's lookup entry.
 speaks `mo:duel-game-core/ws`'s real `ic-websocket-cdk` protocol
 directly against `actor` — genuine canister-driven push, not client-side
 polling wearing a push-shaped interface. There is still no separate
-Gateway *process* to run: `ic-websocket-cdk` doesn't require a
+Gateway _process_ to run: `ic-websocket-cdk` doesn't require a
 pre-registered Gateway principal — its `ws_open` lets a caller register
 **itself** as its own Gateway — so this tab calls
 `ws_open`/`ws_get_messages`/`ws_message`/`ws_close` on the canister
@@ -231,7 +239,7 @@ this package that pulls in real npm dependencies — `@icp-sdk/core/candid`
 `ic-websocket-cdk` gets on the backend (see the root `CLAUDE.md`'s rule
 10). `GatewayWs` also deliberately skips verifying the `cert`/`tree`
 fields `ws_get_messages` returns: the CDK certifies its queue so a
-client can trust a *Gateway's* relay without trusting the Gateway
+client can trust a _Gateway's_ relay without trusting the Gateway
 itself, but since our "gateway" here is the player's own tab (already
 as trusted as the plain `status()` query already implicitly is), that
 property buys nothing and would cost a real BLS-verification dependency
@@ -312,7 +320,7 @@ somewhere your other code can reach (e.g. on `window`, the way
 
 ```js
 ws.addEventListener("message", (ev) => {
-  if ("view" in ev.data) /* ...update your own UI... */;
+  if ("view" in ev.data) /* ...update your own UI... */ ;
 });
 ```
 
@@ -368,8 +376,15 @@ import { plugin } from "./my-game-plugin.js";
 
 const session = await resolveIdentity();
 const agent = await HttpAgent.create({ host, identity: session.identity });
-const actor = Actor.createActor(makeIdlFactory(plugin.idlTypes), { agent, canisterId });
-const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
+const actor = Actor.createActor(makeIdlFactory(plugin.idlTypes), {
+  agent,
+  canisterId,
+});
+const ws = connectWs({
+  actor,
+  principal: session.principal,
+  gameIdlTypes: plugin.idlTypes,
+});
 
 start({ plugin, ws, session });
 ```
@@ -434,19 +449,19 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 
 ## Modules
 
-| Module                   | Exports                                   |
-| ------------------------ | ------------------------------------------ |
-| `idl.js`                 | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`'s own type plus the `ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on |
-| `render.js`              | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
-| `app.js`                 | `start({ plugin, ws, session, ...elIds })` |
-| `identity.js`            | `resolveIdentity()`, `sidForPrincipal(principalText)` — see "Logging in with Internet Identity"; depends on `@icp-sdk/auth`/`@icp-sdk/core/identity`, same narrow-exception treatment as `ws/gateway-*.js` |
-| `anon-identity.js`       | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX` — the persisted-keypair anonymous identity `identity.js` re-exports; depends only on `@icp-sdk/core/identity`, not `@icp-sdk/auth` |
-| `ic-env.js`              | `readIcEnv()`, `deriveHost()` (optional)   |
-| `ws.js`                  | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result |
-| `ws/gateway-client.js`   | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds |
-| `ws/gateway-transport.js`| `SelfGatewayTransport` — moves bytes (the embedded-Gateway registration/poll/send/close calls); swap this for a real-external-Gateway transport without touching the other two `ws/gateway-*.js` files |
-| `ws/gateway-protocol.js` | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, and interpreting a decoded envelope; transport-agnostic |
-| `style.css`              | generic layout primitives                  |
+| Module                    | Exports                                                                                                                                                                                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`'s own type plus the `ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on                                                     |
+| `render.js`               | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc`                                                                     |
+| `app.js`                  | `start({ plugin, ws, session, ...elIds })`                                                                                                                                                                                                           |
+| `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)` — see "Logging in with Internet Identity"; depends on `@icp-sdk/auth`/`@icp-sdk/core/identity`, same narrow-exception treatment as `ws/gateway-*.js`                                           |
+| `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX` — the persisted-keypair anonymous identity `identity.js` re-exports; depends only on `@icp-sdk/core/identity`, not `@icp-sdk/auth` |
+| `ic-env.js`               | `readIcEnv()`, `deriveHost()` (optional)                                                                                                                                                                                                             |
+| `ws.js`                   | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result                                                                                                                                       |
+| `ws/gateway-client.js`    | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds                                                                                                                                                                                        |
+| `ws/gateway-transport.js` | `SelfGatewayTransport` — moves bytes (the embedded-Gateway registration/poll/send/close calls); swap this for a real-external-Gateway transport without touching the other two `ws/gateway-*.js` files                                               |
+| `ws/gateway-protocol.js`  | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, and interpreting a decoded envelope; transport-agnostic                                                                                                                              |
+| `style.css`               | generic layout primitives                                                                                                                                                                                                                            |
 
 See [`../backend/README.md`](../backend/README.md) for the matching
 backend `Spec` contract.

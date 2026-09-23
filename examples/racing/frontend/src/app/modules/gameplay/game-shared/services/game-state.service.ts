@@ -85,7 +85,7 @@ export class GameStateService {
   // showing the ACTUAL elapsed race time on a reload rather than counting
   // up from 0 and staying permanently behind for the rest of that race.
   public resetRaceClock(resumedAtStep: number = 0): void {
-    this.stepsElapsed = resumedAtStep - 1;
+    this.stepsElapsed = resumedAtStep;
     this._lastStepStartTimestamp = 0;
   }
 

@@ -100,6 +100,7 @@
 ///       decode = func(b) = from_candid (b);
 ///     },
 ///     IcWebSocketCdkTypes.WsInitParams(null, null),
+///     null, // no `mo:duel-game-core/canister_players` wired — see `OnSettled`'s own doc otherwise
 ///   );
 ///   attached.ws.init<system>();  // starts the CDK's ack timers — this bare
 ///                                // top-level call reruns automatically on
@@ -251,7 +252,7 @@ module {
   /// automatically; `isAuthorizedSid` below is what makes it non-spoofable
   /// rather than just a naming convention.
   public func sidFor(prefix : Text, p : Principal.Principal) : TP.SessionId {
-    prefix # Principal.toText(p);
+    prefix # p.toText();
   };
 
   /// `sidFor(PRINCIPAL_SID_PREFIX, p)` — kept as its own name since it's
@@ -272,11 +273,11 @@ module {
   /// own doc on why) so it's unit-testable without the `IcWebSocketCdk`
   /// actor machinery `onMessage` itself needs.
   public func isAuthorizedSid(sid : TP.SessionId, p : Principal.Principal) : Bool {
-    if (Text.startsWith(sid, #text PRINCIPAL_SID_PREFIX)) {
-      return Text.equal(sid, sidFor(PRINCIPAL_SID_PREFIX, p));
+    if (sid.startsWith(#text PRINCIPAL_SID_PREFIX)) {
+      return sid.equal(sidFor(PRINCIPAL_SID_PREFIX, p));
     };
-    if (Text.startsWith(sid, #text ANON_SID_PREFIX)) {
-      return Text.equal(sid, sidFor(ANON_SID_PREFIX, p));
+    if (sid.startsWith(#text ANON_SID_PREFIX)) {
+      return sid.equal(sidFor(ANON_SID_PREFIX, p));
     };
     false;
   };
@@ -314,7 +315,7 @@ module {
   /// This sid's current generation counter (0 if never remembered at
   /// all) — see `Hub.generation`'s own doc.
   public func generationOf(hub : Hub, sid : TP.SessionId) : Nat {
-    switch (Map.get(hub.generation, Text.compare, sid)) {
+    switch (hub.generation.get(sid)) {
       case (?g) g;
       case null 0;
     };
@@ -346,25 +347,25 @@ module {
   /// actor. Always bumps `generation`, even when `p` is unchanged from
   /// before — see `Hub.generation`'s own doc.
   public func remember(hub : Hub, sid : TP.SessionId, p : Principal.Principal) {
-    switch (Map.get(hub.bySid, Text.compare, sid)) {
+    switch (hub.bySid.get(sid)) {
       case (?oldP) {
-        if (Principal.notEqual(oldP, p)) {
-          Map.remove(hub.byPrincipal, Principal.compare, oldP);
+        if (oldP.notEqual(p)) {
+          hub.byPrincipal.remove(oldP);
         };
       };
       case null {};
     };
-    switch (Map.get(hub.byPrincipal, Principal.compare, p)) {
+    switch (hub.byPrincipal.get(p)) {
       case (?oldSid) {
-        if (Text.notEqual(oldSid, sid)) {
-          Map.remove(hub.bySid, Text.compare, oldSid);
+        if (oldSid.notEqual(sid)) {
+          hub.bySid.remove(oldSid);
         };
       };
       case null {};
     };
-    Map.add(hub.bySid, Text.compare, sid, p);
-    Map.add(hub.byPrincipal, Principal.compare, p, sid);
-    Map.add(hub.generation, Text.compare, sid, generationOf(hub, sid) + 1);
+    hub.bySid.add(sid, p);
+    hub.byPrincipal.add(p, sid);
+    hub.generation.add(sid, generationOf(hub, sid) + 1);
   };
 
   /// Un-binds `p`, but only clears `bySid[sid]` if `p` is STILL that
@@ -388,14 +389,14 @@ module {
   /// tracking the same reconnect race independently; both guards are
   /// needed together, not either alone.
   public func forget(hub : Hub, p : Principal.Principal) {
-    switch (Map.get(hub.byPrincipal, Principal.compare, p)) {
+    switch (hub.byPrincipal.get(p)) {
       case null {};
       case (?sid) {
-        Map.remove(hub.byPrincipal, Principal.compare, p);
-        switch (Map.get(hub.bySid, Text.compare, sid)) {
+        hub.byPrincipal.remove(p);
+        switch (hub.bySid.get(sid)) {
           case (?curP) {
-            if (Principal.equal(curP, p)) {
-              Map.remove(hub.bySid, Text.compare, sid);
+            if (curP.equal(p)) {
+              hub.bySid.remove(sid);
             };
           };
           case null {};
@@ -422,7 +423,26 @@ module {
   public type Attached = {
     ws : IcWebSocketCdk.IcWebSocket;
     sweep : (Int) -> async* ();
+    // The exact fan-out `onMessage` itself runs after every successful
+    // mutating request — see `attach`'s own `afterMutation` doc for the
+    // full shape. Exposed here so `mo:duel-game-core/canister_players`
+    // can push the identical real-time status to a human opponent after
+    // a CANISTER-driven mutation (a bot joining, moving, leaving, ...),
+    // without a second, divergent implementation of the same fan-out.
+    // `reqId` is always `null` from that caller: a canister-driven
+    // mutation is never the direct reply to a client's own WS request,
+    // so there's no `reqId` to correlate — passing `sid` = the acting
+    // `cp:`-prefixed session is still safe and correct even so, since
+    // `pushTo` is a no-op for a session `hub.bySid` never registered
+    // (a canister player is never itself WS-connected).
+    afterMutation : (Int, TP.SessionId, ?Nat64, ?TP.TableId, Bool) -> async* ();
   };
+
+  /// Runs after `afterMutation`'s push fan-out, for every successful
+  /// mutation that touched a table — wired to `canister_players.mo`'s
+  /// `settle` so a canister opponent reacts to a human's move with no
+  /// polling. `null` if a host never wires canister players.
+  public type OnSettled = (Int, TP.TableId) -> async* ();
 
   /// `async*`/`await*`, not `async`/`await`, on `sweep` here and on every
   /// push helper below (`pushTo`/`pushStatus`/`afterMutation`/
@@ -511,11 +531,12 @@ module {
     hub : Hub,
     codec : Codec<S, M>,
     wsParams : IcWebSocketCdkTypes.WsInitParams,
+    onSettled : ?OnSettled,
   ) : Attached {
     let wsState = IcWebSocketCdkState.IcWebSocketState(wsParams);
 
     func pushTo(sid : TP.SessionId, msg : Msg<S, M>) : async* () {
-      switch (Map.get(hub.bySid, Text.compare, sid)) {
+      switch (hub.bySid.get(sid)) {
         case null {}; // that seat isn't connected over WS (e.g. still polling)
         case (?p) {
           ignore await* IcWebSocketCdk.send(wsState, p, codec.encode(msg));
@@ -548,7 +569,7 @@ module {
     /// which tables are open to begin with; `#rematch`'s own call site
     /// computes this per-outcome via `rematchOpenedLobby` above instead
     /// of a fixed `false`, since ONE of its outcomes (the partner already
-    /// left) does open a fresh listing.
+    /// left) does open a fresh listing. `onSettled` (see its own doc) runs last.
     func afterMutation(now : Int, sid : TP.SessionId, reqId : ?Nat64, id : ?TP.TableId, broadcastLobby : Bool) : async* () {
       await* pushStatus(now, sid, reqId);
       switch (id) {
@@ -584,14 +605,18 @@ module {
         };
       };
       if (broadcastLobby) {
-        for (other in Map.keys(hub.bySid)) {
+        for (other in hub.bySid.keys()) {
           if (other != sid) {
-            switch (Map.get(registry.bySession, Text.compare, other)) {
+            switch (registry.bySession.get(other)) {
               case null { await* pushStatus(now, other, null) }; // genuinely browsing
               case (?_) {}; // seated somewhere — already reached above if relevant
             };
           };
         };
+      };
+      switch (onSettled, id) {
+        case (?f, ?id) await* f(now, id);
+        case (_, _) {};
       };
     };
 
@@ -623,7 +648,7 @@ module {
           // (none of which hand back a `TableId` of their own) can tell `afterMutation`
           // which table's own occupants to also reach. `createTable`/
           // `joinTable` don't need it: they return their own id directly.
-          let priorId = Map.get(registry.bySession, Text.compare, sid);
+          let priorId = registry.bySession.get(sid);
           switch (req) {
             case (#status) { await* pushStatus(now, sid, reqId) };
             case (#createTable { seat; visibility }) {
@@ -706,9 +731,9 @@ module {
     /// against and it must always go through. (Unrelated to
     /// `Hub.generation`/`seenGen` below, which tracks WS *connection*
     /// identity, not match epochs.) `null` if `sid` isn't at any table.
-    func genOfSessionsTable(sid : TP.SessionId) : ?Nat = switch (Map.get(registry.bySession, Text.compare, sid)) {
+    func genOfSessionsTable(sid : TP.SessionId) : ?Nat = switch (registry.bySession.get(sid)) {
       case null null;
-      case (?id) switch (Map.get(registry.tables, Nat.compare, id)) {
+      case (?id) switch (registry.tables.get(id)) {
         case null null;
         case (?t) ?t.gen;
       };
@@ -767,7 +792,7 @@ module {
       // cleared by the time `disconnectSession` returns (see its own
       // doc), so this is the only chance to know which table to check
       // for a doubly-abandoned partner below.
-      let priorId = Map.get(registry.bySession, Text.compare, s);
+      let priorId = registry.bySession.get(s);
       disconnectSession(now, s);
       // Both gone: free the table now instead of leaving it occupied
       // until the idle timeout notices. Only reachable via #debrief
@@ -793,13 +818,13 @@ module {
       // board.
       switch (priorId) {
         case null {};
-        case (?id) switch (Map.get(registry.tables, Nat.compare, id)) {
+        case (?id) switch (registry.tables.get(id)) {
           case null {}; // already GC'd — nothing left to check
           case (?t) switch (t.phase) {
             case (#debrief d) {
               if (d.p1 == s or d.p2 == s) {
                 let partner = if (d.p1 == s) d.p2 else d.p1;
-                switch (Map.get(hub.bySid, Text.compare, partner)) {
+                switch (hub.bySid.get(partner)) {
                   case null disconnectSession(now, partner);
                   case (?_) {}; // partner is still connected — nothing to do
                 };
@@ -813,7 +838,7 @@ module {
       // Safe to prune only if nothing bumped the generation again while
       // that suspended — see this function's own doc.
       if (generationOf(hub, s) == seenGen) {
-        Map.remove(hub.generation, Text.compare, s);
+        hub.generation.remove(s);
       };
     };
 
@@ -848,7 +873,7 @@ module {
     /// once that elapses.
     func onClose(args : IcWebSocketCdkTypes.OnCloseCallbackArgs) : async* () {
       let p = args.client_principal;
-      let sid = Map.get(hub.byPrincipal, Principal.compare, p);
+      let sid = hub.byPrincipal.get(p);
       forget(hub, p);
       switch (sid) {
         case null {}; // this principal was never registered to a sid — nothing to do
@@ -885,7 +910,7 @@ module {
       // snapshot's own entries still read whatever the sweep just did to
       // them, even for one removed from `registry.tables` itself in the
       // meantime.
-      let snapshot = Map.toArray(registry.tables);
+      let snapshot = registry.tables.toArray();
       registry.sweep(now);
       var anyTableFreedUp = false;
       for ((_, t) in snapshot.values()) {
@@ -895,7 +920,7 @@ module {
         };
       };
       if (not anyTableFreedUp) return; // nothing to tell anyone about
-      for (sid in Map.keys(hub.bySid)) {
+      for (sid in hub.bySid.keys()) {
         await* pushStatus(now, sid, null);
       };
     };
@@ -903,6 +928,7 @@ module {
     {
       ws = IcWebSocketCdk.IcWebSocket(wsState, wsParams, handlers);
       sweep = sweepAndPush;
+      afterMutation;
     };
   };
 };
