@@ -336,14 +336,17 @@ pieces — skip it unless the user asks for a "bot"/"AI opponent"/
 they do, this lets a SECOND canister (yours or someone else's) join a
 table and submit moves via a plain inter-canister call, with the same
 server-side legality (`validate` still runs) and the same real-time push
-to a human opponent as a browser tab gets. Add nothing to `mops.toml` —
+to a human opponent as a browser tab gets. The same canister principal
+may hold a live seat at more than one table at once — each board gets
+its own independent session (see `canister_players.mo`'s own
+`sidForCanister` doc) — with no extra wiring needed on your part beyond
+what's below. Add nothing to `mops.toml` —
 `mo:duel-game-core/canister_players` depends on nothing beyond `core`
 and its sibling engine modules, already pulled in regardless — and
 extend `Host.mo` with:
 
 ```motoko
-import Principal "mo:core/Principal";
-import Text "mo:core/Text";
+import Principal "mo:core/Principal"; // enables p.toText() dot notation below
 import Timer "mo:core/Timer";
 
 import CanisterPlayers "mo:duel-game-core/canister_players";
@@ -374,8 +377,8 @@ persistent actor {
     registry,
     attached.afterMutation, // reuses ws.mo's own push fan-out
     func(session, req, k) : async* () {
-      let p = Principal.fromText(Text.trimStart(session, #text(CanisterPlayers.CP_SID_PREFIX)));
-      let bot : BotIface.CanisterPlayer = actor (Principal.toText(p));
+      let p = CanisterPlayers.principalOfCanisterSession(session);
+      let bot : BotIface.CanisterPlayer = actor (p.toText());
       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
     },
     func(id : TP.TableId, secs : Nat) : async* () {
@@ -384,8 +387,10 @@ persistent actor {
   );
   settleTable := ?cpAttached.settle;
 
-  // The seven `*_as_canister` Candid methods a canister player calls —
-  // no hand-declared forwarding methods:
+  // The six `*_as_canister` Candid methods a canister player calls —
+  // no hand-declared forwarding methods. (There's no `rematch_as_canister`:
+  // a canister-vs-canister debrief auto-acks both sides unconditionally
+  // once neither is a live human still deciding.)
   include CanisterPlayersActorMixin(cpAttached);
 
   // Fold `cpAttached.sweep` into the SAME idle-sweep timer `ActorMixin`

@@ -120,7 +120,10 @@ visibility, createdBy)` plus `join`/`submit`/`rematch`/`leave`/`reset`/
   layer. `sweep` idle-evicts and garbage-collects across every table.
   `attachMetrics(pt : PT.Tracker)`, from `mo:promtracker`, is a separate,
   entirely optional call some time after `Registry.new` — see "Metrics"
-  below.
+  below. `peekNextTableId` is a small pure getter alongside all of the
+  above — as side-effect-free as `status` — returning the `TableId` the
+  NEXT `createTable`/`createTableReserving` call will assign; see
+  "Canister players" below for the one real user of it.
 - Eight per-table operations, on either `Table<S, M>` or `Registry<S,
 M>`: `join`/`createTable`+`joinTable`, `submit`, `rematch`, `leave`,
   `reset`, `claimWin`, `ackEnded`, `status` (plus `sweep`, not
@@ -518,17 +521,40 @@ new is exposed for a stray caller to hit, and there's nothing to spoof —
 the reply can only ever come from the one principal this module itself
 decided to call.
 
-**Identity: a third `sid` namespace.** Exactly like `ws.mo`'s `ii:`/
-`an:`, `CanisterPlayers.CP_SID_PREFIX` (`"cp:"`) is a third reserved
-namespace of the same `sidFor(prefix, p)` shape, reusing `Ws.sidFor`
-as-is. It's actually simpler here than for a browser: `ws.mo` has to
-cross-check a client-ASSERTED `sid` against a separately authenticated
-WebSocket connection, because that transport decouples the two. A plain
-canister-to-canister Candid call has no such gap — `msg.caller` already
-IS the authenticated identity — so every entry point computes
-`sidForCanister(caller)` itself and never accepts a client-supplied
-`sid` at all. There's nothing to check, because there's nothing to
-spoof.
+**Identity: a third `sid` namespace, one per board.** Exactly like
+`ws.mo`'s `ii:`/`an:`, `CanisterPlayers.CP_SID_PREFIX` (`"cp:"`) is a
+third reserved namespace. It's actually simpler here than for a
+browser: `ws.mo` has to cross-check a client-ASSERTED `sid` against a
+separately authenticated WebSocket connection, because that transport
+decouples the two. A plain canister-to-canister Candid call has no such
+gap — `msg.caller` already IS the authenticated identity — so every
+entry point computes its own `cp:` session rather than accepting a
+client-supplied `sid`. There's nothing to check, because there's
+nothing to spoof.
+
+A `Registry` table is still exactly one SESSION's worth of "my one
+game" — nothing about that changes. What's not one-to-one any more is a
+canister PRINCIPAL to a session: `CanisterPlayers.sidForCanister(p,
+tableId)` mints a SEPARATE session per board
+(`"cp:" # p.toText() # ":" # tableId.toText()`), so the same bot
+canister can hold a live seat at any number of tables at once, each one
+an ordinary, fully independent session as far as `Table`/`Registry` are
+concerned. `tableId` is free to supply everywhere except `createTable`
+itself, where the id doesn't exist yet at the point a session is needed
+to create it — `Registry.peekNextTableId` (a pure read of the
+registry's own id nonce, as side-effect-free as `status`) supplies it
+one call early, safe as long as nothing `await`s between peeking it and
+creating the table with it. Every OTHER entry point that acts on an
+EXISTING board — `leave_as_canister`/`ack_ended_as_canister`/
+`claim_win_as_canister`/`reset_as_canister` — takes `tableId` as an
+explicit argument instead of trying to infer "my one game": with more
+than one live board per canister that's ambiguous, so the caller says
+which board it means, the same `tableId`
+`create_table_as_canister`/`join_table_as_canister` returned.
+`CanisterPlayers.principalOfCanisterSession` is `sidForCanister`'s own
+inverse — recovers the calling canister's principal from one of its
+`cp:` sessions, used below by a host's own `callBot` closure to know
+which canister to actually call `make_move` on.
 
 **The call/response protocol.** `notifyAndApply` (internal) builds a
 `TP.MoveRequest<S>` from the table's own current, truthful
@@ -624,19 +650,23 @@ entirely, testable in the plain interpreter harness with a stubbed
 `armClaimCheck` parameter each need to call back into the OTHER side's
 result before either exists, so a host breaks that cycle with one small
 mutable indirection, filled in once `cpAttached` itself is built. The
-seven Candid methods a canister player calls
+six Candid methods a canister player calls
 (`create_table_as_canister`/`join_table_as_canister`/`leave_as_canister`/
-`rematch_as_canister`/`ack_ended_as_canister`/`claim_win_as_canister`/
-`reset_as_canister`) come from a single
-`include CanisterPlayersActorMixin(cpAttached)` — `mo:duel-game-core/
-canister_players_actor_mixin`, the `canister_players.mo` counterpart to
-`ActorMixin` above; no host hand-declares any of the seven:
+`ack_ended_as_canister`/`claim_win_as_canister`/`reset_as_canister`)
+come from a single `include CanisterPlayersActorMixin(cpAttached)` —
+`mo:duel-game-core/canister_players_actor_mixin`, the
+`canister_players.mo` counterpart to `ActorMixin` above; no host
+hand-declares any of the six. There is no `rematch_as_canister`: a
+canister-vs-canister debrief auto-acks both sides unconditionally the
+moment neither is a live human still deciding (see "Unattended,
+canister-vs-canister matches" below), so nothing is ever left waiting
+on a canister's own rematch click the way a human's own "Rematch"
+button is:
 
 ```motoko
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
-import Principal "mo:core/Principal";
-import Text "mo:core/Text";
+import Principal "mo:core/Principal"; // enables p.toText() dot notation below
 import Timer "mo:core/Timer";
 
 import BotIface "BotIface"; // this game's own CanisterPlayer actor type
@@ -668,10 +698,8 @@ persistent actor {
     registry,
     attached.afterMutation, // reuses ws.mo's own push fan-out — see above
     func(session, req, k) : async* () {
-      let p = Principal.fromText(
-        Text.trimStart(session, #text(CanisterPlayers.CP_SID_PREFIX))
-      );
-      let bot : BotIface.CanisterPlayer = actor (Principal.toText(p));
+      let p = CanisterPlayers.principalOfCanisterSession(session);
+      let bot : BotIface.CanisterPlayer = actor (p.toText());
       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
     },
     func(id : TP.TableId, secs : Nat) : async* () {
@@ -727,11 +755,13 @@ debrief immediately rather than leaving it stuck until the idle-sweep
 timer eventually clears it. `claim_win_as_canister`/`reset_as_canister`
 exist alongside that mainly so a canister PARTICIPANT that wants to act
 the moment it's entitled to — rather than wait on the armed wakeup —
-can call either directly; both route through the caller's own `cp:`
-session exactly like `leave_as_canister` does (only ever "my own table,"
-never an arbitrary one by table id — a supervising tournament-orchestrator
-canister resetting or claiming ANY table, not just one it's seated at, is
-a further capability this module doesn't provide).
+can call either directly, naming the `tableId` it means (a canister may
+hold more than one live seat at once — see "Identity" above); each
+still only ever acts on a board the CALLER'S OWN principal is actually
+seated at, since the session a `tableId` derives is always scoped to
+`caller` itself — a supervising tournament-orchestrator canister
+resetting or claiming a table it isn't itself seated at is a further
+capability this module doesn't provide.
 
 A lobby frontend needs no new field to show "vs 🤖" either:
 `TableSummary.p1Session`/`p2Session` already carry the raw `SessionId`
@@ -749,8 +779,9 @@ lands directly in `#active`, with no second `joinTable` needed from
 either side:
 
 ```motoko
-switch (registry.createTableReserving(spec, now, mySession, #p1, #open, CanisterPlayers.sidForCanister(botPrincipal))) {
-  case (#ok id) { /* both seats are already live */ };
+let nextId = registry.peekNextTableId(); // safe: nothing else can create a table between this line and the next
+switch (registry.createTableReserving(spec, now, mySession, #p1, #open, CanisterPlayers.sidForCanister(botPrincipal, nextId))) {
+  case (#ok id) { /* both seats are already live, id == nextId */ };
   case (#err e) { /* ... */ };
 };
 
@@ -1012,7 +1043,7 @@ table creation/discovery/routing on top without changing any of them:
   (`mo:duel-game-core/canister_players`) is a further, entirely OPTIONAL
   module letting a canister take a seat; `src/canister_players_actor_mixin.mo`
   (`mo:duel-game-core/canister_players_actor_mixin`) is its own
-  `ActorMixin` counterpart — the seven `*_as_canister` Candid methods a
+  `ActorMixin` counterpart — the six `*_as_canister` Candid methods a
   host `include`s alongside it once it wires `CanisterPlayers.attach` —
   see "Canister players" above.
 - `test/FakeGame.mo` is a deliberately trivial `Spec` used only by the

@@ -97,8 +97,6 @@ func noopAfterMutation(_now : Int, _sid : TP.SessionId, _reqId : ?Nat64, _id : ?
 
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
-let sidBot1 = CanisterPlayers.sidForCanister(bot1);
-let sidBot2 = CanisterPlayers.sidForCanister(bot2);
 
 let reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT);
 let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
@@ -112,6 +110,8 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
 );
 
 let id = ok(await* cp.createTable(bot1, #p1, #open), "bot1 creates a table");
+let sidBot1 = CanisterPlayers.sidForCanister(bot1, id);
+let sidBot2 = CanisterPlayers.sidForCanister(bot2, id);
 // bot2's own joinTable eagerly triggers the FIRST ply with no sweep at
 // all — the #alternating counterpart to backend/test/CanisterPlayers.test.mo's
 // own "bot-vs-bot: the SECOND bot's own joinTable eagerly triggers"

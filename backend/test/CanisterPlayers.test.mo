@@ -52,15 +52,29 @@ func atTableView(reg : Reg, at : Int, session : Text) : TP.View<Rules.State> = s
 
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
-let sidBot1 = CanisterPlayers.sidForCanister(bot1);
-let sidBot2 = CanisterPlayers.sidForCanister(bot2);
+// Every test below is the FIRST `createTable`/`createTableReserving` call
+// on its own `fresh()` registry, so its own table always lands on id 1
+// (`Registry.new`'s own `tableIdNonce` starts there) — these globals are
+// valid for every single-table test in this file precisely because of
+// that; test 16 (two live boards for the same bot1) derives its own
+// per-board sessions locally instead, since id 1 no longer means "the"
+// table there.
+let sidBot1 = CanisterPlayers.sidForCanister(bot1, 1);
+let sidBot2 = CanisterPlayers.sidForCanister(bot2, 1);
 
-// ── 1. sidForCanister / isCanisterSession ───────────────────────────────
-assert sidBot1 == "cp:" # bot1.toText();
+// ── 1. sidForCanister / isCanisterSession / principalOfCanisterSession ──
+assert sidBot1 == "cp:" # bot1.toText() # ":1";
 assert CanisterPlayers.isCanisterSession(sidBot1);
 assert not CanisterPlayers.isCanisterSession("ii:someone");
 assert not CanisterPlayers.isCanisterSession("an:someone");
-Debug.print("1. sidForCanister / isCanisterSession OK");
+// A different board for the SAME principal is a different session —
+// the whole point of keying `sidForCanister` on `tableId` (see
+// `canister_players.mo`'s own doc header) — and `principalOfCanisterSession`
+// is its exact inverse.
+assert CanisterPlayers.sidForCanister(bot1, 2) != sidBot1;
+assert CanisterPlayers.principalOfCanisterSession(sidBot1) == bot1;
+assert CanisterPlayers.principalOfCanisterSession(CanisterPlayers.sidForCanister(bot1, 2)) == bot1;
+Debug.print("1. sidForCanister / isCanisterSession / principalOfCanisterSession OK");
 
 // ── shared test doubles ─────────────────────────────────────────────────
 
@@ -232,8 +246,8 @@ switch (atTableView(reg8, T0, sidBot1)) {
 };
 Debug.print("8. two canister seats joining each other eagerly resolve rounds with no human, no sweep OK");
 
-// ── 9. leave / rematch / ackEnded forward correctly and derive the
-//         session purely from the caller's own principal ───────────────
+// ── 9. leave / ackEnded forward correctly, deriving the session from the
+//         caller's own principal AND the tableId it names ─────────────
 let reg9 = fresh();
 let counter9 = newAfterMutationCounter();
 let cp9 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg9, stubAfterMutation(counter9), constantBot(#gather), noopArm);
@@ -243,7 +257,7 @@ let genBefore = switch (atTableView(reg9, T0, sidBot1)) {
   case (#inGame v) v.gen;
   case (_) Runtime.trap("n/a");
 };
-ok(await* cp9.leave(bot1, genBefore), "bot1 leaves the live game — a shared #aborted debrief");
+ok(await* cp9.leave(bot1, id9, genBefore), "bot1 leaves the live game — a shared #aborted debrief");
 switch (atTableView(reg9, T0, sidBot1)) {
   case (#debrief d) switch (d.end) {
     case (#aborted(#p1)) {};
@@ -251,13 +265,13 @@ switch (atTableView(reg9, T0, sidBot1)) {
   };
   case (_) Runtime.trap("bot1 should be in the shared debrief it just created");
 };
-await* cp9.ackEnded(bot1);
+await* cp9.ackEnded(bot1, id9);
 switch (reg9.status(spec, T0, sidBot1)) {
   case (#browsing _) {};
   case (_) Runtime.trap("bot1 should be back to browsing after ackEnded");
 };
-expectErr(await* cp9.leave(bot1, 0), "bot1 (not seated anywhere) tries to leave again");
-Debug.print("9. leave / ackEnded forward correctly, deriving the session from the caller's own principal OK");
+expectErr(await* cp9.leave(bot1, id9, 0), "bot1 (not seated anywhere any more) tries to leave the same table again");
+Debug.print("9. leave / ackEnded forward correctly, deriving the session from the caller's own principal and tableId OK");
 
 // ── 10. Flow 2, eager dual-seat assignment (registry.createTableReserving,
 //          see ../../CLAUDE.md's "Canister players" note): a canister seated
@@ -283,14 +297,16 @@ switch (atTableView(reg10, T0, "human")) {
 };
 Debug.print("10. a canister eagerly seated via createTableReserving is due from the start, no joinTable needed OK");
 
-// ── 11. claimWin / reset forward correctly, routing per-table exactly like
-//          leave above (only ever "my own table," never an arbitrary one
-//          by id — see `Attached`'s own doc on why) ────────────────────────
+// ── 11. claimWin / reset forward correctly, routing to whichever `tableId`
+//          the caller names — a `tableId` bot1 was never actually seated
+//          at just derives a session `registry.bySession` doesn't know
+//          either, so the engine's own `#notSeated` falls out with no
+//          special-casing here ─────────────────────────────────────────
 let reg11 = fresh();
 let counter11 = newAfterMutationCounter();
 let cp11 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg11, stubAfterMutation(counter11), constantBot(#gather), noopArm);
-expectErr(await* cp11.claimWin(bot1, 0), "bot1 (not seated anywhere) tries to claim a win");
-expectErr(await* cp11.reset(bot1, 0), "bot1 (not seated anywhere) tries to reset");
+expectErr(await* cp11.claimWin(bot1, 1, 0), "bot1 (not seated anywhere) tries to claim a win");
+expectErr(await* cp11.reset(bot1, 1, 0), "bot1 (not seated anywhere) tries to reset");
 let id11 = ok(await* cp11.createTable(bot1, #p1, #open), "bot1 creates a table");
 ignore ok(reg11.joinTable(spec, T0, "human", id11, #p2, null), "human joins; game live");
 await* cp11.sweep(T0); // bot1 gathers; now waiting on human
@@ -298,11 +314,11 @@ let g11 = switch (atTableView(reg11, T0, sidBot1)) {
   case (#inGame v) v.gen;
   case (_) Runtime.trap("n/a");
 };
-switch (await* cp11.claimWin(bot1, g11)) {
+switch (await* cp11.claimWin(bot1, id11, g11)) {
   case (#err(#notOverdue _)) {};
   case (other) Runtime.trap("bot1's own claim window hasn't elapsed yet, got " # debug_show (other));
 };
-ok(await* cp11.reset(bot1, g11), "bot1 resets its own live game — a shared #aborted debrief, same as leave");
+ok(await* cp11.reset(bot1, id11, g11), "bot1 resets its own live game — a shared #aborted debrief, same as leave");
 switch (atTableView(reg11, T0, sidBot1)) {
   case (#debrief d) switch (d.end) {
     case (#aborted(#p1)) {};
@@ -353,24 +369,44 @@ switch (atTableView(reg12, PAST_CLAIM, sidBot1)) {
   case (other) Runtime.trap("expected a #claimed debrief, got " # debug_show (other));
 };
 // Both seats are still pinned to the just-ended table — neither has acked
-// its own side of the shared debrief yet.
-expectErr(await* cp12.createTable(bot1, #p1, #open), "bot1 should still be pinned to the debrief its own claim just created");
-expectErr(await* cp12.createTable(bot2, #p1, #open), "bot2 should still be pinned too");
+// its own side of the shared debrief yet. A fresh `createTable` is no
+// longer a valid probe for "still busy" here: it derives a session
+// scoped to a BRAND-NEW `tableId` of its own (see `canister_players.mo`'s
+// own doc header on per-board identity), entirely independent of this
+// table's, so it would succeed regardless of this debrief's state — test
+// 16 demonstrates that freedom directly. `status` on THIS table's own
+// session is what actually reveals whether it's been acked yet.
+switch (reg12.status(spec, PAST_CLAIM, sidBot1)) {
+  case (#atTable { view = #debrief _ }) {};
+  case (other) Runtime.trap("bot1 should still be pinned to the debrief its own claim just created, got " # debug_show (other));
+};
+switch (reg12.status(spec, PAST_CLAIM, sidBot2)) {
+  case (#atTable { view = #debrief _ }) {};
+  case (other) Runtime.trap("bot2 should still be pinned too, got " # debug_show (other));
+};
 // Nobody's around to decide on a rematch in an all-canister match — the
 // NEXT sweep call acks BOTH seats immediately, with no deadlock waiting
 // on each other's own ack (see `maybeAckDebrief`'s own doc).
 await* cp12.sweep(PAST_CLAIM);
-ignore ok(await* cp12.createTable(bot1, #p1, #open), "bot1 should be free immediately, no deadlock waiting on bot2");
-ignore ok(await* cp12.createTable(bot2, #p1, #open), "bot2 should be free immediately too");
+switch (reg12.status(spec, PAST_CLAIM, sidBot1)) {
+  case (#browsing _) {};
+  case (other) Runtime.trap("bot1 should be free immediately, no deadlock waiting on bot2, got " # debug_show (other));
+};
+switch (reg12.status(spec, PAST_CLAIM, sidBot2)) {
+  case (#browsing _) {};
+  case (other) Runtime.trap("bot2 should be free immediately too, got " # debug_show (other));
+};
 Debug.print("12. an unattended canister-vs-canister match finishes via sweep's own automatic claim-win, no human involved OK");
 
 // ── 13. the reported bug this fix addresses: a game ending via a HUMAN's
 //          own action (never routed through canister_players.mo at all)
-//          leaves a canister seat pinned to the just-ended table, refusing
-//          a fresh `createTable` for that same `cp:` session — `sweep`
+//          leaves a canister seat pinned to the just-ended table — `sweep`
 //          must free it once nobody's left who could still want a
 //          rematch, but NOT a moment before, so a still-deciding human
-//          partner's own rematch window is never cut short ─────────────
+//          partner's own rematch window is never cut short (probed via
+//          `status` on bot1's OWN table-1 session — see test 12's own
+//          note on why a fresh `createTable` no longer serves as a
+//          "still busy" probe) ─────────────────────────────────────────
 let reg13 = fresh();
 let counter13 = newAfterMutationCounter();
 let cp13 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg13, stubAfterMutation(counter13), constantBot(#gather), noopArm);
@@ -386,15 +422,24 @@ let genAbort13 = switch (atTableView(reg13, T0, sidBot1)) {
 // test 3's own doc explains for why a human's own actions never route
 // through `canister_players.mo`).
 ok(reg13.leave(T0, "human", genAbort13), "human forfeits — bot1's side of the debrief is never told");
-expectErr(await* cp13.createTable(bot1, #p1, #open), "bot1 should be pinned to its own unacked debrief, same as the reported bug");
+switch (reg13.status(spec, T0, sidBot1)) {
+  case (#atTable { view = #debrief _ }) {};
+  case (other) Runtime.trap("bot1 should be pinned to its own unacked debrief, same as the reported bug, got " # debug_show (other));
+};
 await* cp13.sweep(T0);
 // Still pinned — the human hasn't acked THEIR side yet, so they might
 // still rematch; freeing bot1 now would silently break that option.
-expectErr(await* cp13.createTable(bot1, #p1, #open), "bot1 should stay pinned while its human partner could still rematch");
+switch (reg13.status(spec, T0, sidBot1)) {
+  case (#atTable { view = #debrief _ }) {};
+  case (other) Runtime.trap("bot1 should stay pinned while its human partner could still rematch, got " # debug_show (other));
+};
 ignore ok(reg13.leave(T0, "human", genAbort13), "human acks their own debrief too (idempotent gen, same as leave's own doc) — no rematch coming");
 await* cp13.sweep(T0);
 // Freed — nothing's left for bot1 to wait on, no idle-timeout wait needed.
-ignore ok(await* cp13.createTable(bot1, #p1, #open), "bot1 should be free the moment its human partner is gone for good");
+switch (reg13.status(spec, T0, sidBot1)) {
+  case (#browsing _) {};
+  case (other) Runtime.trap("bot1 should be free the moment its human partner is gone for good, got " # debug_show (other));
+};
 Debug.print("13. a canister seat's own finished debrief only auto-acks once its human partner is gone for good OK");
 
 // ── 14. settle asks a due seat for one table, without scanning the registry ─
@@ -440,5 +485,51 @@ switch (atTableView(reg15, PAST_CLAIM15, sidBot1)) {
   case (other) Runtime.trap("expected a #claimed debrief, got " # debug_show (other));
 };
 Debug.print("15. a waiting-but-not-yet-overdue canister seat arms exactly one precisely-timed claim-win check OK");
+
+// ── 16. the same bot1 principal plays TWO tables at once, each an
+//          ordinary, fully independent session — the actual multi-board
+//          capability `sidForCanister(p, tableId)` exists for (see
+//          `canister_players.mo`'s own doc header). `sweep` settles both
+//          in one pass with no cross-talk, and `leave` on ONE of the two
+//          `tableId`s leaves only that board — the other stays live,
+//          proving `tableId` really does disambiguate "which of my
+//          several games" rather than just routing to some single
+//          implicit one ───────────────────────────────────────────────
+let reg16 = fresh();
+let counter16 = newAfterMutationCounter();
+let cp16 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg16, stubAfterMutation(counter16), constantBot(#gather), noopArm);
+let idA16 = ok(await* cp16.createTable(bot1, #p1, #open), "bot1 creates board A");
+let idB16 = ok(await* cp16.createTable(bot1, #p1, #open), "the SAME bot1 creates board B too — rejected under the old one-session-per-principal scheme, legal now");
+assert idA16 != idB16;
+let sidA16 = CanisterPlayers.sidForCanister(bot1, idA16);
+let sidB16 = CanisterPlayers.sidForCanister(bot1, idB16);
+assert sidA16 != sidB16;
+ignore ok(reg16.joinTable(spec, T0, "humanA", idA16, #p2, null), "humanA joins board A");
+ignore ok(reg16.joinTable(spec, T0, "humanB", idB16, #p2, null), "humanB joins board B");
+await* cp16.sweep(T0); // one pass settles bot1's due move on BOTH boards
+switch (atTableView(reg16, T0, sidA16), atTableView(reg16, T0, sidB16)) {
+  case (#inGame vA, #inGame vB) {
+    assert vA.youSubmitted;
+    assert vB.youSubmitted;
+  };
+  case (_, _) Runtime.trap("bot1 should be waiting on both boards after one sweep");
+};
+let genA16 = switch (atTableView(reg16, T0, sidA16)) {
+  case (#inGame v) v.gen;
+  case (_) Runtime.trap("n/a");
+};
+ok(await* cp16.leave(bot1, idA16, genA16), "bot1 leaves board A only");
+switch (atTableView(reg16, T0, sidA16)) {
+  case (#debrief d) switch (d.end) {
+    case (#aborted(#p1)) {};
+    case (_) Runtime.trap("board A's own leave should abort as p1");
+  };
+  case (_) Runtime.trap("board A should be in the debrief bot1's own leave just created");
+};
+switch (atTableView(reg16, T0, sidB16)) {
+  case (#inGame v) assert v.youSubmitted; // untouched — board A's leave had no effect here
+  case (_) Runtime.trap("board B should still be live — bot1's board-A leave must not have touched it");
+};
+Debug.print("16. the same bot1 principal plays two tables at once, each an independent session, settled and left independently OK");
 
 Debug.print("ALL CANISTER-PLAYERS CHECKS PASSED");

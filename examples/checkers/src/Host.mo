@@ -7,7 +7,6 @@
 // simultaneously; this game's own code never has to know or care.
 
 import Principal "mo:core/Principal";
-import Text "mo:core/Text";
 import Time "mo:core/Time";
 import Timer "mo:core/Timer";
 
@@ -69,7 +68,7 @@ persistent actor {
     registry,
     attached.afterMutation,
     func(session : TP.SessionId, req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
-      let p = Principal.fromText(session.trimStart(#text(CanisterPlayers.CP_SID_PREFIX)));
+      let p = CanisterPlayers.principalOfCanisterSession(session);
       let bot : BotIface.CanisterPlayer = actor (p.toText());
       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
     },

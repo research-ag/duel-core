@@ -80,8 +80,14 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   required — a host that never imports it just has no canister-seatable
   players): it lets a CANISTER take a seat and play, using
   a third reserved `sid` namespace (`cp:`, `sidForCanister`, mirroring
-  `ws.mo`'s `ii:`/`an:`) derived from `msg.caller` — never a
-  client-supplied `sid`, so there's nothing to spoof. The whole protocol
+  `ws.mo`'s `ii:`/`an:`) derived from `msg.caller` AND the `TableId` of
+  the specific board it names — never a client-supplied `sid`, so
+  there's nothing to spoof, and never just `msg.caller` alone, so the
+  SAME canister principal can hold a live seat at any number of tables
+  at once, each one an ordinary, fully independent session as far as
+  the engine is concerned (`Registry.peekNextTableId`, a pure read of
+  the registry's own id nonce, is what lets `createTable` derive this
+  session before the id it needs would otherwise exist). The whole protocol
   is one call: the game canister calls the player canister's own
   `make_move` and treats the reply AS the move (`registry.submit`,
   applied by the caller, never a second inbound entry point a move could
@@ -110,14 +116,19 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   regardless of whether the opponent is human or canister.
   `claim_win_as_canister`/`reset_as_canister` additionally let a canister
   PARTICIPANT act the instant it's entitled to rather than wait on that
-  wakeup, routed through its own `cp:` session exactly like
-  `leave_as_canister` (only ever "my own table," never an arbitrary one
-  by id — a supervising tournament-orchestrator canister is out of scope
-  here). `settle` also acks a canister seat's own finished `#debrief` —
+  wakeup — each takes the `TableId` it means explicitly (the same one
+  `create_table_as_canister`/`join_table_as_canister` returned), since a
+  canister may be seated at more than one board at once; either way it
+  only ever acts on a board the CALLER'S OWN principal is actually
+  seated at — a supervising tournament-orchestrator canister resetting
+  or claiming a table it isn't itself seated at is out of scope here.
+  `settle` also acks a canister seat's own finished `#debrief` —
   a human's frontend does this itself (`leave`/`ackEnded`, on "return to
   lobby") the moment they're not rematching, but a canister seat has no
   such click, so left alone it would stay pinned to that finished table
-  (refusing `createTable`/`joinTable` for that same `cp:` session) until
+  (refusing a fresh `joinTable`/`leave`/etc. naming that SAME `tableId`
+  — a brand-new `createTable` for an unrelated board is unaffected,
+  since that derives its own fresh, independent session instead) until
   the far slower idle-sweep timer eventually clears it; `settle` acks it
   immediately instead, once the OTHER seat is no longer a live
   participant of that SAME debrief either (already acked, or never
@@ -152,21 +163,26 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   `backend/src/canister_players_actor_mixin.mo`
   (`mo:duel-game-core/canister_players_actor_mixin`) is a sixth module,
   layered on `canister_players.mo` the same way `actor_mixin.mo` is
-  layered on `ws.mo`: a `mixin` supplying the seven `*_as_canister`
+  layered on `ws.mo`: a `mixin` supplying the six `*_as_canister`
   Candid methods (`create_table_as_canister`/`join_table_as_canister`/
-  `leave_as_canister`/`rematch_as_canister`/`ack_ended_as_canister`/
-  `claim_win_as_canister`/`reset_as_canister`), `include`d in the host
+  `leave_as_canister`/`ack_ended_as_canister`/`claim_win_as_canister`/
+  `reset_as_canister`), `include`d in the host
   actor as `include CanisterPlayersActorMixin(cpAttached)` — no host
-  hand-declares any of the seven. It's optional in exactly the sense
+  hand-declares any of the six. (There is deliberately no
+  `rematch_as_canister`: a canister-vs-canister debrief auto-acks both
+  sides unconditionally the moment neither is a live human still
+  deciding, so a canister seat never needs to request a rematch itself
+  — see `backend/src/canister_players.mo`'s own `Attached` doc.) It's
+  optional in exactly the sense
   `canister_players.mo` itself is (a host that never wires
   `CanisterPlayers.attach` never `include`s this either, and pays no
   cost for skipping it), narrower still than that: a host free to hand-roll
-  those seven forwarding methods itself instead may still do so — this
+  those six forwarding methods itself instead may still do so — this
   mixin exists purely to stop `examples/racing/src/Host.mo` and
   `examples/checkers/src/Host.mo` (and every future game that opts into
-  canister players) from re-typing the identical seven methods verbatim.
+  canister players) from re-typing the identical six methods verbatim.
   Unlike `ActorMixin`, it needs no `<system>` capability of its own (none
-  of the seven methods touches a timer), so it's declared `mixin
+  of the six methods touches a timer), so it's declared `mixin
 (cpAttached : CanisterPlayers.Attached)`, not `mixin <system>(...)`.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
   client plumbing (session identity, real-time push, the generic

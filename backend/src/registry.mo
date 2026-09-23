@@ -296,6 +296,20 @@ module {
     withSummaries.toArray().map<(T.TableId, T.TableSummary), T.TableSummary>(func((_, v)) = v);
   };
 
+  /// The `TableId` the next `createTable`/`createTableReserving` call on
+  /// this registry will assign — a pure, side-effect-free peek at
+  /// `tableIdNonce` (as safe to call as `status`; see architecture rule
+  /// 8), not a reservation. Exists so a caller that needs to derive
+  /// something FROM a table's id — `canister_players.mo`'s own
+  /// `sidForCanister`, keyed per board rather than per caller, is the one
+  /// user today — can compute that derivation before the id is otherwise
+  /// knowable, i.e. before `createTable` itself returns. Only valid to
+  /// rely on with no `await`/`await*` between this call and the
+  /// `createTable` call it's paired with: this registry is single-
+  /// threaded within one update call, but nothing stops another table
+  /// being created in between two separate messages.
+  public func peekNextTableId<S, M>(self : Registry<S, M>) : T.TableId = self.tableIdNonce;
+
   /// Create a fresh table and seat `session` in `seat` on it. Rejects
   /// with `#badCode` for a `#code("")` visibility — an empty access code
   /// isn't just pointless, it's unreachable BY CONSTRUCTION: `joinTable`

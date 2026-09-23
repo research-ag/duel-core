@@ -82,7 +82,6 @@ func atTableView(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, session
 func noopAfterMutation(_now : Int, _sid : TP.SessionId, _reqId : ?Nat64, _id : ?TP.TableId, _broadcast : Bool) : async* () {};
 
 let bot1 = Principal.fromText("aaaaa-aa");
-let sidBot1 = CanisterPlayers.sidForCanister(bot1);
 
 let reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT);
 let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
@@ -96,6 +95,7 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
 );
 
 let id = ok(await* cp.createTable(bot1, #p1, #open), "bot creates a table");
+let sidBot1 = CanisterPlayers.sidForCanister(bot1, id);
 // The human joins directly against `reg` — standing in for `ws.mo`
 // dispatching a browser's own `joinTable`, exactly as
 // `backend/test/CanisterPlayers.test.mo` does for its own human sessions.

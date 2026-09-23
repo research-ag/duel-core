@@ -59,19 +59,27 @@ Http(renderer.renderExposition, "/metrics")`, from
   see `../../CLAUDE.md`'s "Canister players" note): `CanisterPlayers.attach`
   shares this same `registry` and reuses `attached.afterMutation` (`Ws.attach`'s
   own push fan-out) so a bot's move reaches a human opponent's browser in
-  real time, same as `ws.mo` itself; the `callBot` closure passed to it is
-  where the actual `await bot.make_move(req)` inter-canister call happens
-  (a `try`/`catch` around it, since `Rules.Action` is concrete only here —
-  see `CanisterPlayers.attach`'s own doc for why that can't live inside the
-  module). `create_table_as_canister`/`join_table_as_canister`/
-  `leave_as_canister`/`rematch_as_canister`/`ack_ended_as_canister`/
+  real time, same as `ws.mo` itself; the `callBot` closure passed to it
+  recovers which bot canister to call via
+  `CanisterPlayers.principalOfCanisterSession(session)` (`sidForCanister`'s
+  own inverse), then makes the actual `await bot.make_move(req)`
+  inter-canister call (a `try`/`catch` around it, since `Rules.Action` is
+  concrete only here — see `CanisterPlayers.attach`'s own doc for why
+  that can't live inside the module). `create_table_as_canister`/
+  `join_table_as_canister`/`leave_as_canister`/`ack_ended_as_canister`/
   `claim_win_as_canister`/`reset_as_canister` all come from one
   `include CanisterPlayersActorMixin(cpAttached)`
   (`mo:duel-game-core/canister_players_actor_mixin`, the
   `canister_players.mo` counterpart to `ActorMixin` above) — no
   hand-declared forwarding methods here; each one derives the caller's
-  `cp:` session from `msg.caller` (never client-supplied — nothing to
-  spoof); there is no `submit_as_canister` at all, since a canister
+  `cp:` session from `msg.caller` AND the `tableId` it names (never
+  client-supplied — nothing to spoof), since the same bot canister may
+  hold a live seat at more than one table at once — see
+  `../../CLAUDE.md`'s "Canister players" note on per-board identity;
+  there is no `rematch_as_canister`, since a canister-vs-canister
+  debrief auto-acks both sides unconditionally the moment neither is a
+  live human still deciding, and there is no `submit_as_canister` at
+  all, since a canister
   player's move only ever arrives as the direct reply to a call this
   module made, never a separately-arriving request. `Host.mo` also wires
   `Ws.attach`'s own optional `onSettled` parameter to `cpAttached.settle`

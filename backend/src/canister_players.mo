@@ -21,7 +21,7 @@
 /// and nothing to spoof — the reply can only ever come from the one
 /// principal this module itself decided to call.
 ///
-/// ── Identity: a third `sid` namespace ───────────────────────────────────
+/// ── Identity: a third `sid` namespace, one per board ────────────────────
 ///
 /// `Table`/`Registry` never look at a `SessionId` beyond comparing it for
 /// equality — `ws.mo` already uses that to give a human two non-spoofable
@@ -34,9 +34,40 @@
 /// against a separately authenticated WebSocket connection, because that
 /// transport decouples the two. A plain canister-to-canister Candid call
 /// has no such gap — `msg.caller` already IS the authenticated identity —
-/// so every entry point below computes `sidForCanister(caller)` itself and
-/// never accepts a client-supplied `sid` at all. There is nothing to check,
-/// because there is nothing to spoof.
+/// so every entry point below computes its own `cp:` session rather than
+/// accepting a client-supplied `sid`. There is nothing to check, because
+/// there is nothing to spoof.
+///
+/// A `Registry` table is still exactly one SESSION's worth of "my one
+/// game" — `bySession`'s own 1:1 map is untouched by anything here. What
+/// this module doesn't assume any more is that a canister PRINCIPAL maps
+/// to only one session: `sidForCanister(p, tableId)` mints a SEPARATE
+/// session per board (`"cp:" # p.toText() # ":" # tableId.toText()`), so
+/// the same bot canister can hold a live seat at any number of tables at
+/// once, each one an ordinary, fully independent session as far as
+/// `Table`/`Registry` are concerned. `tableId` is free everywhere except
+/// `createTable` itself, where the id doesn't exist yet at the point a
+/// session is needed to create it: `Registry.peekNextTableId` (a pure
+/// read of the registry's own nonce, as side-effect-free as `status`)
+/// supplies it one call early — safe because nothing here `await`s
+/// between peeking it and creating the table with it. Every OTHER entry
+/// point below that acts on an EXISTING board — `leave`/`ackEnded`/
+/// `claimWin`/`reset` — takes `tableId` as an explicit argument instead
+/// of trying to infer "my one game": with more than one live board per
+/// canister that's ambiguous, so the caller says which board it means,
+/// the same way a human's own frontend already knows which table its own
+/// screen is showing. `principalOfCanisterSession` is `sidForCanister`'s
+/// own inverse — recovers the calling canister's principal from a `cp:`
+/// session, for a host's own `callBot` closure to know which canister to
+/// actually call `make_move` on (see `examples/racing/src/Host.mo`).
+///
+/// None of the "ask a due seat for its move"/"settle a finished board"
+/// machinery below (`notifyAndApply`, `maybeNotify`, `maybeAckDebrief`,
+/// `settle`, `sweep`) needed to change for any of this: each already
+/// operates on one specific `TableId` and reads the session `Table`/
+/// `Registry` already have stored on THAT table's own phase record,
+/// never re-derives one fresh from `caller` — so it was already exactly
+/// as multi-board-safe as the engine's own per-table bookkeeping is.
 ///
 /// ── The call/response protocol ──────────────────────────────────────────
 ///
@@ -99,6 +130,7 @@
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
 import Principal "mo:core/Principal";
+import Runtime "mo:core/Runtime";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
 
@@ -114,17 +146,37 @@ module {
   /// every `SessionId` as opaque text.
   public let CP_SID_PREFIX : Text = "cp:";
 
-  /// The permanent player id for canister `p` — pure, so it's "issued" for
-  /// free the first time `p` is ever seen. Mirrors `Ws.sidFor`/
-  /// `Ws.sidForPrincipal` exactly (duplicated in miniature here, rather
-  /// than imported, to keep this module's own dependency surface to just
-  /// `core` plus its sibling `registry.mo`/`types.mo` — see the root
-  /// `CLAUDE.md`'s toolchain note on why `ws.mo`'s own dependency on
-  /// `ic-websocket-cdk` stays confined to that one module; importing
-  /// `ws.mo` here for one line would pull that dependency in transitively
-  /// for no real reason, since every actual byte of it is unrelated to
-  /// canister players).
-  public func sidForCanister(p : Principal.Principal) : T.SessionId = CP_SID_PREFIX # p.toText();
+  /// This board's own player id for canister `p` — pure, so it's "issued"
+  /// for free the first time this exact `(p, tableId)` pair is ever seen,
+  /// same as `Ws.sidFor`/`Ws.sidForPrincipal` (duplicated in miniature
+  /// here, rather than imported, to keep this module's own dependency
+  /// surface to just `core` plus its sibling `registry.mo`/`types.mo` —
+  /// see the root `CLAUDE.md`'s toolchain note on why `ws.mo`'s own
+  /// dependency on `ic-websocket-cdk` stays confined to that one module;
+  /// importing `ws.mo` here for one line would pull that dependency in
+  /// transitively for no real reason, since every actual byte of it is
+  /// unrelated to canister players). `p` alone is NOT enough to name a
+  /// session any more — see this module's own doc header on why
+  /// `tableId` is part of the identity, not just a routing detail.
+  public func sidForCanister(p : Principal.Principal, tableId : T.TableId) : T.SessionId = CP_SID_PREFIX # p.toText() # ":" # tableId.toText();
+
+  /// `sidForCanister`'s own inverse — recovers the calling canister's
+  /// principal from one of its `cp:` sessions. A host's own `callBot`
+  /// closure is the one real user (see this module's own doc header and
+  /// `examples/racing/src/Host.mo`): it needs to know which canister to
+  /// actually call `make_move` on, and the session `notifyAndApply` hands
+  /// it is the only place that principal is recorded. Traps on a `session`
+  /// that isn't a well-formed `cp:` session at all — every call site
+  /// reaches this only after `isCanisterSession` (or the `#atTable`
+  /// status this module itself just read) already confirmed it is one, so
+  /// there's no legitimate case left to return `null` for.
+  public func principalOfCanisterSession(session : T.SessionId) : Principal.Principal {
+    let rest = session.trimStart(#text CP_SID_PREFIX);
+    switch (rest.split(#char ':').next()) {
+      case (?p) Principal.fromText(p);
+      case null Runtime.trap("principalOfCanisterSession: malformed cp: session " # session);
+    };
+  };
 
   /// Whether `session` names a canister-seated player under this module's
   /// namespace — a purely cosmetic check for a lobby frontend wanting to
@@ -136,15 +188,22 @@ module {
   /// What a host actor gets back from `attach`: `submit` is deliberately
   /// absent (see this module's own doc header), and `settle`/`sweep` are
   /// the eager and slow-fallback ways to ask/claim/ack a canister seat —
-  /// see `maybeSettleBoth` below.
+  /// see `maybeSettleBoth` below. There is no `rematch` here: a canister
+  /// seat never needs to request one itself — a canister-vs-canister
+  /// debrief auto-acks both sides unconditionally the moment neither is a
+  /// live human waiting to decide (see `maybeAckDebrief` below), so
+  /// nothing is ever left waiting on a canister's own rematch click the
+  /// way a human's own "Rematch" button is. `leave`/`ackEnded`/
+  /// `claimWin`/`reset` each take `tableId` explicitly — with a canister
+  /// potentially seated at several boards at once (see this module's own
+  /// doc header), "my one game" is no longer enough to say which one.
   public type Attached = {
     createTable : (Principal.Principal, T.Seat, T.TableVisibility) -> async* T.Res<T.TableId>;
     joinTable : (Principal.Principal, T.TableId, T.Seat, ?Text) -> async* T.Res<T.JoinOk>;
-    leave : (Principal.Principal, Nat) -> async* T.Res<()>;
-    rematch : (Principal.Principal) -> async* T.Res<T.RematchOk>;
-    ackEnded : (Principal.Principal) -> async* ();
-    claimWin : (Principal.Principal, Nat) -> async* T.Res<()>;
-    reset : (Principal.Principal, Nat) -> async* T.Res<()>;
+    leave : (Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
+    ackEnded : (Principal.Principal, T.TableId) -> async* ();
+    claimWin : (Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
+    reset : (Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
     settle : (Int, T.TableId) -> async* ();
     sweep : (Int) -> async* ();
   };
@@ -300,23 +359,6 @@ module {
       };
     };
 
-    /// Whether a just-succeeded `rematch` opened a fresh, unreserved
-    /// staging worth telling every browsing session about — mirrors
-    /// `Ws.rematchOpenedLobby` exactly (duplicated in miniature rather
-    /// than imported — see `sidForCanister`'s own doc for why).
-    func rematchOpenedLobby(id : ?T.TableId) : Bool {
-      switch (id) {
-        case null false;
-        case (?id) switch (registry.tables.get(id)) {
-          case null false;
-          case (?t) switch (t.phase) {
-            case (#staging st) st.reservedFor == null;
-            case (_) false;
-          };
-        };
-      };
-    };
-
     /// Checks both seats of `id`'s current phase — exposed to the host as
     /// `settle`; also driven by `sweep`'s full-registry scan.
     func maybeSettleBoth(now : Int, id : T.TableId) : async* () {
@@ -337,20 +379,24 @@ module {
     };
 
     {
+      // No `await*` between `peekNextTableId` and `createTable` below —
+      // see `Registry.peekNextTableId`'s own doc on why that's exactly
+      // what keeps this pairing safe.
       createTable = func(caller : Principal.Principal, seat : T.Seat, visibility : T.TableVisibility) : async* T.Res<T.TableId> {
-        let session = sidForCanister(caller);
         let now = Time.now();
+        let id = registry.peekNextTableId();
+        let session = sidForCanister(caller, id);
         switch (registry.createTable(spec, now, session, seat, visibility)) {
-          case (#ok id) {
-            await* afterMutation(now, session, null, ?id, true);
-            #ok(id);
+          case (#ok gotId) {
+            await* afterMutation(now, session, null, ?gotId, true);
+            #ok(gotId);
           };
           case (#err e) #err(e);
         };
       };
 
       joinTable = func(caller : Principal.Principal, id : T.TableId, seat : T.Seat, code : ?Text) : async* T.Res<T.JoinOk> {
-        let session = sidForCanister(caller);
+        let session = sidForCanister(caller, id);
         let now = Time.now();
         switch (registry.joinTable(spec, now, session, id, seat, code)) {
           case (#ok j) {
@@ -363,75 +409,54 @@ module {
         };
       };
 
-      leave = func(caller : Principal.Principal, gen : Nat) : async* T.Res<()> {
-        let session = sidForCanister(caller);
+      // `tableId` says which of this canister's (possibly several) live
+      // boards this call means — see this module's own doc header. A
+      // `tableId` the caller was never actually seated at just derives a
+      // `session` that isn't in `registry.bySession` either, so
+      // `registry.leave` below rejects it with `#notSeated` on its own;
+      // there's nothing to pre-check here.
+      leave = func(caller : Principal.Principal, tableId : T.TableId, gen : Nat) : async* T.Res<()> {
+        let session = sidForCanister(caller, tableId);
         let now = Time.now();
-        switch (registry.bySession.get(session)) {
-          case null #err(#notSeated);
-          case (?id) switch (registry.leave(now, session, gen)) {
-            case (#ok _) {
-              await* afterMutation(now, session, null, ?id, true);
-              #ok(());
-            };
-            case (#err e) #err(e);
-          };
-        };
-      };
-
-      rematch = func(caller : Principal.Principal) : async* T.Res<T.RematchOk> {
-        let session = sidForCanister(caller);
-        let now = Time.now();
-        let priorId = registry.bySession.get(session);
-        switch (registry.rematch(spec, now, session)) {
-          case (#ok r) {
-            await* afterMutation(now, session, null, priorId, rematchOpenedLobby(priorId));
-            switch (priorId, r) {
-              case (?id, #started) await* maybeSettleBoth(Time.now(), id);
-              case (_, _) {};
-            };
-            #ok(r);
+        switch (registry.leave(now, session, gen)) {
+          case (#ok _) {
+            await* afterMutation(now, session, null, ?tableId, true);
+            #ok(());
           };
           case (#err e) #err(e);
         };
       };
 
-      ackEnded = func(caller : Principal.Principal) : async* () {
-        let session = sidForCanister(caller);
+      ackEnded = func(caller : Principal.Principal, tableId : T.TableId) : async* () {
+        let session = sidForCanister(caller, tableId);
         let now = Time.now();
-        let priorId = registry.bySession.get(session);
         registry.ackEnded(session);
-        await* afterMutation(now, session, null, priorId, true);
+        await* afterMutation(now, session, null, ?tableId, true);
       };
 
       // Lets a canister participant act immediately instead of waiting on
-      // `armClaimCheck`'s wakeup; routes through `registry.bySession` like `leave`.
-      claimWin = func(caller : Principal.Principal, gen : Nat) : async* T.Res<()> {
-        let session = sidForCanister(caller);
+      // `armClaimCheck`'s wakeup.
+      claimWin = func(caller : Principal.Principal, tableId : T.TableId, gen : Nat) : async* T.Res<()> {
+        let session = sidForCanister(caller, tableId);
         let now = Time.now();
-        switch (registry.bySession.get(session)) {
-          case null #err(#notSeated);
-          case (?id) switch (registry.claimWin(spec, now, session, gen)) {
-            case (#ok _) {
-              await* afterMutation(now, session, null, ?id, true);
-              #ok(());
-            };
-            case (#err e) #err(e);
+        switch (registry.claimWin(spec, now, session, gen)) {
+          case (#ok _) {
+            await* afterMutation(now, session, null, ?tableId, true);
+            #ok(());
           };
+          case (#err e) #err(e);
         };
       };
 
-      reset = func(caller : Principal.Principal, gen : Nat) : async* T.Res<()> {
-        let session = sidForCanister(caller);
+      reset = func(caller : Principal.Principal, tableId : T.TableId, gen : Nat) : async* T.Res<()> {
+        let session = sidForCanister(caller, tableId);
         let now = Time.now();
-        switch (registry.bySession.get(session)) {
-          case null #err(#notSeated);
-          case (?id) switch (registry.reset(now, session, gen)) {
-            case (#ok _) {
-              await* afterMutation(now, session, null, ?id, true);
-              #ok(());
-            };
-            case (#err e) #err(e);
+        switch (registry.reset(now, session, gen)) {
+          case (#ok _) {
+            await* afterMutation(now, session, null, ?tableId, true);
+            #ok(());
           };
+          case (#err e) #err(e);
         };
       };
 
