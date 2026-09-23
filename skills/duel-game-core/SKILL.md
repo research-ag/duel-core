@@ -38,8 +38,9 @@ which this skill walks you through in order:
    you're not re-testing join/leave/rematch/idle-takeover).
 4. `frontend/<game>-plugin.js` — a `GamePlugin`: two Candid types, seat
    labels, and how to draw the board and action buttons.
-5. `frontend/index.html` + `frontend/app.js` — copy the templates
-   verbatim; they wire the actor and hand off to the generic client.
+5. `frontend/index.html` + `frontend/app.js` + `frontend/style.css` —
+   copy the templates (the first two verbatim; `style.css` may start
+   empty); they wire the actor and hand off to the generic client.
 6. `icp.yaml`, `mops.toml`, `frontend/package.json`, `frontend/.npmrc` —
    project/deploy config. Copy the templates, filling in names.
 
@@ -329,6 +330,86 @@ does for `mo:duel-game-core/ws`. See `mo:duel-game-core`'s own
 each metric means, and `examples/racing/src/Host.mo` in
 `research-ag/duel-core` for a complete worked example.
 
+**Canister players (optional).** Also not part of the six required
+pieces — skip it unless the user asks for a "bot"/"AI opponent"/
+"canister player" that takes a seat and plays on its own account. If
+they do, this lets a SECOND canister (yours or someone else's) join a
+table and submit moves via a plain inter-canister call, with the same
+server-side legality (`validate` still runs) and the same real-time push
+to a human opponent as a browser tab gets. Add nothing to `mops.toml` —
+`mo:duel-game-core/canister_players` depends on nothing beyond `core`
+and its sibling engine modules, already pulled in regardless — and
+extend `Host.mo` with:
+
+```motoko
+import Principal "mo:core/Principal";
+import Text "mo:core/Text";
+import Timer "mo:core/Timer";
+
+import CanisterPlayers "mo:duel-game-core/canister_players";
+import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
+
+import BotIface "BotIface"; // one method: make_move : (TP.MoveRequest<Rules.State>) -> async Rules.Action
+
+persistent actor {
+  // ...registry/status/Ws.attach exactly as the template already has,
+  // except Ws.attach's LAST argument becomes `?settle` (below), not
+  // `null`...
+
+  // `Ws.attach` and `CanisterPlayers.attach` each need the other's
+  // result before either exists — this mutable indirection breaks that
+  // cycle (see `canister_players.mo`'s own doc header for why):
+  transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
+  transient let settle = func(now : Int, id : TP.TableId) : async* () {
+    switch (settleTable) {
+      case (?f) await* f(now, id);
+      case null {};
+    };
+  };
+
+  // ...attached.ws.init<system>()...
+
+  transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
+    Rules.spec(),
+    registry,
+    attached.afterMutation, // reuses ws.mo's own push fan-out
+    func(session, req, k) : async* () {
+      let p = Principal.fromText(Text.trimStart(session, #text(CanisterPlayers.CP_SID_PREFIX)));
+      let bot : BotIface.CanisterPlayer = actor (Principal.toText(p));
+      try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
+    },
+    func(id : TP.TableId, secs : Nat) : async* () {
+      ignore Timer.setTimer<system>(#seconds secs, func() : async () { await* settle(Time.now(), id) });
+    },
+  );
+  settleTable := ?cpAttached.settle;
+
+  // The seven `*_as_canister` Candid methods a canister player calls —
+  // no hand-declared forwarding methods:
+  include CanisterPlayersActorMixin(cpAttached);
+
+  // Fold `cpAttached.sweep` into the SAME idle-sweep timer `ActorMixin`
+  // already runs — no separate timer:
+  transient let combinedSweep = func(now : Int) : async* () {
+    await* attached.sweep(now);
+    await* cpAttached.sweep(now);
+  };
+  include ActorMixin<system>(attached.ws, combinedSweep); // replaces the plain `attached.sweep` the template passes
+};
+
+```
+
+You'll also need a small `BotIface.mo` (the `CanisterPlayer` Candid
+interface your bot canister implements — one method, `make_move`) and,
+if you're also writing the bot itself, a `Bot.mo`/`BotLogic.mo` pair the
+same shape `examples/racing/bot/`/`examples/checkers/bot/` use. See
+`mo:duel-game-core`'s own `backend/README.md` "Canister players" section
+(shipped in the package) for the full design — the call/response
+protocol, the `settle`/`armClaimCheck` wiring, unattended
+canister-vs-canister matches — and `examples/racing/src/Host.mo`/
+`examples/checkers/src/Host.mo` in `research-ag/duel-core` for it wired
+end to end, bot canister included.
+
 ## Step 5 — Write the rules unit tests
 
 Read `templates/RulesUnit.test.mo.template` and write
@@ -406,10 +487,16 @@ npm package itself, via `render.js`/`app.js`.
   the REAL `validate` for both seats on every submission regardless), so
   keep the two in sync but never rely on this half alone.
 
-Then copy `templates/index.html.template` → `frontend/src/index.html`
-and `templates/app.js.template` → `frontend/src/app.js`, filling in
+Then copy `templates/index.html.template` → `frontend/src/index.html`,
+`templates/app.js.template` → `frontend/src/app.js`, and
+`templates/style.css.template` → `frontend/src/style.css` (fill in
+`__GAME_TITLE__` in its header comment; the file may otherwise stay
+empty — see its own comment for when to add to it), filling in
 `__GAME_TITLE__`, `__PLUGIN_FILE__`, and `__IDLE_TIMEOUT_SECONDS__`
-(match Step 4's timeout). Neither file should need any other change —
+(match Step 4's timeout) in the first two. `build.js` (Step 7) copies
+`src/style.css` to `dist/style.css` unconditionally — skipping this file
+breaks the build, even if you leave it empty. Neither `index.html`/
+`app.js` should need any other change —
 they resolve a real, non-spoofable player identity with no login step
 (`duel-game-core/anon-identity.js`'s `resolveAnonymousIdentity()`), build
 the actor from it, build a real-time-push `ws` over the same identity

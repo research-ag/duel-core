@@ -65,8 +65,11 @@ Http(renderer.renderExposition, "/metrics")`, from
   see `CanisterPlayers.attach`'s own doc for why that can't live inside the
   module). `create_table_as_canister`/`join_table_as_canister`/
   `leave_as_canister`/`rematch_as_canister`/`ack_ended_as_canister`/
-  `claim_win_as_canister`/`reset_as_canister` forward
-  straight to `cpAttached`'s matching operation, deriving the caller's
+  `claim_win_as_canister`/`reset_as_canister` all come from one
+  `include CanisterPlayersActorMixin(cpAttached)`
+  (`mo:duel-game-core/canister_players_actor_mixin`, the
+  `canister_players.mo` counterpart to `ActorMixin` above) — no
+  hand-declared forwarding methods here; each one derives the caller's
   `cp:` session from `msg.caller` (never client-supplied — nothing to
   spoof); there is no `submit_as_canister` at all, since a canister
   player's move only ever arrives as the direct reply to a call this

@@ -623,10 +623,18 @@ entirely, testable in the plain interpreter harness with a stubbed
 `Ws.attach`'s own `onSettled` hook and `CanisterPlayers.attach`'s own
 `armClaimCheck` parameter each need to call back into the OTHER side's
 result before either exists, so a host breaks that cycle with one small
-mutable indirection, filled in once `cpAttached` itself is built:
+mutable indirection, filled in once `cpAttached` itself is built. The
+seven Candid methods a canister player calls
+(`create_table_as_canister`/`join_table_as_canister`/`leave_as_canister`/
+`rematch_as_canister`/`ack_ended_as_canister`/`claim_win_as_canister`/
+`reset_as_canister`) come from a single
+`include CanisterPlayersActorMixin(cpAttached)` — `mo:duel-game-core/
+canister_players_actor_mixin`, the `canister_players.mo` counterpart to
+`ActorMixin` above; no host hand-declares any of the seven:
 
 ```motoko
 import CanisterPlayers "mo:duel-game-core/canister_players";
+import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Timer "mo:core/Timer";
@@ -677,27 +685,7 @@ persistent actor {
   );
   settleTable := ?cpAttached.settle;
 
-  public shared ({ caller }) func create_table_as_canister(seat : TP.Seat, visibility : TP.TableVisibility) : async TP.Res<TP.TableId> {
-    await* cpAttached.createTable(caller, seat, visibility);
-  };
-  public shared ({ caller }) func join_table_as_canister(id : TP.TableId, seat : TP.Seat, code : ?Text) : async TP.Res<TP.JoinOk> {
-    await* cpAttached.joinTable(caller, id, seat, code);
-  };
-  public shared ({ caller }) func leave_as_canister(gen : Nat) : async TP.Res<()> {
-    await* cpAttached.leave(caller, gen);
-  };
-  public shared ({ caller }) func rematch_as_canister() : async TP.Res<TP.RematchOk> {
-    await* cpAttached.rematch(caller);
-  };
-  public shared ({ caller }) func ack_ended_as_canister() : async () {
-    await* cpAttached.ackEnded(caller);
-  };
-  public shared ({ caller }) func claim_win_as_canister(gen : Nat) : async TP.Res<()> {
-    await* cpAttached.claimWin(caller, gen);
-  };
-  public shared ({ caller }) func reset_as_canister(gen : Nat) : async TP.Res<()> {
-    await* cpAttached.reset(caller, gen);
-  };
+  include CanisterPlayersActorMixin(cpAttached);
 
   // Fold `cpAttached.sweep` — the slow, full-registry safety net for
   // whatever `settle` never gets called for (most commonly: the OTHER
@@ -1020,7 +1008,13 @@ table creation/discovery/routing on top without changing any of them:
   toolchain note), not because wiring it is optional. `src/actor_mixin.mo`
   (`mo:duel-game-core/actor_mixin`) supplies the four `ws_*` Candid
   methods plus the idle-sweep timer, `include`d in the host actor
-  alongside it — see "Real-time push" above.
+  alongside it — see "Real-time push" above. `src/canister_players.mo`
+  (`mo:duel-game-core/canister_players`) is a further, entirely OPTIONAL
+  module letting a canister take a seat; `src/canister_players_actor_mixin.mo`
+  (`mo:duel-game-core/canister_players_actor_mixin`) is its own
+  `ActorMixin` counterpart — the seven `*_as_canister` Candid methods a
+  host `include`s alongside it once it wires `CanisterPlayers.attach` —
+  see "Canister players" above.
 - `test/FakeGame.mo` is a deliberately trivial `Spec` used only by the
   test suites and benchmarks to exercise the engine — it is not a real
   game and ships no rendering.

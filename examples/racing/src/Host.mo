@@ -7,6 +7,7 @@ import TP "mo:duel-game-core";
 import Ws "mo:duel-game-core/ws";
 import ActorMixin "mo:duel-game-core/actor_mixin";
 import CanisterPlayers "mo:duel-game-core/canister_players";
+import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
 import Registry "mo:duel-game-core/registry";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 import PT "mo:promtracker";
@@ -79,32 +80,6 @@ persistent actor {
 
   include Http(renderer.renderExposition, "/metrics");
 
-  public shared ({ caller }) func create_table_as_canister(seat : TP.Seat, visibility : TP.TableVisibility) : async TP.Res<TP.TableId> {
-    await* cpAttached.createTable(caller, seat, visibility);
-  };
-
-  public shared ({ caller }) func join_table_as_canister(id : TP.TableId, seat : TP.Seat, code : ?Text) : async TP.Res<TP.JoinOk> {
-    await* cpAttached.joinTable(caller, id, seat, code);
-  };
-
-  public shared ({ caller }) func leave_as_canister(gen : Nat) : async TP.Res<()> {
-    await* cpAttached.leave(caller, gen);
-  };
-
-  public shared ({ caller }) func rematch_as_canister() : async TP.Res<TP.RematchOk> {
-    await* cpAttached.rematch(caller);
-  };
-
-  public shared ({ caller }) func ack_ended_as_canister() : async () {
-    await* cpAttached.ackEnded(caller);
-  };
-
-  public shared ({ caller }) func claim_win_as_canister(gen : Nat) : async TP.Res<()> {
-    await* cpAttached.claimWin(caller, gen);
-  };
-
-  public shared ({ caller }) func reset_as_canister(gen : Nat) : async TP.Res<()> {
-    await* cpAttached.reset(caller, gen);
-  };
+  include CanisterPlayersActorMixin(cpAttached);
 
 };

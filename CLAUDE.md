@@ -149,6 +149,25 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   what those controls do. See
   `backend/README.md`'s "Canister players" section for the full design
   and worked example.
+  `backend/src/canister_players_actor_mixin.mo`
+  (`mo:duel-game-core/canister_players_actor_mixin`) is a sixth module,
+  layered on `canister_players.mo` the same way `actor_mixin.mo` is
+  layered on `ws.mo`: a `mixin` supplying the seven `*_as_canister`
+  Candid methods (`create_table_as_canister`/`join_table_as_canister`/
+  `leave_as_canister`/`rematch_as_canister`/`ack_ended_as_canister`/
+  `claim_win_as_canister`/`reset_as_canister`), `include`d in the host
+  actor as `include CanisterPlayersActorMixin(cpAttached)` — no host
+  hand-declares any of the seven. It's optional in exactly the sense
+  `canister_players.mo` itself is (a host that never wires
+  `CanisterPlayers.attach` never `include`s this either, and pays no
+  cost for skipping it), narrower still than that: a host free to hand-roll
+  those seven forwarding methods itself instead may still do so — this
+  mixin exists purely to stop `examples/racing/src/Host.mo` and
+  `examples/checkers/src/Host.mo` (and every future game that opts into
+  canister players) from re-typing the identical seven methods verbatim.
+  Unlike `ActorMixin`, it needs no `<system>` capability of its own (none
+  of the seven methods touches a timer), so it's declared `mixin
+(cpAttached : CanisterPlayers.Attached)`, not `mixin <system>(...)`.
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
   client plumbing (session identity, real-time push, the generic
   multi-table lobby/staging/rematch/busy/debrief screens, Candid IDL
