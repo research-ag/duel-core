@@ -106,6 +106,20 @@ h2 {
   font-size: 0.78rem;
 }
 
+/* The player id specifically (not `.table-code`'s short access codes,
+ * which never need this) — a full principal is long enough to stretch
+ * the whole header on a narrow screen otherwise, so it's clipped with an
+ * ellipsis; the untruncated id is still one click away via "new", and a
+ * screen reader gets the full text regardless of the visual clip. */
+#sid {
+  display: inline-block;
+  max-width: 7.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 main {
   max-width: 860px;
   margin: 1.75rem auto 0;
@@ -561,4 +575,122 @@ button.seat {
   display: flex;
   justify-content: flex-end;
   gap: 0.6rem;
+}
+
+/* The leaderboard: a dedicated full-page overlay (render.ts's
+ * `renderLeaderboard` renders the ranked rows into `#leaderboard-body`;
+ * the header bar — title, "back" button — is each example's own static
+ * markup, styled here since it's the same shape for every game). Covers
+ * the whole viewport while shown, so a live status push updating
+ * `#screen` underneath it can never clobber it, the way a small inline
+ * panel sitting alongside `#screen` would risk. */
+#leaderboard-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  background: var(--bg);
+  padding: 1.75rem 1.25rem 3rem;
+}
+
+#leaderboard-panel[hidden] {
+  display: none;
+}
+
+.leaderboard-header {
+  max-width: 860px;
+  margin: 0 auto 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.leaderboard-header h2 {
+  flex: 1;
+  /* Overrides the generic `h2 { margin: 0 0 1rem }` above — with
+   * `align-items: center`, flex centers a child's MARGIN box, not its
+   * text; a bottom-only margin left in place pulls the visible text
+   * off-center against `#leaderboard-back`, which has none. */
+  margin: 0;
+}
+
+.leaderboard-list {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+/* Ranked leaderboard rows (render.ts's `renderLeaderboard`). Mirrors
+ * `.table-row`'s card look so it reads as the same visual family as the
+ * lobby's own table list. */
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  margin-bottom: 0.4rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+/* The caller's own row (`renderLeaderboard`'s own `yourSid` option) —
+ * picked out with the same gold the trophy toggle itself uses, not just
+ * the "You" badge alone, so it still reads at a glance in a long list. */
+.leaderboard-row.you {
+  border-color: var(--accent);
+  background: #23200f;
+}
+
+.leaderboard-rank {
+  min-width: 1.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  text-align: right;
+}
+
+.leaderboard-player {
+  flex: 1;
+  min-width: 0; /* lets a flex child actually shrink below its content's own width */
+  font-family: monospace;
+  white-space: nowrap; /* required for text-overflow: ellipsis to do anything at all */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.leaderboard-you-badge {
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #17130a;
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+}
+
+/* Marks a canister-seated player's own row (render.js's
+ * `isCanisterPlayer`/`renderLeaderboard`) — sits inside
+ * `.leaderboard-player`, right before its (prefix-stripped) principal
+ * text, same row position a human's own id starts at. */
+.leaderboard-bot-icon {
+  margin-right: 0.3rem;
+}
+
+.leaderboard-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* The header's own trophy toggle — icon-only (no "Leaderboard" label),
+ * so it needs a touch more font-size than a text button to read clearly
+ * at a glance. Sits first in `.session`, before the player id, per its
+ * own markup order in each example's index.html — `margin-right` (a
+ * fixed gap, not `auto`: `.session` itself is shrink-to-fit inside
+ * `header`, so an `auto` margin here would have no free space to consume)
+ * sets it apart from the player id/logout cluster that follows. */
+#leaderboard-toggle {
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 0.4rem 0.6rem;
+  margin-right: 1rem;
 }

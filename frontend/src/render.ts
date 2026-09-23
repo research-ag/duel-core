@@ -28,6 +28,7 @@ import type {
   EngineErr,
   GamePlugin,
   InGameView,
+  LeaderboardEntry,
   LobbyView,
   SeatTag,
   StagingYouView,
@@ -157,6 +158,40 @@ export const PLAYER_ID_MAX_LEN = 16;
 export function truncatePlayerId(id: string): { text: string; truncated: boolean } {
   if (id.length <= PLAYER_ID_MAX_LEN) return { text: id, truncated: false };
   return { text: `${id.slice(0, PLAYER_ID_MAX_LEN)}…`, truncated: true };
+}
+
+/// A session id's stable per-PLAYER key — mirrors `Ws.playerKey` on the
+/// backend exactly (`mo:duel-game-core/ws`): strips the reserved `ii:`/
+/// `an:` prefix down to the bare principal text, so a caller's own
+/// `session.sid` can be compared against a `LeaderboardEntry.player`
+/// value (see `renderLeaderboard`'s own `yourSid` option, below). Any
+/// other sid — most notably `cp:`, a canister-player session, never
+/// something a browser tab's OWN session is — is returned unchanged.
+export function playerKeyOf(sid: string): string {
+  if (sid.startsWith("ii:")) return sid.slice(3);
+  if (sid.startsWith("an:")) return sid.slice(3);
+  return sid;
+}
+
+/// Whether a `LeaderboardEntry.player` names a canister-seated player, not
+/// a human — see `mo:duel-game-core/canister_players`'s own
+/// `sidForCanister`/`CP_SID_PREFIX` doc. A human's own key never carries
+/// any prefix at all (`Ws.playerKey`/`playerKeyOf` above already strip
+/// `ii:`/`an:` before a score is ever stored), so a `cp:` prefix
+/// surviving into a stored entry — added deliberately by whichever
+/// `Host.mo` wires canister players, to key a bot's rating/best-lap by
+/// its own stable principal rather than one of its many per-table sids —
+/// is the only marker a leaderboard row can still carry.
+const CANISTER_PLAYER_PREFIX = "cp:";
+export function isCanisterPlayer(player: string): boolean {
+  return player.startsWith(CANISTER_PLAYER_PREFIX);
+}
+
+/// `player` with the `cp:` marker (see `isCanisterPlayer`, above)
+/// stripped for display, same as a human's own key already has no
+/// prefix to strip. Returns `player` unchanged for anyone else.
+export function displayPlayerId(player: string): string {
+  return isCanisterPlayer(player) ? player.slice(CANISTER_PLAYER_PREFIX.length) : player;
 }
 
 function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
@@ -540,4 +575,62 @@ export function renderStatus<S>(status: Status<S>, plugin: GamePlugin<S>): strin
     default:
       return `<p class="error">Unknown status: ${esc(t)}</p>`;
   }
+}
+
+/// Renders a ranked `LeaderboardEntry[]` (as returned by a host's own
+/// `get_leaderboard` query — see `../../backend/README.md`'s
+/// "Leaderboard" section) into HTML. Entirely game-optional and never
+/// wired into `renderView`/`renderStatus` above: unlike the lobby/
+/// staging/debrief chrome, a leaderboard has no fixed place in every
+/// game's own layout (007/checkers might put it in a persistent tab;
+/// racing might put it beside its own `Add Bot` panel — see
+/// `examples/racing/CLAUDE.md`), so a game calls this directly, wherever
+/// it mounts its own panel. `entries` is assumed already in rank order
+/// (`Leaderboard.top`'s own contract, highest score first); this
+/// function does no sorting of its own. `plugin.formatScore` renders
+/// each entry's own `score` — see that field's own doc for why a plain
+/// integer is the correct default for an ELO-scored game. `opts.yourSid`
+/// — pass the caller's own `session.sid` — picks out that player's own
+/// row (a "You" badge, plus a `.you` class on the row for a game's own
+/// stylesheet to highlight) via `playerKeyOf`, above; omit it (or leave
+/// the caller off the ranked slice entirely) and no row is marked. A
+/// canister-seated player's own row (`isCanisterPlayer`, above) gets a
+/// 🤖 icon and its `cp:` marker stripped for display, the same as a
+/// human's own key already shows with no prefix at all.
+export function renderLeaderboard(
+  entries: LeaderboardEntry[],
+  plugin: GamePlugin,
+  opts?: { yourSid?: string },
+): string {
+  if (entries.length === 0) {
+    return `<p class="muted">No games finished yet — the leaderboard is empty.</p>`;
+  }
+  const you = opts?.yourSid !== undefined ? playerKeyOf(opts.yourSid) : undefined;
+  const format = plugin.formatScore ?? ((score: bigint) => score.toString());
+  const rows = entries
+    .map((e, i) => {
+      // Unlike `renderTableRow`'s own `truncatePlayerId` (a fixed
+      // 16-char cutoff, sized for a cramped table row next to seat
+      // buttons), a leaderboard row has real width to spare — the full
+      // id is rendered here and left to `.leaderboard-player`'s own CSS
+      // (`overflow: hidden; text-overflow: ellipsis`) to clip responsively
+      // against whatever width it actually gets, showing far more of the
+      // principal on a wide screen than a fixed char count ever would.
+      // `title` is unconditional here (unlike `renderTableRow`'s, which
+      // only adds one once ITS OWN fixed-length truncation actually
+      // fired) since there's no way to know in advance whether THIS id
+      // will get CSS-clipped at the viewer's own width.
+      const isYou = you !== undefined && e.player === you;
+      const isBot = isCanisterPlayer(e.player);
+      const botIcon = isBot ? `<span class="leaderboard-bot-icon" title="Canister player">🤖</span>` : "";
+      return `
+    <div class="leaderboard-row${isYou ? " you" : ""}">
+      <span class="leaderboard-rank">${i + 1}</span>
+      <span class="leaderboard-player" title="${esc(e.player)}">${botIcon}${esc(displayPlayerId(e.player))}</span>
+      ${isYou ? `<span class="leaderboard-you-badge">You</span>` : ""}
+      <span class="leaderboard-score">${esc(format(e.score))}</span>
+    </div>`;
+    })
+    .join("");
+  return `<div class="leaderboard">${rows}</div>`;
 }

@@ -184,6 +184,69 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   Unlike `ActorMixin`, it needs no `<system>` capability of its own (none
   of the six methods touches a timer), so it's declared `mixin
 (cpAttached : CanisterPlayers.Attached)`, not `mixin <system>(...)`.
+  `backend/src/leaderboard.mo` (`mo:duel-game-core/leaderboard`),
+  `backend/src/elo.mo` (`mo:duel-game-core/elo`), and
+  `backend/src/leaderboard_actor_mixin.mo`
+  (`mo:duel-game-core/leaderboard_actor_mixin`) are a seventh, eighth, and
+  ninth module, all OPTIONAL, all entirely game-agnostic — the generic
+  session engine still knows nothing about ELO or any other scoring
+  concept, so none imports `table.mo`/`registry.mo`/`ws.mo`, nor is any
+  imported BY those. `leaderboard.mo`'s `Board` is a top-N score board,
+  always sorted highest-score-first — there is no "lower is better"
+  direction to configure; a game whose own metric runs the other way
+  (`examples/racing`'s best lap TIME) converts it to a higher-is-better
+  score itself before ever calling in (`3,600,000 - lapMs`, floored at 0,
+  one hour of headroom in milliseconds) — `Leaderboard.new(keep,
+defaultScore)` (`keep` is a buffer, typically 2x however many entries a
+  host actually shows, so a player who drops out of the shown top-N
+  doesn't just vanish outright; `defaultScore` is the host's OWN
+  starting-score choice for a player with no entry yet — this module
+  takes no view on the number, only stores it), `setScore` (unconditional
+  overwrite — an ELO rating that can move either direction) vs
+  `recordIfBetter` (only overwrites a strict improvement — a
+  personal-best metric that should never regress), `scoreOf` (a
+  player's own score, or `defaultScore` if they have none — sparing every
+  ELO-shaped caller its own `switch` over `get`), and `top(n)` (the
+  ranked slice `leaderboard_actor_mixin.mo`'s own `get_leaderboard`
+  returns). `elo.mo`'s `Elo.update(ratingA, ratingB, outcome, k)` is the
+  standard chess-ELO formula, pure and stateless — any win/lose/draw game
+  plugs into it regardless of `Mode` (`examples/007` and
+  `examples/checkers` share this exact module despite one being
+  `#simultaneous` and the other `#alternating`, since all either needs is
+  a `Verdict`) — and deliberately has no starting-rating opinion of its
+  own (no `STARTING_RATING` constant): a new player's first rating is the
+  HOST's own call, passed straight to `Leaderboard.new`'s `defaultScore`,
+  since this module only ever computes a next rating from two given ones,
+  never invents a first one. `leaderboard_actor_mixin.mo` supplies
+  `get_leaderboard` the same way `actor_mixin.mo` supplies the four
+  `ws_*` methods and `canister_players_actor_mixin.mo` supplies the six
+  `*_as_canister` ones: `include LeaderboardActorMixin(leaderboard, 25)`
+  and a host's actor has the query, with no hand-declared method of its
+  own — no `<system>` capability needed, purely read-only (every WRITE
+  still happens from the host's own `onGameEnded`/`onGameStarted`
+  closures). Both `leaderboard.mo`/`elo.mo` are filled in from a new pair
+  of optional hooks on `Ws.attach`: `onGameEnded`
+  (`(TableId, SessionId, SessionId, Debrief<S>) -> ()`, fired once per
+  game ending — `submit`/`claimWin`/`leave` producing a FRESH `#debrief`
+  this exact call, detected via `Debrief.since == now`, the same
+  freshness technique the `rounds_per_game` metric's own internal
+  bookkeeping already relies on) and `onGameStarted`
+  (`(TableId, SessionId, SessionId) -> ()`, fired once a table freshly
+  enters `#active` — `Table.Active` carries no `since` of its own to
+  compare against `now` directly, so this is inferred instead from the
+  one field combination only ever true at creation: `turn == 0`, neither
+  seat has a move pending). Both are purely synchronous (no inter-canister
+  call to await) and both fire for a canister player's own moves too,
+  since `canister_players.mo`'s mutations reuse this SAME `afterMutation`
+  — a bot's games are scored exactly like a human's, with no separate
+  wiring. `null` for either costs a host nothing, same as every other
+  optional hook here; see `backend/README.md`'s "Leaderboard" section for
+  the full worked wiring (both the ELO and best-lap shape) and the
+  player-identity note (`Ws.playerKey` normalizes `ii:`/`an:` sids to a
+  stable per-player key; a `cp:` canister-player session is deliberately
+  per-TABLE, so a host wiring `canister_players.mo` alongside a
+  leaderboard special-cases `CanisterPlayers.principalOfCanisterSession`
+  itself so one bot's score accumulates across every table it plays).
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
   client plumbing (session identity, real-time push, the generic
   multi-table lobby/staging/rematch/busy/debrief screens, Candid IDL
@@ -211,6 +274,42 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   transport (swapped in under the same `GatewayWs` surface, see
   `frontend/README.md`'s transport-split table) is what a deployment
   actually wanting browser WebSocket semantics needs.
+  `frontend/idl.js`'s `makeIdlFactory` also declares `get_leaderboard`
+  unconditionally on every actor it builds, same class as `status` — a
+  plain read-only `query`, needing no `ws` round-trip, that a game whose
+  backend never wires `mo:duel-game-core/leaderboard` simply never calls;
+  `frontend/render.js`'s `renderLeaderboard(entries, plugin, opts?)`
+  renders the ranked result, calling a new, optional
+  `GamePlugin.formatScore(score)` field to turn each entry's raw `score`
+  into display text — the default is the plain integer (already correct
+  for an ELO rating), and a game whose backend instead stores a converted
+  score (`examples/racing`'s best lap time) supplies the inverse of that
+  conversion here. `opts.yourSid` (the caller's own `session.sid`) picks
+  out and badges that player's own row via the new `playerKeyOf(sid)`
+  helper (mirrors `Ws.playerKey` on the backend exactly — strips the
+  `ii:`/`an:` prefix down to the bare principal text so it can be
+  compared against a `LeaderboardEntry.player` value), so a player can
+  find themselves in a long ranked list at a glance. `renderLeaderboard`
+  also renders a canister-seated player's own row with a 🤖 icon and its
+  `cp:` marker stripped, via two further small exports —
+  `isCanisterPlayer(player)`/`displayPlayerId(player)` — same idea as a
+  human's own key already carrying no prefix at all (that one's already
+  stripped server-side, by `Ws.playerKey`, before a score is ever
+  stored; a bot's `cp:` prefix is added back deliberately, by whichever
+  `Host.mo` wires canister players, to key it by its own stable
+  principal rather than one of its many per-table sids — see
+  `backend/README.md`'s "Leaderboard" section's own player-identity
+  note). Unlike the
+  lobby/staging/debrief chrome, `renderLeaderboard` is never wired into
+  `renderStatus`/`renderView` automatically — a leaderboard has no fixed
+  place in every game's own layout, so each game calls it wherever its
+  own panel lives; all three examples use the same shape, though (an
+  icon-only 🏆 toggle, first in the header's own `.session` — before the
+  player id — opening a dedicated full-page overlay rather than a small
+  inline panel, so the generic chrome's own live status pushes updating
+  `#screen` underneath can never clobber it — see `frontend/README.md`'s
+  "Leaderboard" section, and each example's own `CLAUDE.md` for where it
+  actually put the panel).
 - **`backend/test/*.test.mo`** — interpreter-run suites for the engine.
   `Lifecycle.test.mo` walks one long session narrative; `Engine.test.mo`
   drives each entry point in isolation, covering the error variants,
@@ -225,7 +324,13 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   `ws.mo`'s `Hub` — the sid<->principal bridge behind the real-time push
   transport — in isolation, against its two maps directly, since the
   full `IcWebSocketCdk` actor machinery isn't exercisable in this
-  interpreter harness. All of the above are plugged into
+  interpreter harness; the same file also covers `ws.mo`'s other pure,
+  actor-machinery-free helpers this same way — `playerKey` (the
+  `ii:`/`an:` prefix-stripping leaderboard identity normalizer) and
+  `isFreshMatch` (the field-combination check behind the `OnGameStarted`
+  hook — turn 0, no move pending on either seat, touched this exact
+  call), pulled out of `attach()` for exactly this reason, the same as
+  `rematchOpenedLobby` already was. All of the above are plugged into
   `backend/test/FakeGame.mo` — a deliberately trivial throwaway
   `#simultaneous` `Spec` that exists only to exercise the engine; it is
   not a real game and ships no rendering. `Alternating.test.mo` is the
@@ -272,7 +377,21 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   a fixed, tiny constant, not real wall time; a `T0` far larger than
   that would make every canister-landed move look artificially,
   arbitrarily "long ago" the moment a later check queries
-  `claimWinAvailable` against it.) The `*.test.mo` suffix is what `mops test`
+  `claimWinAvailable` against it.) `Leaderboard.test.mo` and `Elo.test.mo`
+  cover `leaderboard.mo`/`elo.mo` directly, with no engine dependency at
+  all — a `Board` is a plain mutable record, `Elo.update` a pure
+  function, so both are exercised straight against their own module,
+  same as `Hub.test.mo`'s own maps: insertion/overwrite/trim-to-`keep`/
+  highest-first ordering and `setScore` vs `recordIfBetter`'s differing
+  semantics for the former; the zero-sum property (one player's rating
+  move is always the other's exact negative), k-factor scaling, and
+  favorite/underdog edge cases for the latter. Neither `onGameEnded` nor
+  `onGameStarted` firing correctly inside `afterMutation` itself has a
+  dedicated suite of its own — that would need the same full
+  `IcWebSocketCdk` actor machinery `Hub.test.mo`'s own doc already
+  explains isn't exercisable here; `isFreshMatch`'s own unit coverage
+  above is the closest a suite gets to that specific wiring. The
+  `*.test.mo` suffix is what `mops test`
   discovers — a file named `FooTest.mo` is silently skipped, so keep the
   suffix when adding
   suites.

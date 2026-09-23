@@ -102,6 +102,36 @@ Http(renderer.renderExposition, "/metrics")`, from
   `settle` never gets called for — is folded into the SAME
   already-mandatory 30s idle-sweep timer `ActorMixin` runs, so none of
   this costs a separate timer of its own.
+  `Host.mo` also wires a best-lap leaderboard: a stable
+  `leaderboard : Leaderboard.Board` field (`mo:duel-game-core/leaderboard`,
+  `Leaderboard.new(50, 0)` — 50 kept, 25 shown; the second argument,
+  `defaultScore`, is inert for this game — a lap time is never "computed
+  FROM" a prior score the way an ELO rating is, so `0` is just a
+  placeholder `Leaderboard.new` requires) — but unlike the two
+  win/lose/draw examples, racing has no `Verdict`-shaped rating to
+  re-compute; it converts its own best-LAP-TIME metric (lower is better)
+  into a higher-is-better score itself before ever storing it:
+  `scoreFromLapMs(ms) = max(0, 3_600_000 - ms)`, one hour of headroom in
+  milliseconds, floored at zero. Nothing in the engine timestamps when a
+  match started, and `RacingRules.State` can't self-timestamp either
+  (`init` is pure, no `Time`), so `Host.mo` also wires `Ws.attach`'s
+  `onGameStarted` parameter — a small `raceStarts : Map<TP.TableId, Int>`
+  side map, set the instant a table freshly enters `#active` and read
+  back (then removed) in the matching `onGameEnded`. Only a clean
+  `#finished` win records a lap time at all — a draw, `#claimed`, or
+  `#aborted` ending means nobody actually crossed the line, so none of
+  those touches the leaderboard (`Leaderboard.recordIfBetter`, not
+  `setScore` — a personal best should never regress). Read back through
+  `get_leaderboard()`, supplied by
+  `include LeaderboardActorMixin(leaderboard, 25)`
+  (`mo:duel-game-core/leaderboard_actor_mixin`), no hand-declared query
+  needed. The SAME `playerKey` wrapper 007/checkers use (special-casing a
+  `cp:` canister-player session down to
+  `CanisterPlayers.principalOfCanisterSession(sid)`, falling back to
+  `Ws.playerKey` otherwise) applies here too, so a bot's best lap
+  accumulates across every table it races on. See
+  `../../backend/README.md`'s "Leaderboard" section for the full worked
+  example this Host.mo follows.
 - **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a racing
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
 -> async Rules.Action`, the exact counterpart to a browser's own
@@ -206,6 +236,25 @@ gateway-*.js` does, registering this tab as its own WS Gateway).
   their own seat, now waiting on the other one). `PUBLIC_CANISTER_ID:bot`
   missing from this deploy's `ic_env` cookie (a fork with no `bot`
   canister declared in `icp.yaml`) leaves the panel hidden for good.
+  `duel-app.js` also wires a header 🏆 toggle button (`index.html`'s
+  `#leaderboard-toggle` — icon-only, no "Leaderboard" label, positioned
+  FIRST in `.session`, before the Driver ID — that opens
+  `#leaderboard-panel`, a full-page overlay sibling of
+  `#duel-header`/`#screen`, hidden outright during an active race the
+  same way `#duel-header`/`#play-vs-bot-panel` already are — see
+  `style.css`'s `body.in-race` rules) that, on click, calls the SAME
+  `actor` `duel-app.js` already built for `actor.get_leaderboard()` — a
+  plain Candid `query`, no `ws` round-trip — and renders the result via
+  `duel-game-core/render.js`'s
+  `renderLeaderboard(entries, plugin, { yourSid: session.sid })`, which
+  badges the caller's own row ("You") if they're on the ranked list;
+  `#leaderboard-back` (inside the overlay) closes it back to `#screen`.
+  `duel-racing-plugin.js` supplies its own `formatScore`, inverting
+  `Host.mo`'s own `scoreFromLapMs` (`3,600,000n - score`, formatted as
+  `m:ss.mmm`) so the panel shows a real lap time instead of the padded
+  number the board actually sorts on — the one place this constant is
+  duplicated on the frontend, so keep it in sync with `Host.mo`'s own
+  `ONE_HOUR_MS` if it ever changes.
   `frontend/src/main.ts`'s own gameplay code (really
   `lobby-connection.service.ts`, wired in via `gameplay.service.ts`)
   shares that EXACT connection (`duel-app.js` publishes it on

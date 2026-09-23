@@ -25,6 +25,10 @@ const FINISH_LAP_COUNT = LAPS_TO_WIN + 1n;
 
 const SEAT_NAME = { p1: 'Car 1', p2: 'Car 2' };
 
+// Must match `Host.mo`'s own `ONE_HOUR_MS` exactly — see `formatScore`
+// below.
+const ONE_HOUR_MS = 3_600_000n;
+
 function lapsText(car) {
   // real laps completed, not raw crossings — subtract the free first
   // crossing so this doesn't jump straight to "1/1 laps" after one move.
@@ -58,6 +62,21 @@ export const plugin = {
 
   seatLabel(seat) {
     return SEAT_NAME[seat];
+  },
+
+  // Inverts `Host.mo`'s own `scoreFromLapMs` (`3,600,000 - lapMs`, floored
+  // at 0 — see ../../../src/Host.mo and ../../../../../backend/README.md's
+  // "Leaderboard" section) so the leaderboard panel shows a real lap time
+  // ("1:38.204") instead of the padded, ELO-shaped number the board
+  // actually sorts on. `score` arrives as a `bigint` (Candid `int`), same
+  // as every other field this plugin already handles as one (see `lap`
+  // above).
+  formatScore(score) {
+    const ms = ONE_HOUR_MS - score;
+    const totalSeconds = Number(ms) / 1000;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = (totalSeconds % 60).toFixed(3).padStart(6, '0');
+    return `${minutes}:${seconds}`;
   },
 
   // The live race itself renders in the full-viewport 3D canvas main.ts

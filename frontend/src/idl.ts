@@ -42,6 +42,7 @@ export interface EngineTypes {
   Visibility: IDLNS.Type;
   TableSummary: IDLNS.Type;
   Status: IDLNS.Type;
+  LeaderboardEntry: IDLNS.Type;
   ClientKey: IDLNS.Type;
   WsResult: IDLNS.Type;
   CanisterWsOpenArguments: IDLNS.Type;
@@ -202,6 +203,18 @@ export function buildEngineTypes({
     atTable: IDL.Record({ id: TableId, view: View }),
   });
 
+  // One player's entry on a `mo:duel-game-core/leaderboard` `Board` —
+  // mirrors that module's own `Entry` exactly (`score`/`updatedAt` are
+  // Motoko `Int`, so `IDL.Int` here, decoding to a JS `bigint`). Always
+  // declared, same as `Status` above, whether or not a given host
+  // actually wires a leaderboard — see `get_leaderboard`'s own comment in
+  // `makeIdlFactory` below for why that's safe.
+  const LeaderboardEntry = IDL.Record({
+    player: IDL.Text,
+    score: IDL.Int,
+    updatedAt: IDL.Int,
+  });
+
   // ── The WebSocket push transport (mo:duel-game-core/ws) ────────────────
   // Fixed shapes from `ic-websocket-cdk`, mirrored here so a canister
   // that wires `Ws.attach` can be talked to — either by a real Gateway
@@ -300,6 +313,7 @@ export function buildEngineTypes({
 
   return {
     Seat, Mode, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
+    LeaderboardEntry,
     ClientKey, WsResult, CanisterWsOpenArguments, CanisterWsCloseArguments,
     WebsocketMessage, CanisterWsMessageArguments,
     CanisterWsGetMessagesArguments, CanisterOutputMessage,
@@ -321,6 +335,15 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
       // file's header and `../backend/src/ws.mo`'s doc header for why
       // there's no fallback).
       status: IDL.Func([IDL.Text], [t.Status], ["query"]),
+      // Declared unconditionally, same as `status` above, whether or not
+      // this particular host actually wires
+      // `mo:duel-game-core/leaderboard` — a game whose own frontend code
+      // never calls it pays nothing for the declaration (a method a
+      // client never invokes costs the running canister nothing either;
+      // Candid places no requirement on the SERVER to implement every
+      // interface a client-side description merely allows calling). See
+      // `../backend/README.md`'s "Leaderboard" section.
+      get_leaderboard: IDL.Func([], [IDL.Vec(t.LeaderboardEntry)], ["query"]),
       ws_open: IDL.Func([t.CanisterWsOpenArguments], [t.WsResult], []),
       ws_close: IDL.Func([t.CanisterWsCloseArguments], [t.WsResult], []),
       // `msgType` (the second parameter) is a plain `opt blob`, not

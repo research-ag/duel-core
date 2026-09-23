@@ -452,6 +452,8 @@ persistent actor {
     // dependency allows (see this section's "Disappearance handling").
     IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
     null, // no `mo:duel-game-core/canister_players` wired — see "Canister players" below otherwise
+    null, // no leaderboard wired — see "Leaderboard" below otherwise
+    null, // no match-start timing needed either — see "Leaderboard" below
   );
   attached.ws.init<system>(); // starts the CDK's keep-alive/ack timers —
   // this bare top-level call (like `wsHub`/`attached` themselves) reruns
@@ -690,6 +692,8 @@ persistent actor {
     codec,
     wsParams,
     ?settle, // see `Ws.attach`'s own `onSettled` doc
+    null, // no leaderboard wired — see "Leaderboard" above otherwise
+    null, // no match-start timing needed either — see "Leaderboard" above
   );
   attached.ws.init<system>();
 
@@ -811,6 +815,181 @@ canister, a test harness, a tournament orchestrator), not a new
 `ws.mo`/frontend request path, since `ws.mo`'s own request/push protocol
 is built around one human's own browser tab, not a third party
 launching two OTHER sessions' game for them.
+
+### Leaderboard
+
+Also entirely opt-in, and — unlike Metrics below — split across three
+small, independent modules plus two hooks on `Ws.attach`, since scoring
+is inherently game-specific (an ELO rating needs a `Verdict`; a racing
+game's best lap needs to read its own game state) in a way the generic
+engine can never be:
+
+- `mo:duel-game-core/leaderboard` — a generic top-N `Board`, kept sorted
+  highest-score-first, always. There is no "lower is better" board: a
+  game whose own metric runs the other way (best lap TIME, say) converts
+  it to a higher-is-better score itself before ever storing it — see the
+  worked racing example below. `Leaderboard.new(keep, defaultScore)`
+  builds one — `keep` is the buffer size, typically 2x however many
+  entries a host actually wants to show ("store 50, show the top 25" is
+  just `new(50, ...)` plus `top(board, 25)`); `defaultScore` is the
+  host's OWN starting-score choice for a player with no entry yet (an
+  ELO "unrated" convention, say — this module takes no view on the
+  number, only stores it). `setScore(board, player, score, now)`
+  unconditionally overwrites a player's score (for a rating that can move
+  either direction, like ELO); `recordIfBetter(board, player, score, now)`
+  only overwrites on a strict improvement, returning whether it did (for
+  a personal-best metric that should never regress); `get(board, player)`
+  looks up one player's current entry; `scoreOf(board, player)` is a
+  small convenience over `get` returning just the score, falling back to
+  `defaultScore` for a player with no entry — the common shape a rating
+  update needs ("what am I updating FROM?"); `top(board, n)` returns the
+  ranked slice a host's own `get_leaderboard` hands back to the frontend.
+- `mo:duel-game-core/elo` — the standard chess-ELO formula, pure and
+  stateless: `Elo.update(ratingA, ratingB, outcome, k)` returns both
+  players' new ratings given who won (`#aWins`/`#bWins`/`#draw`) and a
+  k-factor (32 is the common default for a new/casual player); the two
+  ratings always move by exactly opposite amounts, same as real chess
+  ELO. Deliberately has no starting-rating opinion of its own (no
+  `STARTING_RATING` constant) — a NEW player's first rating is the host's
+  own call, made once, passed straight to `Leaderboard.new`'s own
+  `defaultScore` (see the worked example below); this module only ever
+  computes a NEXT rating from two given ones.
+- `mo:duel-game-core/leaderboard_actor_mixin` — supplies `get_leaderboard`
+  as a `mixin`, the same way `mo:duel-game-core/actor_mixin` supplies the
+  four `ws_*` methods: `include LeaderboardActorMixin(leaderboard, 25)`
+  and a host's actor has a `get_leaderboard() : async
+[Leaderboard.Entry]` query returning the top 25, with no hand-declared
+  method of its own. No `<system>` capability needed (nothing here
+  touches a timer), and purely read-only — every WRITE to `leaderboard`
+  still happens from the host's own `onGameEnded`/`onGameStarted`
+  closures, below. A host wanting a caller-chosen page size instead of a
+  fixed one can skip this mixin and hand-declare its own
+  `get_leaderboard(n : Nat)` calling `Leaderboard.top` directly.
+- `Ws.attach`'s `onGameEnded` parameter — an optional `(TableId,
+SessionId, SessionId, Debrief<S>) -> ()` closure, fired exactly once per
+  game ending (`submit`/`claimWin`/`leave` producing a FRESH `#debrief`
+  this exact call, detected via `Debrief.since == now` — never a later
+  call against an already-existing one). Purely synchronous: it only
+  ever writes into the host's own stable `Leaderboard.Board`, no
+  inter-canister call to await. A game whose score needs to know when a
+  match STARTED (real-world elapsed time, not just the final state —
+  `Table.Active` carries no `since` of its own) also wires
+  `Ws.attach`'s `onGameStarted` parameter, an optional `(TableId,
+SessionId, SessionId) -> ()` fired exactly once a table freshly enters
+  `#active` (detected from the resulting `Active` record's own shape —
+  `turn == 0`, no move pending on either side — rather than a single
+  timestamp field, since `Active` has none). Both hooks fire for a
+  canister player's own moves too (`canister_players.mo`'s mutations
+  reuse this SAME `afterMutation`), so a bot's games are scored exactly
+  like a human's.
+- **Player identity, not session identity.** A score has to survive
+  across many separate tables, but a session id doesn't always: `ii:`/
+  `an:` sids already encode a stable principal (`Ws.playerKey(sid)`
+  strips the prefix down to it), while a `cp:` canister-player session is
+  deliberately PER-TABLE (`sidForCanister(p, tableId)`) — a host wiring
+  `canister_players.mo` alongside a leaderboard special-cases
+  `CanisterPlayers.principalOfCanisterSession(sid)` itself before falling
+  back to `Ws.playerKey` for everything else, so one bot's rating
+  accumulates across every table it plays instead of resetting per
+  board.
+
+A worked ELO example (007/checkers — every seat re-rates on every
+ending, `#claimed`/`#aborted` counted the same as a clean `#finished`
+win):
+
+```motoko
+import Leaderboard "mo:duel-game-core/leaderboard";
+import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
+import Elo "mo:duel-game-core/elo";
+
+let STARTING_ELO : Int = 1200; // this game's own call — see elo.mo's own doc header
+let ELO_K : Nat = 32;
+let leaderboard = Leaderboard.new(50, STARTING_ELO); // keep 50, show the top 25
+
+func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
+  let outcome : Elo.Outcome = switch (d.end) {
+    case (#finished(#p1Wins)) #aWins;
+    case (#finished(#p2Wins)) #bWins;
+    case (#finished(#draw)) #draw;
+    case (#claimed(#p1)) #aWins;
+    case (#claimed(#p2)) #bWins;
+    case (#aborted(#p1)) #bWins; // p1 left — p2 credited with the win
+    case (#aborted(#p2)) #aWins;
+  };
+  let k1 = Ws.playerKey(p1);
+  let k2 = Ws.playerKey(p2);
+  let (r1, r2) = Elo.update(Leaderboard.scoreOf(leaderboard, k1), Leaderboard.scoreOf(leaderboard, k2), outcome, ELO_K);
+  let now = Time.now();
+  Leaderboard.setScore(leaderboard, k1, r1, now);
+  Leaderboard.setScore(leaderboard, k2, r2, now);
+};
+
+let attached = Ws.attach<system, Rules.State, Rules.Action>(
+  Rules.spec(),
+  registry,
+  wsHub,
+  codec,
+  wsParams,
+  null, // onSettled
+  ?onGameEnded,
+  null, // onGameStarted — not needed; this game scores by Verdict alone
+);
+
+// ...attached.ws.init<system>()/ActorMixin exactly as elsewhere...
+
+include LeaderboardActorMixin(leaderboard, 25); // supplies get_leaderboard()
+
+```
+
+A worked best-lap example (`examples/racing`) is different in two ways:
+its score needs `onGameStarted` (nothing else times a match), and its
+own metric runs the OPPOSITE direction from ELO, so it's converted to a
+higher-is-better score before ever touching `Leaderboard`. `defaultScore`
+is inert for this game — a lap time is never "computed FROM" a prior
+score the way an ELO rating is, so `Leaderboard.new`'s second argument is
+just a placeholder `0` here:
+
+```motoko
+let leaderboard = Leaderboard.new(50, 0);
+let ONE_HOUR_MS : Int = 3_600_000;
+func scoreFromLapMs(ms : Int) : Int = Int.max(0, ONE_HOUR_MS - ms);
+
+let raceStarts = Map.empty<TP.TableId, Int>();
+func onGameStarted(id : TP.TableId, _p1 : TP.SessionId, _p2 : TP.SessionId) {
+  raceStarts.add(id, Time.now());
+};
+
+func onGameEnded(id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
+  let winner : ?TP.SessionId = switch (d.end) {
+    case (#finished(#p1Wins)) ?p1;
+    case (#finished(#p2Wins)) ?p2;
+    case (_) null; // draw, claimed, or aborted — nobody finished a lap
+  };
+  switch (winner, raceStarts.get(id)) {
+    case (?w, ?startedAt) {
+      let lapMs = (d.since - startedAt) / 1_000_000;
+      ignore Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(w), scoreFromLapMs(lapMs), Time.now());
+    };
+    case (_, _) {};
+  };
+  raceStarts.remove(id);
+};
+
+```
+
+The frontend side is exactly as small: `get_leaderboard` is a plain
+`query`, so `duel-game-core`'s `idl.js` declares it unconditionally on
+every actor `makeIdlFactory` builds (same class as `status` — a game
+whose own frontend never calls it just never does, at no cost to a host
+that never wired the backend half either); `render.js`'s
+`renderLeaderboard(entries, plugin)` renders the ranked list, calling
+`plugin.formatScore(score)` — a new, optional field on `GamePlugin` — to
+turn each raw `score` into display text. The default (used by 007/
+checkers) is the plain integer, already correct for an ELO rating with
+nothing to invert; racing supplies the inverse of its own
+`scoreFromLapMs`, so its panel reads "1:38.204", never the padded number
+the board actually sorts on. See `../frontend/README.md`'s "The
+GamePlugin contract" section for `formatScore`'s own doc.
 
 ### Metrics
 
@@ -1045,7 +1224,14 @@ table creation/discovery/routing on top without changing any of them:
   (`mo:duel-game-core/canister_players_actor_mixin`) is its own
   `ActorMixin` counterpart — the six `*_as_canister` Candid methods a
   host `include`s alongside it once it wires `CanisterPlayers.attach` —
-  see "Canister players" above.
+  see "Canister players" above. `src/leaderboard.mo`
+  (`mo:duel-game-core/leaderboard`) and `src/elo.mo`
+  (`mo:duel-game-core/elo`) are two further OPTIONAL, entirely
+  game-agnostic modules (a top-N score board; a pure chess-ELO formula
+  with no starting-rating opinion of its own); `src/leaderboard_actor_mixin.mo`
+  (`mo:duel-game-core/leaderboard_actor_mixin`) is `leaderboard.mo`'s own
+  `ActorMixin` counterpart — the single `get_leaderboard` Candid query a
+  host `include`s alongside it — see "Leaderboard" above.
 - `test/FakeGame.mo` is a deliberately trivial `Spec` used only by the
   test suites and benchmarks to exercise the engine — it is not a real
   game and ships no rendering.

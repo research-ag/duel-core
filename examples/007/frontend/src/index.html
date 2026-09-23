@@ -11,12 +11,21 @@
     <header>
       <h1>007 <span class="sub">— Duel</span></h1>
       <div class="session">
+        <button id="leaderboard-toggle" title="Leaderboard" aria-label="Leaderboard">🏆</button>
         <span class="label">Agent ID</span>
         <code id="sid">…</code>
         <button id="new-sid" title="Play as a different agent">new</button>
         <button id="duel-auth-btn"></button>
       </div>
     </header>
+
+    <div id="leaderboard-panel" hidden>
+      <div class="leaderboard-header">
+        <button id="leaderboard-back" class="ghost">← Back</button>
+        <h2>🏆 Top agents</h2>
+      </div>
+      <div id="leaderboard-body" class="leaderboard-list"><p class="muted">Loading…</p></div>
+    </div>
 
     <p id="error" class="error" hidden></p>
 

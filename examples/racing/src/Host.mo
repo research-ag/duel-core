@@ -1,3 +1,5 @@
+import Int "mo:core/Int";
+import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Time "mo:core/Time";
 import Timer "mo:core/Timer";
@@ -8,6 +10,8 @@ import ActorMixin "mo:duel-game-core/actor_mixin";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
 import Registry "mo:duel-game-core/registry";
+import Leaderboard "mo:duel-game-core/leaderboard";
+import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 import PT "mo:promtracker";
 import Http "mo:promtracker/mixins/http";
@@ -28,6 +32,72 @@ persistent actor {
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Rules.spec(), Time.now(), sid);
+  };
+
+  // Best-lap leaderboard: a plain, stable `Leaderboard.Board` this actor
+  // owns directly, kept at 50 entries — see `../../backend/README.md`'s
+  // "Leaderboard" section. Every board this framework ships sorts
+  // highest-score-first, so a lower (better) lap time is converted into a
+  // higher-is-better score right here, the one place this game's own
+  // notion of "better" is known: one hour of headroom in milliseconds,
+  // floored at zero for a race that (implausibly) runs longer.
+  // `defaultScore` (the board's 2nd argument) is never actually consulted
+  // here: unlike an ELO rating, a lap time is never "computed FROM" a
+  // prior score (`recordIfBetter` below decides purely by comparing the
+  // NEW score to whatever's on record, or its own capacity check for a
+  // brand-new player), so this value is inert — 0 purely because `new`
+  // requires SOME `Int`.
+  let leaderboard = Leaderboard.new(50, 0);
+  let ONE_HOUR_MS : Int = 3_600_000;
+  func scoreFromLapMs(ms : Int) : Int = Int.max(0, ONE_HOUR_MS - ms);
+
+  // See `Ws.OnGameStarted`'s own doc: nothing in the engine timestamps
+  // when a match started, and `RacingRules.State` can't self-timestamp
+  // either (`init` is pure, no `Time`) — so this actor keeps its own
+  // small side map, populated the instant a table goes `#active` and
+  // consumed (removed) the instant that same table's game ends.
+  let raceStarts = Map.empty<TP.TableId, Int>();
+
+  func onGameStarted(id : TP.TableId, _p1 : TP.SessionId, _p2 : TP.SessionId) {
+    raceStarts.add(id, Time.now());
+  };
+
+  // Normalizes a session id down to a stable per-PLAYER key. `Ws.playerKey`
+  // already handles `ii:`/`an:`; a `cp:` canister-player session is
+  // deliberately PER-TABLE (`CanisterPlayers.sidForCanister`), so it's
+  // special-cased here — the one place this actor already has both
+  // `Ws`/`CanisterPlayers` wired — down to the bot's own underlying,
+  // stable principal, so one bot's best lap accumulates across every
+  // table it races on instead of resetting per board.
+  func playerKey(sid : TP.SessionId) : Text {
+    if (CanisterPlayers.isCanisterSession(sid)) {
+      "cp:" # CanisterPlayers.principalOfCanisterSession(sid).toText();
+    } else {
+      Ws.playerKey(sid);
+    };
+  };
+
+  // Fires once per race ending (see `Ws.OnGameEnded`'s own doc). Only a
+  // clean `#finished` win records a lap time — a draw (an exact
+  // photo-finish tie) has no completed winner, and `#claimed`/`#aborted`
+  // mean nobody actually crossed the line either, so neither produces a
+  // lap to score. A race with no recorded start (this table's own
+  // `onGameStarted` never fired, which shouldn't happen in practice) is
+  // silently skipped rather than scored against a made-up baseline.
+  func onGameEnded(id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
+    let winner : ?TP.SessionId = switch (d.end) {
+      case (#finished(#p1Wins)) ?p1;
+      case (#finished(#p2Wins)) ?p2;
+      case (_) null; // draw, claimed, or aborted — nobody finished a lap
+    };
+    switch (winner, raceStarts.get(id)) {
+      case (?w, ?startedAt) {
+        let lapMs = (d.since - startedAt) / 1_000_000;
+        ignore Leaderboard.recordIfBetter(leaderboard, playerKey(w), scoreFromLapMs(lapMs), Time.now());
+      };
+      case (_, _) {};
+    };
+    raceStarts.remove(id);
   };
 
   // Breaks the circular dependency between `attached` and `cpAttached`
@@ -51,6 +121,8 @@ persistent actor {
     },
     IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
     ?settle,
+    ?onGameEnded,
+    ?onGameStarted,
   );
   attached.ws.init<system>();
 
@@ -80,5 +152,11 @@ persistent actor {
   include Http(renderer.renderExposition, "/metrics");
 
   include CanisterPlayersActorMixin(cpAttached);
+
+  // Supplies `get_leaderboard()` (the top 25 best laps, `Entry.score` the
+  // STORED, ELO-shaped number — the frontend's own `formatScore` converts
+  // it back to a real lap time for display) — no hand-declared query
+  // needed.
+  include LeaderboardActorMixin(leaderboard, 25);
 
 };

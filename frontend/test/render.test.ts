@@ -7,16 +7,20 @@ import {
   DUEL_CLAIM_WARNING_ID,
   DUEL_CLAIM_BUTTON_ID,
   claimWarningThreshold,
+  displayPlayerId,
   errText,
   esc,
+  isCanisterPlayer,
   PLAYER_ID_MAX_LEN,
+  playerKeyOf,
+  renderLeaderboard,
   renderStatus,
   renderView,
   tag,
   truncatePlayerId,
   val,
 } from "../src/render.js";
-import type { GamePlugin, Status, TableSummary, View } from "../src/types.js";
+import type { GamePlugin, LeaderboardEntry, Status, TableSummary, View } from "../src/types.js";
 
 const plugin: GamePlugin<{ turn: string }> = {
   idlTypes: () => {
@@ -710,4 +714,103 @@ test("renderView: endedByOther offers an ack button", () => {
 test("renderView: unknown tag falls back to an escaped error line, never throws", () => {
   const html = renderView<{ turn: string }>({ mystery: null } as unknown as View<{ turn: string }>, plugin);
   assert.match(html, /Unknown view: mystery/);
+});
+
+test("renderLeaderboard: an empty board says so instead of an empty list", () => {
+  const html = renderLeaderboard([], plugin);
+  assert.match(html, /No games finished yet/);
+});
+
+test("renderLeaderboard: ranks entries in the order given, 1-indexed, with no plugin formatter the raw score shows as-is", () => {
+  const entries: LeaderboardEntry[] = [
+    { player: "ii:alice", score: 1600n, updatedAt: 1n },
+    { player: "ii:bob", score: 1400n, updatedAt: 2n },
+  ];
+  const html = renderLeaderboard(entries, plugin);
+  const rowCount = (html.match(/class="leaderboard-row"/g) ?? []).length;
+  assert.equal(rowCount, 2);
+  const aliceIdx = html.indexOf("alice");
+  const bobIdx = html.indexOf("bob");
+  assert.ok(aliceIdx >= 0 && bobIdx > aliceIdx, "alice (rank 1) must render before bob (rank 2)");
+  assert.match(html, /1600/);
+  assert.match(html, /1400/);
+});
+
+test("renderLeaderboard: renders the FULL player id (unlike renderTableRow's fixed-length truncation) and always attaches it as a title", () => {
+  // A leaderboard row has real width to spare, unlike a cramped table
+  // row next to seat buttons — truncation for display is CSS's job
+  // (`.leaderboard-player`'s own `text-overflow: ellipsis`, clipped
+  // responsively against whatever width it actually gets), not a fixed
+  // char count baked into the HTML.
+  const longId = "ii:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const html = renderLeaderboard([{ player: longId, score: 1200n, updatedAt: 0n }], plugin);
+  assert.match(html, new RegExp(`>${esc(longId)}<`));
+  assert.match(html, new RegExp(`title="${esc(longId)}"`));
+});
+
+test("renderLeaderboard: uses the plugin's own formatScore when supplied", () => {
+  const racingPlugin: GamePlugin<{ turn: string }> = {
+    ...plugin,
+    formatScore: (score) => {
+      const ms = 3_600_000n - score;
+      const totalSeconds = Number(ms) / 1000;
+      const m = Math.floor(totalSeconds / 60);
+      const s = (totalSeconds % 60).toFixed(3).padStart(6, "0");
+      return `${m}:${s}`;
+    },
+  };
+  const html = renderLeaderboard([{ player: "ii:racer", score: 3_501_796n, updatedAt: 0n }], racingPlugin);
+  assert.match(html, /1:38\.204/);
+  assert.doesNotMatch(html, /3501796/);
+});
+
+test("playerKeyOf: strips the ii:/an: prefix, leaves anything else (e.g. cp:) unchanged", () => {
+  assert.equal(playerKeyOf("ii:abc123"), "abc123");
+  assert.equal(playerKeyOf("an:xyz789"), "xyz789");
+  assert.equal(playerKeyOf("cp:abc123:7"), "cp:abc123:7");
+});
+
+test("renderLeaderboard: opts.yourSid marks the caller's own row with a You badge and the you class", () => {
+  const entries: LeaderboardEntry[] = [
+    { player: "abc123", score: 1600n, updatedAt: 1n },
+    { player: "def456", score: 1400n, updatedAt: 2n },
+  ];
+  const html = renderLeaderboard(entries, plugin, { yourSid: "ii:def456" });
+  assert.match(html, /leaderboard-row you/);
+  assert.match(html, /leaderboard-you-badge">You</);
+  // Only the matching row gets marked — exactly one "you" row, not both.
+  assert.equal((html.match(/leaderboard-row you/g) ?? []).length, 1);
+});
+
+test("renderLeaderboard: no yourSid, or a caller not on the ranked slice, marks nothing", () => {
+  const entries: LeaderboardEntry[] = [{ player: "abc123", score: 1600n, updatedAt: 1n }];
+  const noOpt = renderLeaderboard(entries, plugin);
+  assert.doesNotMatch(noOpt, /leaderboard-you-badge/);
+  const notRanked = renderLeaderboard(entries, plugin, { yourSid: "ii:someone-else" });
+  assert.doesNotMatch(notRanked, /leaderboard-you-badge/);
+});
+
+test("isCanisterPlayer/displayPlayerId: cp: is a canister player, stripped for display; anyone else is untouched", () => {
+  assert.ok(isCanisterPlayer("cp:ietgl-ziaaa-aaaac-qhfga-cai"));
+  assert.equal(displayPlayerId("cp:ietgl-ziaaa-aaaac-qhfga-cai"), "ietgl-ziaaa-aaaac-qhfga-cai");
+  assert.ok(!isCanisterPlayer("ietgl-ziaaa-aaaac-qhfga-cai"));
+  assert.equal(displayPlayerId("ietgl-ziaaa-aaaac-qhfga-cai"), "ietgl-ziaaa-aaaac-qhfga-cai");
+});
+
+test("renderLeaderboard: a canister-seated player's cp: marker is stripped from the visible text and a bot icon is shown", () => {
+  const entries: LeaderboardEntry[] = [{ player: "cp:ietgl-ziaaa-aaaac-qhfga-cai", score: 1200n, updatedAt: 0n }];
+  const html = renderLeaderboard(entries, plugin);
+  assert.match(html, /leaderboard-bot-icon/);
+  assert.match(html, /ietgl-ziaaa-aaaac-qhfga-cai/); // the bare principal is visible somewhere
+  // "cp:" survives only inside a title="..." tooltip attribute — the
+  // full raw key is still one hover away — never as visible text.
+  assert.match(html, /title="cp:ietgl-ziaaa-aaaac-qhfga-cai"/);
+  const withoutTitles = html.replace(/title="[^"]*"/g, "");
+  assert.doesNotMatch(withoutTitles, /cp:/);
+});
+
+test("renderLeaderboard: a human player (no cp: prefix) gets no bot icon", () => {
+  const entries: LeaderboardEntry[] = [{ player: "ietgl-ziaaa-aaaac-qhfga-cai", score: 1200n, updatedAt: 0n }];
+  const html = renderLeaderboard(entries, plugin);
+  assert.doesNotMatch(html, /leaderboard-bot-icon/);
 });

@@ -54,7 +54,14 @@ choose beyond a table and a seat), plain TypeScript with no framework:
   a SECOND actor (the deployed `bot` canister) rather than through
   `ws.mo`'s protocol at all. See `../CLAUDE.md`'s `frontend/` bullet for
   the full design (Flow 1, "self-join") and `bot/Bot.mo`'s own `play`
-  method for the engine side.
+  method for the engine side. The header's `#leaderboard-toggle`/
+  `#leaderboard-panel` sit closer to `duel-auth-btn` than to
+  `#play-vs-bot-panel`: `duel-game-core`'s own `render.js` supplies
+  `renderLeaderboard`, and `get_leaderboard()` is a plain query on the
+  SAME actor `start()` already built — this game only supplies where the
+  panel lives and `duel-racing-plugin.js`'s own `formatScore` (inverting
+  `Host.mo`'s lap-time-to-score conversion) — see `../CLAUDE.md`'s
+  `frontend/` bullet for the full wiring.
 - `src/duel/duel-app.js` calls `duel-game-core/identity.js`'s
   `resolveIdentity()` to get this tab's own identity/`session` in one
   call: a real, permanent Internet Identity login if one's already
