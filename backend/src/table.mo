@@ -193,6 +193,10 @@ module {
       pending2 = null;
       turn = 0;
       lastActivity = now;
+      roundStartedAt = now;
+      lastMoveP1 = null;
+      lastMoveP2 = null;
+      lastRoundDurationNs = null;
     };
   };
 
@@ -390,6 +394,12 @@ module {
               };
               turn = g.turn;
               lastActivity = now;
+              // Not yet a resolve — carry every round-timing/history field
+              // forward unchanged; only a full resolve (below) moves them.
+              roundStartedAt = g.roundStartedAt;
+              lastMoveP1 = g.lastMoveP1;
+              lastMoveP2 = g.lastMoveP2;
+              lastRoundDurationNs = g.lastRoundDurationNs;
             };
             self.phase := #active(g2);
 
@@ -411,6 +421,10 @@ module {
                       pending2 = null;
                       turn = turns;
                       lastActivity = now;
+                      roundStartedAt = now;
+                      lastMoveP1 = ?m1;
+                      lastMoveP2 = ?m2;
+                      lastRoundDurationNs = ?(now - g2.roundStartedAt);
                     };
                     #ok(#roundResolved(turns));
                   };
@@ -449,6 +463,19 @@ module {
                   pending2 = null;
                   turn = turns;
                   lastActivity = now;
+                  roundStartedAt = now;
+                  // Only the seat that just moved gets a fresh entry —
+                  // the other seat's own last move carries over unchanged
+                  // until their next turn.
+                  lastMoveP1 = switch (mySeat) {
+                    case (#p1) ?move;
+                    case (#p2) g.lastMoveP1;
+                  };
+                  lastMoveP2 = switch (mySeat) {
+                    case (#p2) ?move;
+                    case (#p1) g.lastMoveP2;
+                  };
+                  lastRoundDurationNs = ?(now - g.roundStartedAt);
                 };
                 #ok(#roundResolved(turns));
               };

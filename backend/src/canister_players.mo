@@ -71,11 +71,13 @@
 ///
 /// ── The call/response protocol ──────────────────────────────────────────
 ///
-/// `notifyAndApply` is the whole protocol: build a `T.MoveRequest<S>` from
-/// the table's OWN current, truthful status (reusing `Registry.status` —
-/// never a second, divergent read of `Table`'s internals), `await` the
-/// host-supplied `callBot`, re-read `gen`/`turn` FRESH (not the copies
-/// closed over from before that `await` — the table can legitimately
+/// `notifyAndApply` is the whole protocol: build a `T.MoveRequest<S, M>`
+/// from the table's OWN current, truthful status (reusing `Registry.status`
+/// — never a second, divergent read of `Table`'s internals) plus one extra
+/// same-synchronous-call read of the table's own `Active` record for the
+/// handful of fields `View` doesn't carry (see `dueRequest`'s own doc),
+/// `await` the host-supplied `callBot`, re-read `gen`/`turn` FRESH (not the
+/// copies closed over from before that `await` — the table can legitimately
 /// change underneath a long-running bot call: the human claims a win,
 /// leaves, or gets idle-swept while the bot is still thinking), then apply
 /// the reply via `registry.submit` and run the exact same push fan-out
@@ -96,11 +98,36 @@
 /// handling is almost trivially small: catch a trapped/errored call or an
 /// `#err(#illegalMove _)` result, retry the bot once, and otherwise do
 /// NOTHING — let the existing timeout machinery take it from there. The
-/// one retry isn't blind: its own `T.MoveRequest<S>` carries
+/// one retry isn't blind: its own `T.MoveRequest<S, M>` carries
 /// `retryReason`, the exact rejection text the game's own `validate`
 /// returned for the first reply, so a bot that wants to can correct
 /// specifically what was wrong (a trapped/errored call has no such text
 /// to give — `callBot`'s own `k(null)` never retries at all, see below).
+///
+/// ── What a bot can build with the request ───────────────────────────────
+///
+/// Beyond `game`/`seat`/`mode`/`turn` (exactly what `View.#inGame` already
+/// hands a human's own screen), `T.MoveRequest<S, M>` also carries
+/// `opponent` (the opposing seat's own `SessionId`, stable across every
+/// table a HUMAN opponent ever plays at — see `T.MoveRequest`'s own doc
+/// for the `cp:` canister-opponent caveat), `opponentLastMove` (their most
+/// recently RESOLVED move — never the current round's still-secret one;
+/// `null` before they've made one), and `lastRoundDurationNs` (wall-clock
+/// nanoseconds the last round/turn took; `null` the same way). None of
+/// this is needed for the STATELESS, purely-reactive bots this module's
+/// own tests and `examples/racing`/`examples/checkers` ship (a `query`
+/// `make_move` that only ever looks at `game`/`seat`/`turn`) — it exists
+/// for a bot that wants to remember something ACROSS calls: a move
+/// history for the current match (keyed by `(tableId, gen)`, since `gen`
+/// bumps on every fresh match including a rematch on the SAME `tableId`
+/// — or, equivalently, by watching for `turn == 0`), or a longer-lived
+/// model of a specific opponent's own tendencies (keyed by `opponent`,
+/// stable across every table they play). Remembering anything across
+/// calls means `make_move` can no longer be a `query` method — see
+/// `skills/duel-game-core/references/canister-player-bots.md` for the
+/// full "simple query bot vs. stateful update bot" design guide, the
+/// query/update distinction that forces that choice, and worked examples
+/// of both.
 ///
 /// ── A finished game still needs acking ───────────────────────────────────
 ///
@@ -222,7 +249,7 @@ module {
     // implementation calls `k(?move)` on success or `k(null)` on a
     // trapped/errored call — the one place able to `try`/`catch` the
     // actual inter-canister call, since `M` is concrete there.
-    callBot : (T.SessionId, T.MoveRequest<S>, (?M) -> async* ()) -> async* (),
+    callBot : (T.SessionId, T.MoveRequest<S, M>, (?M) -> async* ()) -> async* (),
     armClaimCheck : (T.TableId, Nat) -> async* (), // async* so its body can reach `system` — see `ws.mo`'s `onClose`
 
   ) : Attached {
@@ -235,25 +262,47 @@ module {
       id.toText() # (switch (seat) { case (#p1) "/p1"; case (#p2) "/p2" });
     };
 
-    /// Builds this session's own `T.MoveRequest<S>` from the table's
+    /// Builds this session's own `T.MoveRequest<S, M>` from the table's
     /// current, truthful `#inGame` view — never a second, divergent read
-    /// of `Table`'s own internals. `null` unless `session` is seated
-    /// in-game AND it's genuinely their move right now: `not youSubmitted`
-    /// is "due to move" in EITHER mode (see `Table.status`'s own doc for
-    /// why that one Boolean already means the right thing for both
-    /// `#simultaneous` and `#alternating`).
-    func dueRequest(now : Int, id : T.TableId, session : T.SessionId) : ?T.MoveRequest<S> {
+    /// of `Table`'s own internals for the fields `View.#inGame` already
+    /// carries (`game`/`mode`/`turn`/`gen`). `opponent`/`opponentLastMove`/
+    /// `lastRoundDurationNs` aren't part of `View` at all (a human's own
+    /// screen has no use for them), so those come from one extra,
+    /// same-synchronous-call read of the table's own `Active` record —
+    /// safe precisely because nothing `await`s between the two reads,
+    /// same reasoning `maybeSettleBoth` below already relies on for its
+    /// own direct `registry.tables.get` read. `null` unless `session` is
+    /// seated in-game AND it's genuinely their move right now:
+    /// `not youSubmitted` is "due to move" in EITHER mode (see
+    /// `Table.status`'s own doc for why that one Boolean already means
+    /// the right thing for both `#simultaneous` and `#alternating`).
+    func dueRequest(now : Int, id : T.TableId, session : T.SessionId) : ?T.MoveRequest<S, M> {
       switch (registry.status(spec, now, session)) {
         case (#atTable { view = #inGame ig }) {
           if (ig.youSubmitted) { null } else {
-            ?{
-              tableId = id;
-              seat = ig.seat;
-              game = ig.game;
-              mode = ig.mode;
-              turn = ig.turn;
-              gen = ig.gen;
-              retryReason = null; // a fresh ask, not (yet) a retry — see notifyAndApply
+            switch (registry.tables.get(id)) {
+              case null null; // table moved on underneath this read — nothing to build
+              case (?t) switch (t.phase) {
+                case (#active g) {
+                  let (opponent, opponentLastMove) = switch (ig.seat) {
+                    case (#p1) (g.p2, g.lastMoveP2);
+                    case (#p2) (g.p1, g.lastMoveP1);
+                  };
+                  ?{
+                    tableId = id;
+                    seat = ig.seat;
+                    game = ig.game;
+                    mode = ig.mode;
+                    turn = ig.turn;
+                    gen = ig.gen;
+                    retryReason = null; // a fresh ask, not (yet) a retry — see notifyAndApply
+                    opponent;
+                    opponentLastMove;
+                    lastRoundDurationNs = g.lastRoundDurationNs;
+                  };
+                };
+                case (_) null; // table moved on underneath this read — nothing to build
+              };
             };
           };
         };
@@ -265,7 +314,7 @@ module {
     /// push the result to its human opponent — the full protocol this
     /// module's own doc header describes. Always clears its own in-flight
     /// flag before returning, success or failure alike.
-    func notifyAndApply(id : T.TableId, session : T.SessionId, req : T.MoveRequest<S>) : async* () {
+    func notifyAndApply(id : T.TableId, session : T.SessionId, req : T.MoveRequest<S, M>) : async* () {
       let key = flightKey(id, req.seat);
       inFlight.add(key, ());
 
@@ -277,7 +326,7 @@ module {
       // rejected the first reply with, re-read fresh (never `req`'s own
       // stale copy) so the bot can act on specifically why it was wrong
       // instead of just resubmitting blind.
-      func tryOnce(triesLeft : Nat, thisReq : T.MoveRequest<S>) : async* () {
+      func tryOnce(triesLeft : Nat, thisReq : T.MoveRequest<S, M>) : async* () {
         await* callBot(
           session,
           thisReq,
@@ -326,7 +375,12 @@ module {
         case (#atTable { view = #inGame ig }) {
           if (not ig.youSubmitted) {
             if (inFlight.get(flightKey(id, ig.seat)) == null) {
-              await* notifyAndApply(id, session, { tableId = id; seat = ig.seat; game = ig.game; mode = ig.mode; turn = ig.turn; gen = ig.gen; retryReason = null });
+              // Reuses `dueRequest` rather than re-deriving the same
+              // request literally here a second time — see its own doc.
+              switch (dueRequest(now, id, session)) {
+                case (?req) await* notifyAndApply(id, session, req);
+                case null {}; // moved on between this check and dueRequest's own re-read — nothing to do
+              };
             };
           } else if (ig.claimWinAvailable) {
             switch (registry.claimWin(spec, now, session, ig.gen)) {

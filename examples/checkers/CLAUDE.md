@@ -125,7 +125,7 @@ Http(renderer.renderExposition, "/metrics")`, from
   board. See `../../backend/README.md`'s "Leaderboard" section for the
   full worked example this Host.mo follows.
 - **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
-  canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State>)
+  canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State, Rules.Action>)
 -> async Rules.Action`, the exact counterpart to a browser's own
   `GamePlugin`. Lives in `src/`, not `bot/`, because it's `src/Host.mo`
   (the GAME canister) that imports it — to type the remote bot actor it

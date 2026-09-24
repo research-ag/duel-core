@@ -46,9 +46,10 @@ which this skill walks you through in order:
 
 Every template referenced below lives in this skill's own `templates/`
 directory — read each one with your file-reading tool right before you
-adapt it; don't retype boilerplate from memory. Steps 5 and 6 below
-point into this skill's `references/` directory for two situations the
-templates alone don't cover — a game whose ending takes many real
+adapt it; don't retype boilerplate from memory. Steps 4, 5, and 6 below
+point into this skill's `references/` directory for three situations the
+templates alone don't cover — a "bot"/"AI opponent" opting into the
+optional canister-players feature, a game whose ending takes many real
 rounds to reach in a test, and a UI that doesn't fit buttons/text (a
 canvas, a 3D scene, or an existing framework-based client you're
 porting) — read those files only if you actually hit that situation.
@@ -352,7 +353,7 @@ import Timer "mo:core/Timer";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
 
-import BotIface "BotIface"; // one method: make_move : (TP.MoveRequest<Rules.State>) -> async Rules.Action
+import BotIface "BotIface"; // one method: make_move : (TP.MoveRequest<Rules.State, Rules.Action>) -> async Rules.Action
 
 persistent actor {
   // ...registry/status/Ws.attach exactly as the template already has,
@@ -414,6 +415,23 @@ protocol, the `settle`/`armClaimCheck` wiring, unattended
 canister-vs-canister matches — and `examples/racing/src/Host.mo`/
 `examples/checkers/src/Host.mo` in `research-ag/duel-core` for it wired
 end to end, bot canister included.
+
+`make_move`'s own request (`TP.MoveRequest<Rules.State, Rules.Action>`)
+carries more than just the current game state — `turn`/`gen` (a round
+number and a per-match identity that survives a rematch reusing the
+same table), `opponent` (the opposing seat's own stable identity),
+`opponentLastMove` (their most recently resolved move), and
+`lastRoundDurationNs` (how long the last round took) are all there too.
+The two reference bots above never touch any of that — both are pure
+functions of `game`/`seat`/`turn` alone, declared `query`, and that's
+the right shape for "the user just wants a working opponent." If the
+bot needs to be smarter than that — remembering a match's own move
+history, or building a model of a specific opponent's tendencies over
+many games — read `references/canister-player-bots.md` before writing
+it: the moment a bot needs to remember anything across calls,
+`make_move` can no longer be a `query` method (a hard IC constraint on
+state durability, not a style choice), which changes both `Bot.mo`'s
+own declaration and how a host should size its timeouts.
 
 **Leaderboard (optional).** Also not part of the six required pieces —
 skip it unless the user asks for rankings, ratings, or a "top players"

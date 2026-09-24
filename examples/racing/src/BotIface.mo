@@ -4,7 +4,7 @@ import Rules "RacingRules";
 module {
 
   public type CanisterPlayer = actor {
-    make_move : (TP.MoveRequest<Rules.State>) -> async Rules.Action;
+    make_move : (TP.MoveRequest<Rules.State, Rules.Action>) -> async Rules.Action;
   };
 
 };

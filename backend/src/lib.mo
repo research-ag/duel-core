@@ -229,7 +229,7 @@ module {
   public type Registry<S, M> = T.Registry<S, M>;
   public type TableSummary = T.TableSummary;
   public type SessionStatus<S> = T.SessionStatus<S>;
-  public type MoveRequest<S> = T.MoveRequest<S>;
+  public type MoveRequest<S, M> = T.MoveRequest<S, M>;
   public type Spec<S, M> = T.Spec<S, M>;
   public type Staging = T.Staging;
   public type Active<S, M> = T.Active<S, M>;

@@ -100,8 +100,8 @@ func spyArmClaimCheck(log : { var calls : [(TP.TableId, Nat)] }) : (TP.TableId, 
 };
 
 /// A bot that always plays the same fixed action.
-func constantBot(move : Rules.Action) : (TP.SessionId, TP.MoveRequest<Rules.State>, (?Rules.Action) -> async* ()) -> async* () {
-  func(_session : TP.SessionId, _req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
+func constantBot(move : Rules.Action) : (TP.SessionId, TP.MoveRequest<Rules.State, Rules.Action>, (?Rules.Action) -> async* ()) -> async* () {
+  func(_session : TP.SessionId, _req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     await* k(?move);
   };
 };
@@ -112,9 +112,9 @@ func constantBot(move : Rules.Action) : (TP.SessionId, TP.MoveRequest<Rules.Stat
 /// proving `notifyAndApply` actually threads it through rather than just
 /// asking again blind. The first call must see `retryReason == null` —
 /// it's a fresh ask, not (yet) a retry.
-func retryingBot(first : Rules.Action, rest : Rules.Action, expectedReason : Text) : (TP.SessionId, TP.MoveRequest<Rules.State>, (?Rules.Action) -> async* ()) -> async* () {
+func retryingBot(first : Rules.Action, rest : Rules.Action, expectedReason : Text) : (TP.SessionId, TP.MoveRequest<Rules.State, Rules.Action>, (?Rules.Action) -> async* ()) -> async* () {
   var calls = 0;
-  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
+  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     calls += 1;
     if (calls == 1) {
       assert req.retryReason == null;
@@ -132,9 +132,21 @@ func retryingBot(first : Rules.Action, rest : Rules.Action, expectedReason : Tex
 /// A bot that traps/errors every time — `notifyAndApply` treats this
 /// identically to `k(null)`, the outcome a host's own `try`/`catch`
 /// around the real inter-canister call would produce.
-func silentBot() : (TP.SessionId, TP.MoveRequest<Rules.State>, (?Rules.Action) -> async* ()) -> async* () {
-  func(_session : TP.SessionId, _req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
+func silentBot() : (TP.SessionId, TP.MoveRequest<Rules.State, Rules.Action>, (?Rules.Action) -> async* ()) -> async* () {
+  func(_session : TP.SessionId, _req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     await* k(null);
+  };
+};
+
+/// A bot that always plays `move`, recording every `MoveRequest` it was
+/// ever handed (in call order) into `log.reqs` — used to inspect the new
+/// `opponent`/`opponentLastMove`/`lastRoundDurationNs` fields a smarter
+/// bot would key its own memory off (see test 17).
+func newReqLog() : { var reqs : [TP.MoveRequest<Rules.State, Rules.Action>] } = { var reqs = [] };
+func capturingBot(move : Rules.Action, log : { var reqs : [TP.MoveRequest<Rules.State, Rules.Action>] }) : (TP.SessionId, TP.MoveRequest<Rules.State, Rules.Action>, (?Rules.Action) -> async* ()) -> async* () {
+  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
+    log.reqs := Array.concat(log.reqs, [req]);
+    await* k(?move);
   };
 };
 
@@ -342,8 +354,8 @@ Debug.print("11. claimWin / reset forward correctly and route per-table OK");
 // principal `session` actually names); reusing test 7's per-attach
 // pattern here would let bot1's OWN join-triggered eager check run
 // through bot2's silent closure instead of its own.
-func perSessionBot(silent : TP.SessionId) : (TP.SessionId, TP.MoveRequest<Rules.State>, (?Rules.Action) -> async* ()) -> async* () {
-  func(session : TP.SessionId, _req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
+func perSessionBot(silent : TP.SessionId) : (TP.SessionId, TP.MoveRequest<Rules.State, Rules.Action>, (?Rules.Action) -> async* ()) -> async* () {
+  func(session : TP.SessionId, _req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     if (session == silent) { await* k(null) } else { await* k(?#gather) };
   };
 };
@@ -531,5 +543,86 @@ switch (atTableView(reg16, T0, sidB16)) {
   case (_) Runtime.trap("board B should still be live — bot1's board-A leave must not have touched it");
 };
 Debug.print("16. the same bot1 principal plays two tables at once, each an independent session, settled and left independently OK");
+
+// ── 17. MoveRequest carries the opponent's own identity, their most
+//          recently RESOLVED move, and how long the last round took —
+//          the extra context a stateful bot needs to remember something
+//          across calls (see `T.MoveRequest`'s own doc). All three are
+//          absent on round 0's own ask (nobody's moved yet, no round has
+//          resolved yet); once a real round resolves, `opponentLastMove`
+//          carries exactly the opponent's own submitted move (read from
+//          the OTHER seat's own slot — see `dueRequest`'s own doc) and
+//          `lastRoundDurationNs` reads back exactly the wall-clock gap
+//          between the round starting and its own completing submission
+//          — both fully test-controlled here via explicit `now` values
+//          on the human's own DIRECT engine calls (bot1's own replies
+//          land at whatever `Time.now()` the interpreter returns
+//          internally — see this file's own `T0` doc comment) ──────────
+let reg17 = fresh();
+let counter17 = newAfterMutationCounter();
+let reqLog17 = newReqLog();
+let cp17 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg17, stubAfterMutation(counter17), capturingBot(#gather, reqLog17), noopArm);
+let id17 = ok(await* cp17.createTable(bot1, #p1, #open), "bot1 creates a table");
+
+let JOIN17 : Int = 5_000_000_000;
+ignore ok(reg17.joinTable(spec, JOIN17, "human", id17, #p2, null), "human joins at a known time — starts round 0");
+await* cp17.sweep(T0); // bot1 is due for round 0
+assert reqLog17.reqs.size() == 1;
+let req0_17 = reqLog17.reqs[0];
+assert req0_17.turn == 0;
+assert req0_17.opponent == "human";
+assert req0_17.opponentLastMove == null; // nobody has moved yet this match
+assert req0_17.lastRoundDurationNs == null; // no round has resolved yet
+
+let gen17 = switch (atTableView(reg17, T0, "human")) {
+  case (#inGame v) v.gen;
+  case (_) Runtime.trap("n/a");
+};
+let SUBMIT17 : Int = JOIN17 + 7_000_000_000; // a known, test-controlled gap
+ignore ok(reg17.submit(spec, SUBMIT17, "human", gen17, 0, #gather), "human's own round-0 move; this completes the round");
+await* cp17.sweep(SUBMIT17); // bot1 is due again for round 1
+assert reqLog17.reqs.size() == 2;
+let req1_17 = reqLog17.reqs[1];
+assert req1_17.turn == 1;
+assert req1_17.opponent == "human";
+assert req1_17.opponentLastMove == ?#gather; // the human's own round-0 move
+assert req1_17.lastRoundDurationNs == ?(SUBMIT17 - JOIN17);
+Debug.print("17. MoveRequest carries opponent identity, their last resolved move, and the last round's own duration OK");
+
+// ── 18. ...and it's genuinely the OPPONENT's own identity on each side,
+//          never a fixed slot or the seat's own — bot1 and bot2, seated
+//          against each other, each see the OTHER's own `sidForCanister`
+//          session as `opponent`, never their own ───────────────────────
+let reg18 = fresh();
+let counter18 = newAfterMutationCounter();
+let reqLog18a = newReqLog(); // bot1's own log
+let reqLog18b = newReqLog(); // bot2's own log
+let cp18 = CanisterPlayers.attach<Rules.State, Rules.Action>(
+  spec,
+  reg18,
+  stubAfterMutation(counter18),
+  func(session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
+    if (CanisterPlayers.principalOfCanisterSession(session) == bot1) {
+      reqLog18a.reqs := Array.concat(reqLog18a.reqs, [req]);
+    } else {
+      reqLog18b.reqs := Array.concat(reqLog18b.reqs, [req]);
+    };
+    await* k(?#gather);
+  },
+  noopArm,
+);
+let id18 = ok(await* cp18.createTable(bot1, #p1, #open), "bot1 creates a table");
+// FakeGame's own #gather never ends the match on its own, so this eager
+// join-trigger keeps eagerly settling further rounds — but each seat's
+// own `notifyAndApply` in-flight guard (see that func's own doc) blocks
+// a NESTED re-ask of a seat whose own outer call hasn't unwound yet, so
+// this settles exactly TWO rounds per side before the chain runs out of
+// seats it's still allowed to re-ask, not an unbounded loop.
+ignore ok(await* cp18.joinTable(bot2, id18, #p2, null), "bot2 joins; game starts — the eager join-trigger settles two rounds for both sides in one call");
+assert reqLog18a.reqs.size() == 2;
+assert reqLog18b.reqs.size() == 2;
+assert reqLog18a.reqs[0].opponent == CanisterPlayers.sidForCanister(bot2, id18); // bot1 sees bot2's own identity...
+assert reqLog18b.reqs[0].opponent == CanisterPlayers.sidForCanister(bot1, id18); // ...and bot2 sees bot1's — never its own
+Debug.print("18. each seat's own MoveRequest.opponent names the OTHER seat, never itself OK");
 
 Debug.print("ALL CANISTER-PLAYERS CHECKS PASSED");

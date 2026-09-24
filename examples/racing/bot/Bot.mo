@@ -16,7 +16,7 @@ persistent actor {
     await h.join_table_as_canister(tableId, seat, code);
   };
 
-  public query func make_move(req : TP.MoveRequest<Rules.State>) : async Rules.Action {
+  public query func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async Rules.Action {
     BotLogic.chooseMove(req);
   };
 

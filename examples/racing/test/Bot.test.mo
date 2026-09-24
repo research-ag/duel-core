@@ -37,7 +37,7 @@ do {
   var i = 0;
   let steps = BotLogic.SCRIPT_P1.size() + 4; // a few rounds past the array's end too
   while (i < steps) {
-    let req : TP.MoveRequest<Rules.State> = {
+    let req : TP.MoveRequest<Rules.State, Rules.Action> = {
       tableId = 0;
       seat = #p1;
       game = state;
@@ -45,6 +45,9 @@ do {
       turn = i;
       gen = 0;
       retryReason = null;
+      opponent = "p2";
+      opponentLastMove = null;
+      lastRoundDurationNs = null;
     };
     let move = BotLogic.chooseMove(req);
     switch (Rules.validate(state, #p1, move)) {
@@ -88,7 +91,7 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   spec,
   reg,
   noopAfterMutation,
-  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
+  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     await* k(?BotLogic.chooseMove(req));
   },
   func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15

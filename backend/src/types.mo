@@ -73,21 +73,63 @@ module {
 
   /// What a canister-seated player is handed to decide its move —
   /// `mo:duel-game-core/canister_players`'s call/response counterpart to
-  /// `View.inGame`, minus the UI countdown cosmetics: a canister player
-  /// sees exactly the state a human's own screen would show. `tableId`
-  /// is included because a bot's own `make_move` may be watching more
-  /// than one table at once and needs to know which one this request is
-  /// about; `gen`/`turn` are the values to echo straight back on the
-  /// `registry.submit` the reply drives, though the caller re-reads both
-  /// fresh immediately before that call rather than trusting the copies
-  /// still closed over from before the bot's own `await` (see
-  /// `canister_players.mo`'s own doc for why). `retryReason` is `null`
-  /// on the first ask for a given round; `canister_players.mo`'s own
-  /// one-shot retry sets it to the exact rejection text `validate`
+  /// `View.inGame`, minus the UI countdown cosmetics, plus a handful of
+  /// fields a HUMAN's own screen has no use for but a bot's decision
+  /// logic does — see the "simple vs. stateful bots" guidance in
+  /// `skills/duel-game-core/references/canister-player-bots.md` for how
+  /// these are meant to be used together.
+  ///
+  /// `tableId` is included because a bot's own `make_move` may be
+  /// watching more than one table at once and needs to know which one
+  /// this request is about; `gen`/`turn` are the values to echo straight
+  /// back on the `registry.submit` the reply drives, though the caller
+  /// re-reads both fresh immediately before that call rather than
+  /// trusting the copies still closed over from before the bot's own
+  /// `await` (see `canister_players.mo`'s own doc for why). `gen` also
+  /// doubles as this specific MATCH's own identity: it bumps at every
+  /// fresh `stage()` (a join, a takeover, a REMATCH included), so a
+  /// board that gets replayed on the very same `tableId` still hands a
+  /// bot a `gen` (or, equivalently, a `turn` that's gone back to `0`) it
+  /// hasn't seen before — a bot keying its own per-match memory off
+  /// `(tableId, gen)` (or just watching for `turn == 0`) never confuses
+  /// a rematch with a continuation of the old one. `retryReason` is
+  /// `null` on the first ask for a given round; `canister_players.mo`'s
+  /// own one-shot retry sets it to the exact rejection text `validate`
   /// returned for the first, illegal reply, so a bot that wants to can
   /// react to specifically WHY its move was rejected rather than just
   /// blindly resubmitting — a bot that ignores it is free to.
-  public type MoveRequest<S> = {
+  ///
+  /// `opponent` is the opposing seat's own `SessionId`, raw and
+  /// unnormalized — the same shape `TableSummary.p1Session`/`p2Session`
+  /// already hand a browsing lobby, so this exposes nothing a client
+  /// couldn't already see elsewhere. For a human opponent (`ii:`/`an:`)
+  /// it's a stable, principal-bound identity that reads the SAME across
+  /// every table they ever play at, so a bot can key long-lived,
+  /// cross-table opponent modeling directly off it with no extra
+  /// bridging. For a canister opponent (`cp:`,
+  /// `canister_players.mo`'s own `sidForCanister`) it's deliberately
+  /// PER-TABLE instead — a bot that wants to model a specific canister
+  /// opponent across several boards recovers its stable principal
+  /// itself via `CanisterPlayers.principalOfCanisterSession`, the same
+  /// special-case a leaderboard host already makes (see
+  /// `backend/README.md`'s "Leaderboard" section's own player-identity
+  /// note).
+  ///
+  /// `opponentLastMove` is the opponent's own most recently RESOLVED
+  /// move — `null` exactly when `turn == 0` (nobody has moved yet this
+  /// match). This is never the CURRENT round's still-pending move
+  /// (architecture rule 9's secrecy guarantee is untouched — a pending
+  /// move is never in this record either); it's strictly history, from
+  /// the round that already resolved into `game` itself.
+  ///
+  /// `lastRoundDurationNs` is how many nanoseconds the most recently
+  /// resolved round/turn took, wall-clock — `null` under the same
+  /// `turn == 0` condition. For `#simultaneous` this covers BOTH seats'
+  /// combined thinking time (the round resolves only once both moved, so
+  /// there's no way to attribute the delay to one side alone); for
+  /// `#alternating`, since exactly one seat moves per turn, it's
+  /// unambiguously that one mover's own time.
+  public type MoveRequest<S, M> = {
     tableId : TableId;
     seat : Seat;
     game : S;
@@ -95,6 +137,9 @@ module {
     turn : Nat;
     gen : Nat;
     retryReason : ?Text;
+    opponent : SessionId;
+    opponentLastMove : ?M;
+    lastRoundDurationNs : ?Int;
   };
 
   // ────────────────────────── the game plug-in interface ─────────────────────
@@ -159,6 +204,36 @@ module {
     pending2 : ?M; //   `status` only exposes Booleans
     turn : Nat;
     lastActivity : Int;
+    // When the CURRENT round/turn began — set at match start and reset
+    // every time a round resolves; unlike `lastActivity` (bumped by a
+    // `#simultaneous` round's first-of-two partial submission as well),
+    // this only ever moves at a full resolve, so `now - roundStartedAt`
+    // AT the moment of resolve is genuinely that round's own wall-clock
+    // length, not just "time since the last activity of any kind" — see
+    // `lastRoundDurationNs` below, which freezes exactly that value.
+    roundStartedAt : Int;
+    // Each seat's own move from the most recently RESOLVED round/turn —
+    // distinct from `pending1`/`pending2` (this round's still-secret,
+    // not-yet-resolved submissions, hidden from the opponent by
+    // construction per architecture rule 9). A resolved move is no
+    // longer secret — both players already learned its effect from the
+    // round's own outcome — so surfacing it here (to
+    // `MoveRequest.opponentLastMove`, for a canister-seated opponent)
+    // doesn't reopen that rule. `null` until each seat has made its
+    // first move of the match. `#alternating` only ever updates the
+    // move-just-made seat's own slot; the other seat's carries over
+    // unchanged until their next turn.
+    lastMoveP1 : ?M;
+    lastMoveP2 : ?M;
+    // Wall-clock nanoseconds the most recently resolved round/turn took,
+    // frozen at `roundStartedAt`'s own reset until the NEXT round
+    // resolves — `null` before the match's first round has resolved
+    // (`turn == 0`). For `#simultaneous`, this is the time from the
+    // round becoming live until BOTH seats had submitted (so it reflects
+    // whichever seat took longer, not one side specifically); for
+    // `#alternating`, since only one seat moves per turn, it's squarely
+    // that ONE mover's own thinking time.
+    lastRoundDurationNs : ?Int;
   };
 
   public type End = {

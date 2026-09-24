@@ -559,20 +559,24 @@ inverse — recovers the calling canister's principal from one of its
 which canister to actually call `make_move` on.
 
 **The call/response protocol.** `notifyAndApply` (internal) builds a
-`TP.MoveRequest<S>` from the table's own current, truthful
-`Registry.status` (never a second, divergent read of `Table`'s
-internals — the same field shape `View.#inGame` already reports, minus
-UI countdown cosmetics), hands it to a host-supplied `callBot`, re-reads
-`gen`/`turn` FRESH once the bot replies (never the copies closed over
-from before that call — the table can legitimately change underneath a
-long-running bot call: the human claims a win, leaves, or gets
-idle-swept while the bot is still thinking), applies the move via
-`registry.submit`, and runs the EXACT SAME push fan-out `ws.mo` itself
-runs (`Ws.Attached.afterMutation`, exposed for exactly this reuse — see
+`TP.MoveRequest<S, M>` from the table's own current, truthful
+`Registry.status` for the fields `View.#inGame` already reports (never a
+second, divergent read of `Table`'s internals there), plus a handful
+more a human's own screen has no use for — the opponent's own identity,
+their most recently resolved move, and the last round's own duration —
+read directly off the table's `Active` record in that same synchronous
+call (see "Writing the bot itself" below for what these are for); hands
+the whole thing to a host-supplied `callBot`, re-reads `gen`/`turn`
+FRESH once the bot replies (never the copies closed over from before
+that call — the table can legitimately change underneath a long-running
+bot call: the human claims a win, leaves, or gets idle-swept while the
+bot is still thinking), applies the move via `registry.submit`, and runs
+the EXACT SAME push fan-out `ws.mo` itself runs
+(`Ws.Attached.afterMutation`, exposed for exactly this reuse — see
 `ws.mo`'s own `Attached` doc), so a human opponent's browser learns
 about a canister-driven move in real time, same as any other. `callBot`
 is continuation-passing —
-`(SessionId, MoveRequest<S>, (?M) -> async* ()) -> async* ()`, not a
+`(SessionId, MoveRequest<S, M>, (?M) -> async* ()) -> async* ()`, not a
 plain `(...) -> async M` — because Motoko rejects `async M` as a type
 for an unconstrained generic `M`; the host's own implementation is the
 one place able to `try`/`catch` the actual inter-canister call, since
@@ -593,7 +597,7 @@ errored call, or any other rejection (the table moved on underneath the
 bot — a claim, a leave, an idle takeover), is treated exactly like
 silence — do nothing, and let the existing timeout machinery take it
 from there. That one retry still gives the bot something to work with:
-the retried `MoveRequest<S>`'s `retryReason` field carries the exact
+the retried `MoveRequest<S, M>`'s `retryReason` field carries the exact
 text the game's own `validate` rejected the first reply with, so
 `make_move` can inspect why its move was illegal and correct that
 specifically, rather than just being asked again with no new
@@ -815,6 +819,74 @@ canister, a test harness, a tournament orchestrator), not a new
 `ws.mo`/frontend request path, since `ws.mo`'s own request/push protocol
 is built around one human's own browser tab, not a third party
 launching two OTHER sessions' game for them.
+
+**Writing the bot itself: simple vs. stateful.** `TP.MoveRequest<S, M>`
+carries everything a bot needs to decide its move, and it splits cleanly
+into two groups. The first — `game`/`seat`/`mode`/`turn`/`gen` — is
+exactly what a HUMAN's own screen gets from `View.#inGame`: current
+state, which seat you are, and the round number. A bot that only ever
+looks at these can be, and in this repo's own reference examples IS, a
+pure function of its input: `examples/racing/bot/BotLogic.mo` and
+`examples/checkers/bot/BotLogic.mo` never remember anything between
+calls — the racing bot plays a fixed scripted arc indexed by `turn`, the
+checkers bot picks deterministically from `Rules.legalActions(game,
+seat)`. Both declare `make_move` as a plain `query` in `Bot.mo`
+(`public query func make_move(req) : async Rules.Action`), and that's
+the right choice for exactly this shape of bot: a `query` call is
+cheaper and faster than an `update` call, and there's nothing here that
+needs the durability an `update` call buys, since the bot never
+mutates anything of its own.
+
+The second group — `opponent`, `opponentLastMove`, `lastRoundDurationNs`
+— exists for a bot that wants to remember something ACROSS calls: a
+running move-history for the current match, or a longer-lived model of
+one specific opponent's own tendencies (a rock-paper-scissors opponent
+who opens with scissors 90% of the time, say). `opponent` is the
+opposing seat's own `SessionId`, raw — for a human (`ii:`/`an:`) it
+reads the SAME on every table they ever play, so it's a ready-made,
+stable key for long-lived per-opponent memory; for a canister opponent
+(`cp:`) it's deliberately per-TABLE instead (mirroring
+`Ws.playerKey`'s own documented `cp:` caveat), so a bot modeling a
+specific canister opponent across several boards recovers its stable
+principal itself via `CanisterPlayers.principalOfCanisterSession`.
+`opponentLastMove` is the opponent's own most recently RESOLVED move —
+never the current round's still-secret one (architecture rule 9's
+secrecy guarantee is untouched; a pending move is never in this record
+either) — and `lastRoundDurationNs` is how many wall-clock nanoseconds
+that round took. Both are `null` exactly when `turn == 0` (nobody's
+moved yet this match). A per-MATCH memory (rather than per-opponent)
+keys off `(tableId, gen)` — `gen` bumps on every fresh `stage()`,
+REMATCH included, so a board replayed on the same `tableId` still hands
+a bot a `gen` it's never seen, the same signal a plain `turn == 0` reset
+already gives.
+
+The catch: **remembering anything across calls means `make_move` can no
+longer be a `query` method.** This is a hard IC constraint, not a style
+preference — a query call's own state mutations are never durably
+committed (the execution runs against a snapshot and is discarded once
+the call returns), regardless of who calls it or from what context, so
+a `query`-declared `make_move` that tries to write to a `Map` of
+opponent histories would silently lose every write the instant the call
+returns. A stateful bot's `make_move` must instead be an ordinary
+(`update`-shaped) `public func` — nothing else about this design
+changes: `BotIface.CanisterPlayer`'s own type never declared `query` in
+the first place (only the bot's OWN concrete `Bot.mo` does), so this is
+entirely the bot canister author's own choice, with no change needed to
+`Host.mo`, `BotIface.mo`, or the engine itself. The real cost is
+latency: an `update` call goes through full consensus (a couple of
+seconds, typically), where a `query` call is near-instant — so a host
+wiring a stateful bot should size `claimTimeoutNs`/`idleTimeoutNs` more
+generously than a purely reactive, `query`-based one needs. A
+`persistent actor` bot (the shape every example bot already uses) needs
+no further ceremony to make that state durable across upgrades either —
+a plain `var opponentModels : Map.Map<TP.SessionId, ...> = Map.empty()`
+field is automatically stable, no manual pre/post-upgrade hooks.
+
+See `skills/duel-game-core/references/canister-player-bots.md` (shipped
+alongside this package) for the full design guide — worked sketches of
+both a stateless query bot and a stateful update bot, storage-key
+choices for per-match vs. per-opponent memory, and the pitfalls each
+shape runs into.
 
 ### Leaderboard
 

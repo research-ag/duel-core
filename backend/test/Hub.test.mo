@@ -398,6 +398,10 @@ do {
     pending2;
     turn;
     lastActivity;
+    roundStartedAt = lastActivity;
+    lastMoveP1 = null;
+    lastMoveP2 = null;
+    lastRoundDurationNs = null;
   };
   if (not Ws.isFreshMatch(active(null, null, 0, 100), 100)) {
     Runtime.trap("18a: turn=0, no pending, lastActivity==now must read as a fresh match");

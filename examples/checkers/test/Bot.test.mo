@@ -36,7 +36,7 @@ func idx(r : Nat, c : Nat) : Nat = r * 8 + c;
 do {
   let s0 = Rules.init();
   for (turn in Nat.range(0, 9)) {
-    let req : TP.MoveRequest<Rules.State> = {
+    let req : TP.MoveRequest<Rules.State, Rules.Action> = {
       tableId = 0;
       seat = #p1;
       game = s0;
@@ -44,6 +44,9 @@ do {
       turn;
       gen = 0;
       retryReason = null;
+      opponent = "p2";
+      opponentLastMove = null;
+      lastRoundDurationNs = null;
     };
     let move = BotLogic.chooseMove(req);
     let legal = Rules.legalActions(s0, #p1);
@@ -60,7 +63,7 @@ do {
     },
   );
   for (turn in Nat.range(0, 5)) {
-    let req : TP.MoveRequest<Rules.State> = {
+    let req : TP.MoveRequest<Rules.State, Rules.Action> = {
       tableId = 0;
       seat = #p1;
       game = { board = chainBoard };
@@ -68,6 +71,9 @@ do {
       turn;
       gen = 0;
       retryReason = null;
+      opponent = "p2";
+      opponentLastMove = null;
+      lastRoundDurationNs = null;
     };
     switch (BotLogic.chooseMove(req)) {
       case (#jump { path }) assert path == [idx(6, 1), idx(4, 3), idx(2, 5)];
@@ -103,7 +109,7 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   spec,
   reg,
   noopAfterMutation,
-  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State>, k : (?Rules.Action) -> async* ()) : async* () {
+  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     await* k(?BotLogic.chooseMove(req));
   },
   func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
