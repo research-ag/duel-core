@@ -44,13 +44,19 @@
     </div>
     <div id="leaderboard-body" class="leaderboard-list"><p class="muted">Loading…</p></div>
   </div>
+  <div id="bot-challenge-panel" hidden>
+    <div class="bot-challenge-header">
+      <button id="bot-challenge-back" class="ghost">← Back</button>
+      <h2>🤖 Bots</h2>
+    </div>
+    <div id="bot-challenge-body" class="bot-challenge-body"><p class="muted">Loading…</p></div>
+  </div>
   <p id="error" class="error" hidden></p>
   <main id="screen">
     <p class="muted">Connecting to the board…</p>
   </main>
-  <div id="play-vs-bot-panel" hidden>
-    <button id="play-vs-bot" class="ghost">Add Bot 🤖 to the open seat</button>
-    <p id="play-vs-bot-error" class="error" hidden></p>
+  <div id="bot-add-panel" hidden>
+    <button id="bot-add-trigger" class="ghost">Add Bot 🤖 to the open seat</button>
   </div>
 
   <!-- The 3D race — a full-viewport layer behind #screen, only made

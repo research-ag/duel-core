@@ -39,11 +39,28 @@
 /// `CanisterPlayers.Attached` is not generic over a game's `S`/`M` (see
 /// its own doc), so unlike `Ws.attach`'s `Attached`, this mixin needs no
 /// type parameters of its own to match — one `include
-/// CanisterPlayersActorMixin(cpAttached)` fits any game.
+/// CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard)` fits
+/// any game.
+///
+/// `register_bot`/`unregister_bot`/`list_bots` (below) are this mixin's
+/// own bot-DISCOVERY surface, layered on `canister_players.mo`'s
+/// `BotDirectory` the same way the six methods above are layered on its
+/// `Attached` — `directory` and `leaderboard` are two further, independent
+/// constructor params (`leaderboard` genuinely optional: a host with none
+/// wired passes `null`, and every bot's own `elo` comes back `null` too —
+/// see `CanisterPlayers.BotEntry`'s own doc). `register_bot`/
+/// `unregister_bot` call `Time.now()` directly, the same documented
+/// exception `ws.mo`/`actor_mixin.mo`/`canister_players.mo`'s own
+/// `Attached` functions already rely on (this mixin plays the host's own
+/// role for these two `msg.caller` entry points, same as those do).
+import Principal "mo:core/Principal";
+import Time "mo:core/Time";
+
 import CanisterPlayers "./canister_players";
+import Leaderboard "./leaderboard";
 import T "./types";
 
-mixin (cpAttached : CanisterPlayers.Attached) {
+mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDirectory, leaderboard : ?Leaderboard.Board) {
 
   public shared ({ caller }) func create_table_as_canister(
     seat : T.Seat,
@@ -74,6 +91,33 @@ mixin (cpAttached : CanisterPlayers.Attached) {
 
   public shared ({ caller }) func reset_as_canister(tableId : T.TableId, gen : Nat) : async T.Res<()> {
     await* cpAttached.reset(caller, tableId, gen);
+  };
+
+  /// Self-registration — `caller` is this bot's own principal, never a
+  /// parameter, so it can only ever register itself (see
+  /// `CanisterPlayers.registerBot`'s own doc). Idempotent: a bot calling
+  /// this again (a rename, or a routine re-run after a redeploy) just
+  /// overwrites its own prior entry.
+  public shared ({ caller }) func register_bot(name : Text) : async () {
+    CanisterPlayers.registerBot(directory, caller, name, Time.now());
+  };
+
+  public shared ({ caller }) func unregister_bot() : async () {
+    CanisterPlayers.unregisterBot(directory, caller);
+  };
+
+  /// Every registered bot, ranked by current rating — a plain `query`,
+  /// same class as `status`/`get_leaderboard` (side-effect-free, no race
+  /// risk — root `CLAUDE.md`'s architecture rule 8). Joins against
+  /// `leaderboard` (if this host wires one) via `CanisterPlayers.leaderboardKey`,
+  /// so a bot's `elo` reflects the SAME rating its own leaderboard row
+  /// shows.
+  public query func list_bots() : async [CanisterPlayers.BotEntry] {
+    let scoreOf = switch (leaderboard) {
+      case (?lb) func(p : Principal.Principal) : ?Int = ?Leaderboard.scoreOf(lb, CanisterPlayers.leaderboardKey(p));
+      case null func(_ : Principal.Principal) : ?Int = null;
+    };
+    CanisterPlayers.rankedBots(CanisterPlayers.listBots(directory), scoreOf);
   };
 
 };

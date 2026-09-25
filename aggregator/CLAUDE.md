@@ -88,7 +88,21 @@ research-ag/duel-core --skill duel-game-core` install for an AI
   so every step is copy-pasteable commands for the developer's own
   terminal, never something this frontend runs itself — there is nothing
   here to verify a step actually succeeded before moving to the next
-  one.
+  one. `components/BotTutorialWizard.tsx` is a third on-ramp, right
+  beside it ("Build a bot", its own header button): a 5-step guide for
+  building a canister-player BOT against an already-built game
+  (prerequisites, adding a `bot/` directory alongside that game's own
+  code — a bot is inherently game-specific, importing its target's own
+  Rules module to type `make_move`, so there's no fresh standalone
+  project the way a new game gets — writing the three methods a bot
+  implements, deploying just that one extra canister, then the one-time
+  `icp canister call bot register '(principal "<game-backend-id>", "<name>")'`
+  that makes it discoverable). Unlike `TutorialWizard.tsx`, its last step
+  has no login-gated action to hand off into: a bot is never listed on
+  THIS dashboard the way a game is (only `Store.mo`'s own game registry
+  exists here), so `BotTutorialWizard` takes only `onClose`, no
+  `isLoggedIn`/`onRegister`. Both wizards share their own
+  copy-to-clipboard snippet component, `components/CodeBlock.tsx`.
   `components/GameFormModal.tsx` is the register/edit form: picking a
   banner file opens `components/ImageCropper.tsx` (built on
   `react-easy-crop`) rather than uploading it as-is — the developer drags

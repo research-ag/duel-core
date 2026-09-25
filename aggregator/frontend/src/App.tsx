@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { BotTutorialWizard } from "./components/BotTutorialWizard";
 import { GameFormModal } from "./components/GameFormModal";
 import { GameGrid } from "./components/GameGrid";
 import { Header } from "./components/Header";
@@ -17,10 +18,16 @@ export function App() {
   const { games, loading, reload } = useGames(auth.actor);
   const [modal, setModal] = useState<Modal>(undefined);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [botTutorialOpen, setBotTutorialOpen] = useState(false);
 
   return (
     <div className="wrap">
-      <Header auth={auth} onRegister={() => setModal("register")} onTutorial={() => setTutorialOpen(true)} />
+      <Header
+        auth={auth}
+        onRegister={() => setModal("register")}
+        onTutorial={() => setTutorialOpen(true)}
+        onBotTutorial={() => setBotTutorialOpen(true)}
+      />
       <GameGrid
         games={games}
         loading={loading}
@@ -47,6 +54,7 @@ export function App() {
           }}
         />
       )}
+      {botTutorialOpen && <BotTutorialWizard onClose={() => setBotTutorialOpen(false)} />}
     </div>
   );
 }

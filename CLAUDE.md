@@ -167,23 +167,63 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   Candid methods (`create_table_as_canister`/`join_table_as_canister`/
   `leave_as_canister`/`ack_ended_as_canister`/`claim_win_as_canister`/
   `reset_as_canister`), `include`d in the host
-  actor as `include CanisterPlayersActorMixin(cpAttached)` — no host
-  hand-declares any of the six. (There is deliberately no
-  `rematch_as_canister`: a canister-vs-canister debrief auto-acks both
-  sides unconditionally the moment neither is a live human still
-  deciding, so a canister seat never needs to request a rematch itself
-  — see `backend/src/canister_players.mo`'s own `Attached` doc.) It's
-  optional in exactly the sense
-  `canister_players.mo` itself is (a host that never wires
-  `CanisterPlayers.attach` never `include`s this either, and pays no
-  cost for skipping it), narrower still than that: a host free to hand-roll
-  those six forwarding methods itself instead may still do so — this
-  mixin exists purely to stop `examples/racing/src/Host.mo` and
-  `examples/checkers/src/Host.mo` (and every future game that opts into
-  canister players) from re-typing the identical six methods verbatim.
-  Unlike `ActorMixin`, it needs no `<system>` capability of its own (none
-  of the six methods touches a timer), so it's declared `mixin
-(cpAttached : CanisterPlayers.Attached)`, not `mixin <system>(...)`.
+  actor as `include CanisterPlayersActorMixin(cpAttached, botDirectory,
+leaderboard)` — no host hand-declares any of them. (There is
+  deliberately no `rematch_as_canister`: a canister-vs-canister debrief
+  auto-acks both sides unconditionally the moment neither is a live
+  human still deciding, so a canister seat never needs to request a
+  rematch itself — see `backend/src/canister_players.mo`'s own
+  `Attached` doc.) It's optional in exactly the sense `canister_players.mo`
+  itself is (a host that never wires `CanisterPlayers.attach` never
+  `include`s this either, and pays no cost for skipping it), narrower
+  still than that: a host free to hand-roll those six forwarding methods
+  itself instead may still do so — this mixin exists purely to stop
+  `examples/racing/src/Host.mo` and `examples/checkers/src/Host.mo` (and
+  every future game that opts into canister players) from re-typing the
+  identical methods verbatim.
+  This same mixin also supplies three further, independent Candid
+  methods — `register_bot(name)`/`unregister_bot()`/`list_bots()` — bot
+  DISCOVERY, letting a bot canister self-register with this host
+  (`msg.caller` on `register_bot`/`unregister_bot` is always the calling
+  bot's own principal, never a parameter — nothing to spoof, same
+  discipline every other entry point in `canister_players.mo` already
+  holds to) so a human player can find and challenge it from a
+  frontend's own "🤖 Bots" dialog with no hardcoded bot canister id
+  anywhere — see `backend/README.md`'s "Canister players" section, "Bot
+  discovery" subsection, for the full design (`CanisterPlayers.BotInfo`/
+  `BotEntry`/`BotDirectory`/`newBotDirectory`/`registerBot`/
+  `unregisterBot`/`listBots`/`rankedBots`, all in `canister_players.mo`
+  itself — no new module — plus `CanisterPlayers.leaderboardKey`, the
+  centralized `"cp:" # p.toText()` convention `list_bots` joins a bot's
+  own `elo` with, and which every `Host.mo`'s own `playerKey` also calls
+  instead of hand-deriving the same string independently). `botDirectory`
+  (`CanisterPlayers.newBotDirectory()`) is a plain, stable field a host
+  owns directly (no class, no closures, survives an upgrade like any
+  other plain data); `leaderboard` is a genuinely optional `?Leaderboard.Board`
+  (`null` if this host wires no leaderboard at all — every bot's own
+  `elo` then comes back `null` too, rather than this mixin depending on
+  `leaderboard.mo` unconditionally). Unlike `ActorMixin`, this mixin
+  needs no `<system>` capability of its own (none of its nine methods
+  touches a timer — `register_bot`/`unregister_bot` call `Time.now()`
+  directly instead, the same documented "plays the host's own role"
+  exception `ws.mo`/`actor_mixin.mo`/`canister_players.mo`'s own
+  `Attached` functions already rely on), so it's declared `mixin
+(cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDirectory,
+leaderboard : ?Leaderboard.Board)`, not `mixin <system>(...)`.
+  A bot that wants to BE discoverable implements one further method
+  beyond `make_move`/its own Flow-1 `play(host, tableId, seat, code)` —
+  a `register(host, name)` call mirroring `play`'s own shape, forwarding
+  to `host`'s `register_bot` — triggered once, by hand, after both
+  canisters are deployed (there's no deploy-time mechanism in this repo
+  for one canister to learn a sibling's principal automatically); see
+  `examples/racing/bot/Bot.mo`/`examples/checkers/bot/Bot.mo` for the
+  worked shape (`unregister` included) and `frontend/README.md`'s "Bot
+  registry" section for the matching frontend half — `list_bots()`,
+  `render.js`'s `renderBotList`/`renderSeatChoice`, `renderLeaderboard`'s
+  own per-bot Challenge button, and `idl.js`'s `buildBotPlayIdlFactory`
+  (a shared `idlFactory` for calling a DISCOVERED bot's own `play`
+  directly, targeting whichever principal a player actually picked
+  rather than one hardcoded, env-var-supplied bot canister id).
   `backend/src/leaderboard.mo` (`mo:duel-game-core/leaderboard`),
   `backend/src/elo.mo` (`mo:duel-game-core/elo`), and
   `backend/src/leaderboard_actor_mixin.mo`
@@ -316,6 +356,41 @@ defaultScore)` (`keep` is a buffer, typically 2x however many entries a
   `#screen` underneath can never clobber it — see `frontend/README.md`'s
   "Leaderboard" section, and each example's own `CLAUDE.md` for where it
   actually put the panel).
+  `frontend/idl.js`'s `makeIdlFactory` also declares
+  `register_bot`/`unregister_bot`/`list_bots` unconditionally, same class
+  as `get_leaderboard`, for a host that wires
+  `mo:duel-game-core/canister_players`' bot-discovery surface (see the
+  `backend/` bullet's own `canister_players_actor_mixin.mo` paragraph
+  above); `idl.js` also exports `buildBotPlayIdlFactory({IDL})`, a
+  ready-to-use `idlFactory` for calling a DISCOVERED bot's own
+  `play(host, tableId, seat, code)` directly (Flow 1's own shape,
+  untouched) — reusing `buildEngineTypes` for `Seat`/`TableId`/`Err` so
+  it carries no second, divergent copy of those shapes, and targeting
+  whichever principal a player actually picked rather than one
+  hardcoded, env-var-supplied bot canister id. `frontend/render.js`'s
+  `renderBotList(bots, plugin)` renders `list_bots()`'s own ranked
+  result (highest-rated first, unrated last) the same way
+  `renderLeaderboard` renders a score board — same `plugin.formatScore`
+  call, so a bot's rating reads identically wherever it appears — each
+  row's own `Challenge` button carrying `data-challenge-bot`/
+  `data-bot-name`; `renderLeaderboard` itself grows the SAME Challenge
+  button on a bot's own row (gated on the existing `isCanisterPlayer`
+  check), so a game wires ONE click handler for both entry points.
+  `renderSeatChoice(plugin)` is the seat-choice step a challenge shows
+  before creating a brand-new table for a bot it isn't already staging
+  one for — the same two-button `p1`/`p2` picker `renderBrowsing`'s own
+  "Start a new table" section uses, standalone (`data-challenge-seat`,
+  never `data-create-table`) since a challenge dialog lives OUTSIDE
+  `#screen`. Neither is wired into `renderStatus`/`renderView`
+  automatically, same reasoning as `renderLeaderboard` itself; all three
+  examples with a bot (`racing`/`checkers`) use the same shape — an
+  icon-only 🤖 toggle beside the 🏆 one, opening a dedicated full-page
+  overlay — see `frontend/README.md`'s "Bot registry" section for the
+  full unified challenge flow (issuing `createTable` directly over the
+  shared `ws` via `ws.request`, the same correlatable call
+  `lobby-connection.service.ts`-shaped bridging code already relies on,
+  rather than through `app.ts`'s own internal click handling) and each
+  example's own `CLAUDE.md` for where it put the toggle.
 - **`backend/test/*.test.mo`** — interpreter-run suites for the engine.
   `Lifecycle.test.mo` walks one long session narrative; `Engine.test.mo`
   drives each entry point in isolation, covering the error variants,
@@ -383,7 +458,16 @@ defaultScore)` (`keep` is a buffer, typically 2x however many entries a
   a fixed, tiny constant, not real wall time; a `T0` far larger than
   that would make every canister-landed move look artificially,
   arbitrarily "long ago" the moment a later check queries
-  `claimWinAvailable` against it.) `Leaderboard.test.mo` and `Elo.test.mo`
+  `claimWinAvailable` against it.) The same file's own bot-DISCOVERY
+  coverage — `registerBot`'s upsert-by-principal (a re-registration
+  overwrites the prior entry, never duplicates), `unregisterBot` (removes
+  by principal; a no-op on an absent one), and `rankedBots`' own sort
+  (highest-elo-first, an exact tie broken alphabetically, every unrated —
+  `scoreOf` returning `null` — bot sorted after every rated one
+  regardless of name) — needs no `Registry`/`attach` at all: these are
+  plain functions over a `BotDirectory` record, exercised directly
+  against their own module, same reasoning `Leaderboard.test.mo` (below)
+  already follows for `leaderboard.mo`. `Leaderboard.test.mo` and `Elo.test.mo`
   cover `leaderboard.mo`/`elo.mo` directly, with no engine dependency at
   all — a `Board` is a plain mutable record, `Elo.update` a pure
   function, so both are exercised straight against their own module,

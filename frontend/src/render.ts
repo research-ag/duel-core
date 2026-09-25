@@ -23,6 +23,7 @@
 
 import type {
   AwaitingRematchView,
+  BotInfo,
   BusyView,
   DebriefView,
   EngineErr,
@@ -623,14 +624,77 @@ export function renderLeaderboard(
       const isYou = you !== undefined && e.player === you;
       const isBot = isCanisterPlayer(e.player);
       const botIcon = isBot ? `<span class="leaderboard-bot-icon" title="Canister player">🤖</span>` : "";
+      const displayId = displayPlayerId(e.player);
+      // A leaderboard entry has no friendly bot NAME (`LeaderboardEntry`
+      // is just `{player, score, updatedAt}`) — this falls back to the
+      // same displayed principal text `renderBotList`'s own `data-bot-name`
+      // carries when a real name IS known, so a game's one shared click
+      // handler for both entry points always has SOMETHING to show a
+      // player before the challenge flow's own seat-choice step.
+      const challengeBtn = isBot
+        ? `<button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(displayId)}" data-bot-name="${esc(displayId)}">Challenge</button>`
+        : "";
       return `
     <div class="leaderboard-row${isYou ? " you" : ""}">
       <span class="leaderboard-rank">${i + 1}</span>
-      <span class="leaderboard-player" title="${esc(e.player)}">${botIcon}${esc(displayPlayerId(e.player))}</span>
+      <span class="leaderboard-player" title="${esc(e.player)}">${botIcon}${esc(displayId)}</span>
       ${isYou ? `<span class="leaderboard-you-badge">You</span>` : ""}
       <span class="leaderboard-score">${esc(format(e.score))}</span>
+      ${challengeBtn}
     </div>`;
     })
     .join("");
   return `<div class="leaderboard">${rows}</div>`;
+}
+
+/// Renders the bot list a "Bots" dialog shows — `list_bots()`'s own
+/// ranked result (see `mo:duel-game-core/canister_players`'s `BotEntry`
+/// doc: highest-rated first, unrated last). Each row's `Challenge` button
+/// carries the same `data-challenge-bot`/`data-bot-name` attributes
+/// `renderLeaderboard`'s own Challenge button (above) carries, so a game
+/// wires ONE click handler for both entry points. `elo` is shown only
+/// when this host actually wires a leaderboard at all (`BotInfo.elo` is
+/// non-empty for every bot alike, or empty for every bot alike — see that
+/// field's own doc); `plugin.formatScore` renders it exactly like
+/// `renderLeaderboard` does, so a bot's rating reads the same wherever it
+/// appears.
+export function renderBotList(bots: BotInfo[], plugin: GamePlugin): string {
+  if (bots.length === 0) {
+    return `<p class="muted">No bots have registered with this game yet.</p>`;
+  }
+  const format = plugin.formatScore ?? ((score: bigint) => score.toString());
+  const rows = bots
+    .map((b) => {
+      const principalText = b.principal.toString();
+      const eloText =
+        b.elo.length === 1 ? `<span class="leaderboard-score">${esc(format(b.elo[0]))}</span>` : "";
+      return `
+    <div class="leaderboard-row">
+      <span class="leaderboard-player" title="${esc(principalText)}">🤖 ${esc(b.name)}</span>
+      ${eloText}
+      <button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(principalText)}" data-bot-name="${esc(b.name)}">Challenge</button>
+    </div>`;
+    })
+    .join("");
+  return `<div class="leaderboard">${rows}</div>`;
+}
+
+/// The seat picker a challenge flow shows once a bot's been chosen and
+/// this player isn't already staging a table (see each game's own
+/// `duel-app.js`/`app.js` for the full flow). Standalone, not part of
+/// `renderBrowsing`'s own "Start a new table" section — a challenge
+/// dialog lives OUTSIDE `#screen`, so it needs its own copy of the same
+/// two-button seat picker rather than reaching into generically-owned
+/// markup. `data-challenge-seat` carries the chosen `SeatTag` — never
+/// `data-create-table`, `renderBrowsing`'s own attribute, wired to a
+/// different handler entirely.
+export function renderSeatChoice(plugin: GamePlugin): string {
+  const seatBtn = (seat: SeatTag) => `
+    <button type="button" class="seat" data-challenge-seat="${seat}">${esc(plugin.seatLabel(seat))}</button>`;
+  return `
+    <p>Choose your seat:</p>
+    <div class="seats">
+      ${seatBtn("p1")}
+      ${seatBtn("p2")}
+    </div>`;
 }

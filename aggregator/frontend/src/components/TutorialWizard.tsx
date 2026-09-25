@@ -7,6 +7,8 @@
 
 import { useState } from "react";
 
+import { CodeBlock } from "./CodeBlock";
+
 const STEPS = [
   "Prerequisites",
   "Project setup",
@@ -69,29 +71,6 @@ export function TutorialWizard({
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function CodeBlock({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard API unavailable (e.g. insecure context) — nothing else to do.
-    }
-  }
-
-  return (
-    <div className="code-block">
-      <button type="button" className="copy" onClick={() => void copy()}>
-        {copied ? "Copied" : "Copy"}
-      </button>
-      <pre>{code}</pre>
     </div>
   );
 }

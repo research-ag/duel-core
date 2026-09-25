@@ -43,6 +43,7 @@ export interface EngineTypes {
   TableSummary: IDLNS.Type;
   Status: IDLNS.Type;
   LeaderboardEntry: IDLNS.Type;
+  BotInfo: IDLNS.Type;
   ClientKey: IDLNS.Type;
   WsResult: IDLNS.Type;
   CanisterWsOpenArguments: IDLNS.Type;
@@ -215,6 +216,18 @@ export function buildEngineTypes({
     updatedAt: IDL.Int,
   });
 
+  // One bot's own self-reported identity plus its current rating —
+  // mirrors `mo:duel-game-core/canister_players`'s own `BotEntry` exactly
+  // (`elo` is `opt int`: `null` only when this host wires no leaderboard
+  // at all — see that type's own doc). Always declared, same as
+  // `LeaderboardEntry` above, whether or not a given host actually wires
+  // bot discovery.
+  const BotInfo = IDL.Record({
+    principal: IDL.Principal,
+    name: IDL.Text,
+    elo: IDL.Opt(IDL.Int),
+  });
+
   // ── The WebSocket push transport (mo:duel-game-core/ws) ────────────────
   // Fixed shapes from `ic-websocket-cdk`, mirrored here so a canister
   // that wires `Ws.attach` can be talked to — either by a real Gateway
@@ -313,7 +326,7 @@ export function buildEngineTypes({
 
   return {
     Seat, Mode, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
-    LeaderboardEntry,
+    LeaderboardEntry, BotInfo,
     ClientKey, WsResult, CanisterWsOpenArguments, CanisterWsCloseArguments,
     WebsocketMessage, CanisterWsMessageArguments,
     CanisterWsGetMessagesArguments, CanisterOutputMessage,
@@ -344,6 +357,15 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
       // interface a client-side description merely allows calling). See
       // `../backend/README.md`'s "Leaderboard" section.
       get_leaderboard: IDL.Func([], [IDL.Vec(t.LeaderboardEntry)], ["query"]),
+      // Declared unconditionally, same reasoning as `get_leaderboard`
+      // above, whether or not this host wires bot discovery
+      // (`mo:duel-game-core/canister_players`'s `register_bot`/
+      // `unregister_bot`/`list_bots`, see `../backend/README.md`'s
+      // "Canister players" section) — a game whose frontend never calls
+      // these pays nothing for the declaration.
+      register_bot: IDL.Func([IDL.Text], [], []),
+      unregister_bot: IDL.Func([], [], []),
+      list_bots: IDL.Func([], [IDL.Vec(t.BotInfo)], ["query"]),
       ws_open: IDL.Func([t.CanisterWsOpenArguments], [t.WsResult], []),
       ws_close: IDL.Func([t.CanisterWsCloseArguments], [t.WsResult], []),
       // `msgType` (the second parameter) is a plain `opt blob`, not
@@ -371,4 +393,26 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
       ),
     });
   };
+}
+
+/// A minimal, hand-written `idlFactory` for a bot canister's own `play`
+/// method — the one Candid surface a frontend calls DIRECTLY on a
+/// discovered bot's own canister (never routed through `ws.mo`/the
+/// shared `ws`; see `../backend/README.md`'s "Canister players" section
+/// for the full `play(host, tableId, seat, code) -> async Res<JoinOk>`
+/// self-join contract every challengeable bot implements). Reuses
+/// `buildEngineTypes` for `Seat`/`TableId`/`Err` so this doesn't carry a
+/// second, divergent copy of those shapes; `Action`/`State` are passed as
+/// `IDL.Null` purely to satisfy that function's own signature — `play`'s
+/// own reply never touches either. Pass straight to
+/// `Actor.createActor(buildBotPlayIdlFactory, { agent, canisterId })`
+/// with `canisterId` set to whichever bot a player just chose (from
+/// `list_bots()`), never a fixed/env-var one.
+export function buildBotPlayIdlFactory({ IDL }: { IDL: typeof IDLNS }) {
+  const t = buildEngineTypes({ IDL, Action: IDL.Null, State: IDL.Null });
+  const JoinOk = IDL.Variant({ staged: t.Seat, started: t.Seat });
+  const Res = IDL.Variant({ ok: JoinOk, err: t.Err });
+  return IDL.Service({
+    play: IDL.Func([IDL.Principal, t.TableId, t.Seat, IDL.Opt(IDL.Text)], [Res], []),
+  });
 }

@@ -154,8 +154,11 @@
 /// guide.
 /// ═══════════════════════════════════════════════════════════════════════════
 
+import Array "mo:core/Array";
+import Int "mo:core/Int";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
+import Order "mo:core/Order";
 import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
 import Text "mo:core/Text";
@@ -211,6 +214,109 @@ module {
   /// raw text), and the check `settle`/`sweep` themselves use to decide
   /// which seats are their own responsibility.
   public func isCanisterSession(session : T.SessionId) : Bool = session.startsWith(#text CP_SID_PREFIX);
+
+  /// `"cp:" # p.toText()` — the per-PLAYER (not per-TABLE) key a host uses
+  /// to record a canister player's own score on a `mo:duel-game-core/leaderboard`
+  /// `Board`, since `sidForCanister`'s own session is per-table (see this
+  /// module's own doc header) and a leaderboard needs one stable key per
+  /// bot instead. Every Host.mo that wires both modules together already
+  /// hand-derives exactly this string in its own `playerKey` helper (and
+  /// `frontend/src/render.ts`'s `CANISTER_PLAYER_PREFIX` mirrors it on the
+  /// client side, for the same "cp:"-prefix convention) — centralized here
+  /// so `rankedBots` below and every Host.mo share one definition instead
+  /// of three independent copies.
+  public func leaderboardKey(p : Principal.Principal) : Text = CP_SID_PREFIX # p.toText();
+
+  // ── Bot discovery ────────────────────────────────────────────────────────
+  //
+  // A canister-seated player only ever gets a live game the way Flow 1
+  // (self-join, above) or Flow 2 (`Registry.createTableReserving`)
+  // describe: something ALREADY knows the bot's own principal. Before a
+  // human can challenge a bot they've never heard of, that gap needs
+  // closing — a bot SELF-REGISTERS its own principal/name with the host
+  // (via `register_bot`, below, on `canister_players_actor_mixin.mo`),
+  // the same non-spoofable `msg.caller` pattern every other entry point in
+  // this module already relies on, and a frontend discovers the resulting
+  // list via `list_bots`. `BotDirectory` is a plain mutable record, same
+  // "module of functions over a passed-in record" shape as `Table`/
+  // `Registry`/`Leaderboard.Board` themselves — genuinely stable, no
+  // class, no closures.
+
+  /// One bot's own self-reported identity — `principal` is always
+  /// `msg.caller` at registration time (see `registerBot`), never
+  /// client-supplied, so there's nothing to spoof.
+  public type BotInfo = {
+    principal : Principal.Principal;
+    name : Text;
+    registeredAt : Int;
+  };
+
+  /// `BotInfo` joined with the bot's current rating (`rankedBots`, below)
+  /// — what `list_bots` actually returns to a frontend's challenge dialog.
+  /// `elo` is `null` only when the host wires no leaderboard at all; a
+  /// leaderboard-backed host with a never-played bot still returns
+  /// `?defaultScore` (`Leaderboard.scoreOf`'s own documented fallback),
+  /// not `null` — a challenge dialog shows the same starting rating a
+  /// human's own first game would.
+  public type BotEntry = {
+    principal : Principal.Principal;
+    name : Text;
+    elo : ?Int;
+  };
+
+  public type BotDirectory = {
+    var bots : Map.Map<Principal.Principal, BotInfo>;
+  };
+
+  public func newBotDirectory() : BotDirectory = { var bots = Map.empty() };
+
+  /// Self-registration: `caller` is always `msg.caller` on the host's own
+  /// `register_bot` method (never accepted as a parameter), so a bot can
+  /// only ever register itself, under its own principal. Idempotent
+  /// upsert — a bot re-registering (a rename, or simply re-run after a
+  /// redeploy) just overwrites its own prior entry rather than erroring.
+  public func registerBot(d : BotDirectory, caller : Principal.Principal, name : Text, now : Int) {
+    d.bots.add(caller, { principal = caller; name; registeredAt = now });
+  };
+
+  /// Self-unregistration — same `caller`-is-`msg.caller` discipline as
+  /// `registerBot`. A no-op, not an error, if `caller` was never
+  /// registered (nothing to spoof, nothing to race).
+  public func unregisterBot(d : BotDirectory, caller : Principal.Principal) {
+    d.bots.remove(caller);
+  };
+
+  /// Every registered bot, in no particular order — `rankedBots` (below)
+  /// is what a `list_bots` query actually returns to a frontend.
+  public func listBots(d : BotDirectory) : [BotInfo] {
+    d.bots.toArray().map<(Principal.Principal, BotInfo), BotInfo>(func((_, v)) = v);
+  };
+
+  /// Joins `bots` with each one's current rating via a caller-supplied
+  /// `scoreOf` (typically `Leaderboard.scoreOf` on some `Board`, partially
+  /// applied by `canister_players_actor_mixin.mo`'s own `list_bots`) and
+  /// sorts highest-rated first, unrated (`scoreOf` returning `null` —
+  /// meaning no leaderboard is wired at all, see `BotEntry`'s own doc)
+  /// last, alphabetical by name as the final tiebreak either way. Takes a
+  /// plain function rather than importing `leaderboard.mo` directly, so
+  /// this module's own dependency surface (see its doc header: `core`
+  /// plus sibling `registry.mo`/`types.mo` only) stays untouched, and so
+  /// this sort is unit-testable with a trivial stub `scoreOf`.
+  public func rankedBots(bots : [BotInfo], scoreOf : (Principal.Principal) -> ?Int) : [BotEntry] {
+    let entries = bots.map(func(b : BotInfo) : BotEntry = { principal = b.principal; name = b.name; elo = scoreOf(b.principal) });
+    entries.sort(
+      func(a : BotEntry, b : BotEntry) : Order.Order {
+        switch (a.elo, b.elo) {
+          case (?x, ?y) {
+            if (x == y) Text.compare(a.name, b.name) else Int.compare(y, x);
+          };
+          case (?_, null) #less;
+          case (null, ?_) #greater;
+          case (null, null) Text.compare(a.name, b.name);
+        };
+      }
+    );
+  };
 
   /// What a host actor gets back from `attach`: `submit` is deliberately
   /// absent (see this module's own doc header), and `settle`/`sweep` are

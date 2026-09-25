@@ -6,10 +6,12 @@ export function Header({
   auth,
   onRegister,
   onTutorial,
+  onBotTutorial,
 }: {
   auth: Auth;
   onRegister: () => void;
   onTutorial: () => void;
+  onBotTutorial: () => void;
 }) {
   const profile = useProfile(auth.actor, auth.principal);
 
@@ -20,6 +22,7 @@ export function Header({
       </h1>
       <div className="identity">
         <button onClick={onTutorial}>Build a new game</button>
+        <button onClick={onBotTutorial}>Build a bot</button>
         {auth.loading ? (
           <span className="name">…</span>
         ) : auth.isLoggedIn ? (
