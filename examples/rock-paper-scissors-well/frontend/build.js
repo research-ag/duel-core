@@ -31,7 +31,15 @@ const staticAssets = [
 
 function copyStaticAssets() {
   for (const [from, to] of staticAssets) {
-    cpSync(from, to, { recursive: true });
+    try {
+      cpSync(from, to, { recursive: true });
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+      // An editor's atomic save can momentarily delete-then-recreate a
+      // file; the debounced watch trigger below retries shortly after,
+      // so just skip this pass instead of crashing the watcher.
+      console.warn(`skipping copy, ${from} not found (will retry)`);
+    }
   }
 }
 
@@ -43,10 +51,15 @@ if (watch) {
   // of these three belong to — watch the directory they live in (not
   // each file individually: an editor's atomic save replaces a file via
   // rename, which can silently stop a per-file fs.watch from firing
-  // again) and filter to just their names.
+  // again) and filter to just their names. Debounce so a burst of
+  // rename events from one atomic save coalesces into a single copy,
+  // giving the final file time to land before cpSync reads it.
   const staticNames = ['index.html', 'style.css', '.ic-assets.json5'];
+  let debounceTimer;
   watchFile('src', (_event, filename) => {
-    if (filename && staticNames.includes(filename)) copyStaticAssets();
+    if (!filename || !staticNames.includes(filename)) return;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(copyStaticAssets, 50);
   });
   console.log('watching for changes...');
 } else {

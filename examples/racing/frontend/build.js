@@ -51,7 +51,15 @@ function copyStaticAssets() {
     // from `from` since the last copy doesn't linger as a stale leftover
     // in `to` (cpSync only ever adds/overwrites, never prunes).
     rmSync(to, { recursive: true, force: true });
-    cpSync(from, to, { recursive: true });
+    try {
+      cpSync(from, to, { recursive: true });
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+      // An editor's atomic save can momentarily delete-then-recreate a
+      // file; the debounced watch trigger below retries shortly after,
+      // so just skip this pass instead of crashing the watcher.
+      console.warn(`skipping copy, ${from} not found (will retry)`);
+    }
   }
 }
 
@@ -65,12 +73,20 @@ if (watch) {
   // favicon.ico watch the src/ directory they live in and filter by name
   // (not each file individually: an editor's atomic save replaces a file
   // via rename, which can silently stop a per-file fs.watch from firing
-  // again); src/assets keeps its own recursive directory watch.
+  // again); src/assets keeps its own recursive directory watch. Both
+  // debounce through the same timer so a burst of rename events from one
+  // atomic save coalesces into a single copy, giving the final file time
+  // to land before cpSync reads it.
   const staticNames = ['index.html', 'style.css', 'favicon.ico'];
+  let debounceTimer;
+  const scheduleCopy = () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(copyStaticAssets, 50);
+  };
   watchFile('src', (_event, filename) => {
-    if (filename && staticNames.includes(filename)) copyStaticAssets();
+    if (filename && staticNames.includes(filename)) scheduleCopy();
   });
-  watchFile('src/assets', { recursive: true }, () => copyStaticAssets());
+  watchFile('src/assets', { recursive: true }, scheduleCopy);
   console.log('watching for changes...');
 } else {
   await Promise.all(builds.map((b) => esbuild.build(b)));
