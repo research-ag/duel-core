@@ -86,9 +86,14 @@ do {
   // X | O | O
   // O | X | X
   let board = withMarks([
-    (0, #p1), (1, #p2), (2, #p1),
-    (3, #p1), (4, #p2), (5, #p2),
-    (6, #p2), (7, #p1),
+    (0, #p1),
+    (1, #p2),
+    (2, #p1),
+    (3, #p1),
+    (4, #p2),
+    (5, #p2),
+    (6, #p2),
+    (7, #p1),
   ]);
   let r = R.resolve({ board }, #p1, #place { at = 8 });
   assert r.state.board.all<?TP.Seat>(func(cell) = cell != null);
@@ -131,9 +136,15 @@ do {
 
   // A full board has no legal action at all.
   let fullBoard = withMarks([
-    (0, #p1), (1, #p2), (2, #p1),
-    (3, #p1), (4, #p2), (5, #p2),
-    (6, #p2), (7, #p1), (8, #p1),
+    (0, #p1),
+    (1, #p2),
+    (2, #p1),
+    (3, #p1),
+    (4, #p2),
+    (5, #p2),
+    (6, #p2),
+    (7, #p1),
+    (8, #p1),
   ]);
   assert R.legalActions({ board = fullBoard }, #p1).size() == 0;
 };

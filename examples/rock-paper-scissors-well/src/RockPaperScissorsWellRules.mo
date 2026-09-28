@@ -95,7 +95,11 @@ module {
     let verdict : ?TP.Verdict = if (p1Score >= WINS_NEEDED) ?#p1Wins else if (p2Score >= WINS_NEEDED) ?#p2Wins else null;
 
     {
-      state = { p1Score; p2Score; lastRound = ?{ p1Action = a1; p2Action = a2 } };
+      state = {
+        p1Score;
+        p2Score;
+        lastRound = ?{ p1Action = a1; p2Action = a2 };
+      };
       verdict;
     };
   };

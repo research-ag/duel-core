@@ -60,9 +60,14 @@ do {
   // One empty cell left: legalActions returns exactly one #place, and
   // chooseMove must return that same one, whatever `turn` is.
   let almostFull = withMarks([
-    (0, #p1), (1, #p2), (2, #p1),
-    (3, #p1), (4, #p2), (5, #p2),
-    (6, #p2), (7, #p1),
+    (0, #p1),
+    (1, #p2),
+    (2, #p1),
+    (3, #p1),
+    (4, #p2),
+    (5, #p2),
+    (6, #p2),
+    (7, #p1),
   ]);
   for (turn in Nat.range(0, 5)) {
     let req : TP.MoveRequest<Rules.State, Rules.Action> = {
