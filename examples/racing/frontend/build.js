@@ -47,6 +47,10 @@ const staticAssets = [
 
 function copyStaticAssets() {
   for (const [from, to] of staticAssets) {
+    // Remove the destination first so a file/directory entry deleted
+    // from `from` since the last copy doesn't linger as a stale leftover
+    // in `to` (cpSync only ever adds/overwrites, never prunes).
+    rmSync(to, { recursive: true, force: true });
     cpSync(from, to, { recursive: true });
   }
 }
@@ -56,11 +60,17 @@ if (watch) {
   await Promise.all(ctxs.map((ctx) => ctx.watch()));
   copyStaticAssets();
   // esbuild's own watchers only track main.ts's and duel-app.js's own
-  // module graphs, which none of these belong to — watch them directly
-  // so editing any one of them re-copies it into dist/ too.
-  for (const file of ['src/index.html', 'src/style.css', 'src/favicon.ico', 'src/assets']) {
-    watchFile(file, { recursive: true }, () => copyStaticAssets());
-  }
+  // module graphs, which none of these belong to — watch them so editing
+  // any one of them re-copies it into dist/ too. index.html/style.css/
+  // favicon.ico watch the src/ directory they live in and filter by name
+  // (not each file individually: an editor's atomic save replaces a file
+  // via rename, which can silently stop a per-file fs.watch from firing
+  // again); src/assets keeps its own recursive directory watch.
+  const staticNames = ['index.html', 'style.css', 'favicon.ico'];
+  watchFile('src', (_event, filename) => {
+    if (filename && staticNames.includes(filename)) copyStaticAssets();
+  });
+  watchFile('src/assets', { recursive: true }, () => copyStaticAssets());
   console.log('watching for changes...');
 } else {
   await Promise.all(builds.map((b) => esbuild.build(b)));

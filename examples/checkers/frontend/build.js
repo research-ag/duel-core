@@ -40,11 +40,14 @@ if (watch) {
   await ctx.watch();
   copyStaticAssets();
   // esbuild's own watcher only tracks app.js's module graph, which none
-  // of these three belong to — watch them directly so editing any one
-  // of them re-copies it into dist/ too.
-  for (const file of ['src/index.html', 'src/style.css', 'src/.ic-assets.json5']) {
-    watchFile(file, () => copyStaticAssets());
-  }
+  // of these three belong to — watch the directory they live in (not
+  // each file individually: an editor's atomic save replaces a file via
+  // rename, which can silently stop a per-file fs.watch from firing
+  // again) and filter to just their names.
+  const staticNames = ['index.html', 'style.css', '.ic-assets.json5'];
+  watchFile('src', (_event, filename) => {
+    if (filename && staticNames.includes(filename)) copyStaticAssets();
+  });
   console.log('watching for changes...');
 } else {
   await esbuild.build(buildOptions);
