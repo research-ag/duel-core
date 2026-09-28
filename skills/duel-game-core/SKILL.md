@@ -388,11 +388,17 @@ persistent actor {
   );
   settleTable := ?cpAttached.settle;
 
-  // The six `*_as_canister` Candid methods a canister player calls —
-  // no hand-declared forwarding methods. (There's no `rematch_as_canister`:
-  // a canister-vs-canister debrief auto-acks both sides unconditionally
-  // once neither is a live human still deciding.)
-  include CanisterPlayersActorMixin(cpAttached);
+  // The six `*_as_canister` Candid methods a canister player calls, plus
+  // `register_bot`/`unregister_bot`/`list_bots` (bot DISCOVERY — see
+  // below) — no hand-declared forwarding methods. (There's no
+  // `rematch_as_canister`: a canister-vs-canister debrief auto-acks both
+  // sides unconditionally once neither is a live human still deciding.)
+  // `botDirectory` is a plain, stable field this actor owns directly
+  // (same "no class, no closures" shape as `registry`); `null` here
+  // means every bot's own `elo` comes back `null` from `list_bots` too —
+  // pass `?leaderboard` instead once you've also wired one (below).
+  let botDirectory = CanisterPlayers.newBotDirectory();
+  include CanisterPlayersActorMixin(cpAttached, botDirectory, null);
 
   // Fold `cpAttached.sweep` into the SAME idle-sweep timer `ActorMixin`
   // already runs — no separate timer:
@@ -432,6 +438,33 @@ it: the moment a bot needs to remember anything across calls,
 `make_move` can no longer be a `query` method (a hard IC constraint on
 state durability, not a style choice), which changes both `Bot.mo`'s
 own declaration and how a host should size its timeouts.
+
+A bot that should be human-CHALLENGEABLE — found and picked from a "🤖
+Bots" dialog, rather than only fillable via a hardcoded table id/seat/
+code someone already handed it — self-registers with your host, once,
+after both canisters are deployed:
+
+```motoko
+// on the BOT canister itself, alongside its existing `play`/`make_move`:
+public shared func register(host : Principal.Principal, name : Text) : async () {
+  let h : actor { register_bot : (Text) -> async () } = actor (host.toText());
+  await h.register_bot(name);
+};
+
+```
+
+There's no deploy-time mechanism for one canister to learn a sibling's
+principal automatically, so trigger this by hand once both are live:
+`icp canister call bot register '(principal "<host-canister-id>", "RacerBot")'`.
+Once it succeeds, the bot shows up in every player's own challenge dialog
+and leaderboard Challenge button, with no hardcoded canister id anywhere
+on the frontend — see `mo:duel-game-core`'s own `backend/README.md`
+"Canister players" section, "Bot discovery" subsection, for the full
+`BotDirectory`/`list_bots` design, and `frontend/README.md`'s "Bot
+registry" section for `renderBotList`/`renderSeatChoice`/
+`renderLeaderboard`'s own Challenge button and the unified challenge
+flow a game's own `duel-app.js`/`app.js` wires (`examples/racing`/
+`examples/checkers` in `research-ag/duel-core`, both wired end to end).
 
 **Leaderboard (optional).** Also not part of the six required pieces —
 skip it unless the user asks for rankings, ratings, or a "top players"
@@ -537,9 +570,13 @@ func onGameEnded(id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.D
 
 If your game also wires canister players (above), a bot's session id is
 PER-TABLE (`sidForCanister`), not per-player — special-case
-`CanisterPlayers.principalOfCanisterSession(sid)` before falling back to
-`Ws.playerKey`, so one bot's score accumulates across every table it
-plays instead of resetting per board. On the frontend, `get_leaderboard`
+`CanisterPlayers.leaderboardKey(CanisterPlayers.principalOfCanisterSession(sid))`
+before falling back to `Ws.playerKey`, so one bot's score accumulates
+across every table it plays instead of resetting per board (`leaderboardKey`
+is the same `"cp:" # p.toText()` convention `list_bots` itself joins a
+bot's rating with — see "Canister players" above's own "Bot discovery"
+part — so a bot's leaderboard row and its own row in a challenge dialog
+always agree). On the frontend, `get_leaderboard`
 is already declared on every actor `idl.js` builds and needs no wiring
 of your own; call `actor.get_leaderboard()` and render the result with
 `duel-game-core/render.js`'s
@@ -548,7 +585,12 @@ your own layout puts the panel — `yourSid` (the caller's own
 `session.sid`) badges that player's own row ("You") if they're on the
 ranked list, via a small `playerKeyOf(sid)` helper `renderLeaderboard`
 already calls internally, so nothing on your side needs to derive the
-key itself. All three reference examples use the same panel shape, worth
+key itself. If your game also wires bot discovery, fetch
+`actor.list_bots()` alongside `get_leaderboard()` (`.catch(() => [])`
+it — a bot list is a nice-to-have here, never a reason to fail the whole
+panel) and pass `botNames: new Map(bots.map((b) => [b.principal.toString(), b.name]))`
+too, so a bot's row shows its own registered name instead of a bare
+principal. All three reference examples use the same panel shape, worth
 copying rather than inventing your own: an icon-only 🏆 toggle button —
 NOT a "Leaderboard"-labeled one — positioned FIRST in `.session`, before
 the player id, that opens a dedicated full-page overlay

@@ -45,23 +45,37 @@ choose beyond a table and a seat), plain TypeScript with no framework:
   switch without being asked. The one exception to "no settings UI" is
   the header's own `duel-auth-btn` (Internet Identity login/logout, see
   below) — that's generic `duel-game-core` chrome, not a per-game
-  setting, and is wired entirely by `start()` itself. `#play-vs-bot-panel`
-  (below `#screen`, not in the header) is a second, narrower exception:
-  NOT generic chrome (not every game has a canister-seated bot) — it's
-  this example's own small sibling-DOM control, wired by hand at the
-  bottom of `duel-app.js` itself, driven directly off the shared
-  `ws`/`session` rather than through `start()`, and talking straight to
-  a SECOND actor (the deployed `bot` canister) rather than through
-  `ws.mo`'s protocol at all. See `../CLAUDE.md`'s `frontend/` bullet for
-  the full design (Flow 1, "self-join") and `bot/Bot.mo`'s own `play`
-  method for the engine side. The header's `#leaderboard-toggle`/
-  `#leaderboard-panel` sit closer to `duel-auth-btn` than to
-  `#play-vs-bot-panel`: `duel-game-core`'s own `render.js` supplies
+  setting, and is wired entirely by `start()` itself. `#bot-challenge-toggle`/
+  `#bot-challenge-panel` (header + a sibling of `#screen`, same shape as
+  `#leaderboard-toggle`/`#leaderboard-panel` below — styled entirely by
+  the SHARED `duel-game-core/style.css`, not this game's own) is a
+  second, narrower exception: NOT generic chrome baked into `start()`
+  itself (not every game wires bot discovery), but not this example's own
+  bespoke design either — it's `duel-game-core`'s own generic bot-list/
+  seat-choice rendering (`render.js`'s `renderBotList`/`renderSeatChoice`,
+  and `renderLeaderboard`'s own per-bot Challenge button), wired by hand
+  at the bottom of `duel-app.js` itself (the same pattern the leaderboard
+  toggle below already uses, since a bot dialog has no more a fixed place
+  in every game's layout than a leaderboard panel does), driven directly
+  off the shared `ws`/`session`/`actor` rather than through `start()`.
+  Discovery (`actor.list_bots()`) and staging a brand-new table
+  (`ws.request(session.sid, { createTable: ... })`) both stay on that
+  SAME shared connection; only the final step — the CHOSEN bot's own
+  `play(host, tableId, seat, code)` — talks to a second, per-challenge
+  actor (built from `duel-game-core/idl.js`'s `buildBotPlayIdlFactory`,
+  targeting whichever principal `list_bots()` returned, never a fixed
+  one), never through `ws.mo`'s protocol. See `../CLAUDE.md`'s `frontend/`
+  bullet for the full design (Flow 1, "self-join," generalized) and
+  `bot/Bot.mo`'s own `play`/`register` methods for the engine side. The
+  header's `#leaderboard-toggle`/`#leaderboard-panel` follow the exact
+  same shape: `duel-game-core`'s own `render.js` supplies
   `renderLeaderboard`, and `get_leaderboard()` is a plain query on the
   SAME actor `start()` already built — this game only supplies where the
   panel lives and `duel-racing-plugin.js`'s own `formatScore` (inverting
-  `Host.mo`'s lap-time-to-score conversion) — see `../CLAUDE.md`'s
-  `frontend/` bullet for the full wiring.
+  `Host.mo`'s lap-time-to-score conversion, and rendering its own inert
+  `defaultScore` of `0` as `"--:--.--"` rather than a nonsensical
+  `60:00.000`) — see `../CLAUDE.md`'s `frontend/` bullet for the full
+  wiring.
 - `src/duel/duel-app.js` calls `duel-game-core/identity.js`'s
   `resolveIdentity()` to get this tab's own identity/`session` in one
   call: a real, permanent Internet Identity login if one's already

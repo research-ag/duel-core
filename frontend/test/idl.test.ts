@@ -27,7 +27,7 @@ test("buildEngineTypes builds every named type without throwing", () => {
   }
 });
 
-test("makeIdlFactory produces a Service with status + get_leaderboard + the four ws_* methods, no plain mutating method", () => {
+test("makeIdlFactory produces a Service with status + get_leaderboard + bot discovery + the four ws_* methods, no plain mutating game method", () => {
   const idlFactory = makeIdlFactory(sampleGameTypes);
   const service = idlFactory({ IDL });
   // IDL.Service exposes its method table via ._fields (array of [name, FuncClass]).
@@ -36,7 +36,10 @@ test("makeIdlFactory produces a Service with status + get_leaderboard + the four
   );
   assert.deepEqual(
     [...names].sort(),
-    ["status", "get_leaderboard", "ws_close", "ws_get_messages", "ws_message", "ws_open"].sort(),
+    [
+      "status", "get_leaderboard", "register_bot", "unregister_bot", "list_bots",
+      "ws_close", "ws_get_messages", "ws_message", "ws_open",
+    ].sort(),
   );
   for (const forbidden of ["join", "submit", "rematch", "leave", "reset", "claimWin", "ackEnded"]) {
     assert.ok(!names.includes(forbidden), `service must not expose a plain "${forbidden}" method`);

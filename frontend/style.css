@@ -694,3 +694,56 @@ button.seat {
   padding: 0.4rem 0.6rem;
   margin-right: 1rem;
 }
+
+/* The bot challenge dialog: a full-page overlay (render.ts's
+ * `renderBotList`/`renderSeatChoice` render into `#bot-challenge-body`;
+ * the header bar is each example's own static markup, styled here since
+ * it's the same shape for every game) — same positioning as
+ * `#leaderboard-panel` above, for the same reason (covers the whole
+ * viewport while shown, so a live status push updating `#screen`
+ * underneath it can never clobber it). Opened either from a bot's own row
+ * in the leaderboard panel above (`renderLeaderboard`'s own Challenge
+ * button) or from each example's own `#bot-add-panel` trigger, styled
+ * per-example the way `#play-vs-bot-panel` used to be — see that file's
+ * own `style.css`. */
+#bot-challenge-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  background: var(--bg);
+  padding: 1.75rem 1.25rem 3rem;
+}
+
+#bot-challenge-panel[hidden] {
+  display: none;
+}
+
+.bot-challenge-header {
+  max-width: 860px;
+  margin: 0 auto 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.bot-challenge-header h2 {
+  flex: 1;
+  margin: 0;
+}
+
+.bot-challenge-body {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+/* A bot's own "Challenge" button — on a `renderLeaderboard` row (sits
+ * after `.leaderboard-score`) or a `renderBotList` row (this dialog's own
+ * list). Small and gold-accented, so it reads as an action distinct from
+ * the row's own data. */
+.leaderboard-challenge {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--accent);
+  border-color: var(--accent);
+}

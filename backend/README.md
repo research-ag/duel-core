@@ -659,10 +659,12 @@ mutable indirection, filled in once `cpAttached` itself is built. The
 six Candid methods a canister player calls
 (`create_table_as_canister`/`join_table_as_canister`/`leave_as_canister`/
 `ack_ended_as_canister`/`claim_win_as_canister`/`reset_as_canister`)
-come from a single `include CanisterPlayersActorMixin(cpAttached)` —
-`mo:duel-game-core/canister_players_actor_mixin`, the
+— plus `register_bot`/`unregister_bot`/`list_bots` (bot DISCOVERY, see
+"Bot discovery" below) — come from a single
+`include CanisterPlayersActorMixin(cpAttached, botDirectory, leaderboard)`
+— `mo:duel-game-core/canister_players_actor_mixin`, the
 `canister_players.mo` counterpart to `ActorMixin` above; no host
-hand-declares any of the six. There is no `rematch_as_canister`: a
+hand-declares any of the nine. There is no `rematch_as_canister`: a
 canister-vs-canister debrief auto-acks both sides unconditionally the
 moment neither is a live human still deciding (see "Unattended,
 canister-vs-canister matches" below), so nothing is ever left waiting
@@ -721,7 +723,14 @@ persistent actor {
   );
   settleTable := ?cpAttached.settle;
 
-  include CanisterPlayersActorMixin(cpAttached);
+  // `botDirectory` is a plain, stable `CanisterPlayers.BotDirectory` this
+  // actor owns directly (no class, no closures) — see "Bot discovery"
+  // below. `null` here (no leaderboard wired in this worked example)
+  // means every bot's own `elo` comes back `null` from `list_bots` too; a
+  // host that DOES wire one passes `?leaderboard` instead, same as the
+  // two worked examples below do.
+  let botDirectory = CanisterPlayers.newBotDirectory();
+  include CanisterPlayersActorMixin(cpAttached, botDirectory, null);
 
   // Fold `cpAttached.sweep` — the slow, full-registry safety net for
   // whatever `settle` never gets called for (most commonly: the OTHER
@@ -888,6 +897,108 @@ both a stateless query bot and a stateful update bot, storage-key
 choices for per-match vs. per-opponent memory, and the pitfalls each
 shape runs into.
 
+**Bot discovery.** Flow 1/Flow 2 above both assume something ALREADY
+knows a bot's own principal — a table id/seat/code handed to it directly,
+or a `reservedFor` session named up front. A human player challenging a
+bot they've never heard of needs the opposite: the bot announces itself
+to the host, and a frontend discovers the resulting list. This is a small
+extension of `canister_players.mo`/`canister_players_actor_mixin.mo`
+themselves (not a separate module — bot discovery is tied closely enough
+to canister players that it lives right alongside `Attached`), built on
+the same non-spoofable `msg.caller` discipline every other entry point in
+this module already relies on:
+
+```motoko
+public type BotInfo = {
+  principal : Principal.Principal;
+  name : Text;
+  registeredAt : Int;
+};
+public type BotEntry = {
+  principal : Principal.Principal;
+  name : Text;
+  elo : ?Int;
+};
+public type BotDirectory = { var bots : Map.Map<Principal.Principal, BotInfo> };
+
+public func newBotDirectory() : BotDirectory;
+public func registerBot(d : BotDirectory, caller : Principal.Principal, name : Text, now : Int); // upsert by principal
+public func unregisterBot(d : BotDirectory, caller : Principal.Principal);
+public func listBots(d : BotDirectory) : [BotInfo];
+public func rankedBots(bots : [BotInfo], scoreOf : (Principal.Principal) -> ?Int) : [BotEntry]; // highest elo first, unrated last
+public func leaderboardKey(p : Principal.Principal) : Text; // "cp:" # p.toText()
+
+```
+
+`BotDirectory` is a plain, stable, mutable record — same "module of
+functions over a passed-in record" shape as `Table`/`Registry`/
+`Leaderboard.Board` themselves, so a host's own `botDirectory` field is
+genuinely stable across an upgrade. `rankedBots` takes a plain scoring
+function rather than importing `leaderboard.mo` directly, so
+`canister_players.mo` itself stays exactly as dependency-free as its own
+doc header already promises (`core` plus sibling `registry.mo`/
+`types.mo` only) — the JOIN with an actual `Leaderboard.Board` happens one
+layer up, in `canister_players_actor_mixin.mo`'s own `list_bots`:
+
+```motoko
+mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDirectory, leaderboard : ?Leaderboard.Board) {
+  // ...the six *_as_canister methods, unchanged...
+
+  public shared ({ caller }) func register_bot(name : Text) : async () {
+    CanisterPlayers.registerBot(directory, caller, name, Time.now());
+  };
+  public shared ({ caller }) func unregister_bot() : async () {
+    CanisterPlayers.unregisterBot(directory, caller);
+  };
+  public query func list_bots() : async [CanisterPlayers.BotEntry] {
+    let scoreOf = switch (leaderboard) {
+      case (?lb) func(p) : ?Int = ?Leaderboard.scoreOf(lb, CanisterPlayers.leaderboardKey(p));
+      case null func(_) : ?Int = null;
+    };
+    CanisterPlayers.rankedBots(CanisterPlayers.listBots(directory), scoreOf);
+  };
+};
+
+```
+
+`leaderboard` is genuinely optional (a host with none wired passes
+`null`, and every bot's own `elo` comes back `null` too — a challenge
+dialog simply shows no rating). A leaderboard-backed host with a bot that
+hasn't played yet still returns the leaderboard's own default rating, not
+`null` — `Leaderboard.scoreOf` already falls back to `defaultScore` for
+any player with no entry, bot or human alike, so a never-played bot's row
+reads exactly like a brand-new human's would. `register_bot`/
+`unregister_bot` call `Time.now()` directly, the same documented
+exception `ws.mo`/`actor_mixin.mo`/`canister_players.mo`'s own `Attached`
+functions already rely on — this mixin plays the host's own role for
+these two `msg.caller` entry points.
+
+On the BOT's own side, being challengeable takes one more method beyond
+`make_move`/`play` (Flow 1, above) — a one-time self-registration call,
+mirroring `play`'s own `(host, ...)` shape:
+
+```motoko
+public shared func register(host : Principal.Principal, name : Text) : async () {
+  let h : actor { register_bot : (Text) -> async () } = actor (host.toText());
+  await h.register_bot(name);
+};
+
+```
+
+There's no deploy-time mechanism in this repo for one canister to learn a
+sibling's principal automatically, so this is called once, by hand, after
+both the bot and its host are deployed — e.g.
+`icp canister call bot register '(principal "<host-canister-id>", "RacerBot")'`
+(see `examples/racing/bot/Bot.mo`/`examples/checkers/bot/Bot.mo` for the
+full worked shape, `unregister` included). Once it succeeds, the bot
+shows up in every player's own "🤖 Bots" challenge dialog and leaderboard
+Challenge button — see `../frontend/README.md`'s "Bot registry" section
+for `list_bots()`/`renderBotList`/`renderSeatChoice`/`renderLeaderboard`'s
+Challenge button and the unified challenge flow that follows: a browser
+still only ever calls a bot's own `play` DIRECTLY, exactly Flow 1's
+shape, just with the target canister id now coming from a player's own
+choice rather than a hardcoded env var.
+
 ### Leaderboard
 
 Also entirely opt-in, and — unlike Metrics below — split across three
@@ -960,10 +1071,13 @@ SessionId, SessionId) -> ()` fired exactly once a table freshly enters
   strips the prefix down to it), while a `cp:` canister-player session is
   deliberately PER-TABLE (`sidForCanister(p, tableId)`) — a host wiring
   `canister_players.mo` alongside a leaderboard special-cases
-  `CanisterPlayers.principalOfCanisterSession(sid)` itself before falling
-  back to `Ws.playerKey` for everything else, so one bot's rating
-  accumulates across every table it plays instead of resetting per
-  board.
+  `CanisterPlayers.leaderboardKey(CanisterPlayers.principalOfCanisterSession(sid))`
+  itself before falling back to `Ws.playerKey` for everything else, so
+  one bot's rating accumulates across every table it plays instead of
+  resetting per board — the SAME `"cp:" # p.toText()` convention
+  `CanisterPlayers.rankedBots`'s own caller in `list_bots` (see "Bot
+  discovery" above) joins a bot's rating with, so a bot's leaderboard row
+  and its own row in a challenge dialog always agree.
 
 A worked ELO example (007/checkers — every seat re-rates on every
 ending, `#claimed`/`#aborted` counted the same as a clean `#finished`

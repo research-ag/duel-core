@@ -23,6 +23,7 @@
 
 import type {
   AwaitingRematchView,
+  BotInfo,
   BusyView,
   DebriefView,
   EngineErr,
@@ -596,11 +597,15 @@ export function renderStatus<S>(status: Status<S>, plugin: GamePlugin<S>): strin
 /// the caller off the ranked slice entirely) and no row is marked. A
 /// canister-seated player's own row (`isCanisterPlayer`, above) gets a
 /// 🤖 icon and its `cp:` marker stripped for display, the same as a
-/// human's own key already shows with no prefix at all.
+/// human's own key already shows with no prefix at all — or, when
+/// `opts.botNames` names that exact principal, its own self-reported
+/// alias (`BotInfo.name`, from `list_bots()`) instead of the bare
+/// principal text; the full principal always stays in the row's own
+/// `title` attribute either way, so it's still one hover away.
 export function renderLeaderboard(
   entries: LeaderboardEntry[],
   plugin: GamePlugin,
-  opts?: { yourSid?: string },
+  opts?: { yourSid?: string; botNames?: Map<string, string> },
 ): string {
   if (entries.length === 0) {
     return `<p class="muted">No games finished yet — the leaderboard is empty.</p>`;
@@ -623,14 +628,78 @@ export function renderLeaderboard(
       const isYou = you !== undefined && e.player === you;
       const isBot = isCanisterPlayer(e.player);
       const botIcon = isBot ? `<span class="leaderboard-bot-icon" title="Canister player">🤖</span>` : "";
+      const principalText = displayPlayerId(e.player);
+      // `LeaderboardEntry` itself carries no friendly bot NAME (just
+      // `{player, score, updatedAt}`) — `opts.botNames` (typically built
+      // from a `list_bots()` call fetched alongside this same panel) is
+      // how a caller supplies one; falling back to the bare principal
+      // keeps every OTHER caller (and a bot this host has no directory
+      // entry for any more) working exactly as before.
+      const displayName = isBot ? (opts?.botNames?.get(principalText) ?? principalText) : principalText;
+      const challengeBtn = isBot
+        ? `<button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(principalText)}" data-bot-name="${esc(displayName)}">Challenge</button>`
+        : "";
       return `
     <div class="leaderboard-row${isYou ? " you" : ""}">
       <span class="leaderboard-rank">${i + 1}</span>
-      <span class="leaderboard-player" title="${esc(e.player)}">${botIcon}${esc(displayPlayerId(e.player))}</span>
+      <span class="leaderboard-player" title="${esc(e.player)}">${botIcon}${esc(displayName)}</span>
       ${isYou ? `<span class="leaderboard-you-badge">You</span>` : ""}
       <span class="leaderboard-score">${esc(format(e.score))}</span>
+      ${challengeBtn}
     </div>`;
     })
     .join("");
   return `<div class="leaderboard">${rows}</div>`;
+}
+
+/// Renders the bot list a "Bots" dialog shows — `list_bots()`'s own
+/// ranked result (see `mo:duel-game-core/canister_players`'s `BotEntry`
+/// doc: highest-rated first, unrated last). Each row's `Challenge` button
+/// carries the same `data-challenge-bot`/`data-bot-name` attributes
+/// `renderLeaderboard`'s own Challenge button (above) carries, so a game
+/// wires ONE click handler for both entry points. `elo` is shown only
+/// when this host actually wires a leaderboard at all (`BotInfo.elo` is
+/// non-empty for every bot alike, or empty for every bot alike — see that
+/// field's own doc); `plugin.formatScore` renders it exactly like
+/// `renderLeaderboard` does, so a bot's rating reads the same wherever it
+/// appears.
+export function renderBotList(bots: BotInfo[], plugin: GamePlugin): string {
+  if (bots.length === 0) {
+    return `<p class="muted">No bots have registered with this game yet.</p>`;
+  }
+  const format = plugin.formatScore ?? ((score: bigint) => score.toString());
+  const rows = bots
+    .map((b) => {
+      const principalText = b.principal.toString();
+      const eloText =
+        b.elo.length === 1 ? `<span class="leaderboard-score">${esc(format(b.elo[0]))}</span>` : "";
+      return `
+    <div class="leaderboard-row">
+      <span class="leaderboard-player" title="${esc(principalText)}">🤖 ${esc(b.name)}</span>
+      ${eloText}
+      <button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(principalText)}" data-bot-name="${esc(b.name)}">Challenge</button>
+    </div>`;
+    })
+    .join("");
+  return `<div class="leaderboard">${rows}</div>`;
+}
+
+/// The seat picker a challenge flow shows once a bot's been chosen and
+/// this player isn't already staging a table (see each game's own
+/// `duel-app.js`/`app.js` for the full flow). Standalone, not part of
+/// `renderBrowsing`'s own "Start a new table" section — a challenge
+/// dialog lives OUTSIDE `#screen`, so it needs its own copy of the same
+/// two-button seat picker rather than reaching into generically-owned
+/// markup. `data-challenge-seat` carries the chosen `SeatTag` — never
+/// `data-create-table`, `renderBrowsing`'s own attribute, wired to a
+/// different handler entirely.
+export function renderSeatChoice(plugin: GamePlugin): string {
+  const seatBtn = (seat: SeatTag) => `
+    <button type="button" class="seat" data-challenge-seat="${seat}">${esc(plugin.seatLabel(seat))}</button>`;
+  return `
+    <p>Choose your seat:</p>
+    <div class="seats">
+      ${seatBtn("p1")}
+      ${seatBtn("p2")}
+    </div>`;
 }

@@ -15,6 +15,15 @@ the user's own rules description should make for you — don't reach for
 the stateful shape "for robustness" if nothing about the bot's own
 strategy actually calls for memory.
 
+This file is only about `make_move`'s own move-selection logic — making
+the bot CHALLENGEABLE by a human player at all (self-registering with the
+host so it shows up in a "🤖 Bots" dialog and leaderboard Challenge
+buttons, rather than only reachable via a table id/seat/code someone
+already handed it) is a separate, one-line-of-logic concern: see
+`SKILL.md`'s "Canister players (optional)" step's own closing part, and
+`mo:duel-game-core`'s `backend/README.md` "Canister players" section,
+"Bot discovery" subsection.
+
 ## What `make_move` receives
 
 `TP.MoveRequest<S, M>` (`S` = your game's `State`, `M` = your `Action`)
@@ -80,6 +89,7 @@ lookup, a minimax search over the current board — write `make_move` as a
 public query func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async Rules.Action {
   BotLogic.chooseMove(req);
 };
+
 ```
 
 This is `examples/racing/bot/Bot.mo` and `examples/checkers/bot/Bot.mo`
@@ -105,6 +115,7 @@ what context. Declare it as an ordinary `public func` instead:
 public func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async Rules.Action {
   BotLogic.chooseMove(req, opponentModels); // opponentModels: this actor's own stable memory, below
 };
+
 ```
 
 Nothing else in the design changes to allow this: `BotIface.mo`'s own
@@ -126,8 +137,9 @@ a plain
 ```motoko
 persistent actor {
   var opponentModels : Map.Map<TP.SessionId, OpponentModel> = Map.empty();
-  ...
+  ...;
 };
+
 ```
 
 field is automatically stable. No manual pre/post-upgrade hooks, no
@@ -236,7 +248,12 @@ persistent actor {
     switch (opponentModels.get(key)) {
       case (?m) m;
       case null {
-        let fresh = { var movesSeen = 0; var rockCount = 0; var paperCount = 0; var scissorsCount = 0 };
+        let fresh = {
+          var movesSeen = 0;
+          var rockCount = 0;
+          var paperCount = 0;
+          var scissorsCount = 0;
+        };
         opponentModels.add(key, fresh);
         fresh;
       };
@@ -275,6 +292,7 @@ persistent actor {
   };
 
 };
+
 ```
 
 ## What NOT to do

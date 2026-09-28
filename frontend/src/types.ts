@@ -10,6 +10,7 @@
 // `val()` in render.ts are what turn one into the other.
 
 import type { IDL } from "@icp-sdk/core/candid";
+import type { Principal } from "@icp-sdk/core/principal";
 
 /// A seat tag on its own, as it appears once `tag()` has unwrapped a
 /// `Seat` variant — what `GamePlugin.seatLabel`/`renderBoard`/
@@ -220,6 +221,18 @@ export interface LeaderboardEntry {
   player: string;
   score: bigint;
   updatedAt: bigint;
+}
+
+/// One self-registered bot, as returned by `list_bots()` — mirrors
+/// `mo:duel-game-core/canister_players`'s own `BotEntry` exactly. `elo` is
+/// `opt int` (`[]` only when this host wires no leaderboard at all — see
+/// that type's own doc); a leaderboard-backed host with a never-played
+/// bot still returns `[score]` (the leaderboard's own default rating),
+/// never `[]`.
+export interface BotInfo {
+  principal: Principal;
+  name: string;
+  elo: [] | [bigint];
 }
 
 /// A game's plugin contract — see ../README.md's "The GamePlugin

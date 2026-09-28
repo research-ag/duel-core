@@ -18,12 +18,12 @@
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { Principal } from "@icp-sdk/core/principal";
-import { makeIdlFactory, buildEngineTypes } from "duel-game-core/idl.js";
+import { makeIdlFactory, buildBotPlayIdlFactory } from "duel-game-core/idl.js";
 import { start } from "duel-game-core/app.js";
 import { connectWs } from "duel-game-core/ws.js";
 import { resolveIdentity } from "duel-game-core/identity.js";
 import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
-import { errText, renderLeaderboard, tag } from "duel-game-core/render.js";
+import { errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag } from "duel-game-core/render.js";
 import { plugin } from "./checkers-plugin.js";
 
 const env = readIcEnv();
@@ -85,8 +85,15 @@ leaderboardToggle.addEventListener("click", async () => {
   leaderboardPanel.hidden = false;
   leaderboardBody.innerHTML = `<p class="muted">Loading…</p>`;
   try {
-    const entries = await actor.get_leaderboard();
-    leaderboardBody.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid });
+    // Fetched alongside the ranked entries themselves (both plain Candid
+    // queries, no `ws` round-trip either) purely so a bot's own row can
+    // show its self-reported `name` instead of a bare principal — see
+    // `renderLeaderboard`'s own `opts.botNames` doc. A `list_bots()`
+    // failure (or a host with no bot discovery wired at all) still lets
+    // the leaderboard itself render, just without any bot alias.
+    const [entries, bots] = await Promise.all([actor.get_leaderboard(), actor.list_bots().catch(() => [])]);
+    const botNames = new Map(bots.map((b) => [b.principal.toString(), b.name]));
+    leaderboardBody.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames });
   } catch (err) {
     leaderboardBody.innerHTML = `<p class="error">Could not load the leaderboard.</p>`;
     console.error(err);
@@ -96,117 +103,167 @@ leaderboardBack.addEventListener("click", () => {
   leaderboardPanel.hidden = true;
 });
 
-// ── "Add Bot" — Flow 1, self-join (see ../../../CLAUDE.md's "Canister
-// players" note) ─────────────────────────────────────────────────────
-// Once you've created a table and landed on the generic "Waiting for an
-// opponent" screen (render.js's `renderStagingYou`), this lets you fill
-// the OTHER seat with this deploy's own bot canister (`bot/Bot.mo`)
-// instead of waiting on a second human tab. `index.html`'s
-// `#play-vs-bot-panel` is a sibling of `#screen`, never touched by
-// `render.js`'s own unconditional `innerHTML` replace (see the
-// duel-game-core skill's rich-UI pattern) — driven here directly off the
-// SAME shared `ws`/`session` the generic chrome above already uses.
+// ── "🤖 Bots" — discover and challenge any bot that's self-registered
+// with THIS host (see ../../../backend/README.md's "Canister players"
+// section, "Bot discovery") ───────────────────────────────────────────
+// Two entry points converge on the SAME challenge flow below:
+//   - `#bot-add-panel`'s own "Add Bot" button (`index.html`, a sibling of
+//     `#screen`) — Flow 1's own human-facing entry point, exactly where
+//     the old single-hardcoded-bot version of this control lived: shown
+//     ONLY for the "Waiting for an opponent" screen (`stagingYou`,
+//     tracked below), since that's the one screen where a seat's already
+//     been picked (via the ordinary "Start a new table" flow) and there's
+//     an open seat to fill. Clicking it opens `#bot-challenge-panel` with
+//     the ranked bot list (`list_bots()` — a plain Candid query, same
+//     class as `get_leaderboard()` above, no `ws` round-trip); picking a
+//     bot fills THAT table's own open seat directly, no further choice
+//     needed.
+//   - a bot's own row in the leaderboard panel above (`renderLeaderboard`'s
+//     own Challenge button) — reachable from ANY screen, so it can't
+//     assume an open seat already exists: if this player isn't already
+//     staging a table, a seat-choice step (`renderSeatChoice`) creates a
+//     brand-new one first — a normal `createTable` request sent directly
+//     over the shared `ws` (`ws.request`, the same correlatable call the
+//     checkers board's own move submission already relies on for a scoped
+//     reply, just issued from here instead of from a `data-create-table`
+//     button inside `#screen`).
 //
-// Unlike Flow 2 ("eager dual-seat assignment", `Registry.createTableReserving`
-// — see ../../../../backend/README.md's own section on it), this
-// never touches `ws.mo`'s protocol at all: it's a PLAIN Candid call
-// straight to the bot canister's own `play(host, tableId, seat, code)`
-// (see `../../bot/Bot.mo`), which then calls `host`'s
-// `join_table_as_canister` on ITS OWN account — the exact same path a
-// human clicking "seat open" for themselves would take, just automated.
-// Flow 2 couldn't fill this role even if we wanted: it only ever
-// atomically seats both sides of a BRAND NEW table in one call — it has
-// no way to join an already-staged one, which is exactly this screen's
-// situation (a table this player already created, with one seat still
-// open).
-//
-// `env['PUBLIC_CANISTER_ID:bot']` comes from the same `ic_env` cookie
-// `canisterId` above already reads, populated by icp-cli for every
-// canister `icp.yaml` declares (this example's own `bot` canister — see
-// ../../icp.yaml) — a deploy of this frontend against a `Host.mo`
-// with no `bot` canister at all (a fork that dropped it) just never sees
-// this key, and the panel stays hidden for good.
-const botCanisterId = env["PUBLIC_CANISTER_ID:bot"];
-const playVsBotPanel = document.getElementById("play-vs-bot-panel");
-const playVsBotBtn = document.getElementById("play-vs-bot");
-const playVsBotErr = document.getElementById("play-vs-bot-error");
-if (botCanisterId && playVsBotPanel && playVsBotBtn && playVsBotErr) {
-  // A minimal, hand-written IDL for just the one bot method this page
-  // calls — `buildEngineTypes` (the SAME function `idlFactory` above is
-  // built from) supplies `Seat`/`TableId`/`Err` so this doesn't carry a
-  // second, divergent copy of those shapes; `Action`/`State` are passed
-  // as `IDL.Null` purely to satisfy that function's signature — `play`'s
-  // own reply never touches either. Candid record decoding tolerates a
-  // declared type naming fewer fields than the value actually carries,
-  // so `JoinOk`'s own two variant arms are enough even though this page
-  // never inspects a successful reply's own payload, only whether it
-  // was `#ok`/`#err`.
-  const botIdlFactory = ({ IDL }) => {
-    const t = buildEngineTypes({ IDL, Action: IDL.Null, State: IDL.Null });
-    const JoinOk = IDL.Variant({ staged: t.Seat, started: t.Seat });
-    const Res = IDL.Variant({ ok: JoinOk, err: t.Err });
-    return IDL.Service({
-      play: IDL.Func([IDL.Principal, t.TableId, t.Seat, IDL.Opt(IDL.Text)], [Res], []),
-    });
+// Either way, the actual invite is the same PLAIN Candid call straight to
+// the bot's own `play(host, tableId, seat, code)` (see `../../bot/Bot.mo`)
+// Flow 1 always used — never routed through `ws.mo`'s protocol — except
+// now the target canister id comes from whichever bot a player picked in
+// `renderBotList`/`renderLeaderboard`, never a hardcoded env var.
+const hostPrincipal = Principal.fromText(canisterId);
+const botPanel = document.getElementById("bot-challenge-panel");
+const botBack = document.getElementById("bot-challenge-back");
+const botBody = document.getElementById("bot-challenge-body");
+const botAddPanel = document.getElementById("bot-add-panel");
+const botAddTrigger = document.getElementById("bot-add-trigger");
+
+// Refreshed off every status push with exactly what a same-table
+// challenge needs: the open seat (the one this session ISN'T holding)
+// and the access code, if any (`StagingYouView.visibility` — known only
+// to this table's own occupant, exactly the caller here). `null` outside
+// the "Waiting for an opponent" screen specifically — not merely "at a
+// table" (browsing/busy/awaitingRematch/inGame/debrief/endedByOther all
+// clear it, and hide `#bot-add-panel` right along with it). `ws`
+// (GatewayWs) extends EventTarget specifically so more than one consumer
+// can listen without stealing app.js's own `ws.onmessage` — see the
+// duel-game-core skill's rich-UI pattern.
+let staging = null;
+ws.addEventListener("message", (ev) => {
+  const payload = ev.data;
+  if (!payload || "err" in payload) {
+    staging = null;
+    botAddPanel.hidden = true;
+    return;
+  }
+  const status = payload.view;
+  if (!("atTable" in status) || tag(status.atTable.view) !== "stagingYou") {
+    staging = null;
+    botAddPanel.hidden = true;
+    return;
+  }
+  const v = status.atTable.view.stagingYou;
+  staging = {
+    tableId: status.atTable.id,
+    openSeat: tag(v.seat) === "p1" ? { p2: null } : { p1: null },
+    code: "code" in v.visibility ? [v.visibility.code] : [],
   };
-  const botActor = Actor.createActor(botIdlFactory, { agent, canisterId: botCanisterId });
-  const hostPrincipal = Principal.fromText(canisterId);
+  botAddPanel.hidden = false;
+});
 
-  // Refreshed off every status push (see below) with exactly what
-  // `bot.play` needs for THIS table: the open seat (the one this session
-  // ISN'T holding) and the access code, if any (`StagingYouView.visibility`
-  // — known only to this table's own occupant, exactly the caller here).
-  let staging = null;
+// The bot chosen off either entry point, waiting on a seat pick — `null`
+// whenever the dialog isn't mid-challenge.
+let pendingBot = null;
 
-  // `ws` (GatewayWs) extends EventTarget specifically so more than one
-  // consumer can listen without stealing app.js's own `ws.onmessage` —
-  // see the duel-game-core skill's rich-UI pattern. Shown ONLY for the
-  // "Waiting for an opponent" screen specifically (not merely "at a
-  // table") — browsing/busy/awaitingRematch/inGame/debrief/endedByOther
-  // all hide it.
-  ws.addEventListener("message", (ev) => {
-    const payload = ev.data;
-    if (!payload || "err" in payload) {
-      staging = null;
-      playVsBotPanel.hidden = true;
-      return;
-    }
-    const status = payload.view;
-    if (!("atTable" in status) || tag(status.atTable.view) !== "stagingYou") {
-      staging = null;
-      playVsBotPanel.hidden = true;
-      return;
-    }
-    const v = status.atTable.view.stagingYou;
-    staging = {
-      tableId: status.atTable.id,
-      openSeat: tag(v.seat) === "p1" ? { p2: null } : { p1: null },
-      code: "code" in v.visibility ? [v.visibility.code] : [],
-    };
-    playVsBotPanel.hidden = false;
-  });
-
-  playVsBotBtn.addEventListener("click", async () => {
-    if (playVsBotBtn.disabled || !staging) return;
-    const { tableId, openSeat, code } = staging;
-    playVsBotErr.hidden = true;
-    playVsBotBtn.disabled = true;
-    try {
-      const res = await botActor.play(hostPrincipal, tableId, openSeat, code);
-      if ("err" in res) {
-        playVsBotErr.textContent = errText(res.err);
-        playVsBotErr.hidden = false;
-      }
-      // On success the bot's own `join_table_as_canister` call reuses
-      // `attached.afterMutation` (Host.mo) to push a fresh status to
-      // THIS human's own connection in real time — app.js's own
-      // `ws.onmessage` picks it up and re-renders #screen to the fresh
-      // #active game on its own; nothing further to do here.
-    } catch (e) {
-      playVsBotErr.textContent = `Call failed: ${e && e.message ? e.message : e}`;
-      playVsBotErr.hidden = false;
-    } finally {
-      playVsBotBtn.disabled = false;
-    }
-  });
+function openBotPanel(bodyHtml) {
+  leaderboardPanel.hidden = true;
+  botPanel.hidden = false;
+  botBody.innerHTML = bodyHtml;
 }
+
+async function loadBotList() {
+  pendingBot = null;
+  openBotPanel(`<p class="muted">Loading…</p>`);
+  try {
+    const bots = await actor.list_bots();
+    botBody.innerHTML = renderBotList(bots, plugin);
+  } catch (err) {
+    botBody.innerHTML = `<p class="error">Could not load bots.</p>`;
+    console.error(err);
+  }
+}
+botAddTrigger.addEventListener("click", () => void loadBotList());
+botBack.addEventListener("click", () => {
+  botPanel.hidden = true;
+  pendingBot = null;
+});
+
+// One table id/seat/code to hand `bot.play` — either this session's own
+// already-staged table (`seat === undefined`), or a brand-new one created
+// on the spot for the chosen `seat`.
+async function stageFor(seat) {
+  if (seat === undefined) return staging;
+  const res = await ws.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null } } });
+  if ("err" in res) throw new Error(errText(res.err));
+  const status = res.view;
+  if (!("atTable" in status) || tag(status.atTable.view) !== "stagingYou") {
+    throw new Error("Could not stage a table.");
+  }
+  const v = status.atTable.view.stagingYou;
+  return {
+    tableId: status.atTable.id,
+    openSeat: tag(v.seat) === "p1" ? { p2: null } : { p1: null },
+    code: "code" in v.visibility ? [v.visibility.code] : [],
+  };
+}
+
+async function inviteBot(seat) {
+  const { principalText, name } = pendingBot;
+  botBody.innerHTML = `<p class="muted">Inviting ${esc(name)}…</p>`;
+  try {
+    const { tableId, openSeat, code } = await stageFor(seat);
+    const botActor = Actor.createActor(buildBotPlayIdlFactory, { agent, canisterId: principalText });
+    const res = await botActor.play(hostPrincipal, tableId, openSeat, code);
+    if ("err" in res) throw new Error(errText(res.err));
+    // On success the bot's own `join_table_as_canister` call reuses
+    // `attached.afterMutation` (Host.mo) to push a fresh status to THIS
+    // human's own connection in real time — app.js's own `ws.onmessage`
+    // picks it up and re-renders #screen to the fresh #active game on
+    // its own; nothing further to do here.
+    botPanel.hidden = true;
+    pendingBot = null;
+  } catch (e) {
+    botBody.innerHTML = `<p class="error">${esc(e && e.message ? e.message : String(e))}</p>`;
+  }
+}
+
+function onChallengeClick(principalText, name) {
+  pendingBot = { principalText, name };
+  leaderboardPanel.hidden = true;
+  botPanel.hidden = false;
+  if (staging) {
+    void inviteBot(undefined);
+  } else {
+    botBody.innerHTML = renderSeatChoice(plugin);
+  }
+}
+
+// Delegated on each STABLE container (never re-bound after an `innerHTML`
+// swap) so both this dialog's own bot list and its own seat-choice step
+// share one listener, and the leaderboard panel's per-row Challenge
+// button (`renderLeaderboard`) reaches the exact same flow.
+botBody.addEventListener("click", (ev) => {
+  const seatBtn = ev.target.closest("[data-challenge-seat]");
+  if (seatBtn) {
+    void inviteBot(seatBtn.dataset.challengeSeat);
+    return;
+  }
+  const botBtn = ev.target.closest("[data-challenge-bot]");
+  if (botBtn) onChallengeClick(botBtn.dataset.challengeBot, botBtn.dataset.botName || botBtn.dataset.challengeBot);
+});
+leaderboardBody.addEventListener("click", (ev) => {
+  const botBtn = ev.target.closest("[data-challenge-bot]");
+  if (botBtn) onChallengeClick(botBtn.dataset.challengeBot, botBtn.dataset.botName || botBtn.dataset.challengeBot);
+});

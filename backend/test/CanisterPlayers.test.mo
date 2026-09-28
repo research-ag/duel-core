@@ -142,7 +142,9 @@ func silentBot() : (TP.SessionId, TP.MoveRequest<Rules.State, Rules.Action>, (?R
 /// ever handed (in call order) into `log.reqs` — used to inspect the new
 /// `opponent`/`opponentLastMove`/`lastRoundDurationNs` fields a smarter
 /// bot would key its own memory off (see test 17).
-func newReqLog() : { var reqs : [TP.MoveRequest<Rules.State, Rules.Action>] } = { var reqs = [] };
+func newReqLog() : { var reqs : [TP.MoveRequest<Rules.State, Rules.Action>] } = {
+  var reqs = [];
+};
 func capturingBot(move : Rules.Action, log : { var reqs : [TP.MoveRequest<Rules.State, Rules.Action>] }) : (TP.SessionId, TP.MoveRequest<Rules.State, Rules.Action>, (?Rules.Action) -> async* ()) -> async* () {
   func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     log.reqs := Array.concat(log.reqs, [req]);
@@ -624,5 +626,59 @@ assert reqLog18b.reqs.size() == 2;
 assert reqLog18a.reqs[0].opponent == CanisterPlayers.sidForCanister(bot2, id18); // bot1 sees bot2's own identity...
 assert reqLog18b.reqs[0].opponent == CanisterPlayers.sidForCanister(bot1, id18); // ...and bot2 sees bot1's — never its own
 Debug.print("18. each seat's own MoveRequest.opponent names the OTHER seat, never itself OK");
+
+// ── 19. registerBot/listBots — a bot appears in the directory under its
+//          own principal, and re-registering (e.g. a rename) upserts
+//          rather than duplicating ───────────────────────────────────────
+let dir19 = CanisterPlayers.newBotDirectory();
+CanisterPlayers.registerBot(dir19, bot1, "RacerBot", T0);
+assert CanisterPlayers.listBots(dir19).size() == 1;
+assert CanisterPlayers.listBots(dir19)[0].name == "RacerBot";
+CanisterPlayers.registerBot(dir19, bot1, "RacerBot v2", T0 + 1);
+assert CanisterPlayers.listBots(dir19).size() == 1; // still one entry, not two
+assert CanisterPlayers.listBots(dir19)[0].name == "RacerBot v2"; // overwritten
+Debug.print("19. registerBot upserts by principal, never duplicates OK");
+
+// ── 20. unregisterBot removes; unregistering a never-registered principal
+//          is a harmless no-op ────────────────────────────────────────────
+CanisterPlayers.registerBot(dir19, bot2, "CheckersBot", T0);
+assert CanisterPlayers.listBots(dir19).size() == 2;
+CanisterPlayers.unregisterBot(dir19, bot1);
+assert CanisterPlayers.listBots(dir19).size() == 1;
+assert CanisterPlayers.listBots(dir19)[0].principal == bot2;
+CanisterPlayers.unregisterBot(dir19, bot1); // already gone — no trap, no change
+assert CanisterPlayers.listBots(dir19).size() == 1;
+Debug.print("20. unregisterBot removes by principal; unregistering an absent one is a no-op OK");
+
+// ── 21. rankedBots — highest elo first, alphabetical tiebreak on a tie ───
+let bot3 = Principal.fromText("5w2os-7qdam-bqgay-dambq-gay");
+let unranked21 : [CanisterPlayers.BotInfo] = [
+  { principal = bot1; name = "Zebra"; registeredAt = T0 },
+  { principal = bot2; name = "Ant"; registeredAt = T0 },
+  { principal = bot3; name = "Middling"; registeredAt = T0 },
+];
+let scores21 : [(Principal.Principal, Int)] = [(bot1, 1500), (bot2, 1500), (bot3, 1200)];
+let scoreOf21 = func(p : Principal.Principal) : ?Int {
+  for ((q, s) in scores21.values()) { if (q == p) return ?s };
+  null;
+};
+let ranked21 = CanisterPlayers.rankedBots(unranked21, scoreOf21);
+assert ranked21.size() == 3;
+// bot1/bot2 tie at 1500 — alphabetical tiebreak puts "Ant" (bot2) first
+assert ranked21[0].name == "Ant";
+assert ranked21[1].name == "Zebra";
+assert ranked21[2].name == "Middling"; // lower score, still ranked (not unrated)
+Debug.print("21. rankedBots sorts highest-elo-first with an alphabetical tiebreak OK");
+
+// ── 22. rankedBots — a bot `scoreOf` returns null for (e.g. no leaderboard
+//          wired on this host) sorts after every rated bot, regardless of
+//          name ─────────────────────────────────────────────────────────
+let scoreOf22 = func(p : Principal.Principal) : ?Int = if (p == bot2) ?1000 else null;
+let ranked22 = CanisterPlayers.rankedBots(unranked21, scoreOf22);
+assert ranked22[0].principal == bot2; // the only rated one
+assert ranked22[0].elo == ?1000;
+assert ranked22[1].elo == null;
+assert ranked22[2].elo == null;
+Debug.print("22. rankedBots sorts every unrated bot after every rated one OK");
 
 Debug.print("ALL CANISTER-PLAYERS CHECKS PASSED");

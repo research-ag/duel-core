@@ -59,7 +59,7 @@ persistent actor {
   // it plays instead of resetting per board.
   func playerKey(sid : TP.SessionId) : Text {
     if (CanisterPlayers.isCanisterSession(sid)) {
-      "cp:" # CanisterPlayers.principalOfCanisterSession(sid).toText();
+      CanisterPlayers.leaderboardKey(CanisterPlayers.principalOfCanisterSession(sid));
     } else {
       Ws.playerKey(sid);
     };
@@ -117,7 +117,13 @@ persistent actor {
   attached.ws.init<system>();
 
   // Canister players (Flow 1, self-join — see ../../CLAUDE.md's "Canister
-  // players" note).
+  // players" note). `botDirectory` is a plain, stable `CanisterPlayers.BotDirectory`
+  // this actor owns directly (same "no class, no closures" shape as
+  // `registry`/`leaderboard` above) — a bot self-registers into it via
+  // `register_bot` (below), and `list_bots` reads it back joined with each
+  // bot's own current ELO from `leaderboard`.
+  let botDirectory = CanisterPlayers.newBotDirectory();
+
   transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
@@ -141,7 +147,10 @@ persistent actor {
 
   include Http(renderer.renderExposition, "/metrics");
 
-  include CanisterPlayersActorMixin(cpAttached);
+  // `register_bot`/`unregister_bot`/`list_bots` (bot discovery — see
+  // `../../backend/README.md`'s "Canister players" section) come from this
+  // same mixin, alongside the six `*_as_canister` methods above.
+  include CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard);
 
   // Supplies `get_leaderboard()` (the top 25 ELO ratings) — no hand-declared
   // query needed.

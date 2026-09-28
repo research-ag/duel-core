@@ -63,11 +63,15 @@ Http(renderer.renderExposition, "/metrics")`, from
   concrete only here — see `CanisterPlayers.attach`'s own doc for why
   that can't live inside the module). `create_table_as_canister`/
   `join_table_as_canister`/`leave_as_canister`/`ack_ended_as_canister`/
-  `claim_win_as_canister`/`reset_as_canister` all come from one
-  `include CanisterPlayersActorMixin(cpAttached)`
+  `claim_win_as_canister`/`reset_as_canister` — plus `register_bot`/
+  `unregister_bot`/`list_bots` (bot DISCOVERY, see below) — all come from
+  one `include CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard)`
   (`mo:duel-game-core/canister_players_actor_mixin`, the
-  `canister_players.mo` counterpart to `ActorMixin` above) — no
-  hand-declared forwarding methods here; each one derives the caller's
+  `canister_players.mo` counterpart to `ActorMixin` above; `botDirectory`
+  is a plain, stable `CanisterPlayers.BotDirectory` field this actor owns
+  directly, `CanisterPlayers.newBotDirectory()`) — no
+  hand-declared forwarding methods here; each of the six `*_as_canister`
+  ones derives the caller's
   `cp:` session from `msg.caller` AND the `tableId` it names (never
   client-supplied — nothing to spoof), since the same bot canister may
   hold a live seat at more than one table at once — see
@@ -118,12 +122,15 @@ Http(renderer.renderExposition, "/metrics")`, from
   (`mo:duel-game-core/leaderboard_actor_mixin`), no hand-declared query
   needed. A local `playerKey` wrapper
   special-cases a `cp:` canister-player session down to
-  `CanisterPlayers.principalOfCanisterSession(sid)` before falling back
-  to `Ws.playerKey` for everything else — the one place this actor
-  already has both `Ws`/`CanisterPlayers` wired — so a bot's rating
-  accumulates across every table it plays instead of resetting per
-  board. See `../../backend/README.md`'s "Leaderboard" section for the
-  full worked example this Host.mo follows.
+  `CanisterPlayers.leaderboardKey(CanisterPlayers.principalOfCanisterSession(sid))`
+  before falling back to `Ws.playerKey` for everything else — the one
+  place this actor already has both `Ws`/`CanisterPlayers` wired — so a
+  bot's rating accumulates across every table it plays instead of
+  resetting per board — the SAME `leaderboardKey` convention `list_bots()`
+  itself joins a bot's own `elo` with (see the "Canister players" note
+  above), so a bot's leaderboard row and its own row in the "🤖 Bots"
+  dialog always agree. See `../../backend/README.md`'s "Leaderboard"
+  section for the full worked example this Host.mo follows.
 - **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State, Rules.Action>)
 -> async Rules.Action`, the exact counterpart to a browser's own
@@ -152,9 +159,18 @@ Http(renderer.renderExposition, "/metrics")`, from
   `icp.yaml` below). Because every reply is drawn from `legalActions`,
   this bot can never submit an illegal move, even without any lookahead
   of its own. This same `play` method is also what the frontend's own
-  `Add Bot` control calls directly (see the `frontend/` bullet below) —
-  a plain Candid call from the browser straight to this canister, not
-  routed through `Host.mo`/`ws.mo` at all.
+  "🤖 Bots" challenge dialog calls directly, on whichever bot a player
+  picked (see the `frontend/` bullet below) — a plain Candid call from
+  the browser straight to that canister, not routed through
+  `Host.mo`/`ws.mo` at all. `Bot.mo` also implements
+  `register(host, name)`/`unregister(host)`, mirroring `play`'s own
+  `(host, ...)` shape: each forwards to `host`'s own
+  `register_bot`/`unregister_bot` (see the `src/Host.mo` bullet above's
+  own "Canister players" note) so this bot becomes discoverable in the
+  first place — a one-time call made by hand after both this canister and
+  its host are deployed
+  (`icp canister call bot register '(principal "<backend-canister-id>", "CheckersBot")'`),
+  not something the frontend ever triggers.
 - **`test/*.test.mo`** — interpreter-run suites. `RulesUnit.test.mo`
   drives `validate`/`resolve` directly against synthetic boards (no
   engine, no actor) — the bulk of the rule coverage: forward-only men,
@@ -220,31 +236,36 @@ Http(renderer.renderExposition, "/metrics")`, from
   `../../skills/duel-game-core/references/alternating-turn-games.md` for
   the general pattern a board game's interaction usually takes on this
   framework.
-  `app.js` also wires a small `Add Bot` control (`index.html`'s
-  `#play-vs-bot-panel`, a sibling of `#screen`, positioned/styled in
-  `style.css` to read as a continuation of the same card) — Flow 1's
-  human-facing entry point (see `../../CLAUDE.md`'s "Canister players"
-  note): shown only for the generic "Waiting for an opponent" screen
-  (`render.js`'s `stagingYou`, detected off a
+  `app.js` also wires a small "🤖 Bots" control (`index.html`'s
+  `#bot-challenge-toggle`, header, beside `#leaderboard-toggle`, opening
+  `#bot-challenge-panel` — a full-page overlay sibling of `#screen`,
+  styled entirely by the shared `duel-game-core/style.css`, not this
+  game's own) — the human-facing DISCOVERY + challenge entry point for
+  whichever bots have self-registered with this deploy's own `backend`
+  canister (see `../../CLAUDE.md`'s "Canister players" note, "Bot
+  discovery"): clicking it calls `actor.list_bots()` (a plain Candid
+  query, no `ws` round-trip) and renders the ranked result via
+  `duel-game-core/render.js`'s `renderBotList(bots, plugin)`; a bot's own
+  row in the leaderboard panel below (`renderLeaderboard`'s own Challenge
+  button) reaches the exact same flow. Picking a bot either fills THIS
+  player's own already-staged table directly (if they're on the "Waiting
+  for an opponent" screen — `render.js`'s `stagingYou`, tracked off a
   `ws.addEventListener("message", ...)` listener, the same
   `GatewayWs`-as-`EventTarget` technique the duel-game-core skill's
-  rich-UI pattern describes), it reads that SAME status push's own open
-  seat/table id/access code and, on click, calls the deployed
-  `bot/Bot.mo` canister's own `play(host, tableId, seat, code)` directly
-  — a plain Candid call to a SECOND, ad-hoc-IDL'd actor (built from
-  `duel-game-core/idl.js`'s exported `buildEngineTypes`, so `Seat`/
-  `TableId`/`Err` aren't redeclared by hand), never routed through
-  `ws.mo`'s protocol or the shared `ws` at all — the bot then joins on
-  its own account via `join_table_as_canister`, exactly Flow 1's
-  "self-join" shape, just automated instead of hand-fed a table id/seat/
-  code. Deliberately NOT `Registry.createTableReserving`/Flow 2: that
-  call only ever seats both sides of a BRAND NEW table atomically, with
-  no way to fill an already-staged table's open seat — exactly this
-  screen's situation (a table this player already created, choosing
-  their own seat, now waiting on the other one). `PUBLIC_CANISTER_ID:bot`
-  missing from this deploy's `ic_env` cookie (a fork with no `bot`
-  canister declared in `icp.yaml`) leaves the panel hidden for good.
-  The generic chrome (`duel-game-core/render.js`) already shows
+  rich-UI pattern describes) or, otherwise, shows a seat-choice step
+  (`duel-game-core/render.js`'s `renderSeatChoice(plugin)`) and issues a
+  `createTable` request directly over the shared `ws` (`ws.request`, a
+  correlatable, scoped-reply call — still the one `ws.mo` channel, not a
+  second transport) to create one first. Either way, the final step is
+  the same plain Candid call Flow 1 always used — straight to the CHOSEN
+  bot's own `play(host, tableId, seat, code)` (built from
+  `duel-game-core/idl.js`'s exported `buildBotPlayIdlFactory`, so `Seat`/
+  `TableId`/`Err` aren't redeclared by hand, and never routed through
+  `ws.mo`'s protocol) — the bot then joins on its own account via
+  `join_table_as_canister`, exactly Flow 1's "self-join" shape, just
+  aimed at whichever canister id a player actually picked rather than a
+  `PUBLIC_CANISTER_ID:bot` env var (this frontend hardcodes no bot
+  canister id anywhere). The generic chrome (`duel-game-core/render.js`) already shows
   turn-accurate copy ("Your turn"/"Opponent's turn") for an
   `#alternating` table with zero plugin-side work. `app.js` calls
   `duel-game-core/identity.js`'s `resolveIdentity()` for this tab's own
@@ -268,10 +289,16 @@ session.principal, gameIdlTypes: plugin.idlTypes })` for the real push
   updating `#screen` underneath can never clobber it) that, on click,
   calls the SAME `actor` `start()` already uses for
   `actor.get_leaderboard()` — a plain Candid `query`, no `ws` round-trip
-  — and renders the result via `duel-game-core/render.js`'s
-  `renderLeaderboard(entries, plugin, { yourSid: session.sid })`, which
-  badges the caller's own row ("You") if they're on the ranked list;
-  `#leaderboard-back` (inside the overlay) closes it back to `#screen`.
+  — fetched alongside `actor.list_bots()` (same class of query,
+  tolerantly `.catch`'d to an empty array so a `list_bots()` failure
+  never breaks the leaderboard itself) purely so a bot's own row can show
+  its self-reported `name` instead of a bare principal, and renders the
+  result via `duel-game-core/render.js`'s
+  `renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames })`
+  (`botNames` a `Map<string, string>` from bot principal text to name),
+  which badges the caller's own row ("You") if they're on the ranked
+  list; `#leaderboard-back` (inside the overlay) closes it back to
+  `#screen`.
   `checkers-plugin.js` supplies no `formatScore` of its own, so
   `renderLeaderboard`'s default (the plain ELO integer) is already
   correct.

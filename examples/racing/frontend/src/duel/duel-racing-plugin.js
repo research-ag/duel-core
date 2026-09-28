@@ -72,6 +72,14 @@ export const plugin = {
   // as every other field this plugin already handles as one (see `lap`
   // above).
   formatScore(score) {
+    // `0` is `Host.mo`'s own inert `defaultScore` placeholder
+    // (`Leaderboard.new(50, 0)`) — surfaced now that `list_bots()` shows
+    // it for a bot that hasn't raced yet (no leaderboard ENTRY exists
+    // until a `#finished` win records one — see that method's own doc).
+    // A real race never plausibly takes a full hour, so this is a safe,
+    // unambiguous "no time yet" sentinel rather than a nonsensical
+    // 60:00.000 lap.
+    if (score === 0n) return '--:--.--';
     const ms = ONE_HOUR_MS - score;
     const totalSeconds = Number(ms) / 1000;
     const minutes = Math.floor(totalSeconds / 60);
