@@ -29,7 +29,17 @@ particular game — that's supplied by whoever builds a game on top.
   protected with an access code shared with a friend out of band — either
   way it's browsable and shows who (if anyone) already holds a seat,
   `#open` joinable outright and `#code` joinable only once the caller
-  also supplies the matching code. Once a
+  also supplies the matching code. `createTable`/`createTableReserving`
+  also take a `variant : Text` — a table's own rules variant, picked once
+  by its creator, opaque to the engine (never validated or interpreted
+  here — a game's own `Spec.init(variant) : S` is the only code that ever
+  reads it, typically parsing it into a closed type with a safe default
+  for anything unrecognized), stored on the `Table` for its whole
+  lifetime, and surfaced read-only on `TableSummary` so a browsing
+  visitor sees which variant each table runs before joining it — see
+  `backend/README.md`'s "Table variants" section and
+  `examples/rock-paper-scissors`'s own bullet below for the worked
+  reference (Classic vs Well). Once a
   player's own move has sat pending against their opponent's silence for
   longer than a second, independent, normally much shorter timeout
   (`claimTimeoutNs`), `claimWin` lets that player optionally end the
@@ -298,8 +308,11 @@ defaultScore)` (`keep` is a buffer, typically 2x however many entries a
   multi-table lobby/staging/rematch/busy/debrief screens, Candid IDL
   scaffolding).
   See [`frontend/README.md`](frontend/README.md) for the `GamePlugin`
-  contract (Candid types, seat labels, board/action rendering) a game
-  implements, and its "Real-time push" section for the required `ws`
+  contract (Candid types, seat labels, board/action rendering, plus the
+  two optional `variantChoices()`/`formatVariant(variant)` hooks a game
+  with more than one rules variant supplies — see the `backend/` bullet
+  above's own `variant : Text` note) a game implements, and its
+  "Real-time push" section for the required `ws`
   param — there is no plain-polling fallback, `start()` throws without a
   `ws`, and a host actor built on this framework has no plain mutating
   method to poll in the first place. `frontend/ws.js`'s `connectWs()`
@@ -499,24 +512,30 @@ defaultScore)` (`keep` is a buffer, typically 2x however many entries a
 
 This repo is the framework the two packages are built from, not a game
 itself — `examples/007/`, `examples/racing/`, `examples/checkers/`,
-`examples/rock-paper-scissors/`, `examples/rock-paper-scissors-well/`,
-`examples/tic-tac-toe/`, and `examples/ultimate-tic-tac-toe/` are
-reference games built on top of it (a pure rules module implementing
-`TP.Spec<S, M>` plus a thin host actor for the backend; a `GamePlugin`
-plus `index.html` and deploy config for the frontend), kept here to prove
-the packages are usable end to end and to give a new game something
-concrete to copy — `007`, `racing`, `rock-paper-scissors`, and
-`rock-paper-scissors-well` are `#simultaneous`; `checkers`,
-`tic-tac-toe`, and `ultimate-tic-tac-toe` are `#alternating` (standard
-English draughts, standard tic-tac-toe, and Wikipedia's ultimate
-tic-tac-toe respectively; see each one's own `CLAUDE.md`) — so between
-them every engine mode has several worked references, from `007`'s
-health-and-resource duel down to `rock-paper-scissors`'/`tic-tac-toe`'s
-much smaller rule sets, with `ultimate-tic-tac-toe` a step up again in
-state shape (nine linked sub-boards) without adding any lookahead to its
-own bot. The other six also ship a `bot/` canister player —
-a rule-following, lookahead-free opponent (see each one's own
-`CLAUDE.md`) — proving `mo:duel-game-core/canister_players` end to end in
+`examples/rock-paper-scissors/`, `examples/tic-tac-toe/`, and
+`examples/ultimate-tic-tac-toe/` are reference games built on top of it
+(a pure rules module implementing `TP.Spec<S, M>` plus a thin host actor
+for the backend; a `GamePlugin` plus `index.html` and deploy config for
+the frontend), kept here to prove the packages are usable end to end and
+to give a new game something concrete to copy — `007`, `racing`, and
+`rock-paper-scissors` are `#simultaneous`; `checkers`, `tic-tac-toe`, and
+`ultimate-tic-tac-toe` are `#alternating` (standard English draughts,
+standard tic-tac-toe, and Wikipedia's ultimate tic-tac-toe respectively;
+see each one's own `CLAUDE.md`) — so between them every engine mode has
+several worked references, from `007`'s health-and-resource duel down to
+`rock-paper-scissors`'/`tic-tac-toe`'s much smaller rule sets, with
+`ultimate-tic-tac-toe` a step up again in state shape (nine linked
+sub-boards) without adding any lookahead to its own bot.
+`rock-paper-scissors` is also this repo's worked reference for a
+table-time rules VARIANT (see `Spec<S, M>`'s own bullet below and
+`backend/README.md`'s "Table variants" section): its table creator picks
+Classic (rock/paper/scissors) or Well (a fourth WELL symbol, illegal
+outside Well mode) at `createTable` time, shown as plain text to anyone
+browsing open tables before they join — one `Action`/`State` shape,
+widened, with the restriction gated entirely in `validate`. The other
+five also ship a `bot/` canister player — a rule-following,
+lookahead-free opponent (see each one's own `CLAUDE.md`) — proving
+`mo:duel-game-core/canister_players` end to end in
 both engine modes, not just `#simultaneous` (`007` is the one exception
 with no bot, predating that feature). A real game normally lives in its
 own repo, structured the same way.

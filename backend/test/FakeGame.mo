@@ -20,7 +20,7 @@ module {
     p2 : Nat;
   };
 
-  public func init() : State = { p1 = 0; p2 = 0 };
+  public func init(_ : Text) : State = { p1 = 0; p2 = 0 };
 
   func resourceOf(s : State, seat : TP.Seat) : Nat = switch (seat) {
     case (#p1) s.p1;

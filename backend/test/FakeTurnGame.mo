@@ -16,7 +16,7 @@ module {
 
   public type State = { count : Nat };
 
-  public func init() : State = { count = 0 };
+  public func init(_ : Text) : State = { count = 0 };
 
   public func validate(s : State, seat : TP.Seat, a : Action) : ?Text {
     switch (a) {

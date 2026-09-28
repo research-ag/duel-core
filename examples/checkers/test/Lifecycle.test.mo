@@ -38,7 +38,7 @@ func withPieces(pieces : [(Nat, Rules.Piece)]) : Rules.Board {
   b;
 };
 
-let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000, #open, "test");
+let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000, #open, "test", "");
 
 // ── 1. join seats black/red, black moves first ────────────────────────────
 ignore ok(t.join(spec, now, "black", #p1), "black joins");

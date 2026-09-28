@@ -736,8 +736,8 @@ export function start<S>({
     }
   }
 
-  const doCreateTable = (seat: SeatTag, visibility: Visibility) =>
-    call({ createTable: { seat: { [seat]: null } as Seat, visibility } });
+  const doCreateTable = (seat: SeatTag, visibility: Visibility, variant: string) =>
+    call({ createTable: { seat: { [seat]: null } as Seat, visibility, variant } });
   const doJoinTable = (id: bigint, seat: SeatTag, code: [] | [string]) =>
     call({ joinTable: { id, seat: { [seat]: null } as Seat, code } });
   const doSubmit = (action: unknown) =>
@@ -1006,6 +1006,12 @@ export function start<S>({
     return { code: codeEl?.value ?? "" };
   };
 
+  // "" for a game with no `variantChoices` of its own — render.ts's
+  // `renderBrowsing` then shows no picker at all, so this selector simply
+  // never matches (see `GamePlugin.variantChoices`'s own doc).
+  const readCreateVariant = (): string =>
+    (screenEl.querySelector('input[name="table-variant"]:checked') as HTMLInputElement | null)?.value ?? "";
+
   // Set right before `dispatch()` runs for a protected table's seat
   // button (see below) — `dispatch` itself is a zero-argument closure
   // (shared with the plain confirm-modal flow), so the code the user just
@@ -1039,7 +1045,7 @@ export function start<S>({
         // new-sid the moment the request goes out, not only once the
         // engine confirms the seat.
         setNewSidDisabled(true);
-        doCreateTable(b.dataset.createTable as SeatTag, visibility);
+        doCreateTable(b.dataset.createTable as SeatTag, visibility, readCreateVariant());
       } else if (b.dataset.joinTable && b.dataset.joinTableId) {
         // A table row's own per-seat button — the id (and, for a
         // protected row, the access code just collected by

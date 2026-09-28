@@ -156,7 +156,7 @@ func capturingBot(move : Rules.Action, log : { var reqs : [TP.MoveRequest<Rules.
 let reg2 = fresh();
 let counter2 = newAfterMutationCounter();
 let cp2 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg2, stubAfterMutation(counter2), constantBot(#gather), noopArm);
-let id2 = ok(await* cp2.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id2 = ok(await* cp2.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 switch (atTableView(reg2, T0, sidBot1)) {
   case (#stagingYou v) assert v.seat == #p1;
   case (_) Runtime.trap("bot1 should be staging");
@@ -213,7 +213,7 @@ let counter6 = newAfterMutationCounter();
 // actually lands. retryingBot itself asserts the retry's `retryReason`
 // matches this exact text (see its own doc).
 let cp6 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg6, stubAfterMutation(counter6), retryingBot(#attack, #gather, "No resource — GATHER first."), noopArm);
-let id6 = ok(await* cp6.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id6 = ok(await* cp6.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 ignore ok(reg6.joinTable(spec, T0, "human", id6, #p2, null), "human joins");
 await* cp6.sweep(T0);
 switch (atTableView(reg6, T0, sidBot1)) {
@@ -228,7 +228,7 @@ Debug.print("6. an illegal move is retried once, carrying validate's own rejecti
 let reg7 = fresh();
 let counter7 = newAfterMutationCounter();
 let cp7fail = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg7, stubAfterMutation(counter7), silentBot(), noopArm);
-let id7 = ok(await* cp7fail.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id7 = ok(await* cp7fail.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 ignore ok(reg7.joinTable(spec, T0, "human", id7, #p2, null), "human joins");
 await* cp7fail.sweep(T0);
 switch (atTableView(reg7, T0, sidBot1)) {
@@ -252,7 +252,7 @@ Debug.print("7. a silent/trapping bot leaves the round pending, not stuck foreve
 let reg8 = fresh();
 let counter8 = newAfterMutationCounter();
 let cp8 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg8, stubAfterMutation(counter8), constantBot(#gather), noopArm);
-let id8 = ok(await* cp8.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id8 = ok(await* cp8.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 ignore ok(await* cp8.joinTable(bot2, id8, #p2, null), "bot2 joins; game starts");
 switch (atTableView(reg8, T0, sidBot1)) {
   case (#inGame v) assert v.turn > 0; // both seats already moved and resolved a round
@@ -265,7 +265,7 @@ Debug.print("8. two canister seats joining each other eagerly resolve rounds wit
 let reg9 = fresh();
 let counter9 = newAfterMutationCounter();
 let cp9 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg9, stubAfterMutation(counter9), constantBot(#gather), noopArm);
-let id9 = ok(await* cp9.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id9 = ok(await* cp9.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 ignore ok(reg9.joinTable(spec, T0, "human", id9, #p2, null), "human joins; game live");
 let genBefore = switch (atTableView(reg9, T0, sidBot1)) {
   case (#inGame v) v.gen;
@@ -295,7 +295,7 @@ Debug.print("9. leave / ackEnded forward correctly, deriving the session from th
 let reg10 = fresh();
 let counter10 = newAfterMutationCounter();
 let cp10 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg10, stubAfterMutation(counter10), constantBot(#gather), noopArm);
-ignore ok(reg10.createTableReserving(spec, T0, "human", #p1, #open, sidBot1), "human creates a table, atomically reserving bot1 for #p2");
+ignore ok(reg10.createTableReserving(spec, T0, "human", #p1, #open, sidBot1, ""), "human creates a table, atomically reserving bot1 for #p2");
 switch (atTableView(reg10, T0, sidBot1)) {
   case (#inGame v) assert not v.youSubmitted; // due immediately — bot1 never called joinTable
   case (_) Runtime.trap("bot1 should already be #inGame, eagerly seated");
@@ -321,7 +321,7 @@ let counter11 = newAfterMutationCounter();
 let cp11 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg11, stubAfterMutation(counter11), constantBot(#gather), noopArm);
 expectErr(await* cp11.claimWin(bot1, 1, 0), "bot1 (not seated anywhere) tries to claim a win");
 expectErr(await* cp11.reset(bot1, 1, 0), "bot1 (not seated anywhere) tries to reset");
-let id11 = ok(await* cp11.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id11 = ok(await* cp11.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 ignore ok(reg11.joinTable(spec, T0, "human", id11, #p2, null), "human joins; game live");
 await* cp11.sweep(T0); // bot1 gathers; now waiting on human
 let g11 = switch (atTableView(reg11, T0, sidBot1)) {
@@ -364,7 +364,7 @@ func perSessionBot(silent : TP.SessionId) : (TP.SessionId, TP.MoveRequest<Rules.
 let reg12 = fresh();
 let counter12 = newAfterMutationCounter();
 let cp12 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg12, stubAfterMutation(counter12), perSessionBot(sidBot2), noopArm);
-let id12 = ok(await* cp12.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id12 = ok(await* cp12.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 ignore ok(await* cp12.joinTable(bot2, id12, #p2, null), "bot2 joins; game starts — bot1's own eager join-trigger gathers, bot2 stays silent");
 switch (atTableView(reg12, T0, sidBot1), atTableView(reg12, T0, sidBot2)) {
   case (#inGame v1, #inGame v2) {
@@ -424,7 +424,7 @@ Debug.print("12. an unattended canister-vs-canister match finishes via sweep's o
 let reg13 = fresh();
 let counter13 = newAfterMutationCounter();
 let cp13 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg13, stubAfterMutation(counter13), constantBot(#gather), noopArm);
-let id13 = ok(await* cp13.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id13 = ok(await* cp13.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 ignore ok(reg13.joinTable(spec, T0, "human", id13, #p2, null), "human joins; game live");
 let genAbort13 = switch (atTableView(reg13, T0, sidBot1)) {
   case (#inGame v) v.gen;
@@ -460,7 +460,7 @@ Debug.print("13. a canister seat's own finished debrief only auto-acks once its 
 let reg14 = fresh();
 let counter14 = newAfterMutationCounter();
 let cp14 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg14, stubAfterMutation(counter14), constantBot(#gather), noopArm);
-let id14 = ok(await* cp14.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id14 = ok(await* cp14.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 ignore ok(reg14.joinTable(spec, T0, "human", id14, #p2, null), "human joins bot1's table directly, as ws.mo's own onSettled hook would observe");
 await* cp14.settle(T0, id14);
 switch (atTableView(reg14, T0, sidBot1)) {
@@ -475,7 +475,7 @@ let reg15 = fresh();
 let counter15 = newAfterMutationCounter();
 let armLog15 = newArmLog();
 let cp15 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg15, stubAfterMutation(counter15), constantBot(#gather), spyArmClaimCheck(armLog15));
-let id15 = ok(await* cp15.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id15 = ok(await* cp15.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 ignore ok(reg15.joinTable(spec, T0, "human", id15, #p2, null), "human joins; game live, nobody due-asked yet");
 assert armLog15.calls == [];
 await* cp15.settle(T0, id15);
@@ -512,8 +512,8 @@ Debug.print("15. a waiting-but-not-yet-overdue canister seat arms exactly one pr
 let reg16 = fresh();
 let counter16 = newAfterMutationCounter();
 let cp16 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg16, stubAfterMutation(counter16), constantBot(#gather), noopArm);
-let idA16 = ok(await* cp16.createTable(bot1, #p1, #open), "bot1 creates board A");
-let idB16 = ok(await* cp16.createTable(bot1, #p1, #open), "the SAME bot1 creates board B too — rejected under the old one-session-per-principal scheme, legal now");
+let idA16 = ok(await* cp16.createTable(bot1, #p1, #open, ""), "bot1 creates board A");
+let idB16 = ok(await* cp16.createTable(bot1, #p1, #open, ""), "the SAME bot1 creates board B too — rejected under the old one-session-per-principal scheme, legal now");
 assert idA16 != idB16;
 let sidA16 = CanisterPlayers.sidForCanister(bot1, idA16);
 let sidB16 = CanisterPlayers.sidForCanister(bot1, idB16);
@@ -564,7 +564,7 @@ let reg17 = fresh();
 let counter17 = newAfterMutationCounter();
 let reqLog17 = newReqLog();
 let cp17 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg17, stubAfterMutation(counter17), capturingBot(#gather, reqLog17), noopArm);
-let id17 = ok(await* cp17.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id17 = ok(await* cp17.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 
 let JOIN17 : Int = 5_000_000_000;
 ignore ok(reg17.joinTable(spec, JOIN17, "human", id17, #p2, null), "human joins at a known time — starts round 0");
@@ -613,7 +613,7 @@ let cp18 = CanisterPlayers.attach<Rules.State, Rules.Action>(
   },
   noopArm,
 );
-let id18 = ok(await* cp18.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id18 = ok(await* cp18.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 // FakeGame's own #gather never ends the match on its own, so this eager
 // join-trigger keeps eagerly settling further rounds — but each seat's
 // own `notifyAndApply` in-flight guard (see that func's own doc) blocks

@@ -326,7 +326,7 @@ module {
     crashPenaltyRemaining = 0;
   };
 
-  public func init() : State = {
+  public func init(_variant : Text) : State = {
     p1 = freshCar(Track.startP1Position, Track.startP1Rotation);
     p2 = freshCar(Track.startP2Position, Track.startP2Rotation);
     step = 0;

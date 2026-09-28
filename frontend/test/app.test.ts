@@ -207,7 +207,7 @@ test("onmessage: identical consecutive statuses are only rendered once (dedup)",
   ws.onmessage!({ data: view });
   assert.equal(writes, 1);
 
-  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n }]) } });
+  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" }]) } });
   assert.equal(writes, 2);
 });
 
@@ -218,7 +218,7 @@ test("open-tables list: a row's 'waiting Ns' label counts up locally between pus
     const { els, ws } = setup();
     start({ plugin, ws, session: defaultSession });
 
-    ws.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 5n }]) } });
+    ws.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 5n, variant: "" }]) } });
     const row = els.screen.querySelectorAll("[data-wait-base]")[0];
     assert.ok(row, "expected a rendered wait-ticker element");
     assert.equal(row!.textContent, "waiting 5s");
@@ -230,7 +230,7 @@ test("open-tables list: a row's 'waiting Ns' label counts up locally between pus
     // A fresh push with a redrawn (but otherwise identical) row
     // re-baselines the ticker off the NEW node rather than going on
     // patching a stale, now-detached one from the previous render.
-    ws.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 20n }]) } });
+    ws.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 20n, variant: "" }]) } });
     const freshRow = els.screen.querySelectorAll("[data-wait-base]")[0];
     assert.ok(freshRow, "expected a freshly rendered wait-ticker element");
     assert.equal(freshRow!.textContent, "waiting 20s");
@@ -249,7 +249,7 @@ test("clicking 'create table' calls ws.request with a createTable request and sh
   const btn = makeButton({ createTable: "p1" });
   click(els.screen, btn);
   assert.equal(ws.requests.length, 1);
-  assert.deepEqual(ws.requests[0]!.req, { createTable: { seat: { p1: null }, visibility: { open: null } } });
+  assert.deepEqual(ws.requests[0]!.req, { createTable: { seat: { p1: null }, visibility: { open: null }, variant: "" } });
   assert.ok(btn.classList.contains("duel-loading"));
   assert.ok(doc.body.classList.contains("working"));
 
@@ -273,14 +273,14 @@ test("a button's spinner survives an unrelated re-render that arrives before its
   // Player B clicks "start a table as p2".
   click(els.screen, p2Btn!);
   assert.equal(ws.requests.length, 1);
-  assert.deepEqual(ws.requests[0]!.req, { createTable: { seat: { p2: null }, visibility: { open: null } } });
+  assert.deepEqual(ws.requests[0]!.req, { createTable: { seat: { p2: null }, visibility: { open: null }, variant: "" } });
   assert.ok(p2Btn!.classList.contains("duel-loading"));
 
   // Before B's own call resolves, an unrelated push tick lands — e.g. a
   // brand new open table someone else just created — and redraws the
   // whole screen. This is exactly the bug report's sequence: B's own
   // call is still in flight when this arrives.
-  ws.onmessage!({ data: { view: browsing([{ id: 7n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n }]) } });
+  ws.onmessage!({ data: { view: browsing([{ id: 7n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" }]) } });
 
   // The old p2Btn node is gone (the screen was redrawn); the freshly
   // rendered one occupying its slot must still show as busy — not
@@ -321,7 +321,7 @@ test("the create-table form's live input survives an unrelated push mid-fill (re
 
   // An unrelated push lands before the click — e.g. another player
   // opening or leaving a table — while the form is still mid-fill.
-  ws.onmessage!({ data: { view: browsing([{ id: 9n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 3n }]) } });
+  ws.onmessage!({ data: { view: browsing([{ id: 9n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 3n, variant: "" }]) } });
 
   const freshRadios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
   assert.equal(freshRadios.find((r) => r.value === "code")!.checked, true, "Protected must still be selected after the redraw");
@@ -335,7 +335,7 @@ test("the create-table form's live input survives an unrelated push mid-fill (re
   const seatBtn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
   click(els.screen, seatBtn!);
   assert.deepEqual(ws.requests[0]!.req, {
-    createTable: { seat: { p1: null }, visibility: { code: "TOP-SECRET" } },
+    createTable: { seat: { p1: null }, visibility: { code: "TOP-SECRET" }, variant: "" },
   });
 });
 
@@ -368,7 +368,7 @@ test("clicking an open seat on a protected table row prompts for the access code
   ws.onmessage!({
     data: {
       view: browsing([
-        { id: 9n, p1Open: true, p2Open: false, p1Session: [], p2Session: ["carol"], protected: true, waitingSecs: 3n },
+        { id: 9n, p1Open: true, p2Open: false, p1Session: [], p2Session: ["carol"], protected: true, waitingSecs: 3n, variant: "" },
       ]),
     },
   });
@@ -401,7 +401,7 @@ test("cancelling the access-code prompt dispatches nothing", async () => {
   ws.onmessage!({
     data: {
       view: browsing([
-        { id: 9n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: true, waitingSecs: 0n },
+        { id: 9n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: true, waitingSecs: 0n, variant: "" },
       ]),
     },
   });
@@ -426,7 +426,7 @@ test("an open table's own seat button (no data-protected) joins directly, withou
   ws.onmessage!({
     data: {
       view: browsing([
-        { id: 4n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n },
+        { id: 4n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
       ]),
     },
   });
@@ -781,7 +781,7 @@ test("the new-sid button re-enables after a rejected join request", async () => 
   const { els, ws } = setup();
   start({ plugin, ws, session: defaultSession });
 
-  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n }]) } });
+  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" }]) } });
   const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.joinTable === "p1" && b.dataset.joinTableId === "1");
   assert.ok(p1Btn, "expected a rendered join button for table #1's p1 seat");
 
@@ -827,7 +827,7 @@ test("the new-sid button stays disabled through an unrelated push arriving mid-j
   start({ plugin, ws, session: defaultSession });
 
   // Browsing: one open table, both seats free.
-  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n }]) } });
+  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" }]) } });
 
   // This player (B) clicks "join as p2" on that table — their own call
   // is now in flight, correlated via ws.request().
@@ -846,8 +846,8 @@ test("the new-sid button stays disabled through an unrelated push arriving mid-j
   ws.onmessage!({
     data: {
       view: browsing([
-        { id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n },
-        { id: 2n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n },
+        { id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
+        { id: 2n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
       ]),
     },
   });
@@ -897,7 +897,7 @@ test("a createTable rejected as wrongPhase resyncs even without ws.request (fall
   const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
   assert.ok(p1Btn, "expected a rendered 'create table as p1' button");
   click(els.screen, p1Btn!);
-  assert.deepEqual(ws.sent[0]!.req, { createTable: { seat: { p1: null }, visibility: { open: null } } });
+  assert.deepEqual(ws.sent[0]!.req, { createTable: { seat: { p1: null }, visibility: { open: null }, variant: "" } });
 
   ws.onmessage!({ data: { err: { wrongPhase: "you are already at another table" } } });
 
@@ -1202,7 +1202,7 @@ test("a login attempt still in flight is not re-enabled by an unrelated seated/u
 
   // An unrelated push arrives while the login is still pending — must not
   // re-enable a button whose own action hasn't settled yet.
-  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n }]) } });
+  ws.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" }]) } });
   assert.equal(els["duel-auth-btn"].disabled, true, "must stay disabled while its own login is still pending");
 
   resolveLogin();

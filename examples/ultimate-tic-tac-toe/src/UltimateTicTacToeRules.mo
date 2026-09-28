@@ -124,7 +124,7 @@ module {
     out.toArray();
   };
 
-  public func init() : State = {
+  public func init(_variant : Text) : State = {
     cells = Array.repeat<?TP.Seat>(null, 81);
     results = Array.repeat<?BoardResult>(null, 9);
     activeBoard = null;

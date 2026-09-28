@@ -83,6 +83,25 @@ const plugin = {
   formatScore(score) {
     return score.toString();
   },
+
+  // Optional pair, present only for a game with more than one rules
+  // variant of its own (see `../backend/README.md`'s "Table variants"
+  // section). `variantChoices()`'s FIRST entry is the default selection;
+  // its `key`s are exactly what a table creator's pick sends as
+  // `WsRequest.createTable.variant` and, on the backend, what
+  // `Spec.init(variant)` receives. `formatVariant` turns a stored
+  // `TableSummary.variant` back into display text for a browsing
+  // visitor. A game with no modes implements neither — `renderBrowsing`
+  // then shows no picker, and no table row shows variant text either.
+  variantChoices() {
+    return [
+      { key: "classic", label: "Classic" },
+      { key: "well", label: "Well" },
+    ];
+  },
+  formatVariant(variant) {
+    return { classic: "Classic", well: "Well" }[variant] ?? variant;
+  },
 };
 ```
 
@@ -581,7 +600,7 @@ channel; which JS module issues the request is not what
 
 ```js
 const res = await ws.request(session.sid, {
-  createTable: { seat: { [chosenSeat]: null }, visibility: { open: null } },
+  createTable: { seat: { [chosenSeat]: null }, visibility: { open: null }, variant: "" },
 });
 // res.view.atTable.id / res.view.atTable.view.stagingYou name the fresh
 // table/seat/code to hand `botActor.play(...)` next.

@@ -24,9 +24,11 @@ import Rules "../src/RockPaperScissorsRules";
 
 let spec = Rules.spec();
 
-// ── 1. chooseMove always returns a legal pick, whatever the turn ───────────
-do {
-  let s0 = Rules.init();
+// ── 1. chooseMove always returns a legal pick, whatever the turn — in
+//        BOTH variants, since the SAME bot serves either one, reading
+//        which off req.game.variant ──────────────────────────────────────
+for (raw in ["", "well"].values()) {
+  let s0 = Rules.init(raw);
   for (turn in Nat.range(0, 6)) {
     let req : TP.MoveRequest<Rules.State, Rules.Action> = {
       tableId = 0;
@@ -47,10 +49,12 @@ do {
     };
   };
 };
-Debug.print("1. BotLogic.chooseMove always picks a legal move OK");
+Debug.print("1. BotLogic.chooseMove always picks a legal move, in classic and well alike OK");
 
-// ── 2. wired live through canister_players.mo, two canister seats play a
-//        full real #simultaneous match to a decisive finish ────────────────
+// ── 2/3. wired live through canister_players.mo, two canister seats play a
+//        full real #simultaneous match to a decisive finish — once per
+//        variant, since a table's variant is picked at createTable time and
+//        must flow all the way through to each bot's own chooseMove ───────
 let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
@@ -65,61 +69,68 @@ func noopAfterMutation(_now : Int, _sid : TP.SessionId, _reqId : ?Nat64, _id : ?
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
 
-let reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT);
-let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
-  spec,
-  reg,
-  noopAfterMutation,
-  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
-    await* k(?BotLogic.chooseMove(req));
-  },
-  func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
-);
+func playFullMatch(variant : Text) : async* () {
+  let reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT);
+  let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
+    spec,
+    reg,
+    noopAfterMutation,
+    func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
+      await* k(?BotLogic.chooseMove(req));
+    },
+    func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
+  );
 
-let id = ok(await* cp.createTable(bot1, #p1, #open), "bot1 creates a table");
-let sidBot1 = CanisterPlayers.sidForCanister(bot1, id);
-// bot2's own joinTable eagerly triggers both seats' opening picks with no
-// sweep call needed at all — and, since a #simultaneous round leaves
-// BOTH seats due again for the next round the instant it resolves,
-// `notifyAndApply`'s own `maybeSettleBoth` re-check (see
-// canister_players.mo's own doc) keeps cascading through several rounds
-// in a row from this ONE call, unlike checkers' #alternating counterpart
-// (where only one seat is ever due at a time). A #simultaneous bot-vs-bot
-// match with a bot on both sides can therefore finish — and get its
-// debrief auto-acked (canister vs canister, unconditional) — entirely
-// within this single call, with the table already back to #browsing by
-// the time it returns.
-ignore ok(await* cp.joinTable(bot2, id, #p2, null), "bot2 joins; game starts");
+  let id = ok(await* cp.createTable(bot1, #p1, #open, variant), "bot1 creates a table");
+  let sidBot1 = CanisterPlayers.sidForCanister(bot1, id);
+  // bot2's own joinTable eagerly triggers both seats' opening picks with no
+  // sweep call needed at all — and, since a #simultaneous round leaves
+  // BOTH seats due again for the next round the instant it resolves,
+  // `notifyAndApply`'s own `maybeSettleBoth` re-check (see
+  // canister_players.mo's own doc) keeps cascading through several rounds
+  // in a row from this ONE call, unlike checkers' #alternating counterpart
+  // (where only one seat is ever due at a time). A #simultaneous bot-vs-bot
+  // match with a bot on both sides can therefore finish — and get its
+  // debrief auto-acked (canister vs canister, unconditional) — entirely
+  // within this single call, with the table already back to #browsing by
+  // the time it returns.
+  ignore ok(await* cp.joinTable(bot2, id, #p2, null), "bot2 joins; game starts");
 
-// Whatever didn't already cascade to conclusion above gets driven the
-// rest of the way here — never more than a handful of sweeps for a
-// match that must decide within a few rounds (see BotLogic.mo's own doc
-// on why the per-seat multiplier guarantees a decisive round well before
-// `round` below runs out).
-var round = 0;
-var stalled = true;
-label loop_ while (round < 12) {
-  switch (reg.status(spec, T0, sidBot1)) {
-    case (#atTable { view = #inGame _ }) {};
-    case (#atTable { view = #debrief d }) {
-      switch (d.end) {
-        case (#finished(_)) { stalled := false };
-        case (other) Runtime.trap("match ended unexpectedly: " # debug_show (other));
+  // Whatever didn't already cascade to conclusion above gets driven the
+  // rest of the way here — never more than a handful of sweeps for a
+  // match that must decide within a few rounds (see BotLogic.mo's own doc
+  // on why the per-seat multiplier guarantees a decisive round well before
+  // `round` below runs out).
+  var round = 0;
+  var stalled = true;
+  label loop_ while (round < 12) {
+    switch (reg.status(spec, T0, sidBot1)) {
+      case (#atTable { view = #inGame _ }) {};
+      case (#atTable { view = #debrief d }) {
+        switch (d.end) {
+          case (#finished(_)) { stalled := false };
+          case (other) Runtime.trap("match ended unexpectedly: " # debug_show (other));
+        };
+        break loop_;
       };
-      break loop_;
+      case (#browsing _) {
+        // The match already concluded AND both canister debriefs
+        // auto-acked, all within `joinTable`'s own cascade above.
+        stalled := false;
+        break loop_;
+      };
+      case (other) Runtime.trap("unexpected state for bot1: " # debug_show (other));
     };
-    case (#browsing _) {
-      // The match already concluded AND both canister debriefs
-      // auto-acked, all within `joinTable`'s own cascade above.
-      stalled := false;
-      break loop_;
-    };
-    case (other) Runtime.trap("unexpected state for bot1: " # debug_show (other));
+    await* cp.sweep(T0);
+    round += 1;
   };
-  await* cp.sweep(T0);
-  round += 1;
+  assert not stalled; // two rule-following bots picking a fixed rotation must reach 3 round wins well within 12 rounds
 };
-assert not stalled; // two rule-following bots picking a fixed rotation must reach 3 round wins well within 12 rounds
-Debug.print("2. two canister-seated bots play a full real #simultaneous match to a decisive finish OK");
+
+await* playFullMatch(""); // classic
+Debug.print("2. two canister-seated bots play a full real classic-mode match to a decisive finish OK");
+
+await* playFullMatch("well");
+Debug.print("3. two canister-seated bots play a full real well-mode match to a decisive finish OK");
 
 Debug.print("ALL ROCKPAPERSCISSORS BOT CHECKS PASSED");

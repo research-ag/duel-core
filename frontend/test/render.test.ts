@@ -137,8 +137,8 @@ function browsingStatus(tables: TableSummary[]): Status<{ turn: string }> {
 test("renderStatus: browsing lists a protected table alongside open ones, flagged and never leaking its code", () => {
   const html = renderStatus(
     browsingStatus([
-      { id: 1n, p1Open: false, p2Open: true, p1Session: ["alice"], p2Session: [], protected: false, waitingSecs: 2n },
-      { id: 2n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 5n },
+      { id: 1n, p1Open: false, p2Open: true, p1Session: ["alice"], p2Session: [], protected: false, waitingSecs: 2n, variant: "" },
+      { id: 2n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 5n, variant: "" },
     ]),
     plugin,
   );
@@ -157,8 +157,8 @@ test("renderStatus: browsing lists a protected table alongside open ones, flagge
 test("renderStatus: browsing marks a protected row's open seat with data-protected, so app.js knows to prompt for the code; an open table's own seats never carry it", () => {
   const html = renderStatus(
     browsingStatus([
-      { id: 2n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 0n },
-      { id: 3n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n },
+      { id: 2n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 0n, variant: "" },
+      { id: 3n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
     ]),
     plugin,
   );
@@ -170,7 +170,7 @@ test("renderStatus: browsing shows a taken seat's occupant id, truncated with a 
   const longId = "ii:abcdefghijklmnopqrstuvwxyz";
   const html = renderStatus(
     browsingStatus([
-      { id: 5n, p1Open: false, p2Open: true, p1Session: [longId], p2Session: [], protected: false, waitingSecs: 0n },
+      { id: 5n, p1Open: false, p2Open: true, p1Session: [longId], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
     ]),
     plugin,
   );
@@ -181,7 +181,7 @@ test("renderStatus: browsing shows a taken seat's occupant id, truncated with a 
 test("renderStatus: browsing shows a short occupant id verbatim, with no tooltip", () => {
   const html = renderStatus(
     browsingStatus([
-      { id: 6n, p1Open: false, p2Open: true, p1Session: ["bob"], p2Session: [], protected: false, waitingSecs: 0n },
+      { id: 6n, p1Open: false, p2Open: true, p1Session: ["bob"], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
     ]),
     plugin,
   );

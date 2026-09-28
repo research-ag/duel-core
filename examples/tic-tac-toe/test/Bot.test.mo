@@ -38,7 +38,7 @@ func withMarks(marks : [(Nat, TP.Seat)]) : Rules.Board {
 // ── 1. chooseMove never strays outside legalActions — including on the
 //        board's very last empty cell, where only ONE result exists ───────
 do {
-  let s0 = Rules.init();
+  let s0 = Rules.init("");
   for (turn in Nat.range(0, 9)) {
     let req : TP.MoveRequest<Rules.State, Rules.Action> = {
       tableId = 0;
@@ -121,7 +121,7 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
 );
 
-let id = ok(await* cp.createTable(bot1, #p1, #open), "bot1 creates a table");
+let id = ok(await* cp.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
 let sidBot1 = CanisterPlayers.sidForCanister(bot1, id);
 let sidBot2 = CanisterPlayers.sidForCanister(bot2, id);
 // bot2's own joinTable eagerly triggers the opening plies with no sweep

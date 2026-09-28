@@ -30,7 +30,7 @@ func idleCar() : R.CarState = { nearFinish() with lap = 0 };
 let STILL : R.Action = { l = 0.0; c = 0.0 };
 
 // ── 1. init() starts both cars at rest, on the grid, lap 0 ─────────────────
-let s0 = R.init();
+let s0 = R.init("");
 assert s0.p1.speed == 0.0 and s0.p1.lap == 0 and s0.p1.crashPenaltyRemaining == 0;
 assert s0.p2.speed == 0.0 and s0.p2.lap == 0 and s0.p2.crashPenaltyRemaining == 0;
 assert s0.p1.position != s0.p2.position; // distinct starting slots

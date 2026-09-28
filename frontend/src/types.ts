@@ -98,6 +98,14 @@ export interface TableSummary {
   /// `StagingYouView.visibility`).
   protected: boolean;
   waitingSecs: bigint;
+  /// This table's own rules variant, set once by its creator and never
+  /// inspected by the engine — opaque text a game interprets however it
+  /// likes inside its own backend `init`. `""` for a game with no modes
+  /// of its own. `render.ts`'s `renderBrowsing` shows this via
+  /// `GamePlugin.formatVariant`, if the plugin supplies one; a plugin
+  /// that supplies neither `variantChoices` nor `formatVariant` shows no
+  /// variant text at all.
+  variant: string;
 }
 
 export interface BrowsingStatus {
@@ -275,6 +283,21 @@ export interface GamePlugin<S = unknown> {
   /// there. May return an empty string if a game puts all of its
   /// interaction directly on the board instead of a separate panel.
   renderActions(gameState: S, mySeat: SeatTag): string;
+  /// The rules-variant choices this game offers, if any — each `key` is
+  /// the raw `Text` a table creator's pick sends as `WsRequest.createTable
+  /// .variant` (and, on the backend, what `Spec.init(variant)` receives).
+  /// Optional: a game with no modes of its own supplies neither this nor
+  /// `formatVariant`, and `renderBrowsing`'s "Start a new table" section
+  /// shows no picker at all (the same as before this contract existed).
+  /// When supplied, the FIRST entry is the default selection.
+  variantChoices?(): { key: string; label: string }[];
+  /// Turns a stored `TableSummary.variant`/`WsRequest.createTable.variant`
+  /// key into display text for a browsing visitor — e.g. `"well" =>
+  /// "Well"`. Optional, same as `variantChoices`; a plugin that supplies
+  /// one but not the other still gets a picker/label from whichever it
+  /// did supply (the other side just falls back to plain text / no
+  /// picker).
+  formatVariant?(variant: string): string;
 }
 
 /// The wire request shape — mirrors `Ws.Request<M>` on the backend.
@@ -287,7 +310,7 @@ export interface GamePlugin<S = unknown> {
 /// carries the open-table list whenever the caller isn't at a table (see
 /// `Status`).
 export type WsRequest<A = unknown> =
-  | { createTable: { seat: Seat; visibility: Visibility } }
+  | { createTable: { seat: Seat; visibility: Visibility; variant: string } }
   | { joinTable: { id: TableId; seat: Seat; code: [] | [string] } }
   | { submit: { gen: bigint; turn: bigint; move: A } }
   | { rematch: null }

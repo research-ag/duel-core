@@ -331,7 +331,7 @@ module {
   /// potentially seated at several boards at once (see this module's own
   /// doc header), "my one game" is no longer enough to say which one.
   public type Attached = {
-    createTable : (Principal.Principal, T.Seat, T.TableVisibility) -> async* T.Res<T.TableId>;
+    createTable : (Principal.Principal, T.Seat, T.TableVisibility, Text) -> async* T.Res<T.TableId>;
     joinTable : (Principal.Principal, T.TableId, T.Seat, ?Text) -> async* T.Res<T.JoinOk>;
     leave : (Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
     ackEnded : (Principal.Principal, T.TableId) -> async* ();
@@ -542,11 +542,11 @@ module {
       // No `await*` between `peekNextTableId` and `createTable` below —
       // see `Registry.peekNextTableId`'s own doc on why that's exactly
       // what keeps this pairing safe.
-      createTable = func(caller : Principal.Principal, seat : T.Seat, visibility : T.TableVisibility) : async* T.Res<T.TableId> {
+      createTable = func(caller : Principal.Principal, seat : T.Seat, visibility : T.TableVisibility, variant : Text) : async* T.Res<T.TableId> {
         let now = Time.now();
         let id = registry.peekNextTableId();
         let session = sidForCanister(caller, id);
-        switch (registry.createTable(spec, now, session, seat, visibility)) {
+        switch (registry.createTable(spec, now, session, seat, visibility, variant)) {
           case (#ok gotId) {
             await* afterMutation(now, session, null, ?gotId, true);
             #ok(gotId);

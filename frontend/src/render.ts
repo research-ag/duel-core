@@ -216,9 +216,18 @@ function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
       ${occupantHtml}
     </button>`;
   };
+  // Empty for a game with no rules variants of its own — `Table.variant`
+  // is always `""` there (see app.ts's `readCreateVariant`), so this
+  // never renders a badge for one. `plugin.formatVariant`, if supplied,
+  // turns the raw stored key into display text; a plugin that omits it
+  // still shows the raw key rather than nothing, so a variant a table
+  // was created with is never silently hidden from a browsing visitor.
+  const variantHtml = r.variant
+    ? ` <span class="variant-badge">${esc(plugin.formatVariant ? plugin.formatVariant(r.variant) : r.variant)}</span>`
+    : "";
   return `
     <div class="table-row">
-      <span class="table-id">Table #${r.id}${r.protected ? ` <span class="protected-badge" title="Requires an access code">🔒 Protected</span>` : ""}</span>
+      <span class="table-id">Table #${r.id}${r.protected ? ` <span class="protected-badge" title="Requires an access code">🔒 Protected</span>` : ""}${variantHtml}</span>
       <span class="muted" data-wait-base="${r.waitingSecs}">${waitingText(r.waitingSecs)}</span>
       <div class="table-row-seats">
         ${seatBtn("p1", r.p1Open, r.p1Session)}
@@ -230,6 +239,24 @@ function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
 function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): string {
   const seatBtn = (seat: SeatTag) => `
     <button class="seat" data-create-table="${seat}">${esc(plugin.seatLabel(seat))}</button>`;
+  // Absent for a game that implements neither `variantChoices` nor
+  // `formatVariant` (the common case, and every example but
+  // rock-paper-scissors) — see GamePlugin.variantChoices's own doc. The
+  // FIRST choice is the default selection (`checked`), read back by
+  // app.ts's `readCreateVariant`.
+  const choices = plugin.variantChoices?.() ?? [];
+  const variantPicker =
+    choices.length === 0
+      ? ""
+      : `
+      <div class="table-variant-choices">
+        ${choices
+          .map(
+            (c, i) => `
+        <label><input type="radio" name="table-variant" value="${esc(c.key)}"${i === 0 ? " checked" : ""} /> ${esc(c.label)}</label>`
+          )
+          .join("")}
+      </div>`;
   return `
     <h2>Duel lobby</h2>
 
@@ -238,6 +265,7 @@ function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): stri
       <label><input type="radio" name="table-visibility" value="open" checked /> Open — anyone can join</label>
       <label><input type="radio" name="table-visibility" value="code" /> Protected — share a code with a friend</label>
       <input type="text" id="create-code" class="table-code-input" placeholder="access code" hidden />
+      ${variantPicker}
       <div class="seats">
         ${seatBtn("p1")}
         ${seatBtn("p2")}

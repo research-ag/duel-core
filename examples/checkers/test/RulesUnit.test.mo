@@ -31,7 +31,7 @@ func countPieces(board : R.Board, p : R.Piece) : Nat {
 };
 
 // ── 1. init() is a clean, standard starting position ────────────────────
-let s0 = R.init();
+let s0 = R.init("");
 assert s0.board.size() == 64;
 assert countPieces(s0.board, #manP1) == 12;
 assert countPieces(s0.board, #manP2) == 12;
@@ -45,7 +45,7 @@ let sp = switch (R.spec()) {
   case (#alternating s) s;
   case (#simultaneous _) Runtime.trap("checkers is a #alternating game");
 };
-assert sp.init().board == s0.board;
+assert sp.init("").board == s0.board;
 Debug.print("2. spec wiring OK");
 
 // ── 3. validate: a man moves forward only ────────────────────────────────
