@@ -514,7 +514,7 @@ them every engine mode has several worked references, from `007`'s
 health-and-resource duel down to `rock-paper-scissors`'/`tic-tac-toe`'s
 much smaller rule sets, with `ultimate-tic-tac-toe` a step up again in
 state shape (nine linked sub-boards) without adding any lookahead to its
-own bot. Every one of these seven also ships a `bot/` canister player —
+own bot. The other six also ship a `bot/` canister player —
 a rule-following, lookahead-free opponent (see each one's own
 `CLAUDE.md`) — proving `mo:duel-game-core/canister_players` end to end in
 both engine modes, not just `#simultaneous` (`007` is the one exception

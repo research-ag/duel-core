@@ -8,7 +8,7 @@
 // static-asset-canister-style. The deployed asset canister carries only
 // this dist/ output — no node_modules directory of any kind.
 import * as esbuild from 'esbuild';
-import { cpSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, watch as watchFile } from 'node:fs';
 
 const watch = process.argv.includes('--watch');
 const outdir = 'dist';
@@ -37,20 +37,32 @@ const builds = [
   },
 ];
 
-if (watch) {
-  const ctxs = await Promise.all(builds.map((b) => esbuild.context(b)));
-  await Promise.all(ctxs.map((ctx) => ctx.watch()));
-  console.log('watching for changes...');
-} else {
-  await Promise.all(builds.map((b) => esbuild.build(b)));
-}
-
-for (const [from, to] of [
+const staticAssets = [
   ['src/index.html', `${outdir}/index.html`],
   ['src/style.css', `${outdir}/style.css`],
   ['src/favicon.ico', `${outdir}/favicon.ico`],
   ['src/assets', `${outdir}/assets`],
   ['node_modules/duel-game-core/style.css', `${outdir}/duel-game-core.css`],
-]) {
-  cpSync(from, to, { recursive: true });
+];
+
+function copyStaticAssets() {
+  for (const [from, to] of staticAssets) {
+    cpSync(from, to, { recursive: true });
+  }
+}
+
+if (watch) {
+  const ctxs = await Promise.all(builds.map((b) => esbuild.context(b)));
+  await Promise.all(ctxs.map((ctx) => ctx.watch()));
+  copyStaticAssets();
+  // esbuild's own watchers only track main.ts's and duel-app.js's own
+  // module graphs, which none of these belong to — watch them directly
+  // so editing any one of them re-copies it into dist/ too.
+  for (const file of ['src/index.html', 'src/style.css', 'src/favicon.ico', 'src/assets']) {
+    watchFile(file, { recursive: true }, () => copyStaticAssets());
+  }
+  console.log('watching for changes...');
+} else {
+  await Promise.all(builds.map((b) => esbuild.build(b)));
+  copyStaticAssets();
 }
