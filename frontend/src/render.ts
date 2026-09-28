@@ -597,11 +597,15 @@ export function renderStatus<S>(status: Status<S>, plugin: GamePlugin<S>): strin
 /// the caller off the ranked slice entirely) and no row is marked. A
 /// canister-seated player's own row (`isCanisterPlayer`, above) gets a
 /// 🤖 icon and its `cp:` marker stripped for display, the same as a
-/// human's own key already shows with no prefix at all.
+/// human's own key already shows with no prefix at all — or, when
+/// `opts.botNames` names that exact principal, its own self-reported
+/// alias (`BotInfo.name`, from `list_bots()`) instead of the bare
+/// principal text; the full principal always stays in the row's own
+/// `title` attribute either way, so it's still one hover away.
 export function renderLeaderboard(
   entries: LeaderboardEntry[],
   plugin: GamePlugin,
-  opts?: { yourSid?: string },
+  opts?: { yourSid?: string; botNames?: Map<string, string> },
 ): string {
   if (entries.length === 0) {
     return `<p class="muted">No games finished yet — the leaderboard is empty.</p>`;
@@ -624,20 +628,21 @@ export function renderLeaderboard(
       const isYou = you !== undefined && e.player === you;
       const isBot = isCanisterPlayer(e.player);
       const botIcon = isBot ? `<span class="leaderboard-bot-icon" title="Canister player">🤖</span>` : "";
-      const displayId = displayPlayerId(e.player);
-      // A leaderboard entry has no friendly bot NAME (`LeaderboardEntry`
-      // is just `{player, score, updatedAt}`) — this falls back to the
-      // same displayed principal text `renderBotList`'s own `data-bot-name`
-      // carries when a real name IS known, so a game's one shared click
-      // handler for both entry points always has SOMETHING to show a
-      // player before the challenge flow's own seat-choice step.
+      const principalText = displayPlayerId(e.player);
+      // `LeaderboardEntry` itself carries no friendly bot NAME (just
+      // `{player, score, updatedAt}`) — `opts.botNames` (typically built
+      // from a `list_bots()` call fetched alongside this same panel) is
+      // how a caller supplies one; falling back to the bare principal
+      // keeps every OTHER caller (and a bot this host has no directory
+      // entry for any more) working exactly as before.
+      const displayName = isBot ? (opts?.botNames?.get(principalText) ?? principalText) : principalText;
       const challengeBtn = isBot
-        ? `<button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(displayId)}" data-bot-name="${esc(displayId)}">Challenge</button>`
+        ? `<button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(principalText)}" data-bot-name="${esc(displayName)}">Challenge</button>`
         : "";
       return `
     <div class="leaderboard-row${isYou ? " you" : ""}">
       <span class="leaderboard-rank">${i + 1}</span>
-      <span class="leaderboard-player" title="${esc(e.player)}">${botIcon}${esc(displayId)}</span>
+      <span class="leaderboard-player" title="${esc(e.player)}">${botIcon}${esc(displayName)}</span>
       ${isYou ? `<span class="leaderboard-you-badge">You</span>` : ""}
       <span class="leaderboard-score">${esc(format(e.score))}</span>
       ${challengeBtn}

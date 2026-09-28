@@ -280,11 +280,17 @@ gateway-*.js` does, registering this tab as its own WS Gateway).
   same way `#duel-header`/`#bot-challenge-panel` already are — see
   `style.css`'s `body.in-race` rules) that, on click, calls the SAME
   `actor` `duel-app.js` already built for `actor.get_leaderboard()` — a
-  plain Candid `query`, no `ws` round-trip — and renders the result via
+  plain Candid `query`, no `ws` round-trip — fetched alongside
+  `actor.list_bots()` (same class of query, tolerantly `.catch`'d to an
+  empty array so a `list_bots()` failure never breaks the leaderboard
+  itself) purely so a bot's own row can show its self-reported `name`
+  instead of a bare principal, and renders the result via
   `duel-game-core/render.js`'s
-  `renderLeaderboard(entries, plugin, { yourSid: session.sid })`, which
-  badges the caller's own row ("You") if they're on the ranked list;
-  `#leaderboard-back` (inside the overlay) closes it back to `#screen`.
+  `renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames })`
+  (`botNames` a `Map<string, string>` from bot principal text to name),
+  which badges the caller's own row ("You") if they're on the ranked
+  list; `#leaderboard-back` (inside the overlay) closes it back to
+  `#screen`.
   `duel-racing-plugin.js` supplies its own `formatScore`, inverting
   `Host.mo`'s own `scoreFromLapMs` (`3,600,000n - score`, formatted as
   `m:ss.mmm`) so the panel shows a real lap time instead of the padded

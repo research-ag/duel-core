@@ -463,9 +463,14 @@ you already built for `start()`, with no `ws` round-trip:
 ```js
 import { renderLeaderboard } from "duel-game-core/render.js";
 
-const entries = await actor.get_leaderboard(); // LeaderboardEntry[], ranked, highest score first
+// Fetched together (both plain Candid queries, no `ws` round-trip either)
+// purely so a bot's own row can show its self-reported name — see
+// `opts.botNames` below. A `list_bots()` failure (or a host with no bot
+// discovery wired) still lets the leaderboard render, just with no alias.
+const [entries, bots] = await Promise.all([actor.get_leaderboard(), actor.list_bots().catch(() => [])]);
 leaderboardPanelEl.innerHTML = renderLeaderboard(entries, plugin, {
   yourSid: session.sid,
+  botNames: new Map(bots.map((b) => [b.principal.toString(), b.name])),
 });
 ```
 
@@ -486,14 +491,21 @@ alongside it. `opts.yourSid` — pass the caller's own `session.sid` —
 picks out and badges that player's own row (a "You" pill, plus a `.you`
 class row highlight in `style.css`) if they're on the ranked list; omit
 it, or a caller simply not being ranked yet, and no row is marked. A
-canister-seated player's own row gets a 🤖 icon, and shows its bare
-principal with no `cp:` marker — same as a human's own key, which
-already carries no prefix at all (`Ws.playerKey` strips `ii:`/`an:`
-before a score is ever stored; a `cp:` one is added back deliberately by
-whichever `Host.mo` wires canister players, to key a bot by its own
-stable principal rather than one of its many per-table sids — see
-`isCanisterPlayer`/`displayPlayerId`, exported from `render.js` for a
-game that wants the same distinction elsewhere). It renders a ranked
+canister-seated player's own row gets a 🤖 icon and, when `opts.botNames`
+(built from a `list_bots()` call, keyed by bare principal text) names
+that exact principal, its own self-reported alias in place of the bare
+principal — its `cp:` marker is stripped either way, same as a human's
+own key, which already carries no prefix at all (`Ws.playerKey` strips
+`ii:`/`an:` before a score is ever stored; a `cp:` one is added back
+deliberately by whichever `Host.mo` wires canister players, to key a bot
+by its own stable principal rather than one of its many per-table sids —
+see `isCanisterPlayer`/`displayPlayerId`, exported from `render.js` for a
+game that wants the same distinction elsewhere); the row's own `title`
+attribute always carries the full, raw `player` text regardless, so the
+principal itself is still one hover away even when a name is shown.
+`opts.botNames` is entirely optional — omit it (or a principal it simply
+doesn't name) and that row falls back to the bare principal, exactly as
+before bot discovery existed. It renders a ranked
 list (rank, each entry's own `score` run through `plugin.formatScore` —
 see "The GamePlugin contract" above; the player id itself is rendered in
 full and left to `.leaderboard-player`'s own CSS to clip responsively

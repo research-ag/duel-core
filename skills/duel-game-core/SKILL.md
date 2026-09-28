@@ -585,7 +585,12 @@ your own layout puts the panel — `yourSid` (the caller's own
 `session.sid`) badges that player's own row ("You") if they're on the
 ranked list, via a small `playerKeyOf(sid)` helper `renderLeaderboard`
 already calls internally, so nothing on your side needs to derive the
-key itself. All three reference examples use the same panel shape, worth
+key itself. If your game also wires bot discovery, fetch
+`actor.list_bots()` alongside `get_leaderboard()` (`.catch(() => [])`
+it — a bot list is a nice-to-have here, never a reason to fail the whole
+panel) and pass `botNames: new Map(bots.map((b) => [b.principal.toString(), b.name]))`
+too, so a bot's row shows its own registered name instead of a bare
+principal. All three reference examples use the same panel shape, worth
 copying rather than inventing your own: an icon-only 🏆 toggle button —
 NOT a "Leaderboard"-labeled one — positioned FIRST in `.session`, before
 the player id, that opens a dedicated full-page overlay

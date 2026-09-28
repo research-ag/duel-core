@@ -85,8 +85,15 @@ leaderboardToggle.addEventListener("click", async () => {
   leaderboardPanel.hidden = false;
   leaderboardBody.innerHTML = `<p class="muted">Loading…</p>`;
   try {
-    const entries = await actor.get_leaderboard();
-    leaderboardBody.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid });
+    // Fetched alongside the ranked entries themselves (both plain Candid
+    // queries, no `ws` round-trip either) purely so a bot's own row can
+    // show its self-reported `name` instead of a bare principal — see
+    // `renderLeaderboard`'s own `opts.botNames` doc. A `list_bots()`
+    // failure (or a host with no bot discovery wired at all) still lets
+    // the leaderboard itself render, just without any bot alias.
+    const [entries, bots] = await Promise.all([actor.get_leaderboard(), actor.list_bots().catch(() => [])]);
+    const botNames = new Map(bots.map((b) => [b.principal.toString(), b.name]));
+    leaderboardBody.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames });
   } catch (err) {
     leaderboardBody.innerHTML = `<p class="error">Could not load the leaderboard.</p>`;
     console.error(err);

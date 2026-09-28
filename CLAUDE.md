@@ -345,7 +345,14 @@ defaultScore)` (`keep` is a buffer, typically 2x however many entries a
   `Host.mo` wires canister players, to key it by its own stable
   principal rather than one of its many per-table sids — see
   `backend/README.md`'s "Leaderboard" section's own player-identity
-  note). Unlike the
+  note). A third, optional `opts.botNames` (a `Map<string, string>` keyed
+  by that same stripped principal text, typically built from a
+  `list_bots()` call fetched alongside the leaderboard itself) lets that
+  row show the bot's own self-reported name instead of its bare
+  principal — the row's own `title` attribute keeps the full, raw
+  `player` text regardless, so the principal is still one hover away;
+  omitting `opts.botNames` (or a principal it doesn't name) falls back to
+  the bare principal exactly as before bot discovery existed. Unlike the
   lobby/staging/debrief chrome, `renderLeaderboard` is never wired into
   `renderStatus`/`renderView` automatically — a leaderboard has no fixed
   place in every game's own layout, so each game calls it wherever its

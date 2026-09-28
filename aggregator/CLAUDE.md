@@ -91,11 +91,12 @@ research-ag/duel-core --skill duel-game-core` install for an AI
   one. `components/BotTutorialWizard.tsx` is a third on-ramp, right
   beside it ("Build a bot", its own header button): a 5-step guide for
   building a canister-player BOT against an already-built game
-  (prerequisites, adding a `bot/` directory alongside that game's own
-  code — a bot is inherently game-specific, importing its target's own
-  Rules module to type `make_move`, so there's no fresh standalone
-  project the way a new game gets — writing the three methods a bot
-  implements, deploying just that one extra canister, then the one-time
+  (prerequisites, project setup — its own independent project, own
+  `mops.toml`/single-canister `icp.yaml`, needing nothing from the target
+  game's own repo except its `State`/`Action` Motoko type definitions,
+  copy-pasted into the bot's own project rather than pulled in as a
+  dependency — writing the three methods a bot implements, deploying just
+  that one extra canister, then the one-time
   `icp canister call bot register '(principal "<game-backend-id>", "<name>")'`
   that makes it discoverable). Unlike `TutorialWizard.tsx`, its last step
   has no login-gated action to hand off into: a bot is never listed on
