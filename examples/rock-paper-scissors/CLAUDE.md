@@ -25,7 +25,7 @@ variants" section and `../../CLAUDE.md`'s `Spec<S, M>` note) — it is
   passes — → `#classic`, a safe default rather than a trap), and stores
   it on `State.variant` for `validate`/`resolve` to read back. `validate`
   rejects `#well` picks in `#classic` mode (`?"well is not available in
-  classic mode"`) and accepts everything else unconditionally — every
+classic mode"`) and accepts everything else unconditionally — every
   OTHER pick is always legal, since this game has no resource or board
   state that could make it illegal. `resolve` always uses the Well-mode
   win table (a strict superset of Classic's own three-way cycle: `#well`

@@ -273,6 +273,7 @@ public func init(raw : Text) : State = {
   score = 0;
   variant = parseVariant(raw);
 };
+
 ```
 
 A game with no modes of its own simply ignores the argument
@@ -293,6 +294,7 @@ public func validate(s : State, _seat : Seat, a : Action) : ?Text {
     case (_, _) null;
   };
 };
+
 ```
 
 `resolve` usually needs no variant branch at all in this shape: build it
@@ -310,7 +312,7 @@ to know:
 ```motoko
 type VariantModule = {
   validate : (State, Seat, M) -> ?Text;
-  resolve  : (State, M) -> { state : State; verdict : ?Verdict };
+  resolve : (State, M) -> { state : State; verdict : ?Verdict };
 };
 
 // Module-level, not stored on the actor — rebuilt fresh every call, the
@@ -319,6 +321,7 @@ let variants : Map.Map<Text, VariantModule> = Map.fromIter(
   [("a", variantAModule), ("b", variantBModule)].values(),
   Text.compare,
 );
+
 ```
 
 Either way it's still exactly one Candid type for the whole game (the

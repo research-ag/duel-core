@@ -600,7 +600,11 @@ channel; which JS module issues the request is not what
 
 ```js
 const res = await ws.request(session.sid, {
-  createTable: { seat: { [chosenSeat]: null }, visibility: { open: null }, variant: "" },
+  createTable: {
+    seat: { [chosenSeat]: null },
+    visibility: { open: null },
+    variant: "",
+  },
 });
 // res.view.atTable.id / res.view.atTable.view.stagingYou name the fresh
 // table/seat/code to hand `botActor.play(...)` next.

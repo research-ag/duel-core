@@ -179,7 +179,11 @@ module {
   /// `#rematch`/`#ackEnded` need no such binding — see the engine doc
   /// header's guarantee 6.
   public type Request<M> = {
-    #createTable : { seat : TP.Seat; visibility : TP.TableVisibility; variant : Text };
+    #createTable : {
+      seat : TP.Seat;
+      visibility : TP.TableVisibility;
+      variant : Text;
+    };
     #joinTable : { id : TP.TableId; seat : TP.Seat; code : ?Text };
     #submit : { gen : Nat; turn : Nat; move : M };
     #rematch;
