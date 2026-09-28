@@ -498,15 +498,24 @@ defaultScore)` (`keep` is a buffer, typically 2x however many entries a
   submitted round, and repeated `status` queries.
 
 This repo is the framework the two packages are built from, not a game
-itself — `examples/007/`, `examples/racing/`, and `examples/checkers/`
-are reference games built on top of it (a pure rules module implementing
-`TP.Spec<S, M>` plus a thin host actor for the backend; a `GamePlugin`
-plus `index.html` and deploy config for the frontend), kept here to
-prove the packages are usable end to end and to give a new game
-something concrete to copy — `007` and `racing` are `#simultaneous`,
-`checkers` is `#alternating` (standard English draughts; see
-`examples/checkers/CLAUDE.md`), so between them every engine mode has a
-worked reference. A real game normally lives in its own repo, structured
+itself — `examples/007/`, `examples/racing/`, `examples/checkers/`,
+`examples/rock-paper-scissors/`, `examples/rock-paper-scissors-well/`,
+and `examples/tic-tac-toe/` are reference games built on top of it (a
+pure rules module implementing `TP.Spec<S, M>` plus a thin host actor
+for the backend; a `GamePlugin` plus `index.html` and deploy config for
+the frontend), kept here to prove the packages are usable end to end and
+to give a new game something concrete to copy — `007`, `racing`,
+`rock-paper-scissors`, and `rock-paper-scissors-well` are
+`#simultaneous`; `checkers` and `tic-tac-toe` are `#alternating`
+(standard English draughts and standard tic-tac-toe respectively; see
+each one's own `CLAUDE.md`) — so between them every engine mode has
+several worked references, from `007`'s health-and-resource duel down to
+`rock-paper-scissors`'/`tic-tac-toe`'s much smaller rule sets. Every one
+of these six also ships a `bot/` canister player — a rule-following,
+lookahead-free opponent (see each one's own `CLAUDE.md`) — proving
+`mo:duel-game-core/canister_players` end to end in both engine modes, not
+just `#simultaneous` (`007` is the one exception with no bot, predating
+that feature). A real game normally lives in its own repo, structured
 the same way.
 Building one — whether from scratch or by adapting an existing client —
 is a whole workflow with its own hard-won lessons: see the
