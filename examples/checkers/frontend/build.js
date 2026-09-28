@@ -34,10 +34,12 @@ function copyStaticAssets() {
     try {
       cpSync(from, to, { recursive: true });
     } catch (err) {
-      if (err.code !== 'ENOENT') throw err;
+      if (err.code !== 'ENOENT' || !watch) throw err;
       // An editor's atomic save can momentarily delete-then-recreate a
       // file; the debounced watch trigger below retries shortly after,
-      // so just skip this pass instead of crashing the watcher.
+      // so just skip this pass instead of crashing the watcher. A
+      // one-shot build has no such retry, so a genuinely missing asset
+      // still fails it.
       console.warn(`skipping copy, ${from} not found (will retry)`);
     }
   }
@@ -57,7 +59,10 @@ if (watch) {
   const staticNames = ['index.html', 'style.css', '.ic-assets.json5'];
   let debounceTimer;
   watchFile('src', (_event, filename) => {
-    if (!filename || !staticNames.includes(filename)) return;
+    // A `null` filename (some platforms don't reliably supply one) means
+    // we can't tell which file changed, so copy defensively rather than
+    // risk missing a static-asset change; a named event still filters.
+    if (filename && !staticNames.includes(filename)) return;
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(copyStaticAssets, 50);
   });
