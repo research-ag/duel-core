@@ -1,0 +1,11 @@
+[package]
+name = "duel-ultimate-tic-tac-toe"
+version = "0.1.0"
+description = "ultimate tic-tac-toe — reference #alternating game built on duel-game-core"
+
+[dependencies]
+duel-game-core = "../../backend"
+core = "2.6.1"
+
+[toolchain]
+moc = "1.11.2"
