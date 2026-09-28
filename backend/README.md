@@ -217,7 +217,7 @@ persistent actor {
   // after one.
   func startSweeping<system>() {
     ignore Timer.recurringTimer<system>(
-      #seconds(30),
+      #seconds(300),
       func() : async () {
         registry.sweep(Time.now());
       },
@@ -302,7 +302,7 @@ same debrief is acked too, freeing the table immediately instead of it
 sitting occupied with nobody left to poll it free. The CDK's keep-alive
 timeout is fixed at 60s (not configurable via `WsInitParams`), so an
 involuntary disappearance has a real detection floor of roughly
-60-120s depending on where in the ack cycle it happens — not instant,
+60-180s depending on where in the ack cycle it happens — not instant,
 but bounded, and independent of `Registry.sweep` (see `src/registry.mo`),
 which stays in place underneath this as a second, timeout-based
 backstop for anything that reaches the engine outside this transport at
@@ -446,11 +446,12 @@ persistent actor {
       encode = func(m : Ws.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
       decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
-    // 65s: the fastest legal ack interval above the CDK's hardcoded 60s
-    // keep-alive timeout (send_ack_interval_ms must exceed it) — keeps
-    // the involuntary-disappearance detection floor as tight as the
-    // dependency allows (see this section's "Disappearance handling").
-    IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
+    // 120s: comfortably above the CDK's hardcoded 60s keep-alive timeout
+    // (send_ack_interval_ms must exceed it) — trades a longer
+    // involuntary-disappearance detection floor for fewer recurring
+    // timer callbacks than the legal minimum would cost (see this
+    // section's "Disappearance handling").
+    IcWebSocketCdkTypes.WsInitParams(null, ?120_000),
     null, // no `mo:duel-game-core/canister_players` wired — see "Canister players" below otherwise
     null, // no leaderboard wired — see "Leaderboard" below otherwise
     null, // no match-start timing needed either — see "Leaderboard" below
@@ -735,7 +736,7 @@ persistent actor {
   // Fold `cpAttached.sweep` — the slow, full-registry safety net for
   // whatever `settle` never gets called for (most commonly: the OTHER
   // seat vanishing without ever sending a mutating request at all) —
-  // into the SAME already-mandatory 30s idle-sweep timer. No separate
+  // into the SAME already-mandatory 5-minute idle-sweep timer. No separate
   // timer at all:
   transient let combinedSweep = func(now : Int) : async* () {
     await* attached.sweep(now);

@@ -141,7 +141,7 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   host also folds `sweep` — the slow, full-registry counterpart to
   `settle`, catching whatever it never gets called for (most commonly the
   OTHER seat vanishing without ever sending a mutating request at all) —
-  into its own already-mandatory 30s idle-sweep timer, so none of this
+  into its own already-mandatory 5-minute idle-sweep timer, so none of this
   costs a canister-less host anything and none of it needs a dedicated
   timer of its own either.
   `registry.mo`'s `createTableReserving` is a separate, small

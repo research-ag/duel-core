@@ -239,7 +239,7 @@ its own if a connection goes quiet, independent of any explicit goodbye
 — see `../backend/src/ws.mo`'s doc header for what the backend does with
 that (ends/frees the affected game) and the resulting detection floor
 (that timeout is fixed at 60s inside the CDK, not configurable — expect
-roughly 60-120s for an involuntary disappearance to be noticed, not
+roughly 60-180s for an involuntary disappearance to be noticed, not
 instant; a cooperative one, e.g. the tab closing normally, is much
 faster since `GatewayWs` proactively calls `ws_close` itself on
 `pagehide`/backgrounding).
@@ -290,7 +290,7 @@ the actual fix is not reusing one principal across a reload to begin
 with (see above); `_invalidateAndRetry()` just means that if this ever
 happens anyway — some OTHER same-principal-reuse scenario, or a
 genuinely wiped upgrade — recovery takes about one poll interval instead
-of up to the 60-120s it'd otherwise take for the canister's own
+of up to the 60-180s it'd otherwise take for the canister's own
 keep-alive timeout to notice and evict.
 
 **`send()`/`request()` are safe to call before the connection has

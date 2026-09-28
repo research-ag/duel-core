@@ -104,7 +104,7 @@ Http(renderer.renderExposition, "/metrics")`, from
   instant it's entitled to instead of waiting on that wakeup.
   `cpAttached.sweep` — the slow, full-registry safety net for whatever
   `settle` never gets called for — is folded into the SAME
-  already-mandatory 30s idle-sweep timer `ActorMixin` runs, so none of
+  already-mandatory 5-minute idle-sweep timer `ActorMixin` runs, so none of
   this costs a separate timer of its own.
   `Host.mo` also wires a best-lap leaderboard: a stable
   `leaderboard : Leaderboard.Board` field (`mo:duel-game-core/leaderboard`,
