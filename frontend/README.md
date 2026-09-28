@@ -467,7 +467,10 @@ import { renderLeaderboard } from "duel-game-core/render.js";
 // purely so a bot's own row can show its self-reported name — see
 // `opts.botNames` below. A `list_bots()` failure (or a host with no bot
 // discovery wired) still lets the leaderboard render, just with no alias.
-const [entries, bots] = await Promise.all([actor.get_leaderboard(), actor.list_bots().catch(() => [])]);
+const [entries, bots] = await Promise.all([
+  actor.get_leaderboard(),
+  actor.list_bots().catch(() => []),
+]);
 leaderboardPanelEl.innerHTML = renderLeaderboard(entries, plugin, {
   yourSid: session.sid,
   botNames: new Map(bots.map((b) => [b.principal.toString(), b.name])),
