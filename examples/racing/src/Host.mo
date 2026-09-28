@@ -136,7 +136,7 @@ persistent actor {
       encode = func(m : Ws.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
       decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
-    IcWebSocketCdkTypes.WsInitParams(null, ?65_000),
+    IcWebSocketCdkTypes.WsInitParams(null, ?120_000),
     ?settle,
     ?onGameEnded,
     null,

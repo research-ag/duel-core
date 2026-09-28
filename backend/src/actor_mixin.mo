@@ -53,7 +53,7 @@ mixin <system>(
 
   func startSweeping<system>() {
     ignore Timer.recurringTimer<system>(
-      #seconds(30),
+      #seconds(300),
       func() : async () { await* sweepFunc(Time.now()) },
     );
   };

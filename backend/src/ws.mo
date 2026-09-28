@@ -75,7 +75,7 @@
 /// itself instead of sitting occupied with nobody left to poll it into
 /// freeing lazily. The CDK's keep-alive timeout is fixed at 60s (not
 /// configurable via `WsInitParams`), so involuntary disappearance has a
-/// real detection floor of roughly 60-120s depending on where in the ack
+/// real detection floor of roughly 60-180s depending on where in the ack
 /// cycle it happens — see `../README.md`'s real-time-push section.
 ///
 /// ── How a host actor wires it ──────────────────────────────────────────
@@ -547,7 +547,7 @@ module {
   /// race this closes. Comfortably longer than one client poll tick
   /// (`DEFAULT_INTERVAL_MS` in `frontend/ws/gateway-client.ts`, 500ms) so
   /// a same-tab reconnect's first `#req` has landed well before this
-  /// fires, while staying short next to the CDK's own ~60-120s
+  /// fires, while staying short next to the CDK's own ~60-180s
   /// keep-alive-timeout detection floor — this grace period is layered
   /// UNDER that floor for the cooperative-close path, not instead of it.
   let CLOSE_GRACE : Time.Duration = #seconds(3);
@@ -954,7 +954,7 @@ module {
     /// client's own `ws_close` (a cooperative goodbye) or the CDK's
     /// internal keep-alive timeout (an involuntary disappearance: crash,
     /// force-quit, network drop — see this module's doc header and
-    /// `../README.md`'s real-time-push section for the ~60-120s detection
+    /// `../README.md`'s real-time-push section for the ~60-180s detection
     /// floor that timeout imposes). Either way this is normally the one
     /// place a disappearing player can be told apart from one who's
     /// merely gone quiet mid-thought — EXCEPT for one race

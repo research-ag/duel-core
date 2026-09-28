@@ -1,0 +1,73 @@
+/* Tic-Tac-Toe-specific visuals only — page chrome (header, buttons, the
+   generic lobby/staging/debrief screens) comes from duel-game-core.css,
+   loaded first in index.html. */
+
+/* #bot-add-panel (index.html) — see app.js's own comment there for what
+ * it does. A sibling of #screen, styled to read as a continuation of
+ * that same card (same max-width/centering as `main` in the shared
+ * frontend/style.css) rather than a separate floating element; app.js
+ * itself hides it whenever the current view isn't the "Waiting for an
+ * opponent" screen (browsing/busy/playing/debriefing/...). */
+#bot-add-panel {
+  max-width: 860px;
+  margin: 0.75rem auto 0;
+}
+
+#bot-add-trigger {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--accent, #d4af37);
+  border-color: var(--accent, #d4af37);
+}
+
+.ttt-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  width: min(320px, 90vw);
+  aspect-ratio: 1 / 1;
+  margin: 1rem auto;
+  background: var(--line, #333);
+  border: 2px solid var(--line, #333);
+}
+
+.ttt-square {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(2rem, 10vw, 3.5rem);
+  line-height: 1;
+  background: var(--panel, #1c1c1c);
+  user-select: none;
+}
+
+button.ttt-square {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  font: inherit;
+  cursor: pointer;
+  background: var(--panel, #1c1c1c);
+}
+
+button.ttt-empty:hover {
+  background: var(--panel-2, #2a2a2a);
+}
+
+button.ttt-square:focus-visible {
+  outline: 3px solid var(--accent, #2ecc71);
+  outline-offset: -3px;
+}
+
+.ttt-mark-p1 {
+  color: var(--blue, #3498db);
+}
+
+.ttt-mark-p2 {
+  color: var(--red, #e74c3c);
+}

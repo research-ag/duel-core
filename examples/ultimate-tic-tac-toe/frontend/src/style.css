@@ -1,0 +1,128 @@
+/* Ultimate-tic-tac-toe-specific visuals only — page chrome (header,
+   buttons, the generic lobby/staging/debrief screens) comes from
+   duel-game-core.css, loaded first in index.html. */
+
+/* #bot-add-panel (index.html) — see app.js's own comment there for what
+ * it does. A sibling of #screen, styled to read as a continuation of
+ * that same card (same max-width/centering as `main` in the shared
+ * frontend/style.css) rather than a separate floating element; app.js
+ * itself hides it whenever the current view isn't the "Waiting for an
+ * opponent" screen (browsing/busy/playing/debriefing/...). */
+#bot-add-panel {
+  max-width: 860px;
+  margin: 0.75rem auto 0;
+}
+
+#bot-add-trigger {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--accent, #d4af37);
+  border-color: var(--accent, #d4af37);
+}
+
+/* The 3x3 meta-board: nine local-board panels, laid out the same way
+   tic-tac-toe's own single 3x3 grid is, just one level up. */
+.uttt-meta-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  width: min(480px, 92vw);
+  aspect-ratio: 1 / 1;
+  margin: 1rem auto;
+  background: var(--line, #333);
+  border: 3px solid var(--line, #333);
+}
+
+.uttt-local-board {
+  position: relative;
+  background: var(--panel, #1c1c1c);
+}
+
+/* The one local board (or, when routing is free, every undecided one)
+   the next placement may land in. */
+.uttt-local-board.uttt-active {
+  outline: 3px solid var(--accent, #2ecc71);
+  outline-offset: -3px;
+}
+
+.uttt-local-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  background: var(--line, #333);
+}
+
+.uttt-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(0.8rem, 3vw, 1.4rem);
+  line-height: 1;
+  background: var(--panel, #1c1c1c);
+  user-select: none;
+}
+
+button.uttt-cell {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  font: inherit;
+  cursor: pointer;
+  background: var(--panel, #1c1c1c);
+}
+
+button.uttt-empty:hover {
+  background: var(--panel-2, #2a2a2a);
+}
+
+button.uttt-cell:focus-visible {
+  outline: 2px solid var(--accent, #2ecc71);
+  outline-offset: -2px;
+}
+
+.uttt-mark-p1 {
+  color: var(--blue, #3498db);
+}
+
+.uttt-mark-p2 {
+  color: var(--red, #e74c3c);
+}
+
+/* A decided local board fades its own grid and shows a large overlay
+   mark (or "draw") instead, covering the whole panel. */
+.uttt-local-board.uttt-decided .uttt-local-grid {
+  opacity: 0.2;
+}
+
+.uttt-board-won {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(2rem, 8vw, 3.5rem);
+  font-weight: bold;
+  pointer-events: none;
+}
+
+.uttt-board-won-p1 {
+  color: var(--blue, #3498db);
+}
+
+.uttt-board-won-p2 {
+  color: var(--red, #e74c3c);
+}
+
+.uttt-board-tie {
+  font-size: clamp(0.9rem, 3vw, 1.2rem);
+  color: var(--muted, #888);
+  text-transform: uppercase;
+}

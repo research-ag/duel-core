@@ -1,0 +1,11 @@
+[package]
+name = "duel-rock-paper-scissors"
+version = "0.1.0"
+description = "rock-paper-scissors — reference #simultaneous game built on duel-game-core"
+
+[dependencies]
+duel-game-core = "../../backend"
+core = "2.6.1"
+
+[toolchain]
+moc = "1.11.2"
