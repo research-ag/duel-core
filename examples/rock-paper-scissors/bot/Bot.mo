@@ -28,12 +28,14 @@ persistent actor {
   // THIS canister's own principal, never something passed here — so
   // there's nothing to spoof; `host` is only ever the address this call
   // is SENT to.
-  public shared func register(host : Principal.Principal, name : Text) : async () {
+  public shared ({ caller }) func register(host : Principal.Principal, name : Text) : async () {
+    assert Principal.isController(caller);
     let h : Host = actor (host.toText());
     await h.register_bot(name);
   };
 
-  public shared func unregister(host : Principal.Principal) : async () {
+  public shared ({ caller }) func unregister(host : Principal.Principal) : async () {
+    assert Principal.isController(caller);
     let h : Host = actor (host.toText());
     await h.unregister_bot();
   };

@@ -446,7 +446,8 @@ after both canisters are deployed:
 
 ```motoko
 // on the BOT canister itself, alongside its existing `play`/`make_move`:
-public shared func register(host : Principal.Principal, name : Text) : async () {
+public shared ({ caller }) func register(host : Principal.Principal, name : Text) : async () {
+  assert Principal.isController(caller);
   let h : actor { register_bot : (Text) -> async () } = actor (host.toText());
   await h.register_bot(name);
 };
