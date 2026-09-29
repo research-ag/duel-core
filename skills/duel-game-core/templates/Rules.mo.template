@@ -51,10 +51,10 @@ module {
   //   resolve : (State, Action, Action) -> { state : State; verdict : ?TP.Verdict };
   // };
   //
-  // let variants : Map.Map<Text, VariantModule> = Map.fromIter(
+  // func variantModule(key : Text) : ?VariantModule = Map.fromIter(
   //   [("variantA", variantAModule), ("variantB", variantBModule)].values(),
   //   Text.compare,
-  // );
+  // ).get(key);
   public type Action = { /* #yourMove; #anotherMove; ... */ };
 
   /// Everything that persists across rounds for one seat. Immutable
@@ -128,15 +128,15 @@ module {
   /// function could instead recompute from `s`.
   public func validate(s : State, seat : TP.Seat, a : Action) : ?Text {
     let me = switch (seat) { case (#p1) s.p1; case (#p2) s.p2 };
-    // switch (a) { case (#yourMove) if (illegal) ?"reason" else null; ... };
-    // A same-shape variant restriction is just one more branch here, no
-    // new engine mechanism (architecture rule 4 already makes `validate`
-    // the sole legality gate):
-    // switch (a, s.variant) {
-    //   case (#yourMove, #classic) ?"yourMove is not available in classic mode";
-    //   case (_, _) null;
-    // };
-    null;
+    switch (a) {
+      // case (#yourMove) if (illegal) ?"reason" else null;
+      //
+      // A same-shape variant restriction is just one more branch here, no
+      // new engine mechanism (architecture rule 4 already makes `validate`
+      // the sole legality gate):
+      // case (#yourMove) if (s.variant == #classic) ?"yourMove is not available in classic mode" else null;
+      case (_) null;
+    };
   };
 
   // ────────────────────────── Spec: resolve ────────────────────────────────

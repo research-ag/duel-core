@@ -1202,6 +1202,7 @@ export function start<S>({
   interface CreateFormState {
     visibility: string; // the checked radio's own `value` ("open" or "code")
     code: string;
+    variant: string | null; // the checked table-variant radio's own `value`, or null if this game has no variant picker
   }
 
   // Arrow-function consts, not `function` declarations — same reason as
@@ -1216,6 +1217,9 @@ export function start<S>({
     return {
       visibility: radio.value,
       code: ($("create-code") as HTMLInputElement | null)?.value ?? "",
+      variant: (
+        screenEl.querySelector('input[name="table-variant"]:checked') as HTMLInputElement | null
+      )?.value ?? null,
     };
   };
 
@@ -1238,6 +1242,19 @@ export function start<S>({
     if (codeEl) {
       codeEl.value = saved.code;
       codeEl.hidden = saved.visibility !== "code"; // mirrors the `change` listener above
+    }
+    // Same staleness risk as visibility/code above, for a game with a
+    // variant picker (renderBrowsing's own `variantPicker`, present only
+    // when `plugin.variantChoices()` returns choices) — an unrelated push
+    // landing mid-choice would otherwise silently revert a player's pick
+    // back to the fresh markup's own first-choice default. Preserves the
+    // current behavior when there's no picker at all (`saved.variant`
+    // null, or the fresh render has no `table-variant` radios): nothing
+    // to restore, so this is a no-op.
+    if (saved.variant !== null) {
+      for (const r of screenEl.querySelectorAll('input[name="table-variant"]')) {
+        (r as HTMLInputElement).checked = (r as HTMLInputElement).value === saved.variant;
+      }
     }
   };
 
