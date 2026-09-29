@@ -11,11 +11,12 @@ module {
 
   public type Table<S, M> = T.Table<S, M>;
 
-  public func new<S, M>(idleTimeoutNs : Int, claimTimeoutNs : Int, visibility : T.TableVisibility, createdBy : T.SessionId) : Table<S, M> = {
+  public func new<S, M>(idleTimeoutNs : Int, claimTimeoutNs : Int, visibility : T.TableVisibility, createdBy : T.SessionId, variant : Text) : Table<S, M> = {
     idleTimeoutNs;
     claimTimeoutNs;
     visibility;
     createdBy;
+    variant;
     var phase = #empty;
     var gen = 0;
     var lastEnded = [];
@@ -174,10 +175,11 @@ module {
   /// `Spec.init`, regardless of which mode arm the game supplied — `init`
   /// itself is identical in shape either way, so this is the one place
   /// that reaches past the mode tag without any other mode-specific
-  /// behavior to dispatch on.
-  func initOf<S, M>(spec : T.Spec<S, M>) : S = switch (spec) {
-    case (#simultaneous simSpec) simSpec.init();
-    case (#alternating turnSpec) turnSpec.init();
+  /// behavior to dispatch on. `variant` is this table's own stored
+  /// `Table.variant` — opaque to the engine, handed straight through.
+  func initOf<S, M>(spec : T.Spec<S, M>, variant : Text) : S = switch (spec) {
+    case (#simultaneous simSpec) simSpec.init(variant);
+    case (#alternating turnSpec) turnSpec.init(variant);
   };
 
   public func startGame<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, st : T.Staging, joiner : T.SessionId) {
@@ -188,7 +190,7 @@ module {
     self.phase := #active {
       p1;
       p2;
-      game = initOf(spec);
+      game = initOf(spec, self.variant);
       pending1 = null;
       pending2 = null;
       turn = 0;

@@ -65,8 +65,9 @@ mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDir
   public shared ({ caller }) func create_table_as_canister(
     seat : T.Seat,
     visibility : T.TableVisibility,
+    variant : Text,
   ) : async T.Res<T.TableId> {
-    await* cpAttached.createTable(caller, seat, visibility);
+    await* cpAttached.createTable(caller, seat, visibility, variant);
   };
 
   public shared ({ caller }) func join_table_as_canister(

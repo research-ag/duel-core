@@ -25,7 +25,7 @@ let CLAIM_TIMEOUT : Int = 20_000_000_000; // 20s
 let T0 : Int = 1_000_000_000_000;
 let CLAIMABLE : Int = T0 + 21_000_000_000; // +21s — past the claim window
 
-func fresh() : Tbl = Table.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT, #open, "test");
+func fresh() : Tbl = Table.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT, #open, "test", "");
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;

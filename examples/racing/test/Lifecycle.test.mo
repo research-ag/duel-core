@@ -9,7 +9,7 @@ import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
 let spec = Rules.spec();
-let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 60_000_000_000, #open, "test"); // 60s
+let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 60_000_000_000, #open, "test", ""); // 60s
 var now : Int = 1_000_000_000_000;
 func tick() : Int { now += 1_000_000_000; now }; // +1s
 

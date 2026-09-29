@@ -289,6 +289,7 @@ module {
             p2Session = o.p2Session;
             protected = t.visibility != #open;
             waitingSecs = waitingSecs(o.since, now);
+            variant = t.variant;
           };
         };
       },
@@ -319,7 +320,10 @@ module {
   /// the table number, able to join it. Rejects with `#wrongPhase` if
   /// `session` already has unfinished business at another table (a live
   /// seat, an open debrief, an unacked `#endedByOther` notice) — leave/
-  /// ack that first.
+  /// ack that first. `variant` is this table's own rules variant (see
+  /// `Table.variant`'s own doc) — opaque to the registry, stored as-is
+  /// and handed to `Spec.init` once the match actually starts; a game
+  /// with no modes of its own simply ignores whatever text arrives here.
   public func createTable<S, M>(
     self : Registry<S, M>,
     spec : T.Spec<S, M>,
@@ -327,6 +331,7 @@ module {
     session : T.SessionId,
     seat : T.Seat,
     visibility : T.TableVisibility,
+    variant : Text,
   ) : T.Res<T.TableId> {
     switch (visibility) {
       case (#code c) { if (c.size() == 0) return #err(#badCode) };
@@ -337,7 +342,7 @@ module {
       return #err(#wrongPhase("you are already at another table"));
     };
     let id = self.tableIdNonce;
-    let t = Table.new<S, M>(self.idleTimeoutNs, self.claimTimeoutNs, visibility, session);
+    let t = Table.new<S, M>(self.idleTimeoutNs, self.claimTimeoutNs, visibility, session, variant);
     switch (t.join(spec, now, session, seat)) {
       case (#err e) #err(e); // unreachable on a brand-new table; kept for exhaustiveness
       case (#ok _) {
@@ -373,6 +378,7 @@ module {
     seat : T.Seat,
     visibility : T.TableVisibility,
     reservedFor : T.SessionId,
+    variant : Text,
   ) : T.Res<T.TableId> {
     switch (visibility) {
       case (#code c) { if (c.size() == 0) return #err(#badCode) };
@@ -390,7 +396,7 @@ module {
       return #err(#wrongPhase("the other seat's own session is already at another table"));
     };
     let id = self.tableIdNonce;
-    let t = Table.new<S, M>(self.idleTimeoutNs, self.claimTimeoutNs, visibility, session);
+    let t = Table.new<S, M>(self.idleTimeoutNs, self.claimTimeoutNs, visibility, session, variant);
     t.stage(now, session, seat, ?reservedFor);
     let otherSeat = switch (seat) { case (#p1) #p2; case (#p2) #p1 };
     switch (t.join(spec, now, reservedFor, otherSeat)) {

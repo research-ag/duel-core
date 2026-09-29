@@ -179,7 +179,11 @@ module {
   /// `#rematch`/`#ackEnded` need no such binding — see the engine doc
   /// header's guarantee 6.
   public type Request<M> = {
-    #createTable : { seat : TP.Seat; visibility : TP.TableVisibility };
+    #createTable : {
+      seat : TP.Seat;
+      visibility : TP.TableVisibility;
+      variant : Text;
+    };
     #joinTable : { id : TP.TableId; seat : TP.Seat; code : ?Text };
     #submit : { gen : Nat; turn : Nat; move : M };
     #rematch;
@@ -759,8 +763,8 @@ module {
           let priorId = registry.bySession.get(sid);
           switch (req) {
             case (#status) { await* pushStatus(now, sid, reqId) };
-            case (#createTable { seat; visibility }) {
-              switch (registry.createTable(spec, now, sid, seat, visibility)) {
+            case (#createTable { seat; visibility; variant }) {
+              switch (registry.createTable(spec, now, sid, seat, visibility, variant)) {
                 case (#ok id) await* afterMutation(now, sid, reqId, ?id, true);
                 case (#err e) await* pushTo(sid, #err({ reqId; err = e }));
               };

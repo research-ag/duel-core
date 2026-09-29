@@ -60,6 +60,15 @@ module {
     // handed out of band, only that one is required).
     protected : Bool;
     waitingSecs : Nat;
+    // This table's own rules variant, set once by its creator (see
+    // `Registry.createTable`'s own doc) and never inspected by the engine
+    // itself — opaque `Text` a game interprets however it likes inside its
+    // own `Spec.init`. A visitor browsing the lobby sees it as plain text
+    // (a host's `GamePlugin.formatVariant`, if it supplies one, turns this
+    // into display copy) so they can pick a table by its rules before ever
+    // joining it — the same reason `protected` is exposed here rather than
+    // held back until `join`.
+    variant : Text;
   };
 
   /// The per-caller lobby-scoped screen: either browsing the open-table
@@ -164,8 +173,14 @@ module {
   /// worked `#alternating` game.
   public type Spec<S, M> = {
     #simultaneous : {
-      /// Fresh game state for a new match.
-      init : () -> S;
+      /// Fresh game state for a new match, from this table's own
+      /// `variant` (see `Table.variant`'s own doc) — opaque to the
+      /// engine, entirely this function's own call to interpret.
+      /// Unrecognized text should fall back to a safe default rather
+      /// than trap: the engine never validates it, so a game that
+      /// doesn't want modes at all just ignores the argument
+      /// (`init = func(_ : Text) : S = { ... }`).
+      init : (Text) -> S;
       /// null = legal; ?text = rejection reason (returned to the caller,
       /// no move consumed).
       validate : (S, Seat, M) -> ?Text;
@@ -174,8 +189,9 @@ module {
       resolve : (S, M, M) -> { state : S; verdict : ?Verdict };
     };
     #alternating : {
-      /// Fresh game state for a new match.
-      init : () -> S;
+      /// Fresh game state for a new match, from this table's own
+      /// `variant` — see the `#simultaneous` arm's own doc above.
+      init : (Text) -> S;
       /// null = legal; ?text = rejection reason (returned to the caller,
       /// no move consumed). Called only for the seat currently on turn —
       /// the engine itself rejects an off-turn submission before this
@@ -285,6 +301,14 @@ module {
     claimTimeoutNs : Int;
     visibility : TableVisibility;
     createdBy : SessionId;
+    // This table's own rules variant, supplied once at creation (see
+    // `Registry.createTable`'s own doc) and immutable for the table's
+    // whole lifetime — a rematch on the same `TableId` (architecture rule
+    // 6) reuses it automatically. Read back by `startGame` and handed to
+    // `Spec.init`; otherwise opaque to the engine, which never inspects
+    // its contents. Surfaced read-only on `TableSummary` (see its own
+    // doc) so a browsing visitor can see it before joining.
+    variant : Text;
 
     var phase : Phase<S, M>;
     // Match generation: bumped once per new match, at every `stage()` call

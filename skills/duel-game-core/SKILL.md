@@ -194,6 +194,40 @@ Action) -> ...` takes both. This is what
      spuriously rejects a move the client's own UI just showed as legal.
      Port function-by-function against the original source, noting the
      file/line you ported each piece from in a comment.
+8. **Does this game have more than one rules variant, picked once by a
+   table's creator at `createTable` time (see the backend README's
+   "Table variants" section)?** If the rules description names two or
+   more modes — "Classic" vs "Well," standard vs a house rule, a small
+   board vs a large one — decide which shape rule applies before writing
+   `Action`/`State`:
+   - **Same fields, different legality** (a variant only changes which
+     moves are allowed, never what a move contains) → keep `Action`/
+     `State` flat, add a `variant` field to `State`, and gate the
+     restriction in `validate` — one more branch, no new engine
+     mechanism (architecture rule 4). `Spec.init(raw : Text) : State`
+     parses the table's own stored variant text into a closed type here
+     — `"well"`/anything unrecognized/`""` all need a safe fallback, and
+     `resolve` almost always needs no variant branch at all: build it
+     against whichever variant has the MOST legal moves (a strict
+     superset), since `validate` already kept anything narrower out of a
+     smaller variant's own match. `examples/rock-paper-scissors`'s own
+     `RockPaperScissorsRules.mo` is the worked reference (Classic vs
+     Well — a fourth WELL symbol, illegal outside Well mode, nothing
+     else different).
+   - **Different fields entirely** (a variant's data genuinely doesn't
+     overlap another's) → tag `Action` into a union over each variant's
+     own payload type, dispatched through a variant-keyed lookup table
+     rather than a hand-matched `switch` repeated in every function —
+     see `templates/Rules.mo.template`'s own commented-out alternative
+     for the shape. Either way it's still exactly one Candid type for
+     the whole game (the union itself) — `TableSummary` isn't generic
+     over `State`/`Action` at all, so a richer per-game config type could
+     never flow through it directly; that's what settles a variant's own
+     wire shape as opaque `Text`, not a generic third `Spec` type
+     parameter, regardless of which rule above applies.
+   - A game with no variants of its own answers "no" here and moves on —
+     `init` still takes the `Text` argument (every `Spec.init` does), it
+     just ignores it: `init = func(_ : Text) : State = { ... }`.
 
 Once you can state, in one or two sentences each, what `State` holds,
 what `Action`'s variants are, what `validate` rejects, and what
@@ -236,7 +270,11 @@ sketch line with real code from your Step 2 design:
   agent) verify the code against intent without re-reading the original
   rules text.
 - Fill in `Action`, `Side`, `State`, `freshSide`, `validate`, `resolve`
-  from your Step 2 design.
+  from your Step 2 design. `init` takes this table's own rules variant as
+  a `Text` (`""` for a game with no variants — the common case, and
+  `init`'s own parameter is then simply unused); see Step 2's variant
+  question above and the template's own commented-out `Variant`/
+  `parseVariant` sketch if your game has more than one.
 - Keep `init`/`validate`/`resolve` pure: no `Time`, no mutation, no
   storage — build new records (`{ me with ... }`), never mutate in
   place. `Spec` is passed fresh on every engine call and never stored
@@ -614,10 +652,13 @@ them wired end to end, frontend panel included.
 Read `templates/RulesUnit.test.mo.template` and write
 `test/RulesUnit.test.mo`. Cover, at minimum:
 
-- `init()` produces the state your rules describe as the starting
+- `init("")` produces the state your rules describe as the starting
   position, and `spec()` really does hand out your own
   `init`/`validate`/`resolve` (the wiring-sanity check in the template's
   section 1 — cheap, and it has caught real copy-paste mistakes before).
+  If your game has variants (Step 2's question 8), also cover `init` with
+  each variant's own key, plus one unrecognized string, to confirm the
+  safe-default fallback actually holds.
 - One `validate` case per way a move can be illegal in your rules
   (running out of a resource, moving out of turn, etc.) — assert it's
   rejected (`?_`) and every legal case is accepted (`null`).
@@ -690,6 +731,17 @@ npm package itself, via `render.js`/`app.js`.
   best-lap-time game, say): renders one leaderboard entry's raw `score`
   back into what a player should actually see. Omit it for the ELO shape
   — the library's own default (the plain integer) is already correct.
+- `variantChoices()`/`formatVariant(variant)` — optional, both, and only
+  relevant if Step 2's question 8 gave your game more than one rules
+  variant. `variantChoices()` returns the `{ key, label }` list
+  `renderBrowsing`'s "Start a new table" section turns into a radio-
+  button picker (its FIRST entry is the default selection; each `key` is
+  exactly the `Text` your backend's `Spec.init(variant)` receives).
+  `formatVariant(variant)` turns a browsed table's own stored
+  `TableSummary.variant` back into the same label text, so a table row
+  and the picker that created it read identically. A game with no
+  variants implements neither — no picker renders, and no table row
+  shows variant text.
 
 Then copy `templates/index.html.template` → `frontend/src/index.html`,
 `templates/app.js.template` → `frontend/src/app.js`, and

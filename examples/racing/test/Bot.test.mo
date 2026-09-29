@@ -33,7 +33,7 @@ let spec = Rules.spec();
 //        collision-checked drive — not just the idealized no-wall
 //        recurrence it was originally derived from ───────────────────────
 do {
-  var state = Rules.init();
+  var state = Rules.init("");
   var i = 0;
   let steps = BotLogic.SCRIPT_P1.size() + 4; // a few rounds past the array's end too
   while (i < steps) {
@@ -97,7 +97,7 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
 );
 
-let id = ok(await* cp.createTable(bot1, #p1, #open), "bot creates a table");
+let id = ok(await* cp.createTable(bot1, #p1, #open, ""), "bot creates a table");
 let sidBot1 = CanisterPlayers.sidForCanister(bot1, id);
 // The human joins directly against `reg` — standing in for `ws.mo`
 // dispatching a browser's own `joinTable`, exactly as

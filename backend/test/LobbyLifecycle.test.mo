@@ -44,8 +44,8 @@ func turnOf(session : Text) : Nat = switch (atTableView(session)) {
 };
 
 // ── 1. two tables created and filled, interleaved ───────────────────────────
-let tableA = ok(reg.createTable(spec, tick(), "alice", #p1, #open), "alice opens table A");
-let tableB = ok(reg.createTable(spec, tick(), "carol", #p1, #code("friends-only")), "carol opens protected table B");
+let tableA = ok(reg.createTable(spec, tick(), "alice", #p1, #open, ""), "alice opens table A");
+let tableB = ok(reg.createTable(spec, tick(), "carol", #p1, #code("friends-only"), ""), "carol opens protected table B");
 assert tableA != tableB;
 // Both tables are listed, one seat free each — table B flagged protected.
 switch (reg.listTables(now)) {

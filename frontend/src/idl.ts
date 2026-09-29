@@ -194,6 +194,10 @@ export function buildEngineTypes({
     p2Session: IDL.Opt(IDL.Text),
     protected: IDL.Bool,
     waitingSecs: IDL.Nat,
+    // This table's own rules variant — opaque text, set once at
+    // creation, never inspected by the engine itself. See lib.mo's
+    // `Table.variant` doc.
+    variant: IDL.Text,
   });
   // The per-caller lobby-scoped screen `status` (and every `#view` push)
   // actually returns — either the browsable table list, or a specific
@@ -296,7 +300,7 @@ export function buildEngineTypes({
   // The one application message type shared by both directions of the
   // WS channel — mirrors `Ws.Msg<S, M>` on the backend exactly.
   const WsRequest = IDL.Variant({
-    createTable: IDL.Record({ seat: Seat, visibility: Visibility }),
+    createTable: IDL.Record({ seat: Seat, visibility: Visibility, variant: IDL.Text }),
     joinTable: IDL.Record({ id: TableId, seat: Seat, code: IDL.Opt(IDL.Text) }),
     // `gen`/`turn`: the caller's last-observed match generation/round —
     // see lib.mo's `Table.gen` doc and this file's `Err.stale` comment.

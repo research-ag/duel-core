@@ -31,7 +31,7 @@ let sp = switch (R.spec()) {
   case (#simultaneous s) s;
   case (#alternating _) Runtime.trap("racing is a #simultaneous game");
 };
-let s1 = sp.init();
+let s1 = sp.init("");
 assert s1.p1.lap == 0 and s1.p2.lap == 0;
 switch (sp.validate(s1, #p1, { l = 999.0; c = 0.0 })) {
   case (?_) {};

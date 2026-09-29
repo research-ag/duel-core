@@ -2,7 +2,7 @@
 /// `.test.mo` on purpose — `mops test` only discovers that suffix, and this
 /// module has nothing to run on its own (see ../CLAUDE.md's Conventions).
 ///
-/// Actually finishing a lap of the real track from `R.init()` takes a
+/// Actually finishing a lap of the real track from `R.init("")` takes a
 /// long, physics-realistic drive — fine for a human playtester, far too
 /// slow and non-deterministic for a unit test. `seedNearFinish` instead
 /// reaches straight into a live `TP.Table`'s `#active` phase (a public,

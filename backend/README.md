@@ -99,16 +99,19 @@ separate sibling modules, both built on those same types:
   `#simultaneous { init; validate; resolve }` (both seats act every
   round — `resolve` takes both moves; the common case) or
   `#alternating { init; validate; resolve }` (seats take turns —
-  `resolve` takes just the one seat on turn and their move). See
-  Design's "Alternating-turn games" section.
+  `resolve` takes just the one seat on turn and their move). `init` takes
+  this table's own rules `variant` (a `Text`, opaque to the engine — see
+  "Table variants" below) and returns a fresh `S`. See Design's
+  "Alternating-turn games" section.
 - `src/table.mo` (`mo:duel-game-core/table`) — `Table<S, M>`, the stable
   session state for ONE board, and the low-level primitive `Registry`
   (below) is built from: `Table.new(idleTimeoutNs, claimTimeoutNs,
-visibility, createdBy)` plus `join`/`submit`/`rematch`/`leave`/`reset`/
-  `claimWin`/`ackEnded`/`status`/`sweep` on the table it returns (Motoko
-  dot-notation call sugar — plain functions taking the table as their
-  first argument). A game that genuinely wants exactly one fixed board
-  with no lobby of its own can use this directly instead of `Registry`.
+visibility, createdBy, variant)` plus `join`/`submit`/`rematch`/`leave`/
+  `reset`/`claimWin`/`ackEnded`/`status`/`sweep` on the table it returns
+  (Motoko dot-notation call sugar — plain functions taking the table as
+  their first argument). A game that genuinely wants exactly one fixed
+  board with no lobby of its own can use this directly instead of
+  `Registry`.
 - `src/registry.mo` (`mo:duel-game-core/registry`) — `Registry<S, M>`,
   the stable multi-table registry: created once per host actor with
   `Registry.new(idleTimeoutNs, claimTimeoutNs)`. `createTable`/
@@ -169,12 +172,12 @@ A game is a pure `Spec<S, M>`, tagged by `Mode`:
 ```motoko
 public type Spec<S, M> = {
   #simultaneous : {
-    init : () -> S;
+    init : (Text) -> S; // this table's own rules variant in, fresh state out
     validate : (S, Seat, M) -> ?Text; // null = legal; ?text = rejection
     resolve : (S, M, M) -> { state : S; verdict : ?Verdict }; // both moves at once
   };
   #alternating : {
-    init : () -> S;
+    init : (Text) -> S;
     validate : (S, Seat, M) -> ?Text;
     resolve : (S, Seat, M) -> { state : S; verdict : ?Verdict }; // one seat, on turn
   };
@@ -183,7 +186,9 @@ public type Spec<S, M> = {
 ```
 
 A game builds exactly one arm — see "Alternating-turn games" under
-Design for the `#alternating` case.
+Design for the `#alternating` case, and "Table variants" just below for
+what `init`'s own `Text` argument is and when a game needs to read it at
+all.
 
 A host actor forwards every call to the engine, supplying `Time.now()`
 and your `Spec` — but only `status` is a plain Candid method. Everything
@@ -241,6 +246,94 @@ survives canister upgrades with no migration code.
 From there, generate (or hand-write) the Candid interface for this
 service and pair it with a **GamePlugin** on the frontend — see
 [`../frontend/README.md`](../frontend/README.md).
+
+### Table variants
+
+A table's creator may pick a rules variant when they start it — "Classic"
+vs "Well" for `examples/rock-paper-scissors`, say — and a visitor
+browsing the lobby sees which variant each table runs, as plain text,
+before they ever join it. The engine's own part in this is a single
+opaque field: `variant : Text`, supplied once at `createTable`/
+`createTableReserving` time, stored on the `Table` for its whole
+lifetime (a rematch on the same `TableId` reuses it automatically — see
+architecture rule 6), and surfaced read-only on `TableSummary` for
+`listTables`/`status` to hand to a browsing visitor. The engine never
+validates or interprets this text — an unrecognized value is entirely a
+game's own call to fall back safely on, inside its own `init`:
+
+```motoko
+public type Variant = { #classic; #well };
+
+func parseVariant(raw : Text) : Variant = switch (raw) {
+  case ("well") #well;
+  case (_) #classic; // safe default — never trap on garbage or "" input
+};
+
+public func init(raw : Text) : State = {
+  score = 0;
+  variant = parseVariant(raw);
+};
+
+```
+
+A game with no modes of its own simply ignores the argument
+(`init = func(_ : Text) : S = { ... }`) — every existing example but
+`rock-paper-scissors` does exactly this; nothing about `createTable`
+changes shape for them, they just never read the text they're handed.
+
+**Same fields, different legality.** When a variant only changes which
+moves are allowed, not what a move even contains, keep `M`/`S` flat and
+gate the difference in `validate` — architecture rule 4 already makes
+`validate` the sole legality gate, so a mode restriction is just one more
+branch there, no new engine mechanism:
+
+```motoko
+public func validate(s : State, _seat : Seat, a : Action) : ?Text {
+  switch (a, s.variant) {
+    case (#well, #classic) ?"well is not available in classic mode";
+    case (_, _) null;
+  };
+};
+
+```
+
+`resolve` usually needs no variant branch at all in this shape: build it
+against the variant with the MOST legal moves (a strict superset), since
+`validate` has already kept anything else out of a narrower variant's own
+match — `examples/rock-paper-scissors`'s own `RockPaperScissorsRules.mo`
+(Classic vs Well) is the worked reference.
+
+**Different fields entirely.** When a variant's data genuinely doesn't
+overlap, widening one flat type stops making sense — turn `M` into a
+tagged union over each variant's own payload type instead, dispatched
+once, by variant, rather than hand-matched in every function that needs
+to know:
+
+```motoko
+type VariantModule = {
+  validate : (State, Seat, M) -> ?Text;
+  resolve : (State, M) -> { state : State; verdict : ?Verdict };
+};
+
+// Module-level, not stored on the actor — rebuilt fresh every call, the
+// same discipline `Spec` itself already follows (architecture rule 1).
+let variants : Map.Map<Text, VariantModule> = Map.fromIter(
+  [("a", variantAModule), ("b", variantBModule)].values(),
+  Text.compare,
+);
+
+```
+
+Either way it's still exactly one Candid type for the whole game (the
+union itself), so a per-table config still flows through `TableSummary`
+as plain text — `TableSummary` isn't generic over `S`/`M` at all, so a
+richer per-game config type could never flow through it directly; that's
+what settles `variant`'s own shape as opaque `Text` rather than a generic
+third type parameter on `Spec`.
+
+On the frontend, `GamePlugin.variantChoices()`/`formatVariant()` are the
+matching optional hooks — see
+[`../frontend/README.md`](../frontend/README.md)'s "GamePlugin" section.
 
 ### Real-time push
 
@@ -798,7 +891,7 @@ either side:
 
 ```motoko
 let nextId = registry.peekNextTableId(); // safe: nothing else can create a table between this line and the next
-switch (registry.createTableReserving(spec, now, mySession, #p1, #open, CanisterPlayers.sidForCanister(botPrincipal, nextId))) {
+switch (registry.createTableReserving(spec, now, mySession, #p1, #open, CanisterPlayers.sidForCanister(botPrincipal, nextId), "")) {
   case (#ok id) { /* both seats are already live, id == nextId */ };
   case (#err e) { /* ... */ };
 };

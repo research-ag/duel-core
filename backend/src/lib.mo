@@ -4,7 +4,10 @@
 /// Game-agnostic core for any turn-based, simultaneous-reveal 2-player game:
 ///
 ///   • anyone may open a new TABLE (open, for anyone to browse and join, or
-///     protected with an access code to share with a friend out of band) —
+///     protected with an access code to share with a friend out of band),
+///     optionally naming a rules VARIANT — an opaque `Text` a game
+///     interprets however it likes inside its own `Spec.init`, stored on
+///     the table and shown to a browsing visitor before they ever join —
 ///     any number of tables run independently and simultaneously; the
 ///     `Registry` (`./registry`, below) is what creates them and routes
 ///     every session's calls to the right one (seats #p1 / #p2 per table)
@@ -57,7 +60,7 @@
 ///
 ///   • `./table` (`mo:duel-game-core/table`) — the low-level, single-table
 ///     primitive: `Table.new(idleTimeoutNs, claimTimeoutNs, visibility,
-///     createdBy)` plus `.join`/`.submit`/`.rematch`/`.leave`/`.reset`/
+///     createdBy, variant)` plus `.join`/`.submit`/`.rematch`/`.leave`/`.reset`/
 ///     `.claimWin`/`.ackEnded`/`.status`/`.sweep` on the `Table<S, M>` it
 ///     returns (Motoko's dot-notation call sugar — these are plain
 ///     functions taking the table as their first argument). A game that

@@ -139,7 +139,7 @@ module {
     }
   );
 
-  public func init() : State = { board = startBoard() };
+  public func init(_variant : Text) : State = { board = startBoard() };
 
   // ────────────────────────── move generation ─────────────────────────────
   // Both used by `validate` (is THIS specific move/leg legal?) and by the

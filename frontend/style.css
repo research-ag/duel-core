@@ -365,6 +365,12 @@ button.seat {
   margin-bottom: 0.75rem;
 }
 
+/* A game's own `variantChoices()` picker (absent — and this div never
+ * rendered — for a game with no modes of its own). */
+.table-variant-choices {
+  margin-bottom: 0.75rem;
+}
+
 .table-row {
   display: flex;
   align-items: center;
@@ -387,6 +393,15 @@ button.seat {
   font-size: 0.78rem;
   letter-spacing: 0.03em;
   color: var(--accent);
+}
+
+/* A table row's own rules-variant text (absent for a game with no modes
+ * of its own — see TableSummary.variant's own doc). */
+.variant-badge {
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  color: var(--muted);
 }
 
 .table-row-seats {

@@ -72,7 +72,7 @@ module {
     charge = 0;
   };
 
-  public func init() : State = {
+  public func init(_variant : Text) : State = {
     p1 = freshAgent();
     p2 = freshAgent();
     lastRound = null;

@@ -41,6 +41,9 @@ export const plugin = {
       p1: Side,
       p2: Side,
       lastRound: IDL.Opt(Round),
+      // Only if your Rules module's own State carries a `variant` field
+      // (see this file's own `variantChoices`/`formatVariant` comment
+      // below): variant: IDL.Variant({ classic: IDL.Null, yourOtherVariant: IDL.Null }),
     });
     return { Action, State };
   },
@@ -85,5 +88,27 @@ export const plugin = {
   // formatScore(score) {
   //   const ms = 3_600_000n - score;
   //   ...format ms as a time string...
+  // },
+
+  // Optional pair — only add these if this game has more than one rules
+  // variant of its own (SKILL.md step 2, question 8; see the engine
+  // README's "Table variants" section). `variantChoices()`'s FIRST entry
+  // is the default selection; each `key` is exactly the `Text` a table
+  // creator's pick sends as `WsRequest.createTable.variant` and, on the
+  // backend, what your Rules module's own `init(variant)` receives.
+  // `formatVariant` turns a browsed table's own stored
+  // `TableSummary.variant` back into the same label text, so a table row
+  // and the picker that created it read identically. Omitting both
+  // (the default, and every existing example but rock-paper-scissors)
+  // renders no picker and no variant text on any table row.
+  //
+  // variantChoices() {
+  //   return [
+  //     { key: "classic", label: "Classic" },
+  //     { key: "yourOtherVariant", label: "Your Other Variant" },
+  //   ];
+  // },
+  // formatVariant(variant) {
+  //   return { classic: "Classic", yourOtherVariant: "Your Other Variant" }[variant] ?? variant;
   // },
 };

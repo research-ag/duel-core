@@ -31,7 +31,7 @@ func stateOf(marks : [(Nat, Nat, TP.Seat)], overrides : [(Nat, R.BoardResult)], 
 };
 
 // ── 1. init() is a clean, empty state ───────────────────────────────────────
-let s0 = R.init();
+let s0 = R.init("");
 assert s0.cells.size() == 81;
 assert s0.results.size() == 9;
 assert s0.cells.all<?TP.Seat>(func(cell) = cell == null);
@@ -44,7 +44,7 @@ let sp = switch (R.spec()) {
   case (#alternating s) s;
   case (#simultaneous _) Runtime.trap("ultimate tic-tac-toe is a #alternating game");
 };
-assert sp.init().cells == s0.cells;
+assert sp.init("").cells == s0.cells;
 Debug.print("2. spec wiring OK");
 
 // ── 3. validate: free choice (activeBoard == null) accepts any empty
@@ -183,7 +183,7 @@ Debug.print("10. fully-decided meta board with no line completed is a draw OK");
 // ── 11. legalActions mirrors validate's own legality, in every
 //         activeBoard mode ─────────────────────────────────────────────────
 do {
-  let s0b = R.init();
+  let s0b = R.init("");
   assert R.legalActions(s0b, #p1).size() == 81;
 
   let s2 = stateOf([(4, 0, #p1)], [], ?4);

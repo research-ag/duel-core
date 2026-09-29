@@ -56,7 +56,7 @@ func turnOf(reg : Reg, at : Int, session : Text) : Nat = switch (atTableView(reg
 
 // ── 1. createTable seats the creator; ids are sequential from 1 ────────────
 let reg = fresh();
-let id1 = ok(reg.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+let id1 = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
 assert id1 == 1;
 switch (reg.status(spec, T0, "a")) {
   case (#atTable v) {
@@ -68,12 +68,12 @@ switch (reg.status(spec, T0, "a")) {
   };
   case (_) Runtime.trap("a should be at a table");
 };
-let id2 = ok(reg.createTable(spec, T0, "z", #p1, #open), "z creates a second table");
+let id2 = ok(reg.createTable(spec, T0, "z", #p1, #open, ""), "z creates a second table");
 assert id2 == 2;
 Debug.print("1. createTable seats the creator, ids are sequential OK");
 
 // ── 2. a session already at a table can't create or join another ──────────
-expectErr(reg.createTable(spec, T0, "a", #p2, #open), "a tries to create a second table");
+expectErr(reg.createTable(spec, T0, "a", #p2, #open, ""), "a tries to create a second table");
 expectErr(reg.joinTable(spec, T0, "a", id2, #p2, null), "a tries to join z's table too");
 Debug.print("2. already-at-a-table guard blocks create/join OK");
 
@@ -93,7 +93,7 @@ switch (Array.find<TP.TableSummary>(reg.listTables(T0), func(r) = r.id == id1)) 
   case (?r) assert r.p1Session == ?"a"; // the taken seat names its occupant
   case null Runtime.trap("id1 should still be listed");
 };
-let idProt = ok(reg.createTable(spec, T0, "q", #p1, #code("secret")), "q creates a protected table");
+let idProt = ok(reg.createTable(spec, T0, "q", #p1, #code("secret"), ""), "q creates a protected table");
 // A protected table is listed too, just flagged — never its own code.
 switch (Array.find<TP.TableSummary>(reg.listTables(T0), func(r) = r.id == idProt)) {
   case (?r) {
@@ -167,7 +167,7 @@ switch (reg.status(spec, T0, "z")) {
   case (_) Runtime.trap("z should be back to browsing");
 };
 for (r in reg.listTables(T0).values()) { assert r.id != id2 }; // GC'd — id2 is gone
-let id3 = ok(reg.createTable(spec, T0, "z", #p1, #open), "z creates a fresh table after leaving");
+let id3 = ok(reg.createTable(spec, T0, "z", #p1, #open, ""), "z creates a fresh table after leaving");
 assert id3 != id2; // ids are never reused, even once GC'd
 Debug.print("6. leave returns to browsing and GCs an empty table; ids are never reused OK");
 
@@ -203,7 +203,7 @@ Debug.print("7. idle takeover resurfaces via listTables; ackEnded returns to bro
 // table's "since" is always `now` — see `openness`'s own doc), on every
 // single load, forever.
 let reg8 = fresh();
-let idG = ok(reg8.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+let idG = ok(reg8.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
 ignore ok(reg8.joinTable(spec, T0, "b", idG, #p2, null), "b joins; game live");
 let VANISH = T0 + TIMEOUT + 1_000_000_000; // a/b's own game goes idle
 reg8.sweep(VANISH); // the periodic timer frees it with nobody visiting
@@ -242,7 +242,7 @@ Debug.print("8. a permanently-unacked notice is eventually pruned, unblocking GC
 //        genuinely aren't a participant any more (see architecture rule
 //        12) — that's correct, not a missed notification ────────────────
 let reg9 = fresh();
-let idR = ok(reg9.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+let idR = ok(reg9.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
 ignore ok(reg9.joinTable(spec, T0, "b", idR, #p2, null), "b joins; game live");
 ignore ok(reg9.submit(spec, T0, "a", genOf(reg9, T0, "a"), turnOf(reg9, T0, "a"), #gather), "a gathers");
 ignore ok(reg9.submit(spec, T0, "b", genOf(reg9, T0, "b"), turnOf(reg9, T0, "b"), #gather), "b gathers");
@@ -270,7 +270,7 @@ Debug.print("9. rematch after the partner already left doesn't strand the reques
 // ── 10. a still-live rematch invite can be DECLINED, not just accepted or
 //         silently waited out ─────────────────────────────────────────────
 let reg10 = fresh();
-let idR2 = ok(reg10.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+let idR2 = ok(reg10.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
 ignore ok(reg10.joinTable(spec, T0, "b", idR2, #p2, null), "b joins; game live");
 ignore ok(reg10.submit(spec, T0, "a", genOf(reg10, T0, "a"), turnOf(reg10, T0, "a"), #gather), "a gathers");
 ignore ok(reg10.submit(spec, T0, "b", genOf(reg10, T0, "b"), turnOf(reg10, T0, "b"), #gather), "b gathers");
@@ -306,31 +306,31 @@ Debug.print("10. a still-live rematch invite can be declined, not just accepted 
 //        — time passing alone must be enough; the fix can't depend on a
 //        host's periodic timer having already flipped the phase.
 let reg11a = fresh();
-ignore ok(reg11a.createTable(spec, T0, "a", #p1, #open), "a stages, alone");
-ignore ok(reg11a.createTable(spec, LATER, "a", #p1, #open), "a can create again once their own staging has expired");
+ignore ok(reg11a.createTable(spec, T0, "a", #p1, #open, ""), "a stages, alone");
+ignore ok(reg11a.createTable(spec, LATER, "a", #p1, #open, ""), "a can create again once their own staging has expired");
 Debug.print("11a. a lone staging that simply times out doesn't lock its session out OK");
 
 // 11b. someone else's `join` evicts the expired squatter instead of a
 //        sweep — the EVICTED session, not the evictor, must recover.
 let reg11b = fresh();
-let idB = ok(reg11b.createTable(spec, T0, "a", #p1, #open), "a stages, alone");
+let idB = ok(reg11b.createTable(spec, T0, "a", #p1, #open, ""), "a stages, alone");
 ignore ok(reg11b.joinTable(spec, LATER, "b", idB, #p1, null), "b evicts a's expired squat on the same seat");
-ignore ok(reg11b.createTable(spec, LATER, "a", #p1, #open), "a (evicted by b) can create again");
+ignore ok(reg11b.createTable(spec, LATER, "a", #p1, #open, ""), "a (evicted by b) can create again");
 Debug.print("11b. a session evicted by someone else's join can create again OK");
 
 // 11c. a full debrief expires pre-acked — an outsider's `join` is what
 //        actually marks it that way (see `join`'s own #debrief doc);
 //        neither a nor b ever called leave/ackEnded themselves.
 let reg11c = fresh();
-let idC = ok(reg11c.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+let idC = ok(reg11c.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
 ignore ok(reg11c.joinTable(spec, T0, "b", idC, #p2, null), "b joins; game live");
 ignore ok(reg11c.submit(spec, T0, "a", genOf(reg11c, T0, "a"), turnOf(reg11c, T0, "a"), #gather), "a gathers");
 ignore ok(reg11c.submit(spec, T0, "b", genOf(reg11c, T0, "b"), turnOf(reg11c, T0, "b"), #gather), "b gathers");
 ignore ok(reg11c.submit(spec, T0, "a", genOf(reg11c, T0, "a"), turnOf(reg11c, T0, "a"), #attack), "a attacks");
 ignore ok(reg11c.submit(spec, T0, "b", genOf(reg11c, T0, "b"), turnOf(reg11c, T0, "b"), #gather), "b gathers again; a wins, both land in debrief");
 ignore ok(reg11c.joinTable(spec, LATER, "c", idC, #p1, null), "an outsider's join marks the expired debrief pre-acked");
-ignore ok(reg11c.createTable(spec, LATER, "a", #p1, #open), "a (never left/acked their own debrief) can still create again");
-ignore ok(reg11c.createTable(spec, LATER, "b", #p1, #open), "b (never left/acked their own debrief) can still create again too");
+ignore ok(reg11c.createTable(spec, LATER, "a", #p1, #open, ""), "a (never left/acked their own debrief) can still create again");
+ignore ok(reg11c.createTable(spec, LATER, "b", #p1, #open, ""), "b (never left/acked their own debrief) can still create again too");
 Debug.print("11c. a debrief expiring pre-acked doesn't lock either participant out either OK");
 
 // ── 12. createTable rejects a `#code("")` table — regression: it used to
@@ -340,14 +340,14 @@ Debug.print("11c. a debrief expiring pre-acked doesn't lock either participant o
 //          stored code could never be matched) — the creator's own seat
 //          would then just sit there until it expired into N1 ─────────
 let reg12 = fresh();
-expectErr(reg12.createTable(spec, T0, "a", #p1, #code("")), "an empty access code should be rejected");
+expectErr(reg12.createTable(spec, T0, "a", #p1, #code(""), ""), "an empty access code should be rejected");
 switch (reg12.status(spec, T0, "a")) {
   case (#browsing _) {};
   case (_) Runtime.trap("a rejected createTable must not leave a leftover at-a-table mapping behind");
 };
 // a real code still works fine, including right after the rejection —
 // the bad attempt above left nothing stale in `bySession`.
-let idOk = ok(reg12.createTable(spec, T0, "a", #p1, #code("real-code")), "a creates a table with a real code");
+let idOk = ok(reg12.createTable(spec, T0, "a", #p1, #code("real-code"), ""), "a creates a table with a real code");
 switch (reg12.joinTable(spec, T0, "b", idOk, #p2, null)) {
   case (#err(#badCode)) {};
   case (_) Runtime.trap("no code on a real protected table should still be #badCode");
@@ -358,9 +358,9 @@ Debug.print("12. createTable rejects an empty access code instead of producing a
 // ── 13. claimWin routes to the acting session's own table only, and is
 //          gated by ITS OWN table's `claimTimeoutNs` exactly like `submit` ─
 let reg13 = fresh();
-let idW1 = ok(reg13.createTable(spec, T0, "a", #p1, #open), "a creates table 1");
+let idW1 = ok(reg13.createTable(spec, T0, "a", #p1, #open, ""), "a creates table 1");
 ignore ok(reg13.joinTable(spec, T0, "b", idW1, #p2, null), "b joins table 1; game live");
-let idW2 = ok(reg13.createTable(spec, T0, "q", #p1, #open), "q creates a second, unrelated table");
+let idW2 = ok(reg13.createTable(spec, T0, "q", #p1, #open, ""), "q creates a second, unrelated table");
 ignore ok(reg13.joinTable(spec, T0, "r", idW2, #p2, null), "r joins table 2; game live too");
 let g13 = genOf(reg13, T0, "a");
 ignore ok(reg13.submit(spec, T0, "a", g13, turnOf(reg13, T0, "a"), #gather), "a moves on table 1; b goes quiet");
@@ -389,16 +389,16 @@ Debug.print("13. claimWin routes per-table and is gated per-table OK");
 
 // ── 14. createTableReserving: Flow 2's atomic dual-seat assignment ─────────
 let reg14 = fresh();
-let id14 = ok(reg14.createTableReserving(spec, T0, "a", #p1, #open, "b"), "a creates a table reserving b for the other seat");
+let id14 = ok(reg14.createTableReserving(spec, T0, "a", #p1, #open, "b", ""), "a creates a table reserving b for the other seat");
 switch (atTableView(reg14, T0, "a"), atTableView(reg14, T0, "b")) {
   case (#inGame va, #inGame vb) { assert va.seat == #p1; assert vb.seat == #p2 };
   case (_, _) Runtime.trap("both a and b should already be #inGame — no second join call needed");
 };
-expectErr(reg14.createTableReserving(spec, T0, "c", #p1, #open, "c"), "c can't reserve itself for the other seat");
-expectErr(reg14.createTableReserving(spec, T0, "b", #p1, #open, "z"), "b is already seated at the table createTableReserving just started");
+expectErr(reg14.createTableReserving(spec, T0, "c", #p1, #open, "c", ""), "c can't reserve itself for the other seat");
+expectErr(reg14.createTableReserving(spec, T0, "b", #p1, #open, "z", ""), "b is already seated at the table createTableReserving just started");
 let reg14b = fresh();
-ignore ok(reg14b.createTable(spec, T0, "x", #p1, #open), "x is already elsewhere");
-expectErr(reg14b.createTableReserving(spec, T0, "y", #p1, #open, "x"), "can't reserve x — x is already staged at its own table");
+ignore ok(reg14b.createTable(spec, T0, "x", #p1, #open, ""), "x is already elsewhere");
+expectErr(reg14b.createTableReserving(spec, T0, "y", #p1, #open, "x", ""), "can't reserve x — x is already staged at its own table");
 Debug.print("14. createTableReserving atomically seats both sides, rejecting self-reservation and a busy reservee OK");
 
 Debug.print("ALL LOBBY CHECKS PASSED");

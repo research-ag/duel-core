@@ -204,7 +204,7 @@ botBack.addEventListener("click", () => {
 // on the spot for the chosen `seat`.
 async function stageFor(seat) {
   if (seat === undefined) return staging;
-  const res = await ws.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null } } });
+  const res = await ws.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, variant: "" } });
   if ("err" in res) throw new Error(errText(res.err));
   const status = res.view;
   if (!("atTable" in status) || tag(status.atTable.view) !== "stagingYou") {

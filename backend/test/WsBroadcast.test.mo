@@ -74,7 +74,7 @@ do {
 //         like before the rematch call — must stay false ─────────────
 do {
   let reg = fresh();
-  let id = ok(reg.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+  let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
   playToDebrief(reg, id);
   ignore ok(reg.rematch(spec, T0, "a"), "a requests a rematch; b is still right there");
   assert not Ws.rematchOpenedLobby(reg, ?id);
@@ -86,7 +86,7 @@ do {
 //         freshly browsable the instant it exists — must be true ──────
 do {
   let reg = fresh();
-  let id = ok(reg.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+  let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
   playToDebrief(reg, id);
   ignore ok(reg.leave(T0, "a", genOf(reg, T0, "a")), "a returns to the lobby first");
   ignore ok(reg.rematch(spec, T0, "b"), "b requests a rematch after a already left");
@@ -98,7 +98,7 @@ do {
 //         either way was never listed, stays false ─────────────────────
 do {
   let reg = fresh();
-  let id = ok(reg.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+  let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
   playToDebrief(reg, id);
   ignore ok(reg.rematch(spec, T0, "a"), "a requests a rematch, reserving b's old seat");
   ignore ok(reg.rematch(spec, T0, "b"), "b accepts; the game starts outright");
@@ -112,7 +112,7 @@ do {
 //         an incorrect one ─────────────────────────────────────────────
 do {
   let reg = fresh();
-  let id = ok(reg.createTable(spec, T0, "a", #p1, #open), "a creates a table");
+  let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
   playToDebrief(reg, id);
   ignore ok(reg.leave(T0, "a", genOf(reg, T0, "a")), "a returns to the lobby first");
   ignore ok(reg.rematch(spec, T0, "b"), "b requests a rematch after a already left");

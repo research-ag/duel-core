@@ -33,6 +33,28 @@ module {
   /// One player's choice for a round. Keep this to the RAW decision only
   /// — never a value the server can derive from State itself (see
   /// SKILL.md step 2's "Action must be a raw decision" rule).
+  ///
+  /// If this game's variants genuinely don't share a move shape (not
+  /// just "which moves are legal," but what a move even CONTAINS —
+  /// SKILL.md step 2's variant-shape question), widening one flat
+  /// `Action` stops making sense. Tag it into a union over each
+  /// variant's own payload type instead, and dispatch `validate`/
+  /// `resolve` through a variant-keyed lookup table built once at module
+  /// level (never stored on the actor — same discipline `Spec` itself
+  /// already follows, architecture rule 1) rather than a hand-matched
+  /// `switch` repeated in every function that needs to know:
+  //
+  // public type Action = { #variantA : ActionA; #variantB : ActionB };
+  //
+  // type VariantModule = {
+  //   validate : (State, TP.Seat, Action) -> ?Text;
+  //   resolve : (State, Action, Action) -> { state : State; verdict : ?TP.Verdict };
+  // };
+  //
+  // func variantModule(key : Text) : ?VariantModule = Map.fromIter(
+  //   [("variantA", variantAModule), ("variantB", variantBModule)].values(),
+  //   Text.compare,
+  // ).get(key);
   public type Action = { /* #yourMove; #anotherMove; ... */ };
 
   /// Everything that persists across rounds for one seat. Immutable
@@ -52,7 +74,22 @@ module {
     p1 : Side;
     p2 : Side;
     lastRound : ?Round;
+    // Uncomment if this game has more than one rules variant, picked by
+    // a table's creator at `createTable` time (see SKILL.md step 2's
+    // "does this game have variants" question and the backend README's
+    // "Table variants" section) — a SAME-SHAPE variant (differs only in
+    // which moves are legal) just needs a field here plus a `validate`
+    // branch, no new Action shape:
+    // variant : Variant;
   };
+
+  // Uncomment alongside `State.variant` above for a same-shape variant.
+  // public type Variant = { #classic; #yourOtherVariant };
+  //
+  // func parseVariant(raw : Text) : Variant = switch (raw) {
+  //   case ("yourOtherVariant") #yourOtherVariant;
+  //   case (_) #classic; // safe default — never trap on garbage or "" input
+  // };
 
   // ────────────────────────── tuning constants ────────────────────────────
   // Fixed game numbers go here as `let`s — NOT as fields threaded through
@@ -69,10 +106,17 @@ module {
     // starting values
   };
 
-  public func init() : State = {
+  /// `raw` is this table's own rules variant text (`""` for a game with
+  /// no variants of its own — that's the common case). Opaque to the
+  /// engine; falls back safely on anything unrecognized, never traps. If
+  /// you didn't uncomment `State.variant`/`parseVariant` above, rename
+  /// this parameter to `_raw` (or `_ : Text`) to silence the unused-
+  /// identifier warning.
+  public func init(raw : Text) : State = {
     p1 = freshSide();
     p2 = freshSide();
     lastRound = null;
+    // variant = parseVariant(raw);
   };
 
   // ────────────────────────── Spec: validate ───────────────────────────────
@@ -84,8 +128,15 @@ module {
   /// function could instead recompute from `s`.
   public func validate(s : State, seat : TP.Seat, a : Action) : ?Text {
     let me = switch (seat) { case (#p1) s.p1; case (#p2) s.p2 };
-    // switch (a) { case (#yourMove) if (illegal) ?"reason" else null; ... };
-    null;
+    switch (a) {
+      // case (#yourMove) if (illegal) ?"reason" else null;
+      //
+      // A same-shape variant restriction is just one more branch here, no
+      // new engine mechanism (architecture rule 4 already makes `validate`
+      // the sole legality gate):
+      // case (#yourMove) if (s.variant == #classic) ?"yourMove is not available in classic mode" else null;
+      case (_) null;
+    };
   };
 
   // ────────────────────────── Spec: resolve ────────────────────────────────
@@ -109,6 +160,7 @@ module {
         p1 = s.p1;
         p2 = s.p2;
         lastRound = ?{ p1Action = a1; p2Action = a2 };
+        // variant = s.variant; // carry the match's own variant forward unchanged
       };
       verdict = null;
     };

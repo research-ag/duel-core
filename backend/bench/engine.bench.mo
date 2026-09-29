@@ -26,7 +26,7 @@ module {
     let ns : [Nat] = [10, 100, 1000];
 
     func freshGame() : () {
-      let tid = switch (reg.createTable(spec, 0, "a", #p1, #open)) {
+      let tid = switch (reg.createTable(spec, 0, "a", #p1, #open, "")) {
         case (#ok id) { id };
         case (#err e) Runtime.trap("freshGame: createTable failed: " # debug_show (e));
       };
@@ -42,7 +42,7 @@ module {
         // path every lobby click and quick disconnect takes.
         case (0) {
           while (i < n) {
-            switch (reg.createTable(spec, 0, "c", #p1, #open)) {
+            switch (reg.createTable(spec, 0, "c", #p1, #open, "")) {
               case (#ok _) {};
               case (#err e) Runtime.trap("createTable failed: " # debug_show (e));
             };

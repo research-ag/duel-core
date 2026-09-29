@@ -57,7 +57,7 @@ module {
 
   func emptyBoard() : Board = Array.repeat<?TP.Seat>(null, CELLS);
 
-  public func init() : State = { board = emptyBoard() };
+  public func init(_variant : Text) : State = { board = emptyBoard() };
 
   func lineWonBy(board : Board, seat : TP.Seat) : Bool {
     LINES.find<[Nat]>(

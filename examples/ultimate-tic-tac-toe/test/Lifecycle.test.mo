@@ -44,7 +44,7 @@ func withResults(overrides : [(Nat, Rules.BoardResult)]) : [?Rules.BoardResult] 
   results;
 };
 
-let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000, #open, "test");
+let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000, #open, "test", "");
 
 // ── 1. join seats X/O, X moves first ────────────────────────────────────────
 ignore ok(t.join(spec, now, "x", #p1), "x joins");
