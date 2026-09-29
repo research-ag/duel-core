@@ -62,20 +62,25 @@ import T "./types";
 
 mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDirectory, leaderboard : ?Leaderboard.Board) {
 
+  // `complexity` on both seating calls: which of the calling bot's own
+  // declared complexities (`register_bot`, below) this seat plays at —
+  // `""` for a bot with just one (see `CanisterPlayers.DEFAULT_COMPLEXITY`).
   public shared ({ caller }) func create_table_as_canister(
     seat : T.Seat,
     visibility : T.TableVisibility,
     variant : Text,
+    complexity : Text,
   ) : async T.Res<T.TableId> {
-    await* cpAttached.createTable(caller, seat, visibility, variant);
+    await* cpAttached.createTable(caller, seat, visibility, variant, complexity);
   };
 
   public shared ({ caller }) func join_table_as_canister(
     id : T.TableId,
     seat : T.Seat,
     code : ?Text,
+    complexity : Text,
   ) : async T.Res<T.JoinOk> {
-    await* cpAttached.joinTable(caller, id, seat, code);
+    await* cpAttached.joinTable(caller, id, seat, code, complexity);
   };
 
   public shared ({ caller }) func leave_as_canister(tableId : T.TableId, gen : Nat) : async T.Res<()> {
@@ -96,11 +101,14 @@ mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDir
 
   /// Self-registration — `caller` is this bot's own principal, never a
   /// parameter, so it can only ever register itself (see
-  /// `CanisterPlayers.registerBot`'s own doc). Idempotent: a bot calling
-  /// this again (a rename, or a routine re-run after a redeploy) just
-  /// overwrites its own prior entry.
-  public shared ({ caller }) func register_bot(name : Text) : async () {
-    CanisterPlayers.registerBot(directory, caller, name, Time.now());
+  /// `CanisterPlayers.registerBot`'s own doc). `complexities` is the
+  /// bot's own declared list of ways to play (`[]` for a bot with just
+  /// one — listed under `"Default"`); a human challenger picks one of
+  /// them per game. Idempotent: a bot calling this again (a rename, a
+  /// changed list, or a routine re-run after a redeploy) just overwrites
+  /// its own prior entry.
+  public shared ({ caller }) func register_bot(name : Text, complexities : [Text]) : async () {
+    CanisterPlayers.registerBot(directory, caller, name, complexities, Time.now());
   };
 
   public shared ({ caller }) func unregister_bot() : async () {
@@ -109,14 +117,14 @@ mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDir
 
   /// Every registered bot, ranked by current rating — a plain `query`,
   /// same class as `status`/`get_leaderboard` (side-effect-free, no race
-  /// risk — root `CLAUDE.md`'s architecture rule 8). Joins against
-  /// `leaderboard` (if this host wires one) via `CanisterPlayers.leaderboardKey`,
-  /// so a bot's `elo` reflects the SAME rating its own leaderboard row
-  /// shows.
+  /// risk — root `CLAUDE.md`'s architecture rule 8). Joins each of a
+  /// bot's complexities against `leaderboard` (if this host wires one)
+  /// via `CanisterPlayers.leaderboardKey`, so a bot's `elo` reflects the
+  /// SAME per-complexity rating its own leaderboard row shows.
   public query func list_bots() : async [CanisterPlayers.BotEntry] {
     let scoreOf = switch (leaderboard) {
-      case (?lb) func(p : Principal.Principal) : ?Int = ?Leaderboard.scoreOf(lb, CanisterPlayers.leaderboardKey(p));
-      case null func(_ : Principal.Principal) : ?Int = null;
+      case (?lb) func(p : Principal.Principal, complexity : Text) : ?Int = ?Leaderboard.scoreOf(lb, CanisterPlayers.leaderboardKey(p, complexity));
+      case null func(_ : Principal.Principal, _ : Text) : ?Int = null;
     };
     CanisterPlayers.rankedBots(CanisterPlayers.listBots(directory), scoreOf);
   };

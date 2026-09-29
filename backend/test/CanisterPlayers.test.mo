@@ -59,11 +59,12 @@ let bot2 = Principal.fromText("2vxsx-fae");
 // that; test 16 (two live boards for the same bot1) derives its own
 // per-board sessions locally instead, since id 1 no longer means "the"
 // table there.
-let sidBot1 = CanisterPlayers.sidForCanister(bot1, 1);
-let sidBot2 = CanisterPlayers.sidForCanister(bot2, 1);
+let sidBot1 = CanisterPlayers.sidForCanister(bot1, 1, "");
+let sidBot2 = CanisterPlayers.sidForCanister(bot2, 1, "");
 
-// ── 1. sidForCanister / isCanisterSession / principalOfCanisterSession ──
-assert sidBot1 == "cp:" # bot1.toText() # ":1";
+// ── 1. sidForCanister / isCanisterSession / principalOfCanisterSession /
+//        complexityOfCanisterSession / leaderboardKey ──────────────────
+assert sidBot1 == "cp:" # bot1.toText() # ":1:Default"; // "" normalizes to DEFAULT_COMPLEXITY
 assert CanisterPlayers.isCanisterSession(sidBot1);
 assert not CanisterPlayers.isCanisterSession("ii:someone");
 assert not CanisterPlayers.isCanisterSession("an:someone");
@@ -71,10 +72,27 @@ assert not CanisterPlayers.isCanisterSession("an:someone");
 // the whole point of keying `sidForCanister` on `tableId` (see
 // `canister_players.mo`'s own doc header) — and `principalOfCanisterSession`
 // is its exact inverse.
-assert CanisterPlayers.sidForCanister(bot1, 2) != sidBot1;
+assert CanisterPlayers.sidForCanister(bot1, 2, "") != sidBot1;
 assert CanisterPlayers.principalOfCanisterSession(sidBot1) == bot1;
-assert CanisterPlayers.principalOfCanisterSession(CanisterPlayers.sidForCanister(bot1, 2)) == bot1;
-Debug.print("1. sidForCanister / isCanisterSession / principalOfCanisterSession OK");
+assert CanisterPlayers.principalOfCanisterSession(CanisterPlayers.sidForCanister(bot1, 2, "")) == bot1;
+// The complexity is the last segment — a different complexity on the
+// SAME board is a different session too, and it round-trips exactly,
+// even one containing the very `:` the other segments split on.
+let sidHard = CanisterPlayers.sidForCanister(bot1, 1, "Hard");
+assert sidHard == "cp:" # bot1.toText() # ":1:Hard";
+assert sidHard != sidBot1;
+assert CanisterPlayers.complexityOfCanisterSession(sidBot1) == CanisterPlayers.DEFAULT_COMPLEXITY;
+assert CanisterPlayers.complexityOfCanisterSession(sidHard) == "Hard";
+assert CanisterPlayers.principalOfCanisterSession(sidHard) == bot1;
+assert CanisterPlayers.complexityOfCanisterSession(CanisterPlayers.sidForCanister(bot1, 1, "Look-ahead: 3 plies")) == "Look-ahead: 3 plies";
+// A leaderboard keys a bot per complexity, never per table — the same
+// key from the pair directly or from any of that pair's live sessions.
+assert CanisterPlayers.leaderboardKey(bot1, "Hard") == "cp:" # bot1.toText() # ":Hard";
+assert CanisterPlayers.leaderboardKey(bot1, "") == "cp:" # bot1.toText() # ":Default";
+assert CanisterPlayers.leaderboardKeyOfSession(sidHard) == CanisterPlayers.leaderboardKey(bot1, "Hard");
+assert CanisterPlayers.leaderboardKeyOfSession(CanisterPlayers.sidForCanister(bot1, 7, "Hard")) == CanisterPlayers.leaderboardKey(bot1, "Hard");
+assert CanisterPlayers.leaderboardKeyOfSession(sidBot1) == CanisterPlayers.leaderboardKey(bot1, "Default");
+Debug.print("1. sidForCanister / isCanisterSession / principalOfCanisterSession / complexityOfCanisterSession / leaderboardKey OK");
 
 // ── shared test doubles ─────────────────────────────────────────────────
 
@@ -156,7 +174,7 @@ func capturingBot(move : Rules.Action, log : { var reqs : [TP.MoveRequest<Rules.
 let reg2 = fresh();
 let counter2 = newAfterMutationCounter();
 let cp2 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg2, stubAfterMutation(counter2), constantBot(#gather), noopArm);
-let id2 = ok(await* cp2.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
+let id2 = ok(await* cp2.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
 switch (atTableView(reg2, T0, sidBot1)) {
   case (#stagingYou v) assert v.seat == #p1;
   case (_) Runtime.trap("bot1 should be staging");
@@ -213,7 +231,7 @@ let counter6 = newAfterMutationCounter();
 // actually lands. retryingBot itself asserts the retry's `retryReason`
 // matches this exact text (see its own doc).
 let cp6 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg6, stubAfterMutation(counter6), retryingBot(#attack, #gather, "No resource — GATHER first."), noopArm);
-let id6 = ok(await* cp6.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
+let id6 = ok(await* cp6.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
 ignore ok(reg6.joinTable(spec, T0, "human", id6, #p2, null), "human joins");
 await* cp6.sweep(T0);
 switch (atTableView(reg6, T0, sidBot1)) {
@@ -228,7 +246,7 @@ Debug.print("6. an illegal move is retried once, carrying validate's own rejecti
 let reg7 = fresh();
 let counter7 = newAfterMutationCounter();
 let cp7fail = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg7, stubAfterMutation(counter7), silentBot(), noopArm);
-let id7 = ok(await* cp7fail.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
+let id7 = ok(await* cp7fail.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
 ignore ok(reg7.joinTable(spec, T0, "human", id7, #p2, null), "human joins");
 await* cp7fail.sweep(T0);
 switch (atTableView(reg7, T0, sidBot1)) {
@@ -252,8 +270,8 @@ Debug.print("7. a silent/trapping bot leaves the round pending, not stuck foreve
 let reg8 = fresh();
 let counter8 = newAfterMutationCounter();
 let cp8 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg8, stubAfterMutation(counter8), constantBot(#gather), noopArm);
-let id8 = ok(await* cp8.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
-ignore ok(await* cp8.joinTable(bot2, id8, #p2, null), "bot2 joins; game starts");
+let id8 = ok(await* cp8.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
+ignore ok(await* cp8.joinTable(bot2, id8, #p2, null, ""), "bot2 joins; game starts");
 switch (atTableView(reg8, T0, sidBot1)) {
   case (#inGame v) assert v.turn > 0; // both seats already moved and resolved a round
   case (_) Runtime.trap("bot1 should be in-game, at least one round in");
@@ -265,7 +283,7 @@ Debug.print("8. two canister seats joining each other eagerly resolve rounds wit
 let reg9 = fresh();
 let counter9 = newAfterMutationCounter();
 let cp9 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg9, stubAfterMutation(counter9), constantBot(#gather), noopArm);
-let id9 = ok(await* cp9.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
+let id9 = ok(await* cp9.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
 ignore ok(reg9.joinTable(spec, T0, "human", id9, #p2, null), "human joins; game live");
 let genBefore = switch (atTableView(reg9, T0, sidBot1)) {
   case (#inGame v) v.gen;
@@ -313,15 +331,14 @@ Debug.print("10. a canister eagerly seated via createTableReserving is due from 
 
 // ── 11. claimWin / reset forward correctly, routing to whichever `tableId`
 //          the caller names — a `tableId` bot1 was never actually seated
-//          at just derives a session `registry.bySession` doesn't know
-//          either, so the engine's own `#notSeated` falls out with no
-//          special-casing here ─────────────────────────────────────────
+//          at has no session of bot1's on it to find, so `#notSeated`
+//          falls out with no further special-casing ────────────────────
 let reg11 = fresh();
 let counter11 = newAfterMutationCounter();
 let cp11 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg11, stubAfterMutation(counter11), constantBot(#gather), noopArm);
 expectErr(await* cp11.claimWin(bot1, 1, 0), "bot1 (not seated anywhere) tries to claim a win");
 expectErr(await* cp11.reset(bot1, 1, 0), "bot1 (not seated anywhere) tries to reset");
-let id11 = ok(await* cp11.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
+let id11 = ok(await* cp11.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
 ignore ok(reg11.joinTable(spec, T0, "human", id11, #p2, null), "human joins; game live");
 await* cp11.sweep(T0); // bot1 gathers; now waiting on human
 let g11 = switch (atTableView(reg11, T0, sidBot1)) {
@@ -364,8 +381,8 @@ func perSessionBot(silent : TP.SessionId) : (TP.SessionId, TP.MoveRequest<Rules.
 let reg12 = fresh();
 let counter12 = newAfterMutationCounter();
 let cp12 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg12, stubAfterMutation(counter12), perSessionBot(sidBot2), noopArm);
-let id12 = ok(await* cp12.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
-ignore ok(await* cp12.joinTable(bot2, id12, #p2, null), "bot2 joins; game starts — bot1's own eager join-trigger gathers, bot2 stays silent");
+let id12 = ok(await* cp12.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
+ignore ok(await* cp12.joinTable(bot2, id12, #p2, null, ""), "bot2 joins; game starts — bot1's own eager join-trigger gathers, bot2 stays silent");
 switch (atTableView(reg12, T0, sidBot1), atTableView(reg12, T0, sidBot2)) {
   case (#inGame v1, #inGame v2) {
     assert v1.youSubmitted;
@@ -424,7 +441,7 @@ Debug.print("12. an unattended canister-vs-canister match finishes via sweep's o
 let reg13 = fresh();
 let counter13 = newAfterMutationCounter();
 let cp13 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg13, stubAfterMutation(counter13), constantBot(#gather), noopArm);
-let id13 = ok(await* cp13.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
+let id13 = ok(await* cp13.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
 ignore ok(reg13.joinTable(spec, T0, "human", id13, #p2, null), "human joins; game live");
 let genAbort13 = switch (atTableView(reg13, T0, sidBot1)) {
   case (#inGame v) v.gen;
@@ -460,7 +477,7 @@ Debug.print("13. a canister seat's own finished debrief only auto-acks once its 
 let reg14 = fresh();
 let counter14 = newAfterMutationCounter();
 let cp14 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg14, stubAfterMutation(counter14), constantBot(#gather), noopArm);
-let id14 = ok(await* cp14.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
+let id14 = ok(await* cp14.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
 ignore ok(reg14.joinTable(spec, T0, "human", id14, #p2, null), "human joins bot1's table directly, as ws.mo's own onSettled hook would observe");
 await* cp14.settle(T0, id14);
 switch (atTableView(reg14, T0, sidBot1)) {
@@ -475,7 +492,7 @@ let reg15 = fresh();
 let counter15 = newAfterMutationCounter();
 let armLog15 = newArmLog();
 let cp15 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg15, stubAfterMutation(counter15), constantBot(#gather), spyArmClaimCheck(armLog15));
-let id15 = ok(await* cp15.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
+let id15 = ok(await* cp15.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
 ignore ok(reg15.joinTable(spec, T0, "human", id15, #p2, null), "human joins; game live, nobody due-asked yet");
 assert armLog15.calls == [];
 await* cp15.settle(T0, id15);
@@ -502,7 +519,7 @@ Debug.print("15. a waiting-but-not-yet-overdue canister seat arms exactly one pr
 
 // ── 16. the same bot1 principal plays TWO tables at once, each an
 //          ordinary, fully independent session — the actual multi-board
-//          capability `sidForCanister(p, tableId)` exists for (see
+//          capability `sidForCanister(p, tableId, "")` exists for (see
 //          `canister_players.mo`'s own doc header). `sweep` settles both
 //          in one pass with no cross-talk, and `leave` on ONE of the two
 //          `tableId`s leaves only that board — the other stays live,
@@ -512,11 +529,11 @@ Debug.print("15. a waiting-but-not-yet-overdue canister seat arms exactly one pr
 let reg16 = fresh();
 let counter16 = newAfterMutationCounter();
 let cp16 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg16, stubAfterMutation(counter16), constantBot(#gather), noopArm);
-let idA16 = ok(await* cp16.createTable(bot1, #p1, #open, ""), "bot1 creates board A");
-let idB16 = ok(await* cp16.createTable(bot1, #p1, #open, ""), "the SAME bot1 creates board B too — rejected under the old one-session-per-principal scheme, legal now");
+let idA16 = ok(await* cp16.createTable(bot1, #p1, #open, "", ""), "bot1 creates board A");
+let idB16 = ok(await* cp16.createTable(bot1, #p1, #open, "", ""), "the SAME bot1 creates board B too — rejected under the old one-session-per-principal scheme, legal now");
 assert idA16 != idB16;
-let sidA16 = CanisterPlayers.sidForCanister(bot1, idA16);
-let sidB16 = CanisterPlayers.sidForCanister(bot1, idB16);
+let sidA16 = CanisterPlayers.sidForCanister(bot1, idA16, "");
+let sidB16 = CanisterPlayers.sidForCanister(bot1, idB16, "");
 assert sidA16 != sidB16;
 ignore ok(reg16.joinTable(spec, T0, "humanA", idA16, #p2, null), "humanA joins board A");
 ignore ok(reg16.joinTable(spec, T0, "humanB", idB16, #p2, null), "humanB joins board B");
@@ -564,7 +581,7 @@ let reg17 = fresh();
 let counter17 = newAfterMutationCounter();
 let reqLog17 = newReqLog();
 let cp17 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg17, stubAfterMutation(counter17), capturingBot(#gather, reqLog17), noopArm);
-let id17 = ok(await* cp17.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
+let id17 = ok(await* cp17.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
 
 let JOIN17 : Int = 5_000_000_000;
 ignore ok(reg17.joinTable(spec, JOIN17, "human", id17, #p2, null), "human joins at a known time — starts round 0");
@@ -613,35 +630,37 @@ let cp18 = CanisterPlayers.attach<Rules.State, Rules.Action>(
   },
   noopArm,
 );
-let id18 = ok(await* cp18.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
+let id18 = ok(await* cp18.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
 // FakeGame's own #gather never ends the match on its own, so this eager
 // join-trigger keeps eagerly settling further rounds — but each seat's
 // own `notifyAndApply` in-flight guard (see that func's own doc) blocks
 // a NESTED re-ask of a seat whose own outer call hasn't unwound yet, so
 // this settles exactly TWO rounds per side before the chain runs out of
 // seats it's still allowed to re-ask, not an unbounded loop.
-ignore ok(await* cp18.joinTable(bot2, id18, #p2, null), "bot2 joins; game starts — the eager join-trigger settles two rounds for both sides in one call");
+ignore ok(await* cp18.joinTable(bot2, id18, #p2, null, ""), "bot2 joins; game starts — the eager join-trigger settles two rounds for both sides in one call");
 assert reqLog18a.reqs.size() == 2;
 assert reqLog18b.reqs.size() == 2;
-assert reqLog18a.reqs[0].opponent == CanisterPlayers.sidForCanister(bot2, id18); // bot1 sees bot2's own identity...
-assert reqLog18b.reqs[0].opponent == CanisterPlayers.sidForCanister(bot1, id18); // ...and bot2 sees bot1's — never its own
+assert reqLog18a.reqs[0].opponent == CanisterPlayers.sidForCanister(bot2, id18, ""); // bot1 sees bot2's own identity...
+assert reqLog18b.reqs[0].opponent == CanisterPlayers.sidForCanister(bot1, id18, ""); // ...and bot2 sees bot1's — never its own
 Debug.print("18. each seat's own MoveRequest.opponent names the OTHER seat, never itself OK");
 
 // ── 19. registerBot/listBots — a bot appears in the directory under its
 //          own principal, and re-registering (e.g. a rename) upserts
 //          rather than duplicating ───────────────────────────────────────
 let dir19 = CanisterPlayers.newBotDirectory();
-CanisterPlayers.registerBot(dir19, bot1, "RacerBot", T0);
+CanisterPlayers.registerBot(dir19, bot1, "RacerBot", [], T0);
 assert CanisterPlayers.listBots(dir19).size() == 1;
 assert CanisterPlayers.listBots(dir19)[0].name == "RacerBot";
-CanisterPlayers.registerBot(dir19, bot1, "RacerBot v2", T0 + 1);
+assert CanisterPlayers.listBots(dir19)[0].complexities == ["Default"]; // declared none — listed under DEFAULT_COMPLEXITY
+CanisterPlayers.registerBot(dir19, bot1, "RacerBot v2", ["Easy", "Hard"], T0 + 1);
 assert CanisterPlayers.listBots(dir19).size() == 1; // still one entry, not two
 assert CanisterPlayers.listBots(dir19)[0].name == "RacerBot v2"; // overwritten
+assert CanisterPlayers.listBots(dir19)[0].complexities == ["Easy", "Hard"]; // ...list included
 Debug.print("19. registerBot upserts by principal, never duplicates OK");
 
 // ── 20. unregisterBot removes; unregistering a never-registered principal
 //          is a harmless no-op ────────────────────────────────────────────
-CanisterPlayers.registerBot(dir19, bot2, "CheckersBot", T0);
+CanisterPlayers.registerBot(dir19, bot2, "CheckersBot", [], T0);
 assert CanisterPlayers.listBots(dir19).size() == 2;
 CanisterPlayers.unregisterBot(dir19, bot1);
 assert CanisterPlayers.listBots(dir19).size() == 1;
@@ -653,12 +672,27 @@ Debug.print("20. unregisterBot removes by principal; unregistering an absent one
 // ── 21. rankedBots — highest elo first, alphabetical tiebreak on a tie ───
 let bot3 = Principal.fromText("5w2os-7qdam-bqgay-dambq-gay");
 let unranked21 : [CanisterPlayers.BotInfo] = [
-  { principal = bot1; name = "Zebra"; registeredAt = T0 },
-  { principal = bot2; name = "Ant"; registeredAt = T0 },
-  { principal = bot3; name = "Middling"; registeredAt = T0 },
+  {
+    principal = bot1;
+    name = "Zebra";
+    complexities = ["Default"];
+    registeredAt = T0;
+  },
+  {
+    principal = bot2;
+    name = "Ant";
+    complexities = ["Default"];
+    registeredAt = T0;
+  },
+  {
+    principal = bot3;
+    name = "Middling";
+    complexities = ["Default"];
+    registeredAt = T0;
+  },
 ];
 let scores21 : [(Principal.Principal, Int)] = [(bot1, 1500), (bot2, 1500), (bot3, 1200)];
-let scoreOf21 = func(p : Principal.Principal) : ?Int {
+let scoreOf21 = func(p : Principal.Principal, _complexity : Text) : ?Int {
   for ((q, s) in scores21.values()) { if (q == p) return ?s };
   null;
 };
@@ -668,17 +702,91 @@ assert ranked21.size() == 3;
 assert ranked21[0].name == "Ant";
 assert ranked21[1].name == "Zebra";
 assert ranked21[2].name == "Middling"; // lower score, still ranked (not unrated)
+assert ranked21[0].complexities == [{ complexity = "Default"; elo = ?1500 }];
 Debug.print("21. rankedBots sorts highest-elo-first with an alphabetical tiebreak OK");
 
 // ── 22. rankedBots — a bot `scoreOf` returns null for (e.g. no leaderboard
 //          wired on this host) sorts after every rated bot, regardless of
 //          name ─────────────────────────────────────────────────────────
-let scoreOf22 = func(p : Principal.Principal) : ?Int = if (p == bot2) ?1000 else null;
+let scoreOf22 = func(p : Principal.Principal, _complexity : Text) : ?Int = if (p == bot2) ?1000 else null;
 let ranked22 = CanisterPlayers.rankedBots(unranked21, scoreOf22);
 assert ranked22[0].principal == bot2; // the only rated one
-assert ranked22[0].elo == ?1000;
-assert ranked22[1].elo == null;
-assert ranked22[2].elo == null;
+assert ranked22[0].complexities[0].elo == ?1000;
+assert ranked22[1].complexities[0].elo == null;
+assert ranked22[2].complexities[0].elo == null;
 Debug.print("22. rankedBots sorts every unrated bot after every rated one OK");
+
+// ── 23. registerBot normalizes the complexity list — declared order kept,
+//          `""` read as DEFAULT_COMPLEXITY, duplicates dropped ────────────
+let dir23 = CanisterPlayers.newBotDirectory();
+CanisterPlayers.registerBot(dir23, bot1, "Ladder", ["Lion", "Rabbit", "Fox", "", "Rabbit"], T0);
+assert CanisterPlayers.listBots(dir23)[0].complexities == ["Lion", "Rabbit", "Fox", "Default"]; // not sorted — a ladder's own order is meaningful
+Debug.print("23. registerBot keeps declared order, normalizes empty to Default, drops duplicates OK");
+
+// ── 24. rankedBots scores each complexity separately, ranks a bot by its
+//          best one, and keeps a bot's own complexities in declared order ─
+let unranked24 : [CanisterPlayers.BotInfo] = [
+  {
+    principal = bot1;
+    name = "Ladder";
+    complexities = ["Easy", "Hard"];
+    registeredAt = T0;
+  },
+  {
+    principal = bot2;
+    name = "Single";
+    complexities = ["Default"];
+    registeredAt = T0;
+  },
+];
+let scoreOf24 = func(p : Principal.Principal, complexity : Text) : ?Int {
+  if (p == bot1 and complexity == "Easy") ?1100 else if (p == bot1 and complexity == "Hard") ?1500 else if (p == bot2) ?1400 else null;
+};
+let ranked24 = CanisterPlayers.rankedBots(unranked24, scoreOf24);
+assert ranked24[0].name == "Ladder"; // best complexity (Hard, 1500) beats Single's 1400, even though Easy alone wouldn't
+assert ranked24[0].complexities == [{ complexity = "Easy"; elo = ?1100 }, { complexity = "Hard"; elo = ?1500 }]; // declared order, not rating order
+assert ranked24[1].complexities == [{ complexity = "Default"; elo = ?1400 }];
+Debug.print("24. rankedBots rates every complexity separately and ranks a bot by its best OK");
+
+// ── 25. a seat's complexity reaches the bot on every ask as
+//          MoveRequest.complexity — each seat its own, fixed for the
+//          session — and leave/claimWin/reset/ackEnded find the seat by
+//          principal + tableId alone, never asking for it again ─────────
+let reg25 = fresh();
+let counter25 = newAfterMutationCounter();
+let reqLog25 = newReqLog();
+let cp25 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg25, stubAfterMutation(counter25), capturingBot(#gather, reqLog25), noopArm);
+let id25 = ok(await* cp25.createTable(bot1, #p1, #open, "", "Hard"), "bot1 creates a table, playing Hard");
+ignore ok(await* cp25.joinTable(bot2, id25, #p2, null, ""), "bot2 joins at its default complexity; game starts");
+assert reqLog25.reqs.size() >= 2;
+let sidHard25 = CanisterPlayers.sidForCanister(bot1, id25, "Hard");
+for (req in reqLog25.reqs.values()) {
+  switch (req.seat) {
+    case (#p1) {
+      assert req.complexity == "Hard";
+      assert req.opponent == CanisterPlayers.sidForCanister(bot2, id25, ""); // the opponent's own session carries ITS complexity
+    };
+    case (#p2) {
+      assert req.complexity == CanisterPlayers.DEFAULT_COMPLEXITY;
+      assert req.opponent == sidHard25;
+    };
+  };
+};
+await* cp25.sweep(T0);
+let g25 = switch (atTableView(reg25, T0, sidHard25)) {
+  case (#inGame v) v.gen;
+  case (_) Runtime.trap("bot1 should be in-game under its Hard session");
+};
+expectErr(await* cp25.claimWin(bot1, id25, g25), "bot1 claims a win with nothing overdue"); // #notOverdue/#wrongPhase — but found its Hard seat, not #notSeated
+expectErr(await* cp25.claimWin(bot1, id25 + 1, g25), "bot1 claims on a board it never sat at"); // #notSeated
+ok(await* cp25.leave(bot1, id25, g25), "bot1 leaves via principal + tableId alone — its Hard session is looked up on the board");
+switch (atTableView(reg25, T0, sidHard25)) {
+  case (#debrief d) switch (d.end) {
+    case (#aborted(#p1)) {};
+    case (_) Runtime.trap("bot1's own leave should abort as p1");
+  };
+  case (_) Runtime.trap("bot1 should be in the shared debrief it just created");
+};
+Debug.print("25. MoveRequest.complexity carries each seat's own pick; leave/claimWin resolve a complexity-seated session from principal + tableId OK");
 
 Debug.print("ALL CANISTER-PLAYERS CHECKS PASSED");

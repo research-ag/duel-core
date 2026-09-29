@@ -50,6 +50,7 @@ do {
       mode = #alternating;
       turn;
       gen = 0;
+      complexity = "";
       retryReason = null;
       opponent = "p2";
       opponentLastMove = null;
@@ -84,6 +85,7 @@ do {
       mode = #alternating;
       turn;
       gen = 0;
+      complexity = "";
       retryReason = null;
       opponent = "p2";
       opponentLastMove = null;
@@ -121,12 +123,12 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
 );
 
-let id = ok(await* cp.createTable(bot1, #p1, #open, ""), "bot1 creates a table");
-let sidBot1 = CanisterPlayers.sidForCanister(bot1, id);
-let sidBot2 = CanisterPlayers.sidForCanister(bot2, id);
+let id = ok(await* cp.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
+let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "");
+let sidBot2 = CanisterPlayers.sidForCanister(bot2, id, "");
 // bot2's own joinTable eagerly triggers the opening plies with no sweep
 // at all — proving #p1 moves first when canister-seated at game start.
-ignore ok(await* cp.joinTable(bot2, id, #p2, null), "bot2 joins; game starts");
+ignore ok(await* cp.joinTable(bot2, id, #p2, null, ""), "bot2 joins; game starts");
 switch (reg.status(spec, T0, sidBot1)) {
   case (#atTable { view = #inGame v }) assert v.turn > 0; // #p1's own opening move already resolved
   case (other) Runtime.trap("bot1 should be in-game, at least one ply in, got " # debug_show (other));

@@ -44,6 +44,7 @@ do {
       mode = #simultaneous;
       turn = i;
       gen = 0;
+      complexity = "";
       retryReason = null;
       opponent = "p2";
       opponentLastMove = null;
@@ -97,8 +98,8 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
 );
 
-let id = ok(await* cp.createTable(bot1, #p1, #open, ""), "bot creates a table");
-let sidBot1 = CanisterPlayers.sidForCanister(bot1, id);
+let id = ok(await* cp.createTable(bot1, #p1, #open, "", ""), "bot creates a table");
+let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "");
 // The human joins directly against `reg` — standing in for `ws.mo`
 // dispatching a browser's own `joinTable`, exactly as
 // `backend/test/CanisterPlayers.test.mo` does for its own human sessions.

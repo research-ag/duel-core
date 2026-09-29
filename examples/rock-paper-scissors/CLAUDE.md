@@ -91,8 +91,9 @@ Rules.Action`. Lives in `src/`, not `bot/`, because it's `src/Host.mo`
 - **`bot/Bot.mo`** — the bot canister itself: implements
   `BotIface.CanisterPlayer`'s `make_move` as a `query` (a thin shell over
   `BotLogic.chooseMove` — pure and stateless), plus `play(host, tableId,
-seat, code)`, this bot's own Flow 1 "self-join" entry point, and
-  `register(host, name)`/`unregister(host)` for bot discovery (a one-time
+seat, code, complexity)`, this bot's own Flow 1 "self-join" entry point, and
+  `register(host, name)`/`unregister(host)` for bot discovery (registering
+  an empty complexity list — one way to play, listed under "Default"; a one-time
   call made by hand after both canisters are deployed — see
   `examples/checkers/CLAUDE.md`'s identical note for the exact `icp
 canister call` shape). Deploy target (see `icp.yaml`). This same `play`

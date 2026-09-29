@@ -145,12 +145,13 @@ Http(renderer.renderExposition, "/metrics")`, from
   (`mo:duel-game-core/leaderboard_actor_mixin`), no hand-declared query
   needed. The SAME `playerKey` wrapper checkers uses (special-casing a
   `cp:` canister-player session down to
-  `CanisterPlayers.leaderboardKey(CanisterPlayers.principalOfCanisterSession(sid))`,
-  falling back to `Ws.playerKey` otherwise) applies here too, so a bot's
-  best lap accumulates across every table it races on — the SAME
-  `leaderboardKey` convention `list_bots()` itself joins a bot's own
-  `elo` with (see the "Canister players" note above), so a bot's
-  leaderboard row and its own row in the "🤖 Bots" dialog always agree.
+  `CanisterPlayers.leaderboardKeyOfSession(sid)`,
+  falling back to `Ws.playerKey` otherwise) applies here too, so each of a
+  bot's complexities keeps its own best lap, accumulated across every
+  table it races on — the SAME `leaderboardKey(p, complexity)` convention
+  `list_bots()` itself joins each complexity's own `elo` with (see the
+  "Canister players" note above), so a bot's leaderboard rows and its
+  own rows in the "🤖 Bots" dialog always agree.
   See `../../backend/README.md`'s "Leaderboard" section for the full
   worked example this Host.mo follows.
 - **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a racing
@@ -173,7 +174,7 @@ Http(renderer.renderExposition, "/metrics")`, from
   `BotIface.CanisterPlayer`'s `make_move` as a `query` (a thin shell over
   `BotLogic.chooseMove` — pure and stateless, so there's nothing an
   update call's replication would buy it), plus
-  `play(host, tableId, seat, code)`, this
+  `play(host, tableId, seat, code, complexity)`, this
   bot's own Flow 1 "self-join" entry point (see the canister-players
   design's "Lobby & opponent selection" section) — hand it a racing
   `Host.mo`-shaped canister's id, a table id, a seat, and that table's
@@ -264,7 +265,7 @@ gateway-*.js` does, registering this tab as its own WS Gateway).
   itself already relies on for move submission — still the one `ws.mo`
   channel, not a second transport) to create one first. Either way, the
   final step is the same plain Candid call Flow 1 always used — straight
-  to the CHOSEN bot's own `play(host, tableId, seat, code)` (built from
+  to the CHOSEN bot's own `play(host, tableId, seat, code, complexity)` (built from
   `duel-game-core/idl.js`'s exported `buildBotPlayIdlFactory`, so `Seat`/
   `TableId`/`Err` aren't redeclared by hand, and never routed through
   `ws.mo`'s protocol) — the bot then joins on its own account via

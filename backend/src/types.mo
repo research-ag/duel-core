@@ -138,6 +138,14 @@ module {
   /// there's no way to attribute the delay to one side alone); for
   /// `#alternating`, since exactly one seat moves per turn, it's
   /// unambiguously that one mover's own time.
+  ///
+  /// `complexity` is which of the bot's own declared ways of playing this
+  /// seat was seated at (`canister_players.mo`'s "Complexity" section —
+  /// opaque text, `"Default"` for a bot that declares none), fixed for
+  /// the session's life, so a bot playing on several boards at once can
+  /// be "Hard" on one and "Easy" on another with no state of its own. A
+  /// bot with one way to play ignores it; one with several should treat
+  /// a value it doesn't recognize as its own default rather than trap.
   public type MoveRequest<S, M> = {
     tableId : TableId;
     seat : Seat;
@@ -145,6 +153,7 @@ module {
     mode : Mode;
     turn : Nat;
     gen : Nat;
+    complexity : Text;
     retryReason : ?Text;
     opponent : SessionId;
     opponentLastMove : ?M;

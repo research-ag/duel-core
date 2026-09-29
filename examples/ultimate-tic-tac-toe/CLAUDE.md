@@ -65,9 +65,11 @@ Rules.Action`.
   actor/Candid round-trip.
 - **`bot/Bot.mo`** — the bot canister itself: implements
   `BotIface.CanisterPlayer`'s `make_move` as a `query` (a thin shell over
-  `BotLogic.chooseMove`), plus `play(host, tableId, seat, code)` (Flow 1's
+  `BotLogic.chooseMove`), plus `play(host, tableId, seat, code, complexity)` (Flow 1's
   self-join entry point) and `register(host, name)`/`unregister(host)`
-  for bot discovery. Deploy target (see `icp.yaml`). Because every reply
+  for bot discovery (registering an empty complexity list — one way to
+  play, listed under "Default"; `examples/tic-tac-toe/bot/` is the
+  two-way reference). Deploy target (see `icp.yaml`). Because every reply
   is drawn from `legalActions`, this bot can never submit an illegal
   move, even without any lookahead of its own.
 - **`test/*.test.mo`** — interpreter-run suites. `RulesUnit.test.mo`

@@ -54,12 +54,14 @@ persistent actor {
   // already handles `ii:`/`an:`; a `cp:` canister-player session is
   // deliberately PER-TABLE (`CanisterPlayers.sidForCanister`), so it's
   // special-cased here — the one place this actor already has both
-  // `Ws`/`CanisterPlayers` wired — down to the bot's own underlying,
-  // stable principal, so one bot's rating accumulates across every table
-  // it plays instead of resetting per board.
+  // `Ws`/`CanisterPlayers` wired — down to the bot's own stable principal
+  // plus the complexity it played at, so each of one bot's complexities
+  // is rated on its own ("Hard" and "Easy" are different opponents) and
+  // that rating accumulates across every table it plays instead of
+  // resetting per board.
   func playerKey(sid : TP.SessionId) : Text {
     if (CanisterPlayers.isCanisterSession(sid)) {
-      CanisterPlayers.leaderboardKey(CanisterPlayers.principalOfCanisterSession(sid));
+      CanisterPlayers.leaderboardKeyOfSession(sid);
     } else {
       Ws.playerKey(sid);
     };

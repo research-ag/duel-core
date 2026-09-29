@@ -122,14 +122,15 @@ Http(renderer.renderExposition, "/metrics")`, from
   (`mo:duel-game-core/leaderboard_actor_mixin`), no hand-declared query
   needed. A local `playerKey` wrapper
   special-cases a `cp:` canister-player session down to
-  `CanisterPlayers.leaderboardKey(CanisterPlayers.principalOfCanisterSession(sid))`
+  `CanisterPlayers.leaderboardKeyOfSession(sid)`
   before falling back to `Ws.playerKey` for everything else — the one
-  place this actor already has both `Ws`/`CanisterPlayers` wired — so a
-  bot's rating accumulates across every table it plays instead of
-  resetting per board — the SAME `leaderboardKey` convention `list_bots()`
-  itself joins a bot's own `elo` with (see the "Canister players" note
-  above), so a bot's leaderboard row and its own row in the "🤖 Bots"
-  dialog always agree. See `../../backend/README.md`'s "Leaderboard"
+  place this actor already has both `Ws`/`CanisterPlayers` wired — so each
+  of a bot's complexities is rated on its own ("Hard" apart from "Easy")
+  and that rating accumulates across every table it plays instead of
+  resetting per board — the SAME `leaderboardKey(p, complexity)`
+  convention `list_bots()` itself joins each complexity's own `elo` with
+  (see the "Canister players" note above), so a bot's leaderboard rows
+  and its own rows in the "🤖 Bots" dialog always agree. See `../../backend/README.md`'s "Leaderboard"
   section for the full worked example this Host.mo follows.
 - **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a checkers
   canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State, Rules.Action>)
@@ -150,7 +151,7 @@ Http(renderer.renderExposition, "/metrics")`, from
   `BotIface.CanisterPlayer`'s `make_move` as a `query` (a thin shell over
   `BotLogic.chooseMove` — pure and stateless, so there's nothing an
   update call's replication would buy it), plus
-  `play(host, tableId, seat, code)`, this bot's own Flow 1 "self-join"
+  `play(host, tableId, seat, code, complexity)`, this bot's own Flow 1 "self-join"
   entry point (see the canister-players design's "Lobby & opponent
   selection" section) — hand it a checkers `Host.mo`-shaped canister's
   id, a table id, a seat, and that table's access code (however you like;
@@ -165,7 +166,9 @@ Http(renderer.renderExposition, "/metrics")`, from
   `Host.mo`/`ws.mo` at all. `Bot.mo` also implements
   `register(host, name)`/`unregister(host)`, mirroring `play`'s own
   `(host, ...)` shape: each forwards to `host`'s own
-  `register_bot`/`unregister_bot` (see the `src/Host.mo` bullet above's
+  `register_bot`/`unregister_bot` — `register` with an empty complexity
+  list, since this bot has one way to play and is listed under "Default"
+  (`examples/tic-tac-toe/bot/` is the two-way reference) — (see the `src/Host.mo` bullet above's
   own "Canister players" note) so this bot becomes discoverable in the
   first place — a one-time call made by hand after both this canister and
   its host are deployed
@@ -258,7 +261,7 @@ Http(renderer.renderExposition, "/metrics")`, from
   correlatable, scoped-reply call — still the one `ws.mo` channel, not a
   second transport) to create one first. Either way, the final step is
   the same plain Candid call Flow 1 always used — straight to the CHOSEN
-  bot's own `play(host, tableId, seat, code)` (built from
+  bot's own `play(host, tableId, seat, code, complexity)` (built from
   `duel-game-core/idl.js`'s exported `buildBotPlayIdlFactory`, so `Seat`/
   `TableId`/`Err` aren't redeclared by hand, and never routed through
   `ws.mo`'s protocol) — the bot then joins on its own account via

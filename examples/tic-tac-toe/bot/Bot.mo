@@ -8,14 +8,14 @@ import Rules "../src/TicTacToeRules";
 persistent actor {
 
   type Host = actor {
-    join_table_as_canister : (TP.TableId, TP.Seat, ?Text) -> async TP.Res<TP.JoinOk>;
-    register_bot : (Text) -> async ();
+    join_table_as_canister : (TP.TableId, TP.Seat, ?Text, Text) -> async TP.Res<TP.JoinOk>;
+    register_bot : (Text, [Text]) -> async ();
     unregister_bot : () -> async ();
   };
 
-  public shared func play(host : Principal.Principal, tableId : TP.TableId, seat : TP.Seat, code : ?Text) : async TP.Res<TP.JoinOk> {
+  public shared func play(host : Principal.Principal, tableId : TP.TableId, seat : TP.Seat, code : ?Text, complexity : Text) : async TP.Res<TP.JoinOk> {
     let h : Host = actor (host.toText());
-    await h.join_table_as_canister(tableId, seat, code);
+    await h.join_table_as_canister(tableId, seat, code, complexity);
   };
 
   // Self-registration — a one-time call made once after both this
@@ -30,7 +30,7 @@ persistent actor {
   public shared ({ caller }) func register(host : Principal.Principal, name : Text) : async () {
     assert Principal.isController(caller);
     let h : Host = actor (host.toText());
-    await h.register_bot(name);
+    await h.register_bot(name, BotLogic.COMPLEXITIES);
   };
 
   public shared ({ caller }) func unregister(host : Principal.Principal) : async () {

@@ -188,11 +188,41 @@ export function isCanisterPlayer(player: string): boolean {
   return player.startsWith(CANISTER_PLAYER_PREFIX);
 }
 
-/// `player` with the `cp:` marker (see `isCanisterPlayer`, above)
-/// stripped for display, same as a human's own key already has no
-/// prefix to strip. Returns `player` unchanged for anyone else.
+/// What a bot's leaderboard key names when it carries no complexity
+/// segment — mirrors `CanisterPlayers.DEFAULT_COMPLEXITY` exactly.
+export const DEFAULT_BOT_COMPLEXITY = "Default";
+
+/// Splits a canister player's leaderboard key — `cp:<principal>:<complexity>`,
+/// `CanisterPlayers.leaderboardKey`'s own shape: the bot's stable
+/// principal, then the complexity it played that game at (everything
+/// after the second `:`, so a complexity may itself contain one) — into
+/// its two halves. The same bot at two complexities is two separate
+/// leaderboard entries, since "Hard" and "Easy" are genuinely different
+/// opponents. `null` for anyone who isn't a canister player at all.
+export function parseCanisterPlayer(player: string): { principal: string; complexity: string } | null {
+  if (!isCanisterPlayer(player)) return null;
+  const rest = player.slice(CANISTER_PLAYER_PREFIX.length);
+  const sep = rest.indexOf(":");
+  if (sep < 0) return { principal: rest, complexity: DEFAULT_BOT_COMPLEXITY };
+  const complexity = rest.slice(sep + 1);
+  return { principal: rest.slice(0, sep), complexity: complexity === "" ? DEFAULT_BOT_COMPLEXITY : complexity };
+}
+
+/// `"<name> (<complexity>)"` — how a bot reads everywhere it's shown
+/// (`renderLeaderboard` and `renderBotList` alike), the complexity
+/// always spelled out, `"Default"` included, so a bot that later grows
+/// more ways to play never leaves an older row ambiguous.
+export function botDisplayName(name: string, complexity: string): string {
+  return `${name} (${complexity})`;
+}
+
+/// `player` for display: a canister player's `cp:` marker stripped and
+/// its complexity spelled out after its bare principal
+/// (`botDisplayName`), same as a human's own key already has no prefix
+/// to strip. Returns `player` unchanged for anyone else.
 export function displayPlayerId(player: string): string {
-  return isCanisterPlayer(player) ? player.slice(CANISTER_PLAYER_PREFIX.length) : player;
+  const bot = parseCanisterPlayer(player);
+  return bot === null ? player : botDisplayName(bot.principal, bot.complexity);
 }
 
 function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
@@ -624,12 +654,17 @@ export function renderStatus<S>(status: Status<S>, plugin: GamePlugin<S>): strin
 /// stylesheet to highlight) via `playerKeyOf`, above; omit it (or leave
 /// the caller off the ranked slice entirely) and no row is marked. A
 /// canister-seated player's own row (`isCanisterPlayer`, above) gets a
-/// 🤖 icon and its `cp:` marker stripped for display, the same as a
-/// human's own key already shows with no prefix at all — or, when
-/// `opts.botNames` names that exact principal, its own self-reported
-/// alias (`BotInfo.name`, from `list_bots()`) instead of the bare
-/// principal text; the full principal always stays in the row's own
-/// `title` attribute either way, so it's still one hover away.
+/// 🤖 icon and reads as `"<principal> (<complexity>)"` — its `cp:`
+/// marker stripped, the same as a human's own key already shows with no
+/// prefix at all, and the complexity it played at spelled out, since
+/// each of a bot's complexities is its own separately-rated row — or,
+/// when `opts.botNames` names that exact principal, its own
+/// self-reported alias (`BotInfo.name`, from `list_bots()`) in place of
+/// the bare principal text, `"CheckersBot (Hard)"`; the full raw key
+/// always stays in the row's own `title` attribute either way, so the
+/// principal is still one hover away. A bot row's own Challenge button
+/// carries that row's exact complexity (`data-bot-complexity`), so
+/// clicking it challenges the bot at the way of playing that row rates.
 export function renderLeaderboard(
   entries: LeaderboardEntry[],
   plugin: GamePlugin,
@@ -654,19 +689,20 @@ export function renderLeaderboard(
       // fired) since there's no way to know in advance whether THIS id
       // will get CSS-clipped at the viewer's own width.
       const isYou = you !== undefined && e.player === you;
-      const isBot = isCanisterPlayer(e.player);
-      const botIcon = isBot ? `<span class="leaderboard-bot-icon" title="Canister player">🤖</span>` : "";
-      const principalText = displayPlayerId(e.player);
+      const bot = parseCanisterPlayer(e.player);
+      const botIcon = bot !== null ? `<span class="leaderboard-bot-icon" title="Canister player">🤖</span>` : "";
       // `LeaderboardEntry` itself carries no friendly bot NAME (just
       // `{player, score, updatedAt}`) — `opts.botNames` (typically built
       // from a `list_bots()` call fetched alongside this same panel) is
       // how a caller supplies one; falling back to the bare principal
       // keeps every OTHER caller (and a bot this host has no directory
       // entry for any more) working exactly as before.
-      const displayName = isBot ? (opts?.botNames?.get(principalText) ?? principalText) : principalText;
-      const challengeBtn = isBot
-        ? `<button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(principalText)}" data-bot-name="${esc(displayName)}">Challenge</button>`
-        : "";
+      const botName = bot !== null ? (opts?.botNames?.get(bot.principal) ?? bot.principal) : "";
+      const displayName = bot !== null ? botDisplayName(botName, bot.complexity) : e.player;
+      const challengeBtn =
+        bot !== null
+          ? `<button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(bot.principal)}" data-bot-name="${esc(botName)}" data-bot-complexity="${esc(bot.complexity)}">Challenge</button>`
+          : "";
       return `
     <div class="leaderboard-row${isYou ? " you" : ""}">
       <span class="leaderboard-rank">${i + 1}</span>
@@ -682,31 +718,38 @@ export function renderLeaderboard(
 
 /// Renders the bot list a "Bots" dialog shows — `list_bots()`'s own
 /// ranked result (see `mo:duel-game-core/canister_players`'s `BotEntry`
-/// doc: highest-rated first, unrated last). Each row's `Challenge` button
-/// carries the same `data-challenge-bot`/`data-bot-name` attributes
-/// `renderLeaderboard`'s own Challenge button (above) carries, so a game
-/// wires ONE click handler for both entry points. `elo` is shown only
-/// when this host actually wires a leaderboard at all (`BotInfo.elo` is
-/// non-empty for every bot alike, or empty for every bot alike — see that
-/// field's own doc); `plugin.formatScore` renders it exactly like
-/// `renderLeaderboard` does, so a bot's rating reads the same wherever it
-/// appears.
+/// doc: highest-rated bot first, unrated last), one row per bot AND
+/// complexity, in the bot's own declared order, each reading
+/// `"<name> (<complexity>)"` exactly as that same bot-complexity's row
+/// on the leaderboard does. Picking a way of playing IS picking a row:
+/// each row's `Challenge` button carries the same `data-challenge-bot`/
+/// `data-bot-name`/`data-bot-complexity` attributes `renderLeaderboard`'s
+/// own Challenge button (above) carries, so a game wires ONE click
+/// handler for both entry points and never needs a separate
+/// complexity-choice step — a bot with one way to play is simply one
+/// row, `"<name> (Default)"`. `elo` is shown only when this host actually
+/// wires a leaderboard at all (`BotComplexity.elo` is non-empty for every
+/// row alike, or empty for every row alike — see that field's own doc);
+/// `plugin.formatScore` renders it exactly like `renderLeaderboard`
+/// does, so a rating reads the same wherever it appears.
 export function renderBotList(bots: BotInfo[], plugin: GamePlugin): string {
   if (bots.length === 0) {
     return `<p class="muted">No bots have registered with this game yet.</p>`;
   }
   const format = plugin.formatScore ?? ((score: bigint) => score.toString());
   const rows = bots
-    .map((b) => {
+    .flatMap((b) => {
       const principalText = b.principal.toString();
-      const eloText =
-        b.elo.length === 1 ? `<span class="leaderboard-score">${esc(format(b.elo[0]))}</span>` : "";
-      return `
+      return b.complexities.map((c) => {
+        const eloText =
+          c.elo.length === 1 ? `<span class="leaderboard-score">${esc(format(c.elo[0]))}</span>` : "";
+        return `
     <div class="leaderboard-row">
-      <span class="leaderboard-player" title="${esc(principalText)}">🤖 ${esc(b.name)}</span>
+      <span class="leaderboard-player" title="${esc(principalText)}">🤖 ${esc(botDisplayName(b.name, c.complexity))}</span>
       ${eloText}
-      <button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(principalText)}" data-bot-name="${esc(b.name)}">Challenge</button>
+      <button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(principalText)}" data-bot-name="${esc(b.name)}" data-bot-complexity="${esc(c.complexity)}">Challenge</button>
     </div>`;
+      });
     })
     .join("");
   return `<div class="leaderboard">${rows}</div>`;

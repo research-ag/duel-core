@@ -513,21 +513,28 @@ alongside it. `opts.yourSid` — pass the caller's own `session.sid` —
 picks out and badges that player's own row (a "You" pill, plus a `.you`
 class row highlight in `style.css`) if they're on the ranked list; omit
 it, or a caller simply not being ranked yet, and no row is marked. A
-canister-seated player's own row gets a 🤖 icon and, when `opts.botNames`
-(built from a `list_bots()` call, keyed by bare principal text) names
-that exact principal, its own self-reported alias in place of the bare
-principal — its `cp:` marker is stripped either way, same as a human's
-own key, which already carries no prefix at all (`Ws.playerKey` strips
-`ii:`/`an:` before a score is ever stored; a `cp:` one is added back
-deliberately by whichever `Host.mo` wires canister players, to key a bot
-by its own stable principal rather than one of its many per-table sids —
-see `isCanisterPlayer`/`displayPlayerId`, exported from `render.js` for a
-game that wants the same distinction elsewhere); the row's own `title`
+canister-seated player's own row gets a 🤖 icon and reads
+`"<principal> (<complexity>)"` — or, when `opts.botNames` (built from a
+`list_bots()` call, keyed by bare principal text) names that exact
+principal, `"<name> (<complexity>)"`, e.g. "CheckersBot (Hard)". A bot's
+leaderboard key is `cp:<principal>:<complexity>` (`CanisterPlayers.leaderboardKey`
+— see `../backend/README.md`'s "Leaderboard" section's own
+player-identity note): its `cp:` marker is stripped for display, same as
+a human's own key, which already carries no prefix at all (`Ws.playerKey`
+strips `ii:`/`an:` before a score is ever stored; a `cp:` one is added
+back deliberately by whichever `Host.mo` wires canister players, to key a
+bot by its own stable principal rather than one of its many per-table
+sids), and the complexity it played that game at is always spelled out,
+"Default" included, because each of a bot's complexities is its own
+separately-rated row — see `isCanisterPlayer`/`parseCanisterPlayer`/
+`botDisplayName`/`displayPlayerId`, exported from `render.js` for a game
+that wants the same distinction elsewhere. The row's own `title`
 attribute always carries the full, raw `player` text regardless, so the
-principal itself is still one hover away even when a name is shown.
-`opts.botNames` is entirely optional — omit it (or a principal it simply
-doesn't name) and that row falls back to the bare principal, exactly as
-before bot discovery existed. It renders a ranked
+principal itself is still one hover away even when a name is shown, and
+its Challenge button carries that row's exact complexity (see "Bot
+registry" below). `opts.botNames` is entirely optional — omit it (or a
+principal it simply doesn't name) and that row falls back to the bare
+principal. It renders a ranked
 list (rank, each entry's own `score` run through `plugin.formatScore` —
 see "The GamePlugin contract" above; the player id itself is rendered in
 full and left to `.leaderboard-player`'s own CSS to clip responsively
@@ -542,38 +549,53 @@ Optional, and layered on the same actor `get_leaderboard()` above already
 uses — no `ws` round-trip needed here either: a host that wires bot
 discovery (`mo:duel-game-core/canister_players`'s `BotDirectory`, see
 `../backend/README.md`'s "Canister players" section, "Bot discovery")
-exposes `list_bots()`, `register_bot(name)`, and `unregister_bot()`;
-`idl.js` declares all three unconditionally, same precedent as
-`get_leaderboard`. A frontend only ever CALLS `list_bots()` — registration
-itself is a Motoko-to-Motoko call a bot canister makes to its own host,
-not something a browser tab does.
+exposes `list_bots()`, `register_bot(name, complexities)`, and
+`unregister_bot()`; `idl.js` declares all three unconditionally, same
+precedent as `get_leaderboard`. A frontend only ever CALLS `list_bots()`
+— registration itself is a Motoko-to-Motoko call a bot canister makes to
+its own host, not something a browser tab does.
 
 ```js
 import { renderBotList, renderSeatChoice } from "duel-game-core/render.js";
 import { buildBotPlayIdlFactory } from "duel-game-core/idl.js";
 
-const bots = await actor.list_bots(); // BotInfo[], highest-rated first, unrated last
+const bots = await actor.list_bots(); // BotInfo[], highest-rated bot first, unrated last
 botPanelBodyEl.innerHTML = renderBotList(bots, plugin);
 ```
 
-`renderBotList` renders one row per bot — its own self-reported `name`,
-and `elo` (run through the SAME `plugin.formatScore` `renderLeaderboard`
-uses, so a bot's rating reads identically wherever it appears; blank when
-this host wires no leaderboard at all, in which case `BotInfo.elo` comes
-back empty for every bot alike) — each with a `Challenge` button carrying
-`data-challenge-bot="<principal text>"`/`data-bot-name="<name>"`.
-`renderLeaderboard` (above) renders the exact same two attributes on a
-bot ROW's own Challenge button, so a game wires ONE click handler for
-both entry points — clicking either should lead to the same challenge
-flow, not two independent ones.
+Each `BotInfo` carries the bot's own self-reported `name` and its
+`complexities` — the ways it can play, declared by the bot itself at
+registration as opaque strings (an "Easy"/"Medium"/"Hard" ladder, a
+"Rabbit"/"Fox"/"Lion" one, "Look-ahead"/"Reactive", or just `"Default"`
+for a bot with one way to play; see `../backend/README.md`'s "Canister
+players" section, "Complexity"), in the bot's own declared order, each
+with its own `elo`. `renderBotList` renders one row per bot AND
+complexity, `"<name> (<complexity>)"` — exactly how that same
+bot-complexity's row on the leaderboard reads — with that complexity's
+`elo` (run through the SAME `plugin.formatScore` `renderLeaderboard`
+uses, so a rating reads identically wherever it appears; blank when this
+host wires no leaderboard at all, in which case every `elo` comes back
+empty alike) and a `Challenge` button carrying
+`data-challenge-bot="<principal text>"`/`data-bot-name="<name>"`/
+`data-bot-complexity="<complexity>"`. Picking a way of playing IS picking
+a row, so there's never a separate complexity-choice step — a bot with
+one way to play is simply one row, `"<name> (Default)"`.
+`renderLeaderboard` (above) renders the exact same three attributes on
+a bot ROW's own Challenge button (the row's own complexity, so clicking
+it challenges the bot at the way of playing that row rates), so a game
+wires ONE click handler for both entry points — clicking either should
+lead to the same challenge flow, not two independent ones.
 
-**The challenge flow.** Once a player picks a bot, get them into a game
-against it — the SAME plain Candid call to the bot's own
-`play(host, tableId, seat, code)` Flow 1 always used (see
-`../backend/README.md`'s "Canister players" section), built via the
-shared `buildBotPlayIdlFactory` rather than a hand-rolled IDL, and
-targeting the CHOSEN bot's own principal (from `list_bots()`), never a
-fixed/env-var canister id:
+**The challenge flow.** Once a player picks a bot (at one of its
+complexities), get them into a game against it — the SAME plain Candid
+call to the bot's own `play(host, tableId, seat, code, complexity)`
+Flow 1 always used (see `../backend/README.md`'s "Canister players"
+section), built via the shared `buildBotPlayIdlFactory` rather than a
+hand-rolled IDL, and targeting the CHOSEN bot's own principal (from
+`list_bots()`), never a fixed/env-var canister id, with the CHOSEN
+complexity (`data-bot-complexity`) as its last argument — the bot
+forwards it to `join_table_as_canister`, and it's what every later
+`make_move` ask carries as `MoveRequest.complexity`:
 
 ```js
 import { Actor } from "@icp-sdk/core/agent";
@@ -583,7 +605,13 @@ import { errText, tag } from "duel-game-core/render.js";
 // Already on the "Waiting for an opponent" screen for a table you made
 // yourself? Fill its own open seat directly — no new table needed. See
 // `renderSeatChoice` below otherwise.
-const res = await botActor.play(hostPrincipal, tableId, openSeat, code);
+const res = await botActor.play(
+  hostPrincipal,
+  tableId,
+  openSeat,
+  code,
+  complexity
+);
 ```
 
 If the player ISN'T already staging a table, show `renderSeatChoice(plugin)`
@@ -653,19 +681,19 @@ any game's rules — use them when building `agent`/`actor`, or don't;
 
 ## Modules
 
-| Module                    | Exports                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`/`get_leaderboard`/`list_bots`'s own types plus the `ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on; `buildBotPlayIdlFactory({IDL})` — a ready-to-use `idlFactory` for a discovered bot's own `play` method, see "Bot registry"         |
-| `render.js`               | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `renderLeaderboard(entries, plugin, opts?)`, `renderBotList(bots, plugin)`, `renderSeatChoice(plugin)`, `playerKeyOf(sid)`, `isCanisterPlayer(player)`, `displayPlayerId(player)`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
-| `app.js`                  | `start({ plugin, ws, session, ...elIds })`                                                                                                                                                                                                                                                                                                                          |
-| `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)` — see "Logging in with Internet Identity"; depends on `@icp-sdk/auth`/`@icp-sdk/core/identity`, same narrow-exception treatment as `ws/gateway-*.js`                                                                                                                                                          |
-| `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX` — the persisted-keypair anonymous identity `identity.js` re-exports; depends only on `@icp-sdk/core/identity`, not `@icp-sdk/auth`                                                                                                                |
-| `ic-env.js`               | `readIcEnv()`, `deriveHost()` (optional)                                                                                                                                                                                                                                                                                                                            |
-| `ws.js`                   | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result                                                                                                                                                                                                                                                      |
-| `ws/gateway-client.js`    | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds                                                                                                                                                                                                                                                                                                       |
-| `ws/gateway-transport.js` | `SelfGatewayTransport` — moves bytes (the embedded-Gateway registration/poll/send/close calls); swap this for a real-external-Gateway transport without touching the other two `ws/gateway-*.js` files                                                                                                                                                              |
-| `ws/gateway-protocol.js`  | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, and interpreting a decoded envelope; transport-agnostic                                                                                                                                                                                                                                             |
-| `style.css`               | generic layout primitives                                                                                                                                                                                                                                                                                                                                           |
+| Module                    | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})` — `status`/`get_leaderboard`/`list_bots`'s own types plus the `ws.mo`/CDK protocol types both `makeIdlFactory` and `ws/gateway-protocol.js` build on; `buildBotPlayIdlFactory({IDL})` — a ready-to-use `idlFactory` for a discovered bot's own `play` method, see "Bot registry"                                                                                                      |
+| `render.js`               | `renderStatus(status, plugin)` — the top-level entry point; `renderView(view, plugin)` for a single table's own screen, `renderLeaderboard(entries, plugin, opts?)`, `renderBotList(bots, plugin)`, `renderSeatChoice(plugin)`, `playerKeyOf(sid)`, `isCanisterPlayer(player)`, `parseCanisterPlayer(player)`, `botDisplayName(name, complexity)`, `displayPlayerId(player)`, `DEFAULT_BOT_COMPLEXITY`, `errText(err)`, `actionAttr(value)`, `tag`, `val`, `esc` |
+| `app.js`                  | `start({ plugin, ws, session, ...elIds })`                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)` — see "Logging in with Internet Identity"; depends on `@icp-sdk/auth`/`@icp-sdk/core/identity`, same narrow-exception treatment as `ws/gateway-*.js`                                                                                                                                                                                                                                                       |
+| `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX` — the persisted-keypair anonymous identity `identity.js` re-exports; depends only on `@icp-sdk/core/identity`, not `@icp-sdk/auth`                                                                                                                                                                                                             |
+| `ic-env.js`               | `readIcEnv()`, `deriveHost()` (optional)                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `ws.js`                   | `connectWs({ actor, principal, gameIdlTypes, ...opts })` — see "Real-time push"; `start()` requires its result                                                                                                                                                                                                                                                                                                                                                   |
+| `ws/gateway-client.js`    | `GatewayWs` — the public class `ws.js`'s `connectWs()` builds                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `ws/gateway-transport.js` | `SelfGatewayTransport` — moves bytes (the embedded-Gateway registration/poll/send/close calls); swap this for a real-external-Gateway transport without touching the other two `ws/gateway-*.js` files                                                                                                                                                                                                                                                           |
+| `ws/gateway-protocol.js`  | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, and interpreting a decoded envelope; transport-agnostic                                                                                                                                                                                                                                                                                                                                          |
+| `style.css`               | generic layout primitives                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 See [`../backend/README.md`](../backend/README.md) for the matching
 backend `Spec` contract.

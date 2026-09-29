@@ -631,26 +631,64 @@ nothing to spoof.
 A `Registry` table is still exactly one SESSION's worth of "my one
 game" — nothing about that changes. What's not one-to-one any more is a
 canister PRINCIPAL to a session: `CanisterPlayers.sidForCanister(p,
-tableId)` mints a SEPARATE session per board
-(`"cp:" # p.toText() # ":" # tableId.toText()`), so the same bot
-canister can hold a live seat at any number of tables at once, each one
-an ordinary, fully independent session as far as `Table`/`Registry` are
-concerned. `tableId` is free to supply everywhere except `createTable`
-itself, where the id doesn't exist yet at the point a session is needed
-to create it — `Registry.peekNextTableId` (a pure read of the
-registry's own id nonce, as side-effect-free as `status`) supplies it
-one call early, safe as long as nothing `await`s between peeking it and
-creating the table with it. Every OTHER entry point that acts on an
-EXISTING board — `leave_as_canister`/`ack_ended_as_canister`/
+tableId, complexity)` mints a SEPARATE session per board
+(`"cp:" # p.toText() # ":" # tableId.toText() # ":" # complexity`), so
+the same bot canister can hold a live seat at any number of tables at
+once, each one an ordinary, fully independent session as far as
+`Table`/`Registry` are concerned. `tableId` is free to supply everywhere
+except `createTable` itself, where the id doesn't exist yet at the point
+a session is needed to create it — `Registry.peekNextTableId` (a pure
+read of the registry's own id nonce, as side-effect-free as `status`)
+supplies it one call early, safe as long as nothing `await`s between
+peeking it and creating the table with it. Every OTHER entry point that
+acts on an EXISTING board — `leave_as_canister`/`ack_ended_as_canister`/
 `claim_win_as_canister`/`reset_as_canister` — takes `tableId` as an
 explicit argument instead of trying to infer "my one game": with more
 than one live board per canister that's ambiguous, so the caller says
 which board it means, the same `tableId`
-`create_table_as_canister`/`join_table_as_canister` returned.
-`CanisterPlayers.principalOfCanisterSession` is `sidForCanister`'s own
-inverse — recovers the calling canister's principal from one of its
+`create_table_as_canister`/`join_table_as_canister` returned; the
+session itself is then looked up on that board's own phase record
+(principal + `tableId` prefix), never re-derived, since its complexity
+segment was chosen once at seating time and needn't be repeated.
+`CanisterPlayers.principalOfCanisterSession` and
+`complexityOfCanisterSession` are `sidForCanister`'s own inverses —
+the former recovers the calling canister's principal from one of its
 `cp:` sessions, used below by a host's own `callBot` closure to know
-which canister to actually call `make_move` on.
+which canister to actually call `make_move` on; the latter recovers the
+seat's complexity, which `MoveRequest.complexity` carries to the bot on
+every ask.
+
+**Complexity: one bot, several ways to play.** A single bot canister
+may offer more than one way of playing — an "Easy"/"Medium"/"Hard"
+ladder, a "Rabbit"/"Fox"/"Lion" one, or something that isn't a
+difficulty at all ("Look-ahead" vs. "Reactive"). Each is a
+`complexity : Text`, opaque to this package in exactly the way a table's
+own `variant` is opaque to the engine (see "Table variants" above):
+never validated or interpreted here, only carried. A bot declares its
+own list once, at registration (`register_bot(name, complexities)`, see
+"Bot discovery" below — a constant in the bot's own code; if it ever
+changes, the bot simply re-registers), and whoever seats the bot at a
+table picks ONE of them for that session: a human challenger, from the
+"🤖 Bots" dialog (`play(host, tableId, seat, code, complexity)`, Flow
+1 below); an orchestrator naming a `reservedFor` session for a
+bot-vs-bot match (`sidForCanister(botPrincipal, nextId, complexity)`,
+Flow 2 below); or the bot itself, on
+`create_table_as_canister`/`join_table_as_canister`'s own trailing
+`complexity` argument. The pick becomes the last segment of the seat's
+session id, so it lives on the table's own phase record for the
+session's whole life — no separate map to keep stable across an
+upgrade — and reaches the bot on every ask as
+`MoveRequest.complexity`, so one stateless `query` bot can be "Hard"
+on one board and "Easy" on another with no memory of its own. A bot
+with just one way to play needs none of this: it registers with an
+empty list (`[]`, listed under `CanisterPlayers.DEFAULT_COMPLEXITY`,
+`"Default"` — the same normalization an empty `complexity` argument
+gets anywhere in this module) and ignores `req.complexity`; a bot with
+several should treat a value it doesn't recognize as its own default
+rather than trap. Every complexity is scored separately on a
+leaderboard — `leaderboardKey(p, complexity)`, see "Leaderboard"
+below — since "CheckersBot (Hard)" and "CheckersBot (Easy)" are
+genuinely different opponents.
 
 **The call/response protocol.** `notifyAndApply` (internal) builds a
 `TP.MoveRequest<S, M>` from the table's own current, truthful
@@ -891,7 +929,7 @@ either side:
 
 ```motoko
 let nextId = registry.peekNextTableId(); // safe: nothing else can create a table between this line and the next
-switch (registry.createTableReserving(spec, now, mySession, #p1, #open, CanisterPlayers.sidForCanister(botPrincipal, nextId), "")) {
+switch (registry.createTableReserving(spec, now, mySession, #p1, #open, CanisterPlayers.sidForCanister(botPrincipal, nextId, "Hard"), "")) {
   case (#ok id) { /* both seats are already live, id == nextId */ };
   case (#err e) { /* ... */ };
 };
@@ -925,15 +963,19 @@ launching two OTHER sessions' game for them.
 
 **Writing the bot itself: simple vs. stateful.** `TP.MoveRequest<S, M>`
 carries everything a bot needs to decide its move, and it splits cleanly
-into two groups. The first — `game`/`seat`/`mode`/`turn`/`gen` — is
-exactly what a HUMAN's own screen gets from `View.#inGame`: current
-state, which seat you are, and the round number. A bot that only ever
-looks at these can be, and in this repo's own reference examples IS, a
-pure function of its input: `examples/racing/bot/BotLogic.mo` and
-`examples/checkers/bot/BotLogic.mo` never remember anything between
-calls — the racing bot plays a fixed scripted arc indexed by `turn`, the
-checkers bot picks deterministically from `Rules.legalActions(game,
-seat)`. Both declare `make_move` as a plain `query` in `Bot.mo`
+into two groups. The first — `game`/`seat`/`mode`/`turn`/`gen`, plus
+`complexity` (which of the bot's own declared ways of playing this seat
+was seated at — see "Complexity" above) — is exactly what a HUMAN's
+own screen gets from `View.#inGame`: current state, which seat you are,
+and the round number. A bot that only ever looks at these can be, and
+in this repo's own reference examples IS, a pure function of its input:
+`examples/racing/bot/BotLogic.mo` and `examples/checkers/bot/BotLogic.mo`
+never remember anything between calls — the racing bot plays a fixed
+scripted arc indexed by `turn`, the checkers bot picks
+deterministically from `Rules.legalActions(game, seat)`, and
+`examples/tic-tac-toe/bot/BotLogic.mo` switches on `complexity` between
+that same deterministic pick ("Easy") and a full minimax search
+("Hard"). All declare `make_move` as a plain `query` in `Bot.mo`
 (`public query func make_move(req) : async Rules.Action`), and that's
 the right choice for exactly this shape of bot: a `query` call is
 cheaper and faster than an `update` call, and there's nothing here that
@@ -1003,51 +1045,63 @@ the same non-spoofable `msg.caller` discipline every other entry point in
 this module already relies on:
 
 ```motoko
+public let DEFAULT_COMPLEXITY : Text = "Default";
+
 public type BotInfo = {
   principal : Principal.Principal;
   name : Text;
+  complexities : [Text]; // declared order kept; never empty
   registeredAt : Int;
 };
+public type BotComplexityEntry = { complexity : Text; elo : ?Int };
 public type BotEntry = {
   principal : Principal.Principal;
   name : Text;
-  elo : ?Int;
+  complexities : [BotComplexityEntry]; // one rating per complexity, declared order
 };
 public type BotDirectory = { var bots : Map.Map<Principal.Principal, BotInfo> };
 
 public func newBotDirectory() : BotDirectory;
-public func registerBot(d : BotDirectory, caller : Principal.Principal, name : Text, now : Int); // upsert by principal
+public func registerBot(d : BotDirectory, caller : Principal.Principal, name : Text, complexities : [Text], now : Int); // upsert by principal
 public func unregisterBot(d : BotDirectory, caller : Principal.Principal);
 public func listBots(d : BotDirectory) : [BotInfo];
-public func rankedBots(bots : [BotInfo], scoreOf : (Principal.Principal) -> ?Int) : [BotEntry]; // highest elo first, unrated last
-public func leaderboardKey(p : Principal.Principal) : Text; // "cp:" # p.toText()
+public func rankedBots(bots : [BotInfo], scoreOf : (Principal.Principal, Text) -> ?Int) : [BotEntry]; // best complexity's elo first, unrated last
+public func leaderboardKey(p : Principal.Principal, complexity : Text) : Text; // "cp:" # p.toText() # ":" # complexity
+public func leaderboardKeyOfSession(session : SessionId) : Text; // the same, read off a live cp: session
 
 ```
 
 `BotDirectory` is a plain, stable, mutable record — same "module of
 functions over a passed-in record" shape as `Table`/`Registry`/
 `Leaderboard.Board` themselves, so a host's own `botDirectory` field is
-genuinely stable across an upgrade. `rankedBots` takes a plain scoring
-function rather than importing `leaderboard.mo` directly, so
-`canister_players.mo` itself stays exactly as dependency-free as its own
-doc header already promises (`core` plus sibling `registry.mo`/
-`types.mo` only) — the JOIN with an actual `Leaderboard.Board` happens one
-layer up, in `canister_players_actor_mixin.mo`'s own `list_bots`:
+genuinely stable across an upgrade. `registerBot` keeps `complexities`
+in the order the bot declared them (a ladder's order is meaningful —
+"Easy, Medium, Hard" shouldn't come back alphabetized), reads `""` as
+`DEFAULT_COMPLEXITY`, drops duplicates, and lists a bot that declared
+nothing at all under `[DEFAULT_COMPLEXITY]` — so a bot with one way to
+play registers with `[]` and shows up as "Default". `rankedBots` takes
+a plain scoring function rather than importing `leaderboard.mo`
+directly, so `canister_players.mo` itself stays exactly as
+dependency-free as its own doc header already promises (`core` plus
+sibling `registry.mo`/`types.mo` only) — the JOIN with an actual
+`Leaderboard.Board` happens one layer up, in
+`canister_players_actor_mixin.mo`'s own `list_bots`, once per
+complexity:
 
 ```motoko
 mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDirectory, leaderboard : ?Leaderboard.Board) {
   // ...the six *_as_canister methods, unchanged...
 
-  public shared ({ caller }) func register_bot(name : Text) : async () {
-    CanisterPlayers.registerBot(directory, caller, name, Time.now());
+  public shared ({ caller }) func register_bot(name : Text, complexities : [Text]) : async () {
+    CanisterPlayers.registerBot(directory, caller, name, complexities, Time.now());
   };
   public shared ({ caller }) func unregister_bot() : async () {
     CanisterPlayers.unregisterBot(directory, caller);
   };
   public query func list_bots() : async [CanisterPlayers.BotEntry] {
     let scoreOf = switch (leaderboard) {
-      case (?lb) func(p) : ?Int = ?Leaderboard.scoreOf(lb, CanisterPlayers.leaderboardKey(p));
-      case null func(_) : ?Int = null;
+      case (?lb) func(p, complexity) : ?Int = ?Leaderboard.scoreOf(lb, CanisterPlayers.leaderboardKey(p, complexity));
+      case null func(_, _) : ?Int = null;
     };
     CanisterPlayers.rankedBots(CanisterPlayers.listBots(directory), scoreOf);
   };
@@ -1056,25 +1110,29 @@ mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDir
 ```
 
 `leaderboard` is genuinely optional (a host with none wired passes
-`null`, and every bot's own `elo` comes back `null` too — a challenge
-dialog simply shows no rating). A leaderboard-backed host with a bot that
-hasn't played yet still returns the leaderboard's own default rating, not
-`null` — `Leaderboard.scoreOf` already falls back to `defaultScore` for
-any player with no entry, bot or human alike, so a never-played bot's row
-reads exactly like a brand-new human's would. `register_bot`/
-`unregister_bot` call `Time.now()` directly, the same documented
-exception `ws.mo`/`actor_mixin.mo`/`canister_players.mo`'s own `Attached`
-functions already rely on — this mixin plays the host's own role for
-these two `msg.caller` entry points.
+`null`, and every complexity's own `elo` comes back `null` too — a
+challenge dialog simply shows no rating). A leaderboard-backed host with
+a complexity that hasn't played yet still returns the leaderboard's own
+default rating, not `null` — `Leaderboard.scoreOf` already falls back to
+`defaultScore` for any player with no entry, bot or human alike, so a
+never-played row reads exactly like a brand-new human's would. Bots are
+ranked by their best-rated complexity; a bot's own complexities stay in
+declared order underneath. `register_bot`/`unregister_bot` call
+`Time.now()` directly, the same documented exception `ws.mo`/
+`actor_mixin.mo`/`canister_players.mo`'s own `Attached` functions
+already rely on — this mixin plays the host's own role for these two
+`msg.caller` entry points.
 
 On the BOT's own side, being challengeable takes one more method beyond
 `make_move`/`play` (Flow 1, above) — a one-time self-registration call,
-mirroring `play`'s own `(host, ...)` shape:
+mirroring `play`'s own `(host, ...)` shape, sending the bot's own
+complexity list (a constant in its own code, `[]` for a bot with one
+way to play):
 
 ```motoko
 public shared func register(host : Principal.Principal, name : Text) : async () {
-  let h : actor { register_bot : (Text) -> async () } = actor (host.toText());
-  await h.register_bot(name);
+  let h : actor { register_bot : (Text, [Text]) -> async () } = actor (host.toText());
+  await h.register_bot(name, BotLogic.COMPLEXITIES); // e.g. ["Easy", "Hard"]; [] for a single way to play
 };
 
 ```
@@ -1084,14 +1142,16 @@ sibling's principal automatically, so this is called once, by hand, after
 both the bot and its host are deployed — e.g.
 `icp canister call bot register '(principal "<host-canister-id>", "RacerBot")'`
 (see `examples/racing/bot/Bot.mo`/`examples/checkers/bot/Bot.mo` for the
-full worked shape, `unregister` included). Once it succeeds, the bot
-shows up in every player's own "🤖 Bots" challenge dialog and leaderboard
-Challenge button — see `../frontend/README.md`'s "Bot registry" section
-for `list_bots()`/`renderBotList`/`renderSeatChoice`/`renderLeaderboard`'s
-Challenge button and the unified challenge flow that follows: a browser
-still only ever calls a bot's own `play` DIRECTLY, exactly Flow 1's
-shape, just with the target canister id now coming from a player's own
-choice rather than a hardcoded env var.
+full worked shape, `unregister` included, and
+`examples/tic-tac-toe/bot/` for a bot declaring two complexities). Once
+it succeeds, the bot shows up in every player's own "🤖 Bots" challenge
+dialog and leaderboard Challenge button, one row per complexity — see
+`../frontend/README.md`'s "Bot registry" section for `list_bots()`/
+`renderBotList`/`renderSeatChoice`/`renderLeaderboard`'s Challenge button
+and the unified challenge flow that follows: a browser still only ever
+calls a bot's own `play` DIRECTLY, exactly Flow 1's shape, just with the
+target canister id and complexity now coming from a player's own choice
+rather than a hardcoded env var.
 
 ### Leaderboard
 
@@ -1163,15 +1223,20 @@ SessionId, SessionId) -> ()` fired exactly once a table freshly enters
   across many separate tables, but a session id doesn't always: `ii:`/
   `an:` sids already encode a stable principal (`Ws.playerKey(sid)`
   strips the prefix down to it), while a `cp:` canister-player session is
-  deliberately PER-TABLE (`sidForCanister(p, tableId)`) — a host wiring
-  `canister_players.mo` alongside a leaderboard special-cases
-  `CanisterPlayers.leaderboardKey(CanisterPlayers.principalOfCanisterSession(sid))`
-  itself before falling back to `Ws.playerKey` for everything else, so
-  one bot's rating accumulates across every table it plays instead of
-  resetting per board — the SAME `"cp:" # p.toText()` convention
+  deliberately PER-TABLE (`sidForCanister(p, tableId, complexity)`) — a
+  host wiring `canister_players.mo` alongside a leaderboard special-cases
+  `CanisterPlayers.leaderboardKeyOfSession(sid)` itself before falling
+  back to `Ws.playerKey` for everything else. That key is
+  `"cp:" # p.toText() # ":" # complexity` — per bot AND per complexity,
+  never per table — so one bot's rating accumulates across every table
+  it plays instead of resetting per board, while each of its
+  complexities is rated on its own ("CheckersBot (Hard)" and
+  "CheckersBot (Easy)" are different opponents, and stay separate rows
+  even if the bot later registers more ways to play). It's the SAME
+  `CanisterPlayers.leaderboardKey(p, complexity)` convention
   `CanisterPlayers.rankedBots`'s own caller in `list_bots` (see "Bot
-  discovery" above) joins a bot's rating with, so a bot's leaderboard row
-  and its own row in a challenge dialog always agree.
+  discovery" above) joins each complexity's rating with, so a bot's
+  leaderboard rows and its own rows in a challenge dialog always agree.
 
 A worked ELO example (007/checkers — every seat re-rates on every
 ending, `#claimed`/`#aborted` counted the same as a clean `#finished`
