@@ -1,8 +1,6 @@
 // Unit checks for UltimateTicTacToeRules' pure functions: init/validate/
 // resolve/legalActions exercised directly against synthetic states, no
 // engine, no actor.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/RulesUnit.test.mo
 import R "../src/UltimateTicTacToeRules";
 import TP "mo:duel-game-core";
 import Array "mo:core/Array";
@@ -30,7 +28,7 @@ func stateOf(marks : [(Nat, Nat, TP.Seat)], overrides : [(Nat, R.BoardResult)], 
   { cells = withCells(marks); results = withResults(overrides); activeBoard };
 };
 
-// ── 1. init() is a clean, empty state ───────────────────────────────────────
+// ── 1. init() is a clean, empty state ──────────────────────────────────────
 let s0 = R.init("");
 assert s0.cells.size() == 81;
 assert s0.results.size() == 9;
@@ -47,9 +45,8 @@ let sp = switch (R.spec()) {
 assert sp.init("").cells == s0.cells;
 Debug.print("2. spec wiring OK");
 
-// ── 3. validate: free choice (activeBoard == null) accepts any empty
-//        cell in any undecided board; rejects occupied cells and
-//        out-of-bounds board/cell ─────────────────────────────────────────
+// ── 3. validate: free choice (activeBoard == null) accepts any empty cell in
+//      any undecided board ──────────────────────────────────────────────────
 do {
   let s = stateOf([(0, 4, #p1)], [], null);
   switch (R.validate(s, #p2, #place { board = 3; cell = 0 })) {
@@ -71,8 +68,7 @@ do {
 };
 Debug.print("3. validate: free choice OK");
 
-// ── 4. validate: activeBoard constrains the next placement to that one
-//        board ──────────────────────────────────────────────────────────────
+// ── 4. validate: activeBoard constrains the next placement to that one board ───
 do {
   let s = stateOf([], [], ?4);
   switch (R.validate(s, #p1, #place { board = 4; cell = 0 })) {
@@ -86,8 +82,8 @@ do {
 };
 Debug.print("4. validate: constrained to activeBoard OK");
 
-// ── 5. validate: a decided board never accepts a placement, constrained
-//        or not ─────────────────────────────────────────────────────────────
+// ── 5. validate: a decided board never accepts a placement, constrained or
+//      not ──────────────────────────────────────────────────────────────────
 do {
   let s = stateOf([], [(2, #p1)], null);
   switch (R.validate(s, #p1, #place { board = 2; cell = 0 })) {
@@ -98,8 +94,8 @@ do {
 Debug.print("5. validate: decided board always illegal OK");
 
 // ── 6. resolve: a local-board win decides that board but doesn't end the
-//        match by itself, and routes the opponent to the board matching
-//        the cell just played ──────────────────────────────────────────────
+//      match by itself, and routes the opponent to the board matching the
+//      cell just played ─────────────────────────────────────────────────────
 do {
   let s = stateOf([(0, 0, #p1), (0, 1, #p1), (0, 3, #p2), (0, 4, #p2)], [], ?0);
   let r = R.resolve(s, #p1, #place { board = 0; cell = 2 });
@@ -110,8 +106,7 @@ do {
 };
 Debug.print("6. local board win doesn't end the match; routes by cell position OK");
 
-// ── 7. resolve: routing to an already-decided board frees the next
-//        choice ─────────────────────────────────────────────────────────────
+// ── 7. resolve: routing to an already-decided board frees the next choice ───
 do {
   let s = stateOf([(3, 4, #p1), (3, 1, #p1), (3, 7, #p2), (3, 2, #p2)], [(5, #tie)], ?3);
   let r = R.resolve(s, #p1, #place { board = 3; cell = 5 });
@@ -120,8 +115,7 @@ do {
 };
 Debug.print("7. routing to a decided board frees the next choice OK");
 
-// ── 8. resolve: a full local board with no line completed ties that
-//        board ───────────────────────────────────────────────────────────────
+// ── 8. resolve: a full local board with no line completed ties that board ───
 do {
   let s = stateOf(
     [
@@ -155,8 +149,8 @@ do {
 };
 Debug.print("9. completing a meta-line wins the whole match OK");
 
-// ── 10. resolve: every local board decided with no meta-line completed
-//         is a draw ─────────────────────────────────────────────────────────
+// ── 10. resolve: every local board decided with no meta-line completed is a
+//      draw ─────────────────────────────────────────────────────────────────
 do {
   let presetResults : [(Nat, R.BoardResult)] = [(0, #p1), (1, #p2), (2, #p1), (3, #p1), (4, #p2), (5, #p2), (6, #p2), (7, #p1)];
   let boardCells : [(Nat, Nat, TP.Seat)] = [
@@ -180,8 +174,8 @@ do {
 };
 Debug.print("10. fully-decided meta board with no line completed is a draw OK");
 
-// ── 11. legalActions mirrors validate's own legality, in every
-//         activeBoard mode ─────────────────────────────────────────────────
+// ── 11. legalActions mirrors validate's own legality, in every activeBoard
+//      mode ─────────────────────────────────────────────────────────────────
 do {
   let s0b = R.init("");
   assert R.legalActions(s0b, #p1).size() == 81;

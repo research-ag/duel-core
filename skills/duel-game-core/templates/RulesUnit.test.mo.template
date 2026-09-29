@@ -1,46 +1,31 @@
-// Unit checks for __RULES_MODULE__'s pure functions: init/validate/resolve
-// exercised directly, no engine, no actor. Extend this per rule you wrote
-// — one assertion block per illegal-move case in `validate` and per
-// win/lose/draw path in `resolve`. Plain interpreter script (moc -r), not
-// a test framework: `assert` + `Runtime.trap` on violation.
+// Unit checks for __RULES_MODULE__: init/validate/resolve called directly,
+// no engine. One block per illegal move in `validate` and per
+// win/lose/draw path in `resolve`. `assert` + `Runtime.trap`.
 //
 // Run: moc -r --package core <path-to-core/src> --package duel-game-core
 //      <path-to-duel-game-core-backend/src> test/RulesUnit.test.mo
 import R "../src/__RULES_MODULE__";
-import TP "mo:duel-game-core"; // Verdict/Seat live in the engine, not the rules
+import TP "mo:duel-game-core";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
-// Shorthand: run one round, trap if it ended unexpectedly. For a
-// #simultaneous game (this template's default — both seats act every
-// round).
+// #simultaneous: one round, trapping if it ended unexpectedly.
 func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
   let r = R.resolve(s, a1, a2);
   switch (r.verdict) { case null {}; case (?_) Runtime.trap("unexpected end") };
   r.state;
 };
 
-// For a #alternating game instead, use this shorthand in place of
-// `round` above — its own `resolve` takes just the ONE seat on turn and
-// a single Action (see references/alternating-turn-games.md).
+// #alternating equivalent (see references/alternating-turn-games.md).
 func turnRound(s : R.State, seat : TP.Seat, a : R.Action) : R.State {
   let r = R.resolve(s, seat, a);
   switch (r.verdict) { case null {}; case (?_) Runtime.trap("unexpected end") };
   r.state;
 };
 
-// ── 1. init("") is a clean slate, and spec() hands out the same rules ──────
-// "" is what every table creates by default in a game with no rules
-// variant of its own (the common case) — see the backend README's "Table
-// variants" section. If your game HAS variants (SKILL.md step 2, question
-// 8), also call `R.init("yourVariantKey")` for each one plus one
-// unrecognized string, and assert the right `State.variant`/safe-default
-// comes back from each.
+// 1. init("") is a clean slate and spec() hands out these functions. With
+// variants, also test init per variant key plus one unrecognized string.
 let s0 = R.init("");
-// For a #simultaneous game (this template's default — both seats act
-// every round). For a #alternating game instead, unwrap that arm here —
-// `case (#alternating s) s` — since its own `resolve` takes just the ONE
-// seat on turn (see references/alternating-turn-games.md).
 let sp = switch (R.spec()) {
   case (#simultaneous s) s;
   case (#alternating _) Runtime.trap("expected a #simultaneous spec");
@@ -49,14 +34,14 @@ let s1 = sp.init("");
 // assert <fields of s1 match your fresh-state expectations>;
 Debug.print("1. init + spec wiring OK");
 
-// ── 2. validate rejects each illegal move you defined ──────────────────────
+// 2. validate rejects each illegal move.
 // switch (R.validate(s0, #p1, #yourMove)) {
 //   case (?_) {};
 //   case null Runtime.trap("expected #yourMove to be illegal from a fresh state");
 // };
 Debug.print("2. validate OK");
 
-// ── 3. resolve reaches each win/lose/draw path you defined ──────────────────
+// 3. resolve reaches each win/lose/draw path.
 // let r = R.resolve(s0, #move1, #move2);
 // switch (r.verdict) {
 //   case (?#p1Wins) {};

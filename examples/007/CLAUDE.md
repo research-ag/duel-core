@@ -1,286 +1,83 @@
 # 007 duel — reference game built on duel-game-core
 
-A complete, deployable example game that plugs into the two
-`duel-game-core` packages this repo ships (`../../backend`, the Motoko
-mops package; `../../frontend`, the npm package). It exists to prove the
-two packages are usable end to end and to give a new game something
-concrete to copy — it is **not** part of either package itself.
+A deployable `#simultaneous` example on `../../backend` and
+`../../frontend`. Not part of either package.
 
-- **`src/Duel007Rules.mo`** — the 007 duel game logic as pure functions. No
-  actor, no shared functions, no storage, no Time. Plugs into the engine
-  via `spec() : TP.Spec<State, Action>`, where `TP` is
-  `mo:duel-game-core` (imported from `../../backend` — see
-  `mops.toml`).
-- **`src/Host.mo`** — the host actor: forwards every call to a
-  `TP.Registry<Rules.State, Rules.Action>` (built with `Registry.new`
-  from `mo:duel-game-core/registry`; a multi-table lobby — anyone may
-  open a table, open or access-code protected — not a single fixed
-  board; see `mo:duel-game-core`'s own doc header) with
-  `Time.now()` and `Rules.spec()`, wired exactly as
-  `../../backend/README.md`'s example shows. Deploy target. `status` is
-  the only plain Candid method on this actor (a `query`, side-effect-free
-  — see `../../CLAUDE.md`'s architecture rule 8); `createTable`/
-  `joinTable`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded` have NO plain
-  Candid method at all — they're reachable exclusively through
-  `mo:duel-game-core/ws`'s
-  `ws_message`, which is what `frontend/app.js` actually talks to
-  (`duel-game-core/ws.js`'s `GatewayWs`, a real `ic-websocket-cdk` client
-  that self-registers each tab as its own Gateway, not client-side
-  polling) — for genuine canister-driven push, real
-  close-detection-driven disappearance handling, AND to close the race a
-  plain update call would otherwise open (two independent update calls
-  have no guaranteed relative processing order once both are in flight —
-  see `../../backend/src/ws.mo`'s doc header). `status` and `Ws.attach`
-  are wired directly in `Host.mo`; the four `ws_*` Candid methods
-  (including `ws_message`) plus the idle-sweep timer come from a single
-  `include ActorMixin<system>(ws, ...)` (`mo:duel-game-core/actor_mixin`)
-  — no per-game `ws_message` declaration needed, since its `msgType`
-  parameter is a plain `Blob`, not a type generic over this game's
-  `State`/`Action`. See `../../backend/README.md`'s "Real-time push" section
-  for the full
-  design. `Host.mo` also wires Prometheus-style metrics onto the
-  registry via `Registry.attachMetrics(pt)` (`pt : mo:promtracker`'s
-  `Tracker`), rendered at a `/metrics` endpoint (`include
-Http(renderer.renderExposition, "/metrics")`, from
-  `mo:promtracker/mixins/http` — the same kind of `mixin` as
-  `mo:duel-game-core/actor_mixin`, so it's subject to this file's own
-  Toolchain note below) alongside `PT.allSystemMetrics` (cycles/RTS
-  metrics, no `Tracker` of its own needed). Unlike `ws.mo`, this is
-  entirely optional instrumentation — see `../../backend/README.md`'s
-  "Metrics" section for the metrics it exposes and the full reasoning.
-  `Host.mo` also wires an ELO leaderboard: a stable
-  `leaderboard : Leaderboard.Board` field (`mo:duel-game-core/leaderboard`,
-  `Leaderboard.new(50, STARTING_ELO)` — 50 kept, 25 shown;
-  `STARTING_ELO = 1200` is this game's OWN local constant, since
-  `mo:duel-game-core/elo` takes no view on a new player's starting
-  rating), filled in by an `onGameEnded` closure wired to `Ws.attach`'s
-  own optional parameter of that name — every ending
-  (`#finished`/`#claimed`/`#aborted` alike) maps to a win/loss/draw
-  `Elo.Outcome` (`mo:duel-game-core/elo`), re-rating both seats via
-  `Elo.update` (`k = 32`) against `Leaderboard.scoreOf`'s own current
-  ratings — and read back through `get_leaderboard()`, supplied by
-  `include LeaderboardActorMixin(leaderboard, 25)`
-  (`mo:duel-game-core/leaderboard_actor_mixin`), no hand-declared query
-  needed. See `../../backend/README.md`'s "Leaderboard" section for the
-  full worked example this Host.mo follows.
-- **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
-  `Rules.test.mo` are scenario walks (one long session / the headline
-  game rules); `Engine.test.mo` and `RulesUnit.test.mo` are per-operation
-  unit suites covering the error variants, takeover gates, status views,
-  and `resolve` branches the scenarios never reach. `Engine.test.mo` and
-  `Lifecycle.test.mo` exercise the SAME engine code the `../../backend`
-  package ships (via the mops dependency below) with these rules plugged
-  in — they are not a second copy of the engine's own test suite. The
-  `*.test.mo` suffix is what `mops test` discovers — a file named
-  `FooTest.mo` is silently skipped, so keep the suffix when adding
-  suites.
-- **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as
-  canister `backend` and `frontend/dist` (esbuild's bundled output —
-  see this file's "Build & test" section, NOT `frontend/` itself) as an asset canister.
-- **`frontend/`** — vanilla-JS web client (no framework), bundled with
-  esbuild (`npm run build`, see this file's "Build & test" section); `duel-game-core`
-  is fetched locally via `npm install`, see below. `duel007-plugin.js` is
-  the whole game-specific surface: it implements the `GamePlugin` contract
-  (`idlTypes`, `seatLabel`, `renderBoard`, `renderActions`) from
-  `../../frontend/README.md`. `app.js` calls `duel-game-core/identity.js`'s
-  `resolveIdentity()` to get this tab's own identity/`session` in one
-  call: a real, permanent Internet Identity login if one's already
-  active, otherwise a persisted, non-spoofable anonymous keypair (see
-  `duel-game-core/anon-identity.js`'s `resolveAnonymousIdentity()`) —
-  never the plain anonymous identity `HttpAgent.create({ host })`
-  defaults to, since `ic-websocket-cdk`'s `ws_open` hard-rejects an
-  anonymous caller outright (there's no polling fallback). See
-  `../../frontend/README.md`'s "Logging in with Internet Identity" and
-  "Real-time push" sections for the full mechanism, including why `sid`
-  is always derived from — and non-spoofable because of — the exact
-  identity that opens the WS connection. Then calls `duel-game-core/ws.js`'s
-  `connectWs({ actor, principal: session.principal, gameIdlTypes:
-plugin.idlTypes })` for the real push transport `start()` requires —
-  this game's own code never touches `mo:duel-game-core/ws`'s protocol
-  directly (`duel-game-core/ws/gateway-*.js` does, registering this tab
-  as its own WS Gateway) — and calls `start({ plugin, ws, session })`,
-  which also wires the header's `duel-auth-btn` (login/logout) entirely
-  on its own — every screen that's the same for every game (the
-  multi-table lobby — create a table, browse open ones, join by code —
-  staging, rematch, busy countdown, debrief chrome, session identity,
-  push) comes from the npm package. `app.js` is esbuild's bundle
-  entrypoint (see `frontend/build.js`): every dependency it and
-  `duel-game-core` need — `@icp-sdk/core`, `@icp-sdk/auth`, `cborg` — is
-  resolved from `node_modules` and inlined into `dist/app.js` at build
-  time, so the deployed page loads nothing from a CDN and needs no import
-  map. There is no polling fallback anywhere in this stack any more —
-  `ws` is required, `start()` throws without one, and the backend has no
-  plain mutating Candid method to poll in the first place (see
-  `../../CLAUDE.md`). `style.css`
-  here holds only 007-specific visuals (narration box, agent stat panels,
-  resource pips), layered on top of `duel-game-core.css` (a copy of
-  `duel-game-core`'s own `style.css`, placed in `dist/` by `build.js`,
-  loaded first in `index.html`), which supplies the page chrome and the
-  CSS custom properties this file reuses.
-  `app.js` also wires a header 🏆 toggle button (`index.html`'s
-  `#leaderboard-toggle` — icon-only, no "Leaderboard" label, positioned
-  FIRST in `.session`, before the Agent ID — that opens
-  `#leaderboard-panel`, a full-page overlay sibling of `#screen`, not a
-  small inline panel, so the generic chrome's own live status pushes
-  updating `#screen` underneath can never clobber it) that, on click,
-  calls the SAME `actor` `start()` already uses for
-  `actor.get_leaderboard()` — a plain Candid `query`, no `ws` round-trip
-  — and renders the result via `duel-game-core/render.js`'s
-  `renderLeaderboard(entries, plugin, { yourSid: session.sid })`, which
-  badges the caller's own row ("You") if they're on the ranked list;
-  `#leaderboard-back` (inside the overlay) closes it back to `#screen`.
-  `duel007-plugin.js` supplies no `formatScore` of its own, so
-  `renderLeaderboard`'s default (the plain ELO integer) is already
-  correct.
+- **`src/Duel007Rules.mo`** — the rules as pure functions (no actor, no
+  storage, no `Time`), plugged in via `spec() : TP.Spec<State, Action>`.
+- **`src/Host.mo`** — the host actor: a `Registry` (60s idle timeout, 15s
+  claim window), `status` as the only plain query, `Ws.attach` +
+  `include ActorMixin`, Prometheus metrics (`attachMetrics` + a
+  `/metrics` route via `mo:promtracker/mixins/http`), and an ELO
+  leaderboard (`Leaderboard.new(50, 1200)`, re-rated in `onGameEnded`
+  with `Elo.update` at k=32 for every ending, read via `include
+LeaderboardActorMixin(leaderboard, 25)`). Follows
+  `../../backend/README.md`'s worked examples exactly. No bot.
+- **`test/*.test.mo`** — `Lifecycle`/`Rules` are scenario walks;
+  `Engine`/`RulesUnit` are per-operation unit suites. `Engine`/`Lifecycle`
+  drive the real engine from `../../backend` with these rules plugged in.
+- **`icp.yaml`** — deploys `src/Host.mo` as `backend` and `frontend/dist`
+  as an asset canister.
+- **`frontend/`** — vanilla JS bundled with esbuild. `duel007-plugin.js`
+  is the whole `GamePlugin`; `app.js` resolves the identity
+  (`resolveIdentity()`), builds the actor and `connectWs()` transport,
+  calls `start()`, and wires the 🏆 toggle (first in `.session`) that
+  opens the full-page `#leaderboard-panel` and renders
+  `actor.get_leaderboard()` via `renderLeaderboard(entries, plugin, {
+yourSid })`. `style.css` holds only 007 visuals over
+  `duel-game-core.css`.
 
 ## Toolchain
 
-- moc **1.11.2** (mops toolchain, pinned in `mops.toml`), node/npm for
-  the frontend.
-- Motoko dependencies: `duel-game-core` (path dependency on
-  `../../backend` — see `mops.toml`), `core` (mo:core), `ic-websocket-cdk`
-  (only because `src/Host.mo` opts into `mo:duel-game-core/ws`), and
-  `promtracker` (only because `src/Host.mo` opts into the metrics wiring
-  described above) — see `../../CLAUDE.md`'s toolchain note for both of
-  the latter. Neither is listed under `mops.toml`'s own `[dependencies]`
-  here — both arrive transitively through `duel-game-core`'s own
-  `mops.toml`, same as `ic-websocket-cdk` already did before promtracker
-  existed; `mops sources` resolves the whole tree regardless of which
-  `mops.toml` first declared a package. Never import `mo:base` directly
-  in this game's own code — it's the legacy library; `ic-websocket-cdk`
-  pulling it in transitively is a documented, contained exception, not
-  license to import it yourself. `duel-game-core` re-exports nothing of
-  `core`'s own surface, so `src/Host.mo`'s direct `mo:core/Time` import
-  needs `core` listed here too, same as any real game repo would.
-- The frontend's npm dependencies (`frontend/package.json`) split by
-  what needs them: `duel-game-core` (`file:../../../frontend`) is the
-  one `app.js` itself needs, pulled in bundled via `duel-game-core/
-app.js`/`idl.js`/`ws.js`/`identity.js`/`ic-env.js`/`render.js` (its
-  `package.json` `exports` map, not an on-disk `dist/` path); `@icp-sdk/
-core` is `app.js`'s own direct dependency, for `Actor`/`HttpAgent`.
-  esbuild bundles both, plus everything `duel-game-core` itself needs
-  transitively (`@icp-sdk/auth`, `cborg`) into a single `dist/app.js` —
-  see `frontend/build.js`. `frontend/.npmrc`
-  sets `install-links=true` so `npm install` COPIES `duel-game-core`
-  into `node_modules/duel-game-core` instead of the default symlink —
-  esbuild needs real files there to bundle from at build time, and a
-  symlink may not survive later tooling either. `npm install` (then
-  `npm run build`) is the only "build" this frontend ITSELF needs,
-  exactly as `mops install` is for the backend — but `duel-game-core`
-  is TypeScript now and ships from its own `dist/` (gitignored,
-  build-generated): `../../../frontend` must have been built
-  (`npm run build` there) BEFORE this `npm install` runs, or the copy
-  lands with no compiled `.js` in it at all. **Gotcha:** because it's a
-  copy, not a symlink, a plain `npm install` after editing
-  `../../../frontend/` reports "up to date" and does NOT refresh the
-  copy. See `../../../CLAUDE.md`'s "After touching anything under
-  `frontend/`" section for the actual refresh procedure (build, then a
-  fast direct `rsync` copy in the common case; a full
-  `node_modules`+lockfile reinstall only if `frontend/package.json`'s
-  own `dependencies` changed) — do this proactively after any change
-  there, not just when asked to deploy, and re-run `npm run build` HERE
-  too afterward so `dist/app.js` picks up the change.
+moc 1.11.2 (`mops.toml`). Dependencies: `duel-game-core` (path to
+`../../backend`), `core`; `ic-websocket-cdk` and `promtracker` arrive
+transitively. Never import `mo:base`. The frontend depends on
+`duel-game-core` (`file:../../../frontend`, copied via `install-links`)
+and `@icp-sdk/core`; see `../../CLAUDE.md`'s "After touching anything
+under `frontend/`" for the refresh procedure.
 
 ## Build & test
 
 ```bash
 cd examples/007
-mops install                       # fetches duel-game-core (../../backend) + core
-
-# Type-check:
+mops install
 moc --check $(mops sources) src/Duel007Rules.mo
 moc --check $(mops sources) src/Host.mo
+mops test                  # all four; `mops test Rules` matches Rules and RulesUnit
 
-# Run the test suites (interpreter mode; they Debug.print progress and end
-# with "ALL ... CHECKS PASSED"; any trap = a FAIL, exit code 1):
-mops test                  # all four
-mops test Engine           # one suite — the filter is a path substring
-mops test Rules            # ...so this matches Rules AND RulesUnit
-```
-
-```bash
-# Frontend: build duel-game-core first (its dist/ is what npm install
-# actually copies — see this file's own note above), fetch the local
-# duel-game-core npm package, then esbuild-bundle this frontend and
-# sanity-check the bundled output parses (no DOM needed to import):
 (cd ../../frontend && npm run build)
-cd frontend
-npm install --legacy-peer-deps    # see ../../../frontend/README.md's note on @icp-sdk/auth's peer range
-npm run build                     # esbuild bundle → frontend/dist/ (icp.yaml deploys THIS, not frontend/ itself)
-node --check dist/app.js
-```
+cd frontend && npm install --legacy-peer-deps && npm run build && node --check dist/app.js && cd ..
 
-Deploy (icp-cli; `icp network start` must be running for the local env):
-
-```bash
-cd examples/007
-icp deploy                 # local  → http://frontend.local.localhost:8000/
+icp deploy                 # local; `icp network start` must be running
 icp deploy --network ic    # mainnet — spends cycles
 ```
 
-`icp.yaml`'s asset-canister recipe declares `npm run build` (inside
-`frontend/`) as a `build` step, so `icp build`/`icp deploy` runs it
-automatically and `frontend/dist/` is always rebuilt from current
-source before syncing. `npm install --legacy-peer-deps` is still a
-separate, manual step that populates `frontend/node_modules` in the
-first place — the automatic `build` step only re-bundles from whatever
-is already installed there, it doesn't run `npm install` for you (see
-this file's own toolchain note above on when to re-run it).
-
-The asset-canister recipe must be **v2.3.0 or newer**: v2.1.0 syncs with
-an `assets` step that icp-cli 1.x rejects ("no longer supports the
-`assets` sync step type"). v2.3.0 is the first plugin-based release.
+The asset-canister recipe must be v2.3.0 or newer; its `build` step
+rebuilds `frontend/dist/` on every deploy.
 
 ## Architecture rules
 
-This game inherits every rule in `../../CLAUDE.md`'s "Architecture
-rules" section (spec passed per call / never stored, the engine owns
-time, rules stay pure, `validate` is the only legality gate, etc.) — read
-that file first. Two rules specific to this example:
+Everything in `../../CLAUDE.md` applies. Additionally:
 
-1. **The engine lives in `../../backend` and is never vendored here.**
-   `src/Duel007Rules.mo` and `src/Host.mo` import it as
-   `mo:duel-game-core`. If you find yourself copy-pasting engine code
-   into this directory to fix something, fix it in `../../backend/src/lib.mo`
-   instead and re-run `mops install` here.
-2. **The generic screens live in `../../frontend` and are never
-   vendored here either.** `duel007-plugin.js` supplies ONLY
-   `idlTypes`/`seatLabel`/`renderBoard`/`renderActions`; the multi-table
-   lobby (create/browse/join), staging, rematch, busy, debrief chrome,
-   and the `#endedByOther` notice all come from `duel-game-core/render.js`
-   and `app.js`. If a screen looks wrong, check whether the fix belongs
-   in `../../frontend/render.js` (every game) or `duel007-plugin.js`
-   (just this one).
+1. **The engine is never vendored here** — fix it in `../../backend`.
+2. **The generic screens are never vendored here** — `duel007-plugin.js`
+   supplies only `idlTypes`/`seatLabel`/`renderBoard`/`renderActions`.
 
 ## Game-rule notes (src/Duel007Rules.mo)
 
-- Seats: `#p1` = BOND, `#p2` = SILVA (names used only in narration and in
-  the frontend's `SEAT_NAME` map in `duel007-plugin.js` — keep both in
-  sync, since the client's copy is cosmetic-only per CLAUDE.md
-  architecture rule 4).
-- Laser: charged by 5 CONSECUTIVE loads (`charge` field); firing spends
-  the charge, not ammo; pierces shield and mirror. The deployed 007
-  backend instead uses "any shot at ammo >= 5 is a laser" — to mimic it,
-  change `hasLaser` to `a.ammo >= 5`.
-- Shield: 3rd absorbed hit still saves the defender but breaks the
-  shield; raising a broken shield is rejected by `validate`.
-- Mirror: 3 uses; consumed on use whether or not a shot arrives; reflects
-  normal shots only. Both-shoot (any weapon mix) = both die = `#draw`.
-- Turn counter counts COMPLETED rounds: a fresh game is `turn == 0`.
-
-## Motoko skills (read before editing)
-
-Local copies of the relevant Motoko-authoring SKILL.md playbooks live in
-this repo under `../../.agents/skills/` — the same set `../../CLAUDE.md`
-points to (the duel-game-core-specific playbook instead lives in the
-tracked `../../skills/duel-game-core/`). Consult those before editing
-`src/Duel007Rules.mo` or `src/Host.mo`.
+- Seats: `#p1` = BOND, `#p2` = SILVA (narration and the plugin's
+  `SEAT_NAME` only).
+- Laser: charged by 5 CONSECUTIVE loads (`charge`); firing spends the
+  charge, pierces shield and mirror. (The deployed 007 backend treats any
+  shot at ammo >= 5 as a laser; set `hasLaser` to `a.ammo >= 5` to mimic.)
+- Shield: the 3rd absorbed hit saves the defender but breaks the shield;
+  raising a broken shield is rejected by `validate`.
+- Mirror: 3 uses, consumed whether or not a shot arrives; reflects normal
+  shots only. Both shoot (any weapon mix) → both die → `#draw`.
+- `turn` counts COMPLETED rounds; a fresh game is `turn == 0`.
 
 ## Conventions
 
-- Tests are plain interpreter scripts (moc -r), not a test framework:
-  `ok`/`expectErr` helpers + `Runtime.trap` on violation. Extend in kind.
-  (In mo:core, `trap` lives in `Runtime`; `Debug` only has `print`.)
-- `msg`, not `label`, for text parameters (`label` is a reserved word).
-- Update ALL FOUR test suites when touching `src/Duel007Rules.mo`'s
-  semantics.
+Plain interpreter tests (`ok`/`expectErr` + `Runtime.trap`); `msg`, not
+`label`; update all four suites when `Duel007Rules.mo`'s semantics
+change. Motoko playbooks live in `../../.agents/skills/`.

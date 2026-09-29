@@ -1,13 +1,6 @@
-/// FakeTurnGame — a deliberately trivial `TP.Spec` in `#alternating` mode,
-/// used ONLY by Alternating.test.mo to exercise the engine's turn-order
-/// dispatch (`Table.toMove`, `Err.#notYourTurn`, single-move `resolve`,
-/// claim-win gated to the waiting seat). Not a real game, no rendering —
-/// see FakeGame.mo for the `#simultaneous` counterpart this mirrors.
-///
-///   INC     always legal; bumps a shared counter by 1. Never ends the game.
-///   WINNOW  illegal at count == 0 (so `validate`-rejection is exercised
-///           too); otherwise ends the match immediately, crediting
-///           whichever seat is on turn.
+/// FakeTurnGame — a trivial `#alternating` `TP.Spec` used only by
+/// Alternating.test.mo. INC always legal, +1 to a shared counter, never ends;
+/// WINNOW illegal at 0, otherwise ends the match for the seat on turn.
 import TP "../src/lib";
 
 module {

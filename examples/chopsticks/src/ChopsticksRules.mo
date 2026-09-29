@@ -1,19 +1,8 @@
-/// ═══════════════════════════════════════════════════════════════════════════
-/// ChopsticksRules — the hand game chopsticks, as a pure module, with two
-/// table-time variants (Classic and Instructables) picked once by the
-/// table's creator at `createTable` time — see `../CLAUDE.md`'s
-/// "Game-rule notes" for the full rules text of both.
+/// ChopsticksRules — the hand game chopsticks, as a pure `#alternating`
+/// module with two table-time variants (Classic, Instructables). Each
+/// player has two hands holding 0 (out) to 4 fingers; both start at 1.
 ///
-/// No actor, no shared functions, no storage, no Time — just the rules.
-/// Plugs into the generic `duel-game-core` engine via `spec()`:
-///
-///   TP.Spec<State, Action> = #alternating { init; validate; resolve }
-///
-/// Seats take turns (p1 moves first); the engine tracks whose turn it
-/// is, so `State` carries no turn flag. Each player has two hands, left
-/// and right, each holding 0 (out) to 4 fingers; both start at 1.
-///
-/// ── Rules ──────────────────────────────────────────────────────────────────
+/// Rules:
 ///   ATTACK  tap one of your own live hands onto one of the opponent's
 ///           live hands: the target gains the attacker's count, the
 ///           attacker is unchanged. Classic: a hand reaching 5 or more is
@@ -24,15 +13,12 @@
 ///           out and the other is even, and always exactly half to each.
 ///   WIN     the first seat to put BOTH of the opponent's hands out. No
 ///           draw condition.
-/// ═══════════════════════════════════════════════════════════════════════════
 
 import TP "mo:duel-game-core";
 import List "mo:core/List";
 import Nat "mo:core/Nat";
 
 module {
-
-  // ────────────────────────── variants ─────────────────────────────────────
 
   public type Variant = { #classic; #instructables };
 
@@ -41,8 +27,6 @@ module {
     case ("instructables") #instructables;
     case (_) #classic;
   };
-
-  // ────────────────────────── moves & state ──────────────────────────────
 
   public type HandId = { #l; #r };
 
@@ -62,8 +46,6 @@ module {
 
   let MAX_HAND : Nat = 4;
   let OUT_AT : Nat = 5;
-
-  // ────────────────────────── helpers ──────────────────────────────────────
 
   public func other(seat : TP.Seat) : TP.Seat = switch (seat) {
     case (#p1) #p2;
@@ -94,15 +76,11 @@ module {
 
   public func isOut(h : Hands) : Bool = liveHands(h) == 0;
 
-  // ────────────────────────── Spec: init ───────────────────────────────────
-
   public func init(raw : Text) : State = {
     variant = parseVariant(raw);
     p1 = { l = 1; r = 1 };
     p2 = { l = 1; r = 1 };
   };
-
-  // ────────────────────────── Spec: validate ───────────────────────────────
 
   func validateSplit(variant : Variant, cur : Hands, l : Nat, r : Nat) : ?Text {
     let total = cur.l + cur.r;
@@ -125,7 +103,6 @@ module {
     };
   };
 
-  /// null = legal. Called only for the seat currently on turn.
   public func validate(s : State, seat : TP.Seat, a : Action) : ?Text {
     let mine = handsOf(s, seat);
     switch (a) {
@@ -138,8 +115,8 @@ module {
     };
   };
 
-  /// Every legal `Action` for `seat` — exactly what `validate` accepts,
-  /// attacks first (from l/r × to l/r), then splits by ascending left hand.
+  /// Every legal `Action` for `seat`: attacks first, then splits by
+  /// ascending left hand.
   public func legalActions(s : State, seat : TP.Seat) : [Action] {
     let out = List.empty<Action>();
     let mine = handsOf(s, seat);
@@ -157,8 +134,6 @@ module {
     out.toArray();
   };
 
-  // ────────────────────────── Spec: resolve ────────────────────────────────
-
   func hit(variant : Variant, target : Nat, attacker : Nat) : Nat {
     let sum = target + attacker;
     switch (variant) {
@@ -167,8 +142,6 @@ module {
     };
   };
 
-  /// The on-turn seat's move is already validated. Pure: State in, new
-  /// State + optional verdict out.
   public func resolve(s : State, seat : TP.Seat, a : Action) : {
     state : State;
     verdict : ?TP.Verdict;
@@ -187,9 +160,6 @@ module {
     { state; verdict };
   };
 
-  // ────────────────────────── the plug ─────────────────────────────────────
-
-  /// Built fresh per call — function values are never stored.
   public func spec() : TP.Spec<State, Action> = #alternating {
     init;
     validate;

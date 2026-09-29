@@ -1,7 +1,4 @@
-// Unit checks for `leaderboard.mo`'s generic top-N `Board`. No engine
-// dependency — a `Board` is a plain mutable record, exercised directly,
-// same "plain interpreter script" style as every other suite here.
-// Run: moc -r --package core <core/src> test/Leaderboard.test.mo
+// Unit checks for `leaderboard.mo`'s generic top-N `Board`.
 import Leaderboard "../src/leaderboard";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
@@ -19,8 +16,8 @@ func expectTop(b : Leaderboard.Board, want : [(Text, Int)], msg : Text) {
   };
 };
 
-// ── 1. setScore(): a fresh board with a couple of players sorts
-//      highest-score-first. ────────────────────────────────────────────
+// ── 1. setScore(): a fresh board with a couple of players sorts highest-
+//      score-first. ─────────────────────────────────────────────────────────
 do {
   let b = Leaderboard.new(50, 0);
   Leaderboard.setScore(b, "alice", 1200, 0);
@@ -30,10 +27,8 @@ do {
   Debug.print("1. setScore() keeps the board sorted highest-first OK");
 };
 
-// ── 2. setScore(): re-scoring an existing player REPLACES their entry
-//      (never adds a second row) and can move them either direction —
-//      the ELO semantics (ratings move up AND down).
-// ────────────────────────────────────────────────────────────────────
+// ── 2. setScore(): re-scoring an existing player REPLACES their entry (never
+//      adds a second row) and can move them either direction ────────────────
 do {
   let b = Leaderboard.new(50, 0);
   Leaderboard.setScore(b, "alice", 1200, 0);
@@ -45,10 +40,7 @@ do {
   Debug.print("2. setScore() replaces (never duplicates) and moves either direction OK");
 };
 
-// ── 3. recordIfBetter(): only overwrites on a strict improvement — a
-//      personal-best metric (e.g. racing's converted lap time) must
-//      never regress.
-// ────────────────────────────────────────────────────────────────────
+// ── 3. recordIfBetter(): only overwrites on a strict improvement ───────────
 do {
   let b = Leaderboard.new(50, 0);
   ignore Leaderboard.recordIfBetter(b, "alice", 100, 0);
@@ -63,9 +55,8 @@ do {
   Debug.print("3. recordIfBetter() only ever moves a player's score up OK");
 };
 
-// ── 4. Trimming: a board kept at N never grows past N, and the LOWEST
-//      score is what gets dropped as better ones arrive.
-// ────────────────────────────────────────────────────────────────────
+// ── 4. Trimming: a board kept at N never grows past N, and the LOWEST score
+//      is what gets dropped as better ones arrive. ──────────────────────────
 do {
   let b = Leaderboard.new(3, 0);
   Leaderboard.setScore(b, "a", 10, 0);
@@ -77,12 +68,9 @@ do {
   Debug.print("4. a board never grows past its own `keep` OK");
 };
 
-// ── 5. recordIfBetter() at capacity: a new player's score that doesn't
-//      beat the current worst kept entry is correctly rejected (never
-//      even added, unlike setScore's unconditional overwrite) — this is
-//      exactly the "buffer of 2x the shown top-N" scenario: a table kept
-//      at 50 rejects a 51st-best newcomer outright.
-// ────────────────────────────────────────────────────────────────────
+// ── 5. recordIfBetter() at capacity: a new player's score that doesn't beat
+//      the current worst kept entry is correctly rejected (never even added,
+//      unlike setScore's unconditional overwrite) ───────────────────────────
 do {
   let b = Leaderboard.new(2, 0);
   ignore Leaderboard.recordIfBetter(b, "a", 100, 0);
@@ -96,9 +84,8 @@ do {
   Debug.print("5. recordIfBetter() at capacity only admits a newcomer who beats the worst kept entry OK");
 };
 
-// ── 6. top(n): asking for more than exist returns everything there is,
-//      no error, no padding.
-// ────────────────────────────────────────────────────────────────────
+// ── 6. top(n): asking for more than exist returns everything there is, no
+//      error, no padding. ───────────────────────────────────────────────────
 do {
   let b = Leaderboard.new(50, 0);
   Leaderboard.setScore(b, "alice", 1200, 0);
@@ -107,10 +94,7 @@ do {
   Debug.print("6. top(n) beyond the board's own size returns everything there is OK");
 };
 
-// ── 7. Ties: equal scores don't crash or drop an entry — both survive
-//      (in whatever stable relative order `Array.sort` gives them),
-//      still capped at `keep`.
-// ────────────────────────────────────────────────────────────────────
+// ── 7. Ties: equal scores don't crash or drop an entry ─────────────────────
 do {
   let b = Leaderboard.new(50, 0);
   Leaderboard.setScore(b, "alice", 1000, 0);
@@ -120,9 +104,8 @@ do {
   Debug.print("7. a tie between two scores keeps both entries OK");
 };
 
-// ── 8. get(): a single player's current entry, or null for someone
-//      never recorded (or bumped off the buffer since).
-// ────────────────────────────────────────────────────────────────────
+// ── 8. get(): a single player's current entry, or null for someone never
+//      recorded (or bumped off the buffer since). ───────────────────────────
 do {
   let b = Leaderboard.new(50, 0);
   Leaderboard.setScore(b, "alice", 1234, 7);
@@ -140,9 +123,7 @@ do {
 };
 
 // ── 9. scoreOf(): an existing player's own score, or the board's own
-//      `defaultScore` for someone never recorded — the host's own
-//      starting-rating choice, made once at `new`, not hardcoded here.
-// ────────────────────────────────────────────────────────────────────
+//      `defaultScore` for someone never recorded ────────────────────────────
 do {
   let b = Leaderboard.new(50, 1200); // e.g. a chess-ELO "unrated" default
   if (Leaderboard.scoreOf(b, "nobody") != 1200) {

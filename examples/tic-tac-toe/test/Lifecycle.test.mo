@@ -1,15 +1,6 @@
-// One short session narrative, driven through the REAL engine end to
-// end: join, a couple of real opening moves, then (per
-// skills/duel-game-core/references/testing-deep-dive.md's technique) the
-// live board is seeded directly via `Table.phase`'s own public `var`
-// field to a position one legal placement from finishing, and that final
-// move is submitted for real — so the engine's own turn/seat/timestamp
-// bookkeeping around the ending is exercised genuinely, only the long
-// middle game is skipped (tic-tac-toe's own middle game is short enough
-// that this is a convenience, not a necessity, but it keeps this suite
-// consistent with the other reference games' own Lifecycle.test.mo).
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/Lifecycle.test.mo
+// One short narrative through the real engine: join, a couple of real opening
+// moves, then the live board is seeded via `Table.phase` to one placement
+// from finishing.
 import TP "mo:duel-game-core";
 import Table "mo:duel-game-core/table";
 import Array "mo:core/Array";
@@ -37,7 +28,7 @@ func withMarks(marks : [(Nat, TP.Seat)]) : Rules.Board {
 
 let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000, #open, "test", "");
 
-// ── 1. join seats X/O, X moves first ────────────────────────────────────────
+// ── 1. join seats X/O, X moves first ───────────────────────────────────────
 ignore ok(t.join(spec, now, "x", #p1), "x joins");
 switch (ok(t.join(spec, now, "o", #p2), "o joins")) {
   case (#started _) {};
@@ -63,7 +54,7 @@ switch (t.status(spec, now, "x")) {
 Debug.print("2. opening moves through the real board OK");
 
 // ── 3. seed the board one legal placement from a finish, then play it for
-//      real: X holds the top row's first two cells and finishes it ────────
+//      real: X holds the top row's first two cells and finishes it ──────────
 switch (t.phase) {
   case (#active g) {
     t.phase := #active {

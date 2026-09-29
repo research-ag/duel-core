@@ -10,7 +10,7 @@ import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
 import Elo "mo:duel-game-core/elo";
 import PT "mo:promtracker";
 import Http "mo:promtracker/mixins/http";
-import Tracker "mo:promtracker/Tracker"; // enables pt.toValue() dot notation
+import Tracker "mo:promtracker/Tracker";
 
 import Rules "Duel007Rules";
 
@@ -20,32 +20,19 @@ persistent actor {
   renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
-  // A lobby of tables, not one fixed board — anyone may open a new table
-  // (open, or access-code protected) and the same canister routes every
-  // move to the right one. See `mo:duel-game-core`'s own doc header.
-  let registry = Registry.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000); // 60s idle timeout, 15s claim-win window, shared by every table
+  let registry = Registry.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000); // 60s idle, 15s claim window
   registry.attachMetrics(pt);
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Rules.spec(), Time.now(), sid);
   };
 
-  // ELO leaderboard: a plain, stable `Leaderboard.Board` this actor owns
-  // directly (no `Registry`/`ws.mo` involvement beyond the `onGameEnded`
-  // hook below) — kept at 50 entries so a player dropping out of the
-  // shown top 25 doesn't just vanish outright, and someone climbing from
-  // 26th can still surface. `STARTING_ELO` (the common chess-convention
-  // default for a never-rated player) is this game's OWN call, passed
-  // straight to `new` — `mo:duel-game-core/elo` takes no view on it. See
-  // `../../backend/README.md`'s "Leaderboard" section.
+  // See ../../backend/README.md, "Leaderboard".
   let STARTING_ELO : Int = 1200;
   let ELO_K : Nat = 32;
   let leaderboard = Leaderboard.new(50, STARTING_ELO);
 
-  // Fires once per game ending (see `Ws.OnGameEnded`'s own doc): re-rates
-  // both seats via the standard ELO formula. `#claimed`/`#aborted` count
-  // the same as a clean `#finished` win — leaving mid-game or stalling
-  // out isn't a free way to protect a rating.
+  // Every ending re-rates both seats; `#claimed`/`#aborted` count as wins.
   func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
     let outcome : Elo.Outcome = switch (d.end) {
       case (#finished(#p1Wins)) #aWins;
@@ -53,7 +40,7 @@ persistent actor {
       case (#finished(#draw)) #draw;
       case (#claimed(#p1)) #aWins;
       case (#claimed(#p2)) #bWins;
-      case (#aborted(#p1)) #bWins; // p1 left — p2 credited with the win
+      case (#aborted(#p1)) #bWins;
       case (#aborted(#p2)) #aWins;
     };
     let k1 = Ws.playerKey(p1);
@@ -76,18 +63,13 @@ persistent actor {
     IcWebSocketCdkTypes.WsInitParams(null, ?120_000),
     null,
     ?onGameEnded,
-    null, // no race-start timing needed — this game scores by Verdict alone
+    null,
   );
   attached.ws.init<system>();
 
-  // `attached.sweep` (not a bare `TP.sweep(table, Time.now())`) pushes a
-  // fresh view to every session the idle sweep just evicted — see
-  // `Ws.Attached`'s own doc.
   include ActorMixin<system>(attached.ws, attached.sweep);
 
   include Http(renderer.renderExposition, "/metrics");
 
-  // Supplies `get_leaderboard()` (the top 25 ELO ratings) — no hand-declared
-  // query needed.
   include LeaderboardActorMixin(leaderboard, 25);
 };

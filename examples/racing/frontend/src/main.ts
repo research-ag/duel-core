@@ -1,8 +1,5 @@
-// Entry point — wires every service together by hand (this app has no DI
-// framework) and starts the race once duel-game-core's chrome (see
-// duel/duel-app.js and index.html's #screen) reports the canister session
-// has actually reached #inGame. Construction order below matters (each
-// service takes its dependencies as constructor arguments).
+// Entry point: wires every service by hand (constructor order matters)
+// and starts the race once the chrome reports #inGame.
 
 import { GameStateService } from './app/modules/gameplay/game-shared/services/game-state.service';
 import { ViewportService } from './app/modules/gameplay/game-viewport/services/viewport.service';
@@ -52,45 +49,23 @@ if (!hudContainer) {
 }
 hud.mount(hudContainer);
 
-// Fires once for the very first race (including a page reload landing
-// back in a race already under way) and again on every rematch (see
-// LobbyConnectionService.raceStarted's doc). `sceneInitialized` here
-// guards this WHOLE callback's one-time work, but gameplayService.init()
-// itself only actually runs its 3D scene setup once ever too, via its
-// OWN internal `sceneReady` guard — a failed init() (loadMap() throwing)
-// leaves `sceneInitialized` false below so the retry keeps calling
-// init() again, but init()'s scene setup isn't idempotent (each
-// subscribes scene-lifecycle observables), so it must not repeat: only
-// the map load itself retries. Every raceStarted emission — including
-// the first — resets and (re)starts the actual race via startRace(),
-// passing through `resumedAtStep` (seeds the HUD clock/step counter from
-// the TRUE current round instead of restarting them from 0) and
-// `youAlreadySubmitted` (skips asking for a second move when reconnecting
-// mid-round with one already locked in server-side).
+// Once per race (rematches and a reload mid-race included). A failed
+// init() leaves `sceneInitialized` false so the next race retries the
+// map load; the scene setup itself guards its own idempotence.
 let sceneInitialized = false;
 lobbyConnectionService.connectToLobby().subscribe(async ({ resumedAtStep, youAlreadySubmitted }) => {
   if (!sceneInitialized) {
     try {
       await gameplayService.init();
     } catch (err) {
-      // gameplayService.init() already forfeited this race (see its own
-      // doc — most likely the track failed to load even after retries).
-      // `sceneInitialized` stays false so the next raceStarted (a
-      // rematch, or anyone re-joining this table) retries init() — which
-      // (see this block's own doc above) only re-attempts loadMap(),
-      // not the scene setup that already succeeded, instead of getting
-      // permanently stuck.
+      // init() already forfeited; retry on the next raceStarted.
       console.error('duel: race init failed, not starting', err);
       return;
     }
     sceneInitialized = true;
   }
 
-  // Wait for the map to finish loading and our own car to exist before
-  // showing anything. On the first race this waits for real asset loads;
-  // on a rematch it resolves on the same tick, since the map is already
-  // loaded and lobby-connection.service.ts already pushed fresh Car
-  // instances before firing raceStarted.
+  // Wait for the map and our own car; instant on a rematch.
   await new Promise<void>((resolve) => {
     const check = () => {
       const mapLoaded = !!gameStateService.mapData.getValue();

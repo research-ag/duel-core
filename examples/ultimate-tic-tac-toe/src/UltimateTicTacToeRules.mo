@@ -1,48 +1,21 @@
-/// ═══════════════════════════════════════════════════════════════════════════
-/// UltimateTicTacToeRules — Ultimate Tic-Tac-Toe, as a pure module.
-/// https://en.wikipedia.org/wiki/Ultimate_tic-tac-toe
+/// UltimateTicTacToeRules — https://en.wikipedia.org/wiki/Ultimate_tic-tac-toe
+/// as a pure `#alternating` module. #p1 = X (first), #p2 = O.
 ///
-/// No actor, no shared functions, no storage, no Time — just the rules.
-/// Plugs into the generic `duel-game-core` engine via `spec()`:
+/// A 3x3 META-board of nine 3x3 LOCAL boards. `cells` is all 81 cells
+/// flattened (`index = board*9 + cell`); `results` says which seat won
+/// each local board, or that it tied — either way it is DECIDED.
 ///
-///   TP.Spec<State, Action> = #alternating { init; validate; resolve }
-///
-/// Seats take turns in order (p1 moves first — see lib.mo's `Table.toMove`
-/// doc); there is no "whose turn" flag in `State` because the engine
-/// already tracks that. Seat mapping: #p1 = X, #p2 = O.
-///
-/// ── The board ──────────────────────────────────────────────────────────────
-/// A 3x3 META-board of nine ordinary 3x3 LOCAL boards. `cells` is all 81
-/// cells flattened, row-major within each local board
-/// (`index = board*9 + cell`, `board`/`cell` each 0-8). `results` names
-/// which seat (if either) has won each of the nine local boards, or that a
-/// local board tied (filled with no line completed) — either way that
-/// board is DECIDED and never accepts another placement.
-///
-/// ── Rules ──────────────────────────────────────────────────────────────────
-///   PLACE   a seat places its own mark on any empty cell of a board that
-///           is (a) not yet decided, and (b) either the one board
-///           `activeBoard` names, or, when `activeBoard` is `null`, any
-///           undecided board at all.
-///   ROUTING the CELL POSITION just played (0-8, its position within its
-///           own local board) picks out the SAME position among the nine
-///           local boards as next turn's `activeBoard` — landing on the
-///           local board's own center cell (4) sends the opponent to the
-///           center local board (board 4), for instance. If that target
-///           board is already decided, `activeBoard` instead becomes
-///           `null` — the opponent's next placement may go in ANY
-///           undecided board.
-///   LOCAL WIN   three of a seat's own marks in a row, column, or diagonal
-///               within one local board decides that board for that seat,
-///               the instant the placing move completes the line.
-///   LOCAL TIE   a local board fills with no line completed by either
-///               seat — decided, but credited to neither.
-///   MATCH WIN   three of a seat's own local-board wins in a row, column,
-///               or diagonal on the META-board — i.e. `results` matching
-///               one of `LINES` — wins the whole match for that seat.
-///   DRAW        every local board is decided (won or tied) with no
-///               meta-line completed by either seat.
-/// ═══════════════════════════════════════════════════════════════════════════
+/// Rules:
+///   PLACE   a seat places its mark on an empty cell of an undecided board
+///           that is either the one `activeBoard` names or, when
+///           `activeBoard` is `null`, any undecided board.
+///   ROUTING the CELL POSITION just played picks the same position among
+///           the local boards as next turn's `activeBoard`; if that board
+///           is decided, `activeBoard` becomes `null` (free choice).
+///   LOCAL WIN   three in a line within one local board decides it.
+///   LOCAL TIE   a full local board with no line — decided for neither.
+///   MATCH WIN   three of a seat's local wins in a meta-line.
+///   DRAW        every local board decided with no meta-line.
 
 import TP "mo:duel-game-core";
 import Array "mo:core/Array";
@@ -51,32 +24,18 @@ import Nat "mo:core/Nat";
 
 module {
 
-  // ────────────────────────── moves & state ──────────────────────────────
-
-  /// Which seat (if either) has decided a local board — `#tie` if it
-  /// filled with no line completed by either seat.
   public type BoardResult = { #p1; #p2; #tie };
 
-  /// 81 cells, flattened: `index = board*9 + cell`, each 0-8, row-major
-  /// within its own 3x3 local board. `?Seat` names whichever seat's mark
-  /// occupies that cell, `null` if it's still empty.
   public type State = {
     cells : [?TP.Seat];
     results : [?BoardResult];
-    /// `?b` — the next placement must land in local board `b` (it isn't
-    /// decided yet, by construction — see `resolve`'s own routing note).
-    /// `null` — free choice: any undecided board.
+    /// `?b` — the next placement must land in board `b`. `null` — free.
     activeBoard : ?Nat;
   };
 
   public type Action = { #place : { board : Nat; cell : Nat } };
 
-  // ────────────────────────── board geometry ──────────────────────────────
-
-  /// The eight 3-in-a-row lines of a 3x3 grid — reused identically for
-  /// each local board's own win check (over `cells`) and for the
-  /// meta-board's own win check (over `results`); both are the same 3x3
-  /// geometry.
+  /// Shared by the local and meta win checks.
   let LINES : [[Nat]] = [
     [0, 1, 2],
     [3, 4, 5],
@@ -130,12 +89,7 @@ module {
     activeBoard = null;
   };
 
-  /// Every currently-legal placement — the same legality `validate`
-  /// enforces, exported so a caller (a bot's own move selection, most
-  /// notably — see `../../CLAUDE.md`'s "Canister players" note) doesn't
-  /// have to re-derive "which boards are open, and which cells within them
-  /// are empty" itself. An empty result means the whole meta-board is
-  /// decided — the same condition `resolve`'s own draw check tests.
+  /// Every legal placement — exactly what `validate` accepts.
   public func legalActions(s : State, _seat : TP.Seat) : [Action] {
     let boards : [Nat] = switch (s.activeBoard) {
       case (?b) if (s.results[b] == null)[b] else openBoards(s.results);
@@ -150,10 +104,6 @@ module {
     out.toArray();
   };
 
-  // ────────────────────────── Spec: validate ───────────────────────────────
-
-  /// null = legal. Called only for the seat currently on turn — the
-  /// engine itself rejects an off-turn submission before this ever runs.
   public func validate(s : State, _seat : TP.Seat, a : Action) : ?Text {
     switch (a) {
       case (#place { board; cell }) {
@@ -174,10 +124,6 @@ module {
     };
   };
 
-  // ────────────────────────── Spec: resolve ────────────────────────────────
-
-  /// The on-turn seat's move is already validated. Pure: State in, new
-  /// State + optional verdict out.
   public func resolve(s : State, seat : TP.Seat, a : Action) : {
     state : State;
     verdict : ?TP.Verdict;
@@ -192,9 +138,8 @@ module {
       case null s.results;
     };
 
-    // Route the opponent to the local board matching the cell position
-    // just played — unless that board is already decided, in which case
-    // their next placement is a free choice among whatever's still open.
+    // Routed against the FRESH results, so a board decided by this very
+    // move counts as decided.
     let activeBoard : ?Nat = if (results[cell] == null) ?cell else null;
 
     let verdict : ?TP.Verdict = if (metaLineWonBy(results, seat)) {
@@ -204,11 +149,6 @@ module {
     { state = { cells; results; activeBoard }; verdict };
   };
 
-  // ────────────────────────── the plug ─────────────────────────────────────
-
-  /// Hand this to every duel-game-core engine call. Built fresh per call —
-  /// function values are never stored, so upgrades stay trivial.
-  /// `#alternating`: X and O take turns, one placement per submission.
   public func spec() : TP.Spec<State, Action> = #alternating {
     init;
     validate;

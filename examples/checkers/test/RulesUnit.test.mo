@@ -1,14 +1,11 @@
 // Unit checks for CheckersRules' pure functions: init/validate/resolve
 // exercised directly against synthetic boards, no engine, no actor.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/RulesUnit.test.mo
 import R "../src/CheckersRules";
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
-// ── board-building helpers (plain data — no dependency on CheckersRules'
-//    own private helpers) ───────────────────────────────────────────────
+// ── board-building helpers (plain data ─────────────────────────────────────
 
 func idx(r : Nat, c : Nat) : Nat = r * 8 + c;
 
@@ -30,7 +27,7 @@ func countPieces(board : R.Board, p : R.Piece) : Nat {
   n;
 };
 
-// ── 1. init() is a clean, standard starting position ────────────────────
+// ── 1. init() is a clean, standard starting position ───────────────────────
 let s0 = R.init("");
 assert s0.board.size() == 64;
 assert countPieces(s0.board, #manP1) == 12;
@@ -40,7 +37,7 @@ assert countPieces(s0.board, #kingP2) == 0;
 assert s0.board[idx(4, 1)] == null and s0.board[idx(4, 3)] == null; // the empty middle
 Debug.print("1. init() OK");
 
-// ── 2. spec() hands out the same rules, in #alternating mode ───────────
+// ── 2. spec() hands out the same rules, in #alternating mode ───────────────
 let sp = switch (R.spec()) {
   case (#alternating s) s;
   case (#simultaneous _) Runtime.trap("checkers is a #alternating game");
@@ -48,7 +45,7 @@ let sp = switch (R.spec()) {
 assert sp.init("").board == s0.board;
 Debug.print("2. spec wiring OK");
 
-// ── 3. validate: a man moves forward only ────────────────────────────────
+// ── 3. validate: a man moves forward only ──────────────────────────────────
 let lonelyMan = withPieces([(idx(4, 3), #manP1)]);
 switch (R.validate({ board = lonelyMan }, #p1, #move { from = idx(4, 3); to = idx(3, 2) })) {
   case null {};
@@ -60,7 +57,7 @@ switch (R.validate({ board = lonelyMan }, #p1, #move { from = idx(4, 3); to = id
 };
 Debug.print("3. man forward-only OK");
 
-// ── 4. validate: a king may move either direction ────────────────────────
+// ── 4. validate: a king may move either direction ──────────────────────────
 let lonelyKing = withPieces([(idx(4, 3), #kingP1)]);
 switch (R.validate({ board = lonelyKing }, #p1, #move { from = idx(4, 3); to = idx(5, 4) })) {
   case null {};
@@ -68,8 +65,8 @@ switch (R.validate({ board = lonelyKing }, #p1, #move { from = idx(4, 3); to = i
 };
 Debug.print("4. king both-directions OK");
 
-// ── 5. validate: mandatory capture blocks a plain move, and offers the
-//      jump instead ──────────────────────────────────────────────────────
+// ── 5. validate: mandatory capture blocks a plain move, and offers the jump
+//      instead ──────────────────────────────────────────────────────────────
 let captureBoard = withPieces([(idx(4, 3), #manP1), (idx(3, 2), #manP2)]);
 switch (R.validate({ board = captureBoard }, #p1, #move { from = idx(4, 3); to = idx(3, 4) })) {
   case (?_) {};
@@ -81,7 +78,7 @@ switch (R.validate({ board = captureBoard }, #p1, #jump { path = [idx(4, 3), idx
 };
 Debug.print("5. mandatory capture OK");
 
-// ── 6. validate: a capture chain must be completed with the same piece ──
+// ── 6. validate: a capture chain must be completed with the same piece ─────
 let chainBoard = withPieces([(idx(6, 1), #manP1), (idx(5, 2), #manP2), (idx(3, 4), #manP2)]);
 switch (R.validate({ board = chainBoard }, #p1, #jump { path = [idx(6, 1), idx(4, 3)] })) {
   case (?_) {};
@@ -93,7 +90,7 @@ switch (R.validate({ board = chainBoard }, #p1, #jump { path = [idx(6, 1), idx(4
 };
 Debug.print("6. maximal capture chain OK");
 
-// ── 7. resolve: a plain move relocates the piece, nothing else ──────────
+// ── 7. resolve: a plain move relocates the piece, nothing else ─────────────
 do {
   let r = R.resolve({ board = lonelyMan }, #p1, #move { from = idx(4, 3); to = idx(3, 2) });
   assert r.state.board[idx(4, 3)] == null;
@@ -104,7 +101,7 @@ do {
 };
 Debug.print("7. plain move OK");
 
-// ── 8. resolve: a capture removes the victim and can chain multiple ─────
+// ── 8. resolve: a capture removes the victim and can chain multiple ────────
 do {
   let r = R.resolve({ board = chainBoard }, #p1, #jump { path = [idx(6, 1), idx(4, 3), idx(2, 5)] });
   assert r.state.board[idx(6, 1)] == null; // origin cleared
@@ -115,8 +112,8 @@ do {
 };
 Debug.print("8. multi-jump chain OK");
 
-// ── 9. resolve: reaching the far row promotes, without ending the game
-//      if the opponent still has a move elsewhere ───────────────────────
+// ── 9. resolve: reaching the far row promotes, without ending the game if
+//      the opponent still has a move elsewhere ──────────────────────────────
 do {
   let board = withPieces([(idx(1, 2), #manP1), (idx(6, 1), #manP2)]);
   let r = R.resolve({ board }, #p1, #move { from = idx(1, 2); to = idx(0, 1) });
@@ -126,7 +123,7 @@ do {
 Debug.print("9. promotion without ending the game OK");
 
 // ── 10. resolve: a seat with pieces but no legal move at all still loses
-//       (stalemate, not just elimination) ────────────────────────────────
+//      (stalemate, not just elimination) ────────────────────────────────────
 do {
   // p2's lone piece at (0,7) has exactly one forward destination, (1,6) —
   // blocked by a p1 piece there, whose own landing square (2,5) is also
@@ -144,7 +141,7 @@ do {
 Debug.print("10. stalemate loss (pieces remain, but no legal move) OK");
 
 // ── 11. legalActions: plain moves when nobody has a capture, the SAME
-//        maximal chains `validate` accepts when a capture is mandatory ──
+//      maximal chains `validate` accepts when a capture is mandatory ────────
 do {
   assert R.legalActions(s0, #p1).size() == 7; // the standard opening's own count
   for (a in R.legalActions(s0, #p1).values()) {

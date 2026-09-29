@@ -1,10 +1,6 @@
-// A tiny in-memory stand-in for a canister wired with
-// `mo:duel-game-core/ws` — decodes each incoming `ws_message` app
-// request and, via `respond`, enqueues a matching `#view`/`#err` reply
-// (echoing `reqId` back verbatim, same as `ws.mo` does) into its own
-// outgoing queue for the next `ws_get_messages` poll to pick up. Good
-// enough to drive `GatewayWs`'s own request()/send() correlation logic
-// end to end without a real IC agent or canister.
+// A tiny in-memory stand-in for a canister wired with `mo:duel-game-core/ws`:
+// decodes each `ws_message` app request and enqueues a matching reply
+// (echoing `reqId`) for the next poll.
 
 import { IDL } from "@icp-sdk/core/candid";
 import { Principal } from "@icp-sdk/core/principal";
@@ -124,11 +120,8 @@ export class FakeCanister implements WsActor {
     return { Ok: null };
   }
 
-  /// Test-only: enqueue an unsolicited push (reqId omitted, same as
-  /// `ws.mo`'s `pushRelevant` broadcasting to the OTHER seat) — for
-  /// tests that need to interleave a genuine broadcast with a
-  /// `request()`'s own correlated reply. Requires `ws_open` to have run
-  /// at least once (needs a client_key to address).
+  /// Test-only: enqueue an unsolicited push (reqId omitted, same as `ws.mo`'s
+  /// `pushRelevant` broadcasting to the OTHER seat)
   pushUnsolicited(view: Status): void {
     if (!this.lastClientKey) throw new Error("FakeCanister: no client_key yet — call after ws_open");
     this._pushRaw(

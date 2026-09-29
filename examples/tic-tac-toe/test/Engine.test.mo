@@ -1,15 +1,6 @@
-// Tic-tac-toe rules plugged into the REAL engine (`Table`, not a
-// synthetic call to `validate`/`resolve` directly) — focused on what's
-// specific to an #alternating game: turn-order enforcement through
-// `submit`, and claim-win gated to the waiting seat. The engine's own
-// generic #alternating mechanics (Err.#notYourTurn, immediate
-// single-move resolve, claim-win gating, status's mode/turn reporting)
-// already have their own exhaustive suite in duel-game-core itself
-// (backend/test/Alternating.test.mo, against a trivial fixture) — this
-// suite is not a second copy of that, just confirmation that real
-// tic-tac-toe moves flow through the same machinery correctly.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/Engine.test.mo
+// Tic-tac-toe rules plugged into the real `Table`: turn-order enforcement,
+// immediate resolve, claim-win gated to the waiting seat, and an occupied-
+// cell resubmission refused.
 import TP "mo:duel-game-core";
 import Table "mo:duel-game-core/table";
 import Rules "../src/TicTacToeRules";
@@ -67,7 +58,7 @@ switch (t.status(spec, T0, "x")) {
 };
 Debug.print("1. #alternating status, X to move OK");
 
-// ── 2. O may not move before X ──────────────────────────────────────────────
+// ── 2. O may not move before X ─────────────────────────────────────────────
 t := gameOf(T0);
 switch (t.submit(spec, T0, "o", genOf(t, T0, "o"), turnOf(t, T0, "o"), #place { at = 0 })) {
   case (#err(#notYourTurn)) {};
@@ -75,7 +66,7 @@ switch (t.submit(spec, T0, "o", genOf(t, T0, "o"), turnOf(t, T0, "o"), #place { 
 };
 Debug.print("2. off-turn submit rejected OK");
 
-// ── 3. a legal opening resolves immediately and passes the turn ─────────────
+// ── 3. a legal opening resolves immediately and passes the turn ────────────
 t := gameOf(T0);
 switch (ok(t.submit(spec, T0, "x", genOf(t, T0, "x"), turnOf(t, T0, "x"), #place { at = 4 }), "x's opening")) {
   case (#roundResolved 1) {};
@@ -97,7 +88,7 @@ switch (t.submit(spec, T0, "x", genOf(t, T0, "x"), turnOf(t, T0, "x"), #place { 
 };
 Debug.print("3. opening + reply, turn alternates, occupied cell rejected OK");
 
-// ── 4. claim-win: only the waiting seat may claim, and only once overdue ────
+// ── 4. claim-win: only the waiting seat may claim, and only once overdue ───
 t := gameOf(T0);
 ignore ok(t.submit(spec, T0, "x", genOf(t, T0, "x"), turnOf(t, T0, "x"), #place { at = 4 }), "x's opening");
 let xGen = genOf(t, T0, "x");

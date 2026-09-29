@@ -1,8 +1,6 @@
-// One short session narrative, driven through the REAL engine end to
-// end: join, a full match to a decisive finish, rematch, a mid-game
-// leave, and idle takeover.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/Lifecycle.test.mo
+// One short session narrative, driven through the REAL engine end to end:
+// join, a full match to a decisive finish, rematch, a mid-game leave, and
+// idle takeover.
 import TP "mo:duel-game-core";
 import Table "mo:duel-game-core/table";
 import Rules "../src/RockPaperScissorsRules";
@@ -40,7 +38,7 @@ ignore ok(t.join(spec, tick(), "bob", #p2), "bob join");
 expectErr(t.join(spec, tick(), "carol", #p1), "carol join during game");
 Debug.print("1. join/lockout OK");
 
-// ── 2. A full match: alice wins 3 rounds to 0 ───────────────────────────────
+// ── 2. A full match: alice wins 3 rounds to 0 ──────────────────────────────
 ignore ok(t.submit(spec, tick(), "alice", genOf(now, "alice"), turnOf(now, "alice"), #rock), "alice r1");
 ignore ok(t.submit(spec, tick(), "bob", genOf(now, "bob"), turnOf(now, "bob"), #scissors), "bob r1");
 ignore ok(t.submit(spec, tick(), "alice", genOf(now, "alice"), turnOf(now, "alice"), #paper), "alice r2");
@@ -99,7 +97,7 @@ switch (t.status(spec, now, "alice")) {
 Debug.print("4. shared abort debrief OK");
 
 // ── 5. Idle takeover over an EXPIRED DEBRIEF: no #endedByOther (they saw
-//       their debrief already) — they just fall back to the lobby ──────────
+//      their debrief already) ───────────────────────────────────────────────
 now += 61_000_000_000; // 61s pass
 ignore ok(t.reset(now, "carol", 0), "carol reset after idle"); // outsider path
 ignore ok(t.join(spec, now, "carol", #p1), "carol joins after idle");

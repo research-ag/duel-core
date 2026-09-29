@@ -1,10 +1,4 @@
-// Per-operation unit checks for the generic engine. Where Lifecycle.test.mo
-// walks ONE long session narrative, this suite drives each entry point in
-// isolation on a FRESH table, covering the error variants, the takeover
-// gates and the status views that the narrative never reaches.
-// Plugged-in rules: FakeGame.mo, a minimal throwaway Spec that exists
-// purely to exercise the engine — not a real game.
-// Run: moc -r --package core <core/src> test/Engine.test.mo
+// Per-operation unit checks for the generic engine, against FakeGame.mo.
 import TP "../src/lib";
 import T "../src/types";
 import Table "../src/table";
@@ -35,10 +29,7 @@ func expectErr<T>(r : TP.Res<T>, msg : Text) = switch (r) {
 };
 
 /// Pulls the `gen` a real client would have to stamp onto a later
-/// `submit`/`leave`/`reset` off `session`'s own current view — see
-/// lib.mo's `Table.gen` doc. Only meaningful for a session actually in a
-/// live phase; a call made on behalf of an outsider passes a literal `0`
-/// instead (see those call sites' own comments for why that's fine).
+/// `submit`/`leave`/`reset` off `session`'s own current view
 func genOf(t : Tbl, at : Int, session : Text) : Nat = switch (t.status(spec, at, session)) {
   case (#stagingYou v) v.gen;
   case (#inGame v) v.gen;
@@ -108,11 +99,8 @@ switch (t.join(spec, SOON, "b", #p1)) {
   case (#err(#seatTaken)) {};
   case (_) Runtime.trap("a fresh seat must not be stealable");
 };
-// Once expired but before anyone actually evicts it, "a" still sees their
-// OWN #stagingYou (status()'s own-occupant branch never checks expiry) —
-// secondsUntilReclaimable clamps to 0 rather than going negative, which is
-// what a host's UI uses to switch from a quiet wait into an active warning
-// (see frontend/render.js's renderReclaimWarning).
+// Once expired but before anyone actually evicts it, "a" still sees their OWN
+// #stagingYou (status()'s own-occupant branch never checks expiry)
 switch (t.status(spec, LATER, "a")) {
   case (#stagingYou v) { assert v.secondsUntilReclaimable == 0 };
   case (_) Runtime.trap("a should still see their own staging until evicted");
@@ -218,7 +206,8 @@ switch (t.status(spec, T0, "b")) {
   case (#inGame g) { assert not g.youSubmitted; assert g.oppSubmitted };
   case (_) Runtime.trap("b is in the game");
 };
-// b has no resource: the attack is refused and b is still free to act this round.
+// b has no resource: the attack is refused and b is still free to act this
+// round.
 switch (t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #attack)) {
   case (#err(#illegalMove _)) {};
   case (_) Runtime.trap("0-resource attack must be refused");
@@ -276,8 +265,8 @@ switch (t.status(spec, T0, "a")) {
 };
 Debug.print("9. leave from staging / empty OK");
 
-// ── 9b. leave: a stale gen (from a match that's since moved on) is
-//         rejected, not silently applied to the CURRENT one ───────────────
+// ── 9b. leave: a stale gen (from a match that's since moved on) is rejected,
+//      not silently applied to the CURRENT one ──────────────────────────────
 t := gameOf(T0);
 let g9b = genOf(t, T0, "a");
 switch (t.leave(T0, "a", g9b + 1)) {
@@ -293,11 +282,8 @@ Debug.print("9b. leave rejects a stale gen OK");
 // ── 10. The debrief frees the board only when BOTH players dismiss it ──────
 t := debriefOf(T0);
 // Captured once, up front: once "a" acks below, `t.status(spec, T0, "a")`
-// stops being a live-phase view for a (see the #busy comment further
-// down) so `genOf` can no longer read it off a — but the debrief's own
-// `gen` doesn't change underneath a repeat/partner dismissal, so this
-// same value is still the right one to reuse for every `leave` call in
-// this whole section.
+// stops being a live-phase view for a (see the #busy comment further down) so
+// `genOf` can no longer read it off a
 let g10 = genOf(t, T0, "a");
 expectErr(t.leave(T0, "zz", 0), "outsider leave from debrief");
 ok(t.leave(T0, "a", g10), "a dismisses");
@@ -305,12 +291,7 @@ switch (t.status(spec, T0, "b")) {
   case (#debrief _) {};
   case (_) Runtime.trap("b has not dismissed yet");
 };
-// a's OWN status must stop showing the debrief it just dismissed — the
-// board itself legitimately stays #debrief (b might still want a
-// rematch), but a is no longer a participant of it as far as a's own
-// view is concerned. Before this, a kept seeing the exact same #debrief
-// screen — with live Rematch/Leave buttons — until b also left, giving
-// no sign the click had done anything ("Return to lobby" not working).
+// a's OWN status must stop showing the debrief it just dismissed
 switch (t.status(spec, T0, "a")) {
   case (#busy _) {};
   case (_) Runtime.trap("a should stop seeing its own dismissed debrief");
@@ -332,7 +313,7 @@ switch (t.status(spec, T0, "b")) {
 };
 Debug.print("10. debrief needs both acks, dismissal idempotent OK");
 
-// ── 11. reset: owner any time, outsider only once idle ────────────────────
+// ── 11. reset: owner any time, outsider only once idle ─────────────────────
 t := fresh();
 ignore ok(t.join(spec, T0, "a", #p1), "a stages");
 switch (t.reset(SOON, "zz", 0)) {
@@ -353,8 +334,8 @@ switch (t.status(spec, LATER, "zz")) {
 };
 Debug.print("11. reset gating OK");
 
-// ── 11b. reset: a stale gen from a participant is rejected, exactly like
-//         a stale `leave` (reset delegates straight to it) ────────────────
+// ── 11b. reset: a stale gen from a participant is rejected, exactly like a
+//      stale `leave` (reset delegates straight to it) ───────────────────────
 t := gameOf(T0);
 switch (t.reset(T0, "a", genOf(t, T0, "a") + 1)) {
   case (#err(#stale)) {};
@@ -431,11 +412,7 @@ switch (t.status(spec, LATER, "b")) {
 fresh().ackEnded("a"); // no game ever ended — must not trap
 Debug.print("14. ackEnded scoping OK");
 
-// ── 14b. lastEnded holds independent notices — a second vanished game on
-//         the same (now-free) board must not erase an earlier, still-
-//         unacked one. Regression for a real bug: `lastEnded` used to be a
-//         single slot, so noting the SECOND game silently dropped the
-//         first pair's #endedByOther notice if they hadn't acked yet ──────
+// ── 14b. lastEnded holds independent notices ───────────────────────────────
 t := gameOf(T0);
 ok(t.reset(LATER, "zz", 0), "outsider clears a's/b's dead game"); // outsider path
 let SECOND_START = LATER + 1_000_000_000; // board is free; a new pair joins
@@ -469,7 +446,7 @@ switch (t.status(spec, SECOND_IDLE, "c")) {
 Debug.print("14b. lastEnded keeps independent per-game notices OK");
 
 // ── 15. The reserved rematch partner may accept via `join`, not just
-//        `rematch` — both acceptance paths must work (CLAUDE.md rule 6) ───
+//      `rematch` ────────────────────────────────────────────────────────────
 t := debriefOf(T0);
 ignore ok(t.rematch(spec, T0, "a"), "a requests a rematch");
 switch (ok(t.join(spec, SOON, "b", #p2), "b accepts via join")) {
@@ -482,8 +459,8 @@ switch (t.status(spec, SOON, "b")) {
 };
 Debug.print("15. reserved partner accepts via join OK");
 
-// ── 16. An outsider's `join` during a live (unexpired) debrief is
-//        refused with a takeover countdown, not silently allowed ──────────
+// ── 16. An outsider's `join` during a live (unexpired) debrief is refused
+//      with a takeover countdown, not silently allowed ──────────────────────
 t := debriefOf(T0);
 switch (t.join(spec, SOON, "zz", #p1)) {
   case (#err(#notIdle n)) { assert n.secondsLeft == 59 };
@@ -492,8 +469,7 @@ switch (t.join(spec, SOON, "zz", #p1)) {
 Debug.print("16. outsider join during live debrief: #notIdle OK");
 
 // ── 17. reset() during a debrief: a participant's reset is ack-by-another-
-//        name (delegates to leave); an outsider is gated by the idle
-//        timeout like every other phase ────────────────────────────────────
+//      name (delegates to leave) ────────────────────────────────────────────
 t := debriefOf(T0);
 switch (t.reset(T0, "zz", 0)) {
   // outsider path never consults gen
@@ -560,13 +536,7 @@ switch (t.status(spec, LATER, "zz")) {
 };
 Debug.print("18b. sweep on #active OK");
 
-// #debrief: untouched before the timeout; after it, freed, and both
-// participants are pre-acked (they already saw their debrief) — same
-// asymmetry an outsider's join/reset already applies to an expired
-// debrief (see CLAUDE.md's architecture rule 7): unlike a stalled #active
-// game (18b, fresh #endedByOther — nobody has seen anything yet), a
-// swept debrief goes straight to #lobby, since both players already
-// saw their result.
+// #debrief: untouched before the timeout
 t := debriefOf(T0);
 t.sweep(SOON);
 switch (t.status(spec, SOON, "a")) {
@@ -588,15 +558,7 @@ switch (ok(t.join(spec, LATER, "a", #p1), "a re-joins after the sweep")) {
 };
 Debug.print("18c. sweep on #debrief OK");
 
-// ── 19. sweep also prunes a long-unacked #endedByOther notice — otherwise a
-//         session that's never coming back (a closed tab, most commonly)
-//         pins that notice in `lastEnded` forever, and at the `Registry`
-//         layer that alone keeps the whole table from ever being GC'd (see
-//         `Lobby.test.mo`'s own regression for the user-visible symptom: a
-//         table stuck reporting itself freshly "open" forever, even across
-//         an entirely different, cleanly-finished game played on the same
-//         freed board in between). A generous multiple of the idle timeout
-//         is a deliberately rare, low-stakes trade against waiting forever ──
+// ── 19. sweep also prunes a long-unacked #endedByOther notice ──────────────
 t := gameOf(T0);
 t.sweep(LATER); // a/b's game goes idle with nobody visiting; noteEnded fires
 switch (t.status(spec, LATER, "a")) {
@@ -618,15 +580,8 @@ switch (t.status(spec, LONG_AFTER, "a")) {
 Debug.print("19. sweep prunes a long-unacked #endedByOther notice OK");
 
 // ── 20. The concrete replay scenario `gen`-binding exists to close: a's
-//         `leave` from the FIRST match's debrief is delayed (e.g. a
-//         client-side resend of a call whose original attempt secretly
-//         already landed — see gateway-client.ts's `_queueResend` doc) and
-//         only reaches the engine AFTER a and b have already rematched and
-//         started a brand-new game. Session identity alone can't tell the
-//         two matches apart (same "a"/"b"); only `gen` can — the stale
-//         `leave` must be rejected, and the new game must survive
-//         untouched, instead of getting silently aborted out from under
-//         both players ────────────────────────────────────────────────────
+//      `leave` from the FIRST match's debrief is delayed (e.g. a client-side
+//      resend of a call whose original attempt secretly already landed ──────
 t := debriefOf(T0);
 let staleLeaveGen = genOf(t, T0, "a"); // captured as of the FIRST match's debrief
 ignore ok(t.rematch(spec, T0, "a"), "a requests a rematch");
@@ -649,13 +604,8 @@ switch (t.status(spec, T0, "b")) {
 };
 Debug.print("20. a stale cross-match leave is rejected, not replayed OK");
 
-// ── 21. rematch/join-veteran never reserves a seat for a partner who
-//         already acked (left) THIS debrief — regression: b clicking
-//         "Rematch" after a already clicked "Return to lobby" used to
-//         stage a seat reserved specifically for a, who is gone and never
-//         coming back — b then waited on an accept that could never
-//         arrive, and the reservation kept the staging hidden from
-//         `listTables` (see `Registry.openness`) the whole time too ─────
+// ── 21. rematch/join-veteran never reserves a seat for a partner who already
+//      acked (left) THIS debrief ────────────────────────────────────────────
 t := debriefOf(T0);
 ignore ok(t.leave(T0, "a", genOf(t, T0, "a")), "a returns to the lobby, acking their debrief");
 switch (ok(t.rematch(spec, T0, "b"), "b requests a rematch after a already left")) {
@@ -672,10 +622,7 @@ switch (ok(t.join(spec, T0, "c", #p1), "an unrelated outsider takes the open sea
 };
 Debug.print("21. a rematch never reserves a seat for an already-left partner OK");
 
-// ── 22. #awaitingRematch can be DECLINED, not just accepted or ignored —
-//         regression: there was no way to reject a rematch invitation at
-//         all; the reserved partner could only accept or silently let the
-//         countdown run out ─────────────────────────────────────────────
+// ── 22. #awaitingRematch can be DECLINED, not just accepted or ignored ─────
 t := debriefOf(T0);
 ignore ok(t.rematch(spec, T0, "a"), "a requests a rematch, reserving b's old seat");
 let declineGen = switch (t.status(spec, SOON, "b")) {
@@ -697,7 +644,7 @@ switch (ok(t.join(spec, SOON, "c", #p2), "an unrelated outsider takes the now-op
 };
 Debug.print("22. #awaitingRematch can be declined, freeing the seat immediately OK");
 
-// ── 23. claimWin: refused before you've submitted your own move ───────────
+// ── 23. claimWin: refused before you've submitted your own move ────────────
 t := gameOf(T0);
 switch (t.claimWin(spec, T0, "a", genOf(t, T0, "a"))) {
   case (#err(#wrongPhase _)) {};
@@ -705,7 +652,7 @@ switch (t.claimWin(spec, T0, "a", genOf(t, T0, "a"))) {
 };
 Debug.print("23. claimWin before submitting: #wrongPhase OK");
 
-// ── 24. claimWin: refused before the claim window has elapsed ─────────────
+// ── 24. claimWin: refused before the claim window has elapsed ──────────────
 t := gameOf(T0);
 let g24 = genOf(t, T0, "a");
 ignore ok(t.submit(spec, T0, "a", g24, turnOf(t, T0, "a"), #gather), "a moves, b doesn't");
@@ -723,8 +670,7 @@ switch (t.status(spec, SOON, "a")) {
 };
 Debug.print("24. claimWin before overdue: #notOverdue, status agrees OK");
 
-// ── 25. claimWin: succeeds once overdue — credits the claimant, leaves the
-//         game state exactly as it was (the opponent's move never came) ───
+// ── 25. claimWin: succeeds once overdue ────────────────────────────────────
 t := gameOf(T0);
 let g25 = genOf(t, T0, "a");
 ignore ok(t.submit(spec, T0, "a", g25, turnOf(t, T0, "a"), #gather), "a moves, b doesn't");
@@ -758,9 +704,7 @@ switch (t.status(spec, CLAIMABLE, "b")) {
 };
 Debug.print("25. claimWin once overdue: shared #claimed debrief, game state untouched OK");
 
-// ── 26. claimWin: gated the same way every other mutation is — an
-//         outsider, an empty/debrief board, and a stale gen are all
-//         refused ──────────────────────────────────────────────────────────
+// ── 26. claimWin: gated the same way every other mutation is ───────────────
 t := gameOf(T0);
 let g26 = genOf(t, T0, "a");
 ignore ok(t.submit(spec, T0, "a", g26, turnOf(t, T0, "a"), #gather), "a moves, b doesn't");

@@ -1,21 +1,7 @@
-// Proves the racing bot (`../bot/Bot.mo`/`BotLogic.mo`, the milestone-01
-// hardcoded-script canister player) two ways: (1) `BotLogic.SCRIPT_P1`
-// stays legal — RacingRules.validate-passing, no collision-forced illegal
-// move — for its own full length plus several rounds of the post-script
-// "hold the last entry" clamp, replayed against the REAL
-// `RacingRules.validate`/`resolve` (this is the permanent regression
-// guard for the numbers `BotLogic.mo`'s own doc comment says were
-// derived offline); and (2) wired live through
-// `mo:duel-game-core/canister_players`, a canister seated with this exact
-// bot logic drives several real rounds against a human opponent with no
-// illegal move and no trap, actually finishing the race by the time
-// SCRIPT_P1 runs out — the "testing offline" pattern
-// `../../../CLAUDE.md`'s "Canister players" note describes, using
-// `BotLogic.chooseMove` directly as the `callBot` continuation so no
-// actor/Candid round-trip (and no second, real canister) is needed here,
-// same as `backend/test/CanisterPlayers.test.mo` does for its own
-// FakeGame-backed suite.
-// Run: mops test Bot
+// Proves the racing bot: `SCRIPT_P1` stays legal against the real
+// `validate`/`resolve` for its full length plus the post-script clamp, and a
+// canister seated with it drives several real rounds against a human through
+// `canister_players`, finishing the race.
 import Debug "mo:core/Debug";
 import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
@@ -29,9 +15,8 @@ import Rules "../src/RacingRules";
 
 let spec = Rules.spec();
 
-// ── 1. SCRIPT (plus the post-script hold) stays legal for a real,
-//        collision-checked drive — not just the idealized no-wall
-//        recurrence it was originally derived from ───────────────────────
+// ── 1. SCRIPT (plus the post-script hold) stays legal for a real, collision-
+//      checked drive ────────────────────────────────────────────────────────
 do {
   var state = Rules.init("");
   var i = 0;
@@ -62,13 +47,8 @@ do {
 };
 Debug.print("1. BotLogic.SCRIPT_P1 stays legal for its own length plus the post-script hold, against real collision checks OK");
 
-// ── 2. wired live through canister_players.mo, the bot drives several
-//        rounds against a human with no illegal move — and, since the
-//        human sits completely still every round, SCRIPT_P1's own
-//        post-script cruise actually carries the bot across the finish
-//        line by the time its length runs out, ending the match with a
-//        real #finished(#p1Wins) debrief rather than staying #active
-//        forever ───────────────────────────────────────────────────────
+// ── 2. wired live through canister_players.mo, the bot drives several rounds
+//      against a human with no illegal move ─────────────────────────────────
 let TIMEOUT : Int = 300_000_000_000;
 let CLAIM_TIMEOUT : Int = 45_000_000_000;
 let T0 : Int = 1_000_000_000_000;

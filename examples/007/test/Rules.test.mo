@@ -1,5 +1,4 @@
 // Unit checks for the pure 007 rules.
-// Run: moc -r --package core <core/src> --package duel-game-core <backend/src> test/Rules.test.mo
 import R "../src/Duel007Rules";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";

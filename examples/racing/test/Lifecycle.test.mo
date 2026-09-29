@@ -1,6 +1,5 @@
 // Interpreter-run simulation of the full session lifecycle through the
 // generic engine with the racing rules plugged in.
-// Run: moc -r --package core <core/src> --package duel-game-core <backend/src> test/Lifecycle.test.mo
 import TP "mo:duel-game-core";
 import Table "mo:duel-game-core/table";
 import Rules "../src/RacingRules";
@@ -87,14 +86,7 @@ switch (t.status(spec, now, "bob")) {
 };
 Debug.print("4. rematch convergence OK");
 
-// ── 4b. A `leave` delayed across the rematch — the concrete scenario
-//        `gen`-binding exists to close (see
-//        ../../../frontend/src/ws/gateway-client.ts's `_queueResend`
-//        doc): alice's OWN session sends a `leave` that only reaches the
-//        engine after she's already rematched with bob and a brand-new
-//        game is live. Session identity alone can't tell the two matches
-//        apart; only `gen` can — this must come back `#stale`, and the
-//        live rematch must survive completely untouched ─────────────────
+// ── 4b. A `leave` delayed across the rematch ───────────────────────────────
 switch (t.leave(now, "alice", firstMatchGen)) {
   case (#err(#stale)) {};
   case (_) Runtime.trap("alice's stale leave from the FIRST match must not abort the rematch");
@@ -132,7 +124,7 @@ switch (t.status(spec, now, "bob")) {
 Debug.print("5. shared abort debrief OK");
 
 // ── 6. Idle takeover over an EXPIRED DEBRIEF: no #endedByOther (they saw
-//       their debrief already) — they just fall back to the lobby ──────────
+//      their debrief already) ───────────────────────────────────────────────
 expectErr(t.join(spec, tick(), "carol", #p1), "carol during debrief precedence");
 now += 61_000_000_000; // 61s pass
 ok(t.reset(now, "carol", 0), "carol reset after idle"); // outsider path

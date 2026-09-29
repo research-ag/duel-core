@@ -25,12 +25,6 @@ module {
 
   public func isExpired<S, M>(self : Table<S, M>, since : Int, now : Int) : Bool = now - since >= self.idleTimeoutNs;
 
-  /// Whether an opponent's move has stayed pending long enough (past
-  /// `claimTimeoutNs`, since `since` — the round's own `lastActivity`)
-  /// that the player waiting on it may `claimWin`. A separate clock from
-  /// `isExpired`/`idleTimeoutNs`: this one is about handing the WAITING
-  /// player a choice well before the board is simply reclaimed out from
-  /// under both of them.
   public func claimOverdue<S, M>(self : Table<S, M>, since : Int, now : Int) : Bool = now - since >= self.claimTimeoutNs;
 
   func secsLeftFor(timeoutNs : Int, since : Int, now : Int) : Nat {
@@ -40,73 +34,34 @@ module {
 
   public func secsLeft<S, M>(self : Table<S, M>, since : Int, now : Int) : Nat = secsLeftFor(self.idleTimeoutNs, since, now);
 
-  /// Countdown to `claimOverdue` turning true — the claim-win analogue of
-  /// `secsLeft`.
   public func claimSecsLeft<S, M>(self : Table<S, M>, since : Int, now : Int) : Nat = secsLeftFor(self.claimTimeoutNs, since, now);
 
-  /// Whose turn it is on an `#alternating`-mode table, given the match's
-  /// own round counter (`Active.turn`, already bumped once per resolved
-  /// round) — p1 always moves first (`turn == 0`), then it alternates.
-  /// Derived, never stored: an `#alternating` game's own `S` never needs
-  /// a turn flag of its own, and neither does `Active` — one fewer place
-  /// for the two to drift out of sync. Meaningless for a `#simultaneous`
-  /// table (both seats may submit any round); callers only ever consult
-  /// this inside an `#alternating` arm.
+  /// Whose turn on an `#alternating` table: p1 at `turn == 0`, then
+  /// alternating. Derived, never stored.
   public func toMove(turn : Nat) : T.Seat = if (turn % 2 == 0) #p1 else #p2;
 
-  /// The table's own configured idle timeout, in whole seconds — constant
-  /// for the table's lifetime. Handed to a client alongside a live
-  /// countdown (see `#inGame`'s own doc in types.mo) so it can derive its
-  /// own warning threshold instead of a host hardcoding a copy of this
-  /// number in its UI.
   public func idleTimeoutSecs<S, M>(self : Table<S, M>) : Nat = self.idleTimeoutNs.toNat() / 1_000_000_000;
 
-  /// Same, for the claim-win window.
   public func claimTimeoutSecs<S, M>(self : Table<S, M>) : Nat = self.claimTimeoutNs.toNat() / 1_000_000_000;
 
-  /// Like `Debrief.seat`, but a session that already acknowledged THIS
-  /// debrief (via `leave` — see its own doc) no longer counts as a
-  /// participant, even though the table's `phase` can still legitimately
-  /// be `#debrief` (it lingers until the OTHER participant also leaves,
-  /// or it expires, so a still-deciding partner keeps their rematch
-  /// option open). Used by every debrief-phase operation EXCEPT `leave`
-  /// itself (which must stay callable, idempotently, to ack in the first
-  /// place — see `push`'s dedup). Without this, a session that clicked
-  /// "leave" kept seeing the exact same `#debrief` view from `status`
-  /// until the partner also left, with no sign their own click had done
-  /// anything — indistinguishable from the button not working at all.
+  /// A session that already acked THIS debrief is no longer a participant
+  /// (rule 12, "leave means left"), even while the phase lingers for the
+  /// partner. Used by every debrief-phase operation except `leave` itself.
   public func activeDebriefSeat<S, M>(self : Table<S, M>, d : T.Debrief<S>, session : T.SessionId) : ?T.Seat {
     if (member(self.debriefAcked, session)) { null } else {
       getSessionSeat(d, session);
     };
   };
 
-  /// Who a rematch staging (from `join`'s veteran branch or `rematch`
-  /// itself) should hold the open seat for — the debrief's OTHER
-  /// participant, unless they already acked THIS debrief (via `leave`)
-  /// and are therefore not coming back to accept it (see
-  /// `activeDebriefSeat`'s own doc: that's exactly what an ack means).
-  /// `null` in that case, not the partner's id, so the caller opens a
-  /// plain unreserved staging instead — reserving a seat for someone who
-  /// already said "I'm done, back to lobby" would otherwise wait forever
-  /// for an accept that's never coming, and — worse, at the `Registry`
-  /// layer — stay hidden from `listTables` the whole time (see
-  /// `Registry.openness`'s own doc), since a reserved-and-unexpired
-  /// staging isn't browsable by design.
+  /// The partner to reserve a rematch seat for — `null` if they already
+  /// acked, so the staging opens unreserved instead of waiting forever.
   func rematchPartner<S, M>(self : Table<S, M>, d : T.Debrief<S>, session : T.SessionId) : ?T.SessionId {
     let partner = if (d.p1 == session) d.p2 else d.p1;
     if (member(self.debriefAcked, partner)) { null } else { ?partner };
   };
 
-  /// A game vanished without a debrief for these players — remember them so
-  /// `status` can show #endedByOther until they acknowledge. Appends rather
-  /// than replacing: this table's board is free again (`#empty`) the
-  /// instant this runs, so an entirely different pair can join, play, and
-  /// EVEN THIS SAME WAY vanish again before the first pair ever comes back
-  /// to ack — a single `?Ended` slot would silently drop the earlier
-  /// pair's notice the moment the second one landed. Skips recording an
-  /// entry that's already fully acked (the pre-acked-debrief-takeover
-  /// case) — nothing downstream ever needs one.
+  /// Appends (a freed board can host another vanished pair before the
+  /// first acks); skips an entry that is already fully acked.
   public func noteEnded<S, M>(self : Table<S, M>, now : Int, p1 : T.SessionId, p2 : T.SessionId, acked : [T.SessionId]) {
     if (member(acked, p1) and member(acked, p2)) return;
     self.lastEnded := self.lastEnded.concat([{ p1; p2; acked; since = now }]);
@@ -121,18 +76,9 @@ module {
     false;
   };
 
-  /// Whether `session` still has unfinished business AT THIS table worth
-  /// blocking a fresh `Registry.createTable`/`joinTable` elsewhere over —
-  /// an unexpired staging occupant, a live seat, an un-acked debrief
-  /// participant, or an unacked `#endedByOther` notice. Mirrors the exact
-  /// per-phase legitimacy `join`/`status` already apply above; the point
-  /// of pulling it out is `Registry.releaseIfStale`, which uses `false`
-  /// here to drop a `bySession` mapping the phase itself already moved
-  /// past — a staging timeout nobody else claimed (`sweep`), a squatter
-  /// evicted by someone else's `join`, or a debrief that expired
-  /// pre-acked (see `join`'s own `#debrief` doc) all leave `session`
-  /// mapped to a table it's no longer seated at, with no `leave`/`reset`/
-  /// `ackEnded` call ever coming to clear it.
+  /// Whether `session` still has unfinished business here — what
+  /// `Registry.releaseIfStale` uses to drop a `bySession` mapping the
+  /// phase itself already moved past.
   public func isStillSeated<S, M>(self : Table<S, M>, now : Int, session : T.SessionId) : Bool {
     switch (self.phase) {
       case (#empty) self.unackedEnded(session);
@@ -142,27 +88,12 @@ module {
     };
   };
 
-  /// A notice's own participant is never coming back to ack it (closed tab,
-  /// a session id that only ever lived client-side, ...) often enough that
-  /// `lastEnded` can't just wait forever — otherwise `Registry.gcIfQuiesced`
-  /// keeps ANY table with one dangling entry alive permanently: an `#empty`
-  /// table it applies to reports `waitingSecs = 0` on every single
-  /// `listTables` call (see `Registry.openness`'s `#empty` branch), so it
-  /// resurfaces in the lobby, looking freshly opened, forever — even across
-  /// entirely new, cleanly-finished games later played on the same board.
-  /// A generous multiple of the idle timeout is long enough that a player
-  /// who's actually coming back already would have by now, so dropping the
-  /// notice unacked here is a deliberately rare, low-stakes trade against
-  /// that alternative. Only ever called from `sweep` (a bare, unswept
-  /// `Table` simply never prunes — same as it never idle-evicts).
+  /// Drops notices nobody is plausibly coming back to ack; otherwise one
+  /// dangling entry pins an `#empty` table in the registry forever.
   func pruneEnded<S, M>(self : Table<S, M>, now : Int) {
     self.lastEnded := self.lastEnded.filter(func(e) = now - e.since < self.idleTimeoutNs * 10);
   };
 
-  /// `null` if `gen` still matches the table's current match generation;
-  /// `?#stale` otherwise. See `Table.gen`'s own doc for what this guards
-  /// against — call this before doing anything else in an operation that
-  /// takes a caller-supplied `gen`.
   public func checkGen<S, M>(self : Table<S, M>, gen : Nat) : ?T.Err = if (gen == self.gen) {
     null;
   } else { ?#stale };
@@ -172,11 +103,6 @@ module {
     self.phase := #staging { seat; session; reservedFor; since = now };
   };
 
-  /// `Spec.init`, regardless of which mode arm the game supplied — `init`
-  /// itself is identical in shape either way, so this is the one place
-  /// that reaches past the mode tag without any other mode-specific
-  /// behavior to dispatch on. `variant` is this table's own stored
-  /// `Table.variant` — opaque to the engine, handed straight through.
   func initOf<S, M>(spec : T.Spec<S, M>, variant : Text) : S = switch (spec) {
     case (#simultaneous simSpec) simSpec.init(variant);
     case (#alternating turnSpec) turnSpec.init(variant);
@@ -207,13 +133,10 @@ module {
     self.phase := #debrief { p1; p2; end; turns; finalGame; since = now };
   };
 
-  // ────────────────────────── operations ─────────────────────────────────────
-
-  /// Claim a seat. Handles: fresh joins, seat switching while staging alone,
-  /// idempotent re-joins, reservation enforcement (with expiry), squatter
-  /// eviction, idle takeover of a dead game, and fresh starts over an expired
-  /// debrief. A veteran joining from their own debrief starts a rematch
-  /// staging (equivalent to `rematch`, but lets them pick a different seat).
+  /// Claim a seat: fresh join, seat switch while staging alone, idempotent
+  /// re-join, reservation enforcement, squatter eviction, idle takeover,
+  /// fresh start over an expired debrief, or (for a debrief participant)
+  /// a rematch staging with a free choice of seat.
   public func join<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, seat : T.Seat) : T.Res<T.JoinOk> {
     switch (self.phase) {
 
@@ -224,9 +147,7 @@ module {
 
       case (#staging st) {
         if (st.session == session) {
-          if (st.seat == seat) { #ok(#staged(seat)) } // idempotent re-click
-          else {
-            // switch seats while alone; keep any reservation
+          if (st.seat == seat) { #ok(#staged(seat)) } else {
             self.phase := #staging {
               seat;
               session;
@@ -236,13 +157,11 @@ module {
             #ok(#staged(seat));
           };
         } else if (st.seat == seat) {
-          // seat held by someone else — evict only if the staging expired
           if (self.isExpired(st.since, now)) {
             self.stage(now, session, seat, null);
             #ok(#staged(seat));
           } else { #err(#seatTaken) };
         } else {
-          // the open seat
           switch (st.reservedFor) {
             case (?p) {
               if (p != session and not self.isExpired(st.since, now)) {
@@ -260,8 +179,6 @@ module {
         if (getSessionSeat(g, session).isSome()) {
           #err(#wrongPhase("you are already in the running game"));
         } else if (self.isExpired(g.lastActivity, now)) {
-          // idle takeover: the abandoned game evaporates; its players will
-          // see #endedByOther until they acknowledge
           self.noteEnded(now, g.p1, g.p2, []);
           self.stage(now, session, seat, null);
           #ok(#staged(seat));
@@ -273,20 +190,12 @@ module {
       case (#debrief d) {
         switch (self.activeDebriefSeat(d, session)) {
           case (?_) {
-            // veteran: joining from the debrief = starting a rematch staging,
-            // with a free choice of seat; the partner gets the reservation,
-            // unless they've already left (see `rematchPartner`'s own doc).
-            // (A session that already acked THIS debrief via `leave` falls
-            // through to `case null` below instead — having said "I'm
-            // done here", clicking a lobby seat shouldn't quietly turn
-            // into a rematch with the old partner.)
             self.stage(now, session, seat, self.rematchPartner(d, session));
             #ok(#staged(seat));
           };
           case null {
             if (self.isExpired(d.since, now)) {
-              // window over; debriefed players already saw their result
-              self.noteEnded(now, d.p1, d.p2, [d.p1, d.p2]);
+              self.noteEnded(now, d.p1, d.p2, [d.p1, d.p2]); // they already saw it
               self.stage(now, session, seat, null);
               #ok(#staged(seat));
             } else {
@@ -298,21 +207,14 @@ module {
     };
   };
 
-  /// One-click rematch. From a debrief (as a participant): stages a new game
-  /// on your previous seat with the open seat reserved for your partner —
-  /// unless they've already left (see `rematchPartner`'s own doc), in which
-  /// case the seat is left open to anyone instead of waiting on them.
-  /// From a staging reserved for you: seats you and starts the game.
-  /// Two simultaneous calls serialize into create-then-join — race-free.
+  /// From a debrief: stage a rematch on your previous seat, reserved for
+  /// the partner unless they already left. From a staging reserved for
+  /// you: start the game. Two simultaneous calls serialize into
+  /// create-then-join.
   public func rematch<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.Res<T.RematchOk> {
     switch (self.phase) {
 
       case (#debrief d) {
-        // A session that already acked THIS debrief via `leave` is
-        // treated as no longer a participant (see activeDebriefSeat's
-        // doc) — #notSeated below, same as any other outsider, rather
-        // than silently reviving a rematch with the old partner after
-        // they said they were done.
         switch (self.activeDebriefSeat(d, session)) {
           case (?mySeat) {
             self.stage(now, session, mySeat, self.rematchPartner(d, session));
@@ -323,8 +225,7 @@ module {
       };
 
       case (#staging st) {
-        if (st.session == session) { #ok(#awaitingPartner) } // idempotent
-        else if (st.reservedFor == ?session) {
+        if (st.session == session) { #ok(#awaitingPartner) } else if (st.reservedFor == ?session) {
           self.startGame(spec, now, st, session);
           #ok(#started);
         } else {
@@ -342,15 +243,8 @@ module {
     };
   };
 
-  /// Submit this round's move. `gen`/`turn` must match the match/round the
-  /// caller last observed (see `Table.gen`'s own doc) — this is what lets
-  /// a resent move whose original attempt secretly already resolved THIS
-  /// round (or ended the match entirely) come back `#stale` instead of
-  /// being replayed against whatever round/match happens to be current by
-  /// the time the resend is processed. Within the SAME round, a duplicate
-  /// submission is separately rejected via `#alreadySubmitted`, without
-  /// consuming the turn; legality is enforced via `spec.validate` for both
-  /// players. Resolves the round once both moves are in.
+  /// `gen`/`turn` must match what the caller last observed, so a resend
+  /// whose original already resolved this round comes back `#stale`.
   public func submit<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, gen : Nat, turn : Nat, move : M) : T.Res<T.SubmitOk> {
     switch (self.checkGen(gen)) {
       case (?e) return #err(e);
@@ -365,9 +259,6 @@ module {
         };
         switch (spec) {
 
-          // ── #simultaneous: unchanged behavior from before `Spec` grew
-          // a mode — stage this seat's move, resolve the round only
-          // once both are in.
           case (#simultaneous simSpec) {
             let myPending = switch (mySeat) {
               case (#p1) g.pending1;
@@ -396,8 +287,6 @@ module {
               };
               turn = g.turn;
               lastActivity = now;
-              // Not yet a resolve — carry every round-timing/history field
-              // forward unchanged; only a full resolve (below) moves them.
               roundStartedAt = g.roundStartedAt;
               lastMoveP1 = g.lastMoveP1;
               lastMoveP2 = g.lastMoveP2;
@@ -436,12 +325,7 @@ module {
             };
           };
 
-          // ── #alternating: only the seat currently `toMove` may submit
-          // (`Err.#notYourTurn` otherwise); their move resolves
-          // IMMEDIATELY — there is no second seat's move to wait on, so
-          // `pending1`/`pending2` stay `null` throughout. An alternating
-          // game never has a "round in progress" the way a simultaneous
-          // one does.
+          // Resolves immediately; `pending1`/`pending2` stay `null`.
           case (#alternating turnSpec) {
             if (mySeat != toMove(g.turn)) return #err(#notYourTurn);
             switch (turnSpec.validate(g.game, mySeat, move)) {
@@ -466,9 +350,6 @@ module {
                   turn = turns;
                   lastActivity = now;
                   roundStartedAt = now;
-                  // Only the seat that just moved gets a fresh entry —
-                  // the other seat's own last move carries over unchanged
-                  // until their next turn.
                   lastMoveP1 = switch (mySeat) {
                     case (#p1) ?move;
                     case (#p2) g.lastMoveP1;
@@ -489,25 +370,9 @@ module {
     };
   };
 
-  /// Claim victory when your opponent is overdue, and `claimTimeoutNs` has
-  /// elapsed since (`claimOverdue`, against the round's own
-  /// `lastActivity` — nothing else can touch that timestamp while the
-  /// round stays lopsided, since a resolve would already have moved the
-  /// phase on). Who counts as "overdue" depends on `spec`'s own mode:
-  /// `#simultaneous` — you've submitted this round's move and they
-  /// haven't; `#alternating` — it's currently their turn and yours has
-  /// passed, i.e. you're NOT `toMove` (the seat whose own turn it is may
-  /// never claim — they're the one holding up the game, not waiting on
-  /// it). Ends the match the same way `leave` does — a shared debrief,
-  /// `gen`-checked the same way (see `leave`'s own doc for why a stale
-  /// replay would otherwise be dangerous) — except the ending credits
-  /// the claimant instead of nobody (`#claimed`, not `#aborted`), and
-  /// the game itself is left exactly as `spec.resolve` last returned it:
-  /// nothing about `pending1`/`pending2`/`game` is touched, since the
-  /// opponent's move never actually arrived to resolve against. A purely
-  /// optional escape hatch, never automatic — nothing here or in `sweep`
-  /// ever calls this on a player's behalf; they keep the choice to give
-  /// their opponent more time instead.
+  /// The waiting seat ends the match with `#claimed` once the opponent's
+  /// move has been pending past `claimTimeoutNs`. `resolve` is not run;
+  /// the game state stays as it was. Never automatic.
   public func claimWin<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> {
     switch (self.checkGen(gen)) {
       case (?e) return #err(e);
@@ -548,26 +413,11 @@ module {
     };
   };
 
-  /// Leave. From your own staging: the board empties. From a staging that
-  /// holds the OPEN seat reserved for you (i.e. you're looking at
-  /// `#awaitingRematch`): declines the rematch — frees just your
-  /// reservation, not the whole board, so the requester's own staging
-  /// survives, now open to anyone (same as if the reservation had simply
-  /// expired, just without the wait). From a live game: BOTH players land
-  /// in a special `#aborted` debrief — the partner is told, in debrief
-  /// form, that you left. From a debrief: acknowledges it for you; when
-  /// both participants have left, the board frees early.
-  ///
-  /// `gen` must match the match the caller last observed (see `Table.gen`'s
-  /// own doc) in every phase but `#empty` — without this, a resent `leave`
-  /// whose original attempt secretly already landed (emptying a staging,
-  /// aborting a game, or acking a debrief) can resurface after the SAME
-  /// session has since started a brand-new match (most plausibly a
-  /// same-partner rematch) and silently wipe/abort/ack THAT one instead,
-  /// with no error at all — session identity alone can't tell an old
-  /// match's leave apart from a new one's. `#empty` skips the check: there
-  /// is nothing there for a stale leave to damage, and it must stay
-  /// callable unconditionally to keep this idempotent.
+  /// Own staging: empties the board. A staging reserved for you: declines
+  /// (clears just the reservation). Live game: shared `#aborted` debrief.
+  /// Debrief: acks it for you; the board frees once both have acked.
+  /// `gen`-checked in every phase but `#empty`, so a stale resend can't
+  /// wipe a newer match the same session later started.
   public func leave<S, M>(self : Table<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> {
     switch (self.phase) {
 
@@ -580,9 +430,6 @@ module {
           self.phase := #empty;
           #ok(());
         } else if (st.reservedFor == ?session) {
-          // decline: clear just the reservation — the requester's own
-          // staging survives, immediately open to anyone (see this
-          // function's own doc).
           self.phase := #staging {
             seat = st.seat;
             session = st.session;
@@ -616,7 +463,7 @@ module {
           case (?_) {
             self.debriefAcked := pushAck(self.debriefAcked, session);
             if (member(self.debriefAcked, d.p1) and member(self.debriefAcked, d.p2)) {
-              self.phase := #empty; // both are done — free the board early
+              self.phase := #empty;
               self.debriefAcked := [];
             };
             #ok(());
@@ -629,15 +476,8 @@ module {
     };
   };
 
-  /// Reset the board. Participants get leave-semantics (`gen`-checked, see
-  /// `leave`'s own doc — a stale participant reset is exactly as dangerous
-  /// as a stale `leave`, since this delegates straight to it); outsiders
-  /// are gated by the idle timeout instead (with a countdown in the error
-  /// until then) and never checked against `gen` — "free this board if
-  /// it's been idle long enough" is valid no matter how stale the request
-  /// making that observation is, since it's re-verified against the
-  /// CURRENT `expired(...)` right here, not against any state the caller
-  /// captured earlier.
+  /// Participants get `leave` semantics (`gen`-checked); outsiders are
+  /// gated by the idle timeout and never checked against `gen`.
   public func reset<S, M>(self : Table<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> {
     switch (self.phase) {
       case (#empty) #ok(());
@@ -658,7 +498,7 @@ module {
 
       case (#active g) {
         if (getSessionSeat(g, session).isSome()) {
-          self.leave(now, session, gen); // participant reset = abort with shared debrief
+          self.leave(now, session, gen);
         } else if (self.isExpired(g.lastActivity, now)) {
           self.noteEnded(now, g.p1, g.p2, []);
           self.phase := #empty;
@@ -672,7 +512,7 @@ module {
         if (getSessionSeat(d, session).isSome()) {
           self.leave(now, session, gen);
         } else if (self.isExpired(d.since, now)) {
-          self.noteEnded(now, d.p1, d.p2, [d.p1, d.p2]); // they saw their debrief
+          self.noteEnded(now, d.p1, d.p2, [d.p1, d.p2]);
           self.phase := #empty;
           #ok(());
         } else {
@@ -682,18 +522,8 @@ module {
     };
   };
 
-  /// Frees an idle board with no visitor required to trigger it — the same
-  /// eviction rule `join`/`reset` already apply to an outsider, just
-  /// callable with no session at all. Meant to be driven by a host's own
-  /// periodic timer (see README's wiring example): in a 2-player casual
-  /// game there is often nobody left to poll an abandoned board and
-  /// trigger the lazy, visitor-driven eviction those two functions do, so
-  /// without this a board both players walked away from just sits
-  /// occupied forever instead of freeing itself. Also prunes any
-  /// long-unacked `lastEnded` notices (see `pruneEnded`'s own doc) — the
-  /// only place that happens, so a bare `Table` driven by nothing but
-  /// `join`/`submit`/... directly never prunes, same as it never
-  /// idle-evicts on its own either.
+  /// Idle eviction with no visitor required, plus `pruneEnded`. Driven by
+  /// the host's periodic timer.
   public func sweep<S, M>(self : Table<S, M>, now : Int) {
     switch (self.phase) {
       case (#empty) {};
@@ -708,7 +538,7 @@ module {
       };
       case (#debrief d) {
         if (self.isExpired(d.since, now)) {
-          self.noteEnded(now, d.p1, d.p2, [d.p1, d.p2]); // they already saw it
+          self.noteEnded(now, d.p1, d.p2, [d.p1, d.p2]);
           self.phase := #empty;
         };
       };
@@ -716,11 +546,8 @@ module {
     self.pruneEnded(now);
   };
 
-  /// Acknowledge an #endedByOther notice (host wires this to "return to
-  /// base"). Only ever touches THIS session's own entry (if any) — a
-  /// board can carry more than one still-pending notice at once, see
-  /// `noteEnded`'s own doc — and drops that entry for good once every
-  /// participant it names has acked it.
+  /// Acks this session's own `#endedByOther` notice; the entry is dropped
+  /// once every participant it names has acked.
   public func ackEnded<S, M>(self : Table<S, M>, session : T.SessionId) {
     self.lastEnded := self.lastEnded.filterMap(
       func(e) {
@@ -733,12 +560,8 @@ module {
     );
   };
 
-  /// The one truthful, per-caller status view. Pure — safe as a query.
-  /// Takes `spec` (unlike most read-only helpers here) only because the
-  /// seated `#active` branch needs to know this table's own `Mode` to
-  /// report `View.#inGame.mode`/`youSubmitted`/`oppSubmitted` correctly
-  /// — still just data and pure functions, so this stays exactly as
-  /// side-effect-free as before.
+  /// Pure — safe as a query. Takes `spec` only to report `mode` and the
+  /// per-mode meaning of `youSubmitted`/`oppSubmitted`.
   public func status<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.View<S> {
     switch (self.phase) {
 
@@ -750,13 +573,8 @@ module {
 
       case (#staging st) {
         if (st.session == session) {
-          // This branch never checks `self.isExpired(st.since, now)` — the
-          // seat stays #stagingYou for its own occupant no matter how
-          // idle it's gone (only a THIRD PARTY's `join` actually evicts
-          // it, below). `secondsUntilReclaimable` is how that occupant
-          // learns they're on a clock at all — without it, a host's UI
-          // has nothing to warn "waiting for an opponent" with, and the
-          // seat can vanish out from under them with no notice.
+          // Never expires for its own occupant; only a third party's
+          // `join` evicts. `secondsUntilReclaimable` is their warning.
           #stagingYou {
             seat = st.seat;
             reservedForPartner = st.reservedFor.isSome();
@@ -785,14 +603,6 @@ module {
       case (#active g) {
         switch (getSessionSeat(g, session)) {
           case (?mySeat) {
-            // `#simultaneous`: whether each seat has locked in THIS
-            // round's move. `#alternating`: whether it's currently on
-            // you/the opponent to move — derived from `toMove`, never
-            // from `pending1`/`pending2` (always `null` in this mode).
-            // Either way, "you're the WAITING seat" reduces to the same
-            // `youSubmitted and not oppSubmitted` expression below, so
-            // `claimWinAvailable` needs no mode-specific formula of its
-            // own — see `Spec`'s own doc in types.mo for why.
             let mode : T.Mode = switch (spec) {
               case (#simultaneous _) #simultaneous;
               case (#alternating _) #alternating;
@@ -835,12 +645,6 @@ module {
       };
 
       case (#debrief d) {
-        // activeDebriefSeat (not plain seatInDebrief): once THIS session
-        // has acked its own debrief (see `leave`), it falls through to
-        // `case null` below exactly like a non-participant — otherwise
-        // "Return to lobby" kept showing the SAME #debrief view (nothing
-        // about d.p1/d.p2 membership changed) until the partner also
-        // left, giving no sign the click had done anything.
         switch (self.activeDebriefSeat(d, session)) {
           case (?mySeat) {
             #debrief {

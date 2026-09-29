@@ -19,13 +19,8 @@ async function waitFor(pred: () => boolean, timeoutMs = 2000): Promise<void> {
   }
 }
 
-/// Builds a GatewayWs wired to `canister` and registers `t.after()` to
-/// close it — UNCONDITIONALLY, even if the test throws/fails partway
-/// through. GatewayWs's poll loop runs on real (refed) timers, so a
-/// test that asserts-and-returns without ever calling close() leaves it
-/// running forever and the whole `node --test` process hangs waiting for
-/// the event loop to drain — a real failure mode hit while writing these
-/// tests, not a hypothetical one.
+/// Builds a GatewayWs wired to `canister` and registers `t.after()` to close
+/// it
 function makeWs(
   t: TestContext,
   canister: FakeCanister,
@@ -107,12 +102,9 @@ test("request(): resolves with its own correlated reply, unaffected by an interl
 });
 
 test("request(): a reply of #alreadySubmitted is reconciled into a fresh status view instead of surfaced as an error", async (t) => {
-  // Simulates the outcome of _queueResend() retrying a submit whose
-  // original attempt actually landed server-side: the resent copy comes
-  // back #alreadySubmitted, which must NOT be handed to the caller
-  // verbatim (see _isDuplicateSubmitError's own doc) — this test only
-  // exercises the reconciliation itself, not the resend plumbing that
-  // produces it in practice.
+  // Simulates the outcome of _queueResend() retrying a submit whose original
+  // attempt actually landed server-side: the resent copy comes back
+  // #alreadySubmitted, which must NOT be handed to the caller verbatim (see
   const canister = new FakeCanister();
   const freshView: Status = {
     atTable: {
@@ -213,13 +205,6 @@ test("request(): a move the Candid interface doesn't know rejects promptly with 
   // The 007 defect report's finding 07: reaching this path with a move
   // outside the IDL's known variants (only reachable by tampering with a
   // button's own data-act in a real client) used to throw synchronously
-  // INSIDE a detached `.then()` callback with nothing downstream to catch
-  // it — an unhandled rejection that left `request()`'s own OUTER promise
-  // (and so `app.js`'s `inFlight`) stuck until `requestTimeoutMs` finally
-  // expired, surfacing the wrong cause ("timed out waiting for a reply")
-  // entirely. `requestTimeoutMs` here is deliberately generous — this
-  // assertion only passes if the fix rejects well BEFORE it, not because
-  // it raced past it.
   const canister = new FakeCanister();
   const ws = makeWs(t, canister, { requestTimeoutMs: 5000 });
   const start = Date.now();

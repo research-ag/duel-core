@@ -1,7 +1,5 @@
 // Unit checks for ChopsticksRules' pure functions: init/validate/resolve
 // exercised directly against synthetic positions, no engine, no actor.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/RulesUnit.test.mo
 import R "../src/ChopsticksRules";
 import TP "mo:duel-game-core";
 import Debug "mo:core/Debug";
@@ -56,7 +54,7 @@ do {
 Debug.print("3. validate attack OK");
 
 // ── 4. validate split, classic: free, minus staying put / a pure swap / a
-//        hand of five or more; splitting down to 0 is allowed ───────────────
+//      hand of five or more ─────────────────────────────────────────────────
 do {
   let s = pos(#classic, (3, 1), (1, 1));
   legal(s, #p1, #split { l = 2; r = 2 }, "3+1 -> 2+2");
@@ -75,8 +73,8 @@ do {
 };
 Debug.print("4. validate split, classic OK");
 
-// ── 5. validate split, instructables: only one hand out AND the other
-//        even, and always exactly half to each ─────────────────────────────
+// ── 5. validate split, instructables: only one hand out AND the other even,
+//      and always exactly half to each ──────────────────────────────────────
 do {
   illegal(pos(#instructables, (3, 1), (1, 1)), #p1, #split { l = 2; r = 2 }, "both hands live");
   illegal(pos(#instructables, (0, 3), (1, 1)), #p1, #split { l = 1; r = 2 }, "odd live hand");
@@ -101,7 +99,7 @@ do {
 };
 Debug.print("6. resolve attack, classic OK");
 
-// ── 7. resolve attack, instructables: exactly 5 is out, above wraps mod 5 ──
+// ── 7. resolve attack, instructables: exactly 5 is out, above wraps mod 5 ───
 do {
   let r1 = R.resolve(pos(#instructables, (2, 1), (4, 3)), #p1, #attack { from = #l; to = #l });
   assert r1.state.p2 == { l = 1; r = 3 }; // 4 + 2 = 6 -> 1
@@ -112,7 +110,7 @@ do {
 };
 Debug.print("7. resolve attack, instructables OK");
 
-// ── 8. resolve: putting the opponent's last hand out wins, for either seat ─
+// ── 8. resolve: putting the opponent's last hand out wins, for either seat ───
 do {
   let r1 = R.resolve(pos(#classic, (2, 0), (3, 0)), #p1, #attack { from = #l; to = #l });
   assert r1.state.p2 == { l = 0; r = 0 };
@@ -126,7 +124,7 @@ do {
 };
 Debug.print("8. resolve win OK");
 
-// ── 9. resolve split: applies to the mover's own hands, never ends the game ─
+// ── 9. resolve split: applies to the mover's own hands, never ends the game ───
 do {
   let r = R.resolve(pos(#classic, (0, 4), (1, 1)), #p1, #split { l = 2; r = 2 });
   assert r.state.p1 == { l = 2; r = 2 };

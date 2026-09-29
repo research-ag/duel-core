@@ -1,19 +1,5 @@
-// GamePlugin for tic-tac-toe — the only game-specific piece the client
-// needs. Everything else (the multi-table lobby, staging, rematch,
-// debrief chrome, session identity, real-time push, turn-accurate copy
-// for an #alternating table) comes from the `duel-game-core` npm
-// package's generic `start()`/`renderView()` — see app.js.
-//
-// The `Action`/`State` Candid shapes below must mirror
-// `../src/TicTacToeRules.mo` exactly.
-//
-// Interaction model: click any empty cell to place your mark there —
-// unlike checkers, a tic-tac-toe move is never more than one cell, so
-// there's no multi-step selection state to track; every empty cell is
-// rendered directly as a real `<button data-act=...>` (`actionAttr()`),
-// submitted unchanged the instant it's clicked. `renderActions` returns
-// nothing (an empty string) — everything happens by clicking the board,
-// same as `examples/checkers/frontend/src/checkers-plugin.js`.
+// GamePlugin for tic-tac-toe. Candid shapes mirror ../src/TicTacToeRules.mo.
+// Every empty cell is a `data-act` button while it is your turn.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -50,16 +36,10 @@ export const plugin = {
     return SEAT_NAME[seat];
   },
 
-  // Called both for a live game (yourTurn set) and for a finished
-  // debrief's final state (yourTurn is `undefined` then — see
-  // GamePlugin's own doc — treated the same as `false`: a finished board
-  // is never clickable).
   renderBoard(gameState, _mySeat, _oppSeat, yourTurn) {
     return drawBoard(gameState.board, !!yourTurn);
   },
 
-  // Everything happens by clicking the board itself — no separate action
-  // panel needed.
   renderActions() {
     return "";
   },

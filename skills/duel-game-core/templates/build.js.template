@@ -1,8 +1,6 @@
-// The only "build" this frontend needs: bundle src/app.js (which pulls in
-// __PLUGIN_FILE__ and every duel-game-core/@icp-sdk module it imports)
-// into one dist/app.js, then copy the static assets alongside it. The
-// deployed asset canister carries only this dist/ output — no
-// node_modules directory of any kind.
+// Bundle src/app.js (which imports __PLUGIN_FILE__ and every
+// duel-game-core/@icp-sdk module) into dist/app.js, then copy the static
+// assets. icp.yaml deploys dist/ only.
 import * as esbuild from 'esbuild';
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
 

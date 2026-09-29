@@ -1,8 +1,5 @@
 // Unit checks for RockPaperScissorsRules' pure functions: init/validate/
-// resolve exercised directly, no engine, no actor. Covers both table-time
-// variants (Classic and Well) this game now merges into one Rules module.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/RulesUnit.test.mo
+// resolve exercised directly, no engine, no actor.
 import R "../src/RockPaperScissorsRules";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
@@ -13,8 +10,8 @@ func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
   r.state;
 };
 
-// ── 1. init(variant) picks the right rules, unrecognized text falls back
-//        to classic, and spec() hands out the same rules ──────────────────
+// ── 1. init(variant) picks the right rules, unrecognized text falls back to
+//      classic, and spec() hands out the same rules ─────────────────────────
 let s0 = R.init("");
 assert s0.p1Score == 0;
 assert s0.p2Score == 0;
@@ -30,8 +27,7 @@ let sp = switch (R.spec()) {
 assert sp.init("") == s0;
 Debug.print("1. init(variant) + spec wiring OK");
 
-// ── 2. validate: well is illegal in classic, legal in well; every other
-//        pick is always legal in both ─────────────────────────────────────
+// ── 2. validate: well is illegal in classic, legal in well ─────────────────
 switch (R.validate(s0, #p1, #well)) {
   case (?_) {};
   case null Runtime.trap("well must be illegal in classic mode");
@@ -50,11 +46,8 @@ switch (R.validate(s0Well, #p2, #scissors)) {
 };
 Debug.print("2. validate: well gated to well mode, everything else always legal OK");
 
-// ── 3. resolve: every one of the six distinct pairs has exactly one
-//        winner, and a tie scores nobody — independent of `variant`
-//        (resolve never branches on it; validate already kept an illegal
-//        well pick out of a classic match's moves before resolve ever
-//        sees them) ────────────────────────────────────────────────────────
+// ── 3. resolve: every one of the six distinct pairs has exactly one winner,
+//      and a tie scores nobody ──────────────────────────────────────────────
 do {
   let r = R.resolve(s0, #rock, #scissors);
   assert r.state.p1Score == 1 and r.state.p2Score == 0; // rock beats scissors

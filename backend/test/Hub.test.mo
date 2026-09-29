@@ -1,26 +1,5 @@
-// Unit checks for `ws.mo`'s `Hub` — the sid<->principal bridge behind
-// the real-time push transport. Isolated from the full `IcWebSocketCdk`
-// actor machinery (not exercisable in this interpreter harness): these
-// drive `Ws.remember`/`Ws.forget` directly against `Hub`'s two maps,
-// which is exactly where a real, previously-shipped bug lived —
-// "Your opponent walked away" appearing for a game neither player
-// actually left, right after ONE of them reloaded the page.
-//
-// A session's own principal is usually stable across a reload now (both
-// `ii:` and `an:` identities persist their keypair — see
-// `frontend/src/identity.ts`), but a genuinely new principal can still
-// show up under the SAME `sid` — a first-ever load before a persisted
-// identity exists yet, or a login/logout swap. Either way this is
-// exactly the case `remember`/`forget` have to get right: the OLD
-// principal's belated `ws_close` (its own `pagehide`-driven goodbye has
-// no guarantee of landing before the new page's own `ws_open` does) must
-// not be allowed to erase the fresher registration.
-//
-// Test 16 covers the mirror case: the SAME principal switching to a
-// DIFFERENT sid on one still-live connection (an in-place "new sid" swap,
-// no reconnect) — the old sid's `bySid` entry must also be scrubbed, or
-// it lingers and gets mistaken for a second browsing session.
-// Run: moc -r --package core <core/src> --package ic-websocket-cdk <cdk/src> ... test/Hub.test.mo
+// Unit checks for `ws.mo`'s `Hub` and its other pure helpers, driven directly
+// against its maps.
 import Ws "../src/ws";
 import TP "../src/lib";
 import Map "mo:core/Map";
@@ -58,7 +37,7 @@ func expectPrincipal(hub : Ws.Hub, p : Principal.Principal, want : ?Text, msg : 
   if (not matches) Runtime.trap(msg # ": byPrincipal mismatch");
 };
 
-// ── 1. remember(): a fresh sid registers cleanly in both directions ────
+// ── 1. remember(): a fresh sid registers cleanly in both directions ────────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA);
@@ -67,11 +46,9 @@ do {
   Debug.print("1. remember() on a fresh sid OK");
 };
 
-// ── 2. remember(): re-registering the SAME sid under a NEW principal
-//      (a page reload) updates bySid AND scrubs the OLD principal's own
-//      reverse mapping — the fix's core guarantee. Before the fix,
-//      byPrincipal[PA] would still be "sid-1" here.
-// ────────────────────────────────────────────────────────────────────
+// ── 2. remember(): re-registering the SAME sid under a NEW principal (a page
+//      reload) updates bySid AND scrubs the OLD principal's own reverse
+//      mapping ──────────────────────────────────────────────────────────────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA); // first connection
@@ -82,13 +59,8 @@ do {
   Debug.print("2. remember() on a reconnect scrubs the stale reverse mapping OK");
 };
 
-// ── 3. forget(): a belated close for the OLD (already-superseded)
-//      principal must NOT erase the fresher registration. This is the
-//      exact bug: `onClose` for a stale, abandoned connection silently
-//      wiping out `bySid[sid]` — which the session's CURRENT, live
-//      connection still needs — and going on to (wrongly) run
-//      `disconnectSession` on a player who never actually left.
-// ────────────────────────────────────────────────────────────────────
+// ── 3. forget(): a belated close for the OLD (already-superseded) principal
+//      must NOT erase the fresher registration. ─────────────────────────────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA);
@@ -99,10 +71,7 @@ do {
   Debug.print("3. forget() on a stale, superseded principal is a no-op on the live mapping OK");
 };
 
-// ── 4. forget(): forgetting the CURRENT principal still works normally
-//      — the guard in #3 must not turn this into a no-op across the
-//      board.
-// ────────────────────────────────────────────────────────────────────
+// ── 4. forget(): forgetting the CURRENT principal still works normally ─────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA);
@@ -112,10 +81,7 @@ do {
   Debug.print("4. forget() on the live principal still frees the sid OK");
 };
 
-// ── 5. An unrelated sid/principal pair is untouched by any of the
-//      above — the fix must stay scoped to the one sid being
-//      reconnected/forgotten.
-// ────────────────────────────────────────────────────────────────────
+// ── 5. An unrelated sid/principal pair is untouched by any of the above ────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA);
@@ -127,10 +93,9 @@ do {
   Debug.print("5. an unrelated sid/principal pair is unaffected OK");
 };
 
-// ── 6. Idempotent remember(): calling it again with the SAME principal
-//      (e.g. a redundant re-registration within one connection's life,
-//      not a reload) must not scrub its own mapping.
-// ────────────────────────────────────────────────────────────────────
+// ── 6. Idempotent remember(): calling it again with the SAME principal (e.g.
+//      a redundant re-registration within one connection's life, not a
+//      reload) must not scrub its own mapping. ──────────────────────────────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA);
@@ -140,10 +105,9 @@ do {
   Debug.print("6. remember() is idempotent for an unchanged principal OK");
 };
 
-// ── 7. A THIRD reconnect (two reloads in a row) still only ever leaves
-//      the latest principal live, with every earlier one's reverse
-//      mapping gone.
-// ────────────────────────────────────────────────────────────────────
+// ── 7. A THIRD reconnect (two reloads in a row) still only ever leaves the
+//      latest principal live, with every earlier one's reverse mapping gone.
+// ───
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA);
@@ -162,14 +126,7 @@ do {
 };
 
 // ── 8. generation(): starts at 0 for an unknown sid, and bumps on EVERY
-//      remember() call for a sid — even an idempotent one under the SAME
-//      principal (a same-tab reconnect: `SelfGatewayTransport` reuses one
-//      fixed principal for its whole lifetime, only the client_key nonce
-//      changes on reopen — see `ws.mo`'s `Hub.generation` doc). This is
-//      the extra signal `onClose`'s deferred-close check needs, since
-//      `bySid`/`byPrincipal` alone don't change at all across such a
-//      reconnect (tests 9/10 below exercise the actual race).
-// ────────────────────────────────────────────────────────────────────
+//      remember() call for a sid ────────────────────────────────────────────
 do {
   let hub = Ws.createHub();
   if (Ws.generationOf(hub, "sid-1") != 0) Runtime.trap("8a: unknown sid must start at generation 0");
@@ -182,18 +139,8 @@ do {
   Debug.print("8. generationOf() bumps on every remember(), idempotent or not OK");
 };
 
-// ── 9. The actual race `ws.mo`'s `onClose`/`finishClose` defer against:
-//      old ws_close, new ws_open, new connection's first #req — IN THAT
-//      ORDER. `onClose` captures `generationOf(hub, sid)` the moment the
-//      stale close is first processed (BEFORE the reconnect's own first
-//      #req has landed, since the close arrives first in this ordering);
-//      `finishClose` re-checks it after the deferred grace period. This
-//      models both halves directly against `Hub`, without a real
-//      `IcWebSocketCdk`/`Timer` — a same-tab reconnect keeps the SAME
-//      principal (unlike tests 2/3/7's page-reload scenarios), so
-//      `forget()`'s own curP==p guard does NOT protect this case on its
-//      own — the generation check is what must catch it instead.
-// ────────────────────────────────────────────────────────────────────
+// ── 9. The actual race `ws.mo`'s `onClose`/`finishClose` defer against: old
+//      ws_close, new ws_open, new connection's first #req ───────────────────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA); // the original, still-active connection
@@ -217,11 +164,8 @@ do {
   Debug.print("9. old-close/new-open/new-#req race: the generation check catches the stale close OK");
 };
 
-// ── 10. The inverse of 9: a GENUINE departure (no reconnect ever
-//       follows) must NOT be swallowed by this same mechanism — the
-//       generation onClose captured must still match once the deferred
-//       check runs, so `finishClose` still proceeds with the disconnect.
-// ────────────────────────────────────────────────────────────────────
+// ── 10. The inverse of 9: a GENUINE departure (no reconnect ever follows)
+//      must NOT be swallowed by this same mechanism ─────────────────────────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA);
@@ -234,13 +178,7 @@ do {
 };
 
 // ── 11. `finishClose`'s own generation prune, modeled directly: once a
-//       genuine departure (test 10's scenario) has run its course — the
-//       deferred re-check still matches `seenGen` — the sid's
-//       `generation` entry is removed outright, not left to accumulate
-//       forever. `generationOf` reading 0 afterward (its "never
-//       remembered" default) confirms the entry is actually gone, not
-//       just reset in place.
-// ────────────────────────────────────────────────────────────────────
+//      genuine departure (test 10's scenario) has run its course ────────────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA);
@@ -257,13 +195,9 @@ do {
   Debug.print("11. finishClose's generation prune removes a genuinely-departed sid's entry OK");
 };
 
-// ── 12. The inverse of 11: a reconnect landing AFTER `finishClose`'s
-//       initial check passed but BEFORE its own deferred re-check runs
-//       (i.e. during the `await`s in between) must stop the prune —
-//       removing the entry here would silently reset a STILL-BUMPED
-//       counter back to 0, letting some later, already-superseded
-//       close wrongly match it again.
-// ────────────────────────────────────────────────────────────────────
+// ── 12. The inverse of 11: a reconnect landing AFTER `finishClose`'s initial
+//      check passed but BEFORE its own deferred re-check runs (i.e. during
+//      the `await`s in between) must stop the prune ─────────────────────────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA);
@@ -284,10 +218,7 @@ do {
   Debug.print("12. a reconnect racing finishClose's own prune keeps its bumped generation OK");
 };
 
-// ── 13. sidForPrincipal(): a pure, deterministic mapping — same principal
-//       always yields the same sid, and it lands in the reserved
-//       namespace (see this module's own doc header).
-// ────────────────────────────────────────────────────────────────────
+// ── 13. sidForPrincipal(): a pure, deterministic mapping ───────────────────
 do {
   let sidA = Ws.sidForPrincipal(PA);
   if (sidA != Ws.sidForPrincipal(PA)) {
@@ -302,11 +233,7 @@ do {
   Debug.print("13. sidForPrincipal() is a pure, collision-free, namespaced mapping OK");
 };
 
-// ── 14. isAuthorizedSid(): the reserved namespace is enforced — only the
-//       OWNING principal's own request may use its own principal-bound
-//       sid; any other caller (even one already remembered under some
-//       other, unrelated sid) is rejected.
-// ────────────────────────────────────────────────────────────────────
+// ── 14. isAuthorizedSid(): the reserved namespace is enforced ──────────────
 do {
   let sid = Ws.sidForPrincipal(PA);
   if (not Ws.isAuthorizedSid(sid, PA)) {
@@ -318,13 +245,8 @@ do {
   Debug.print("14. isAuthorizedSid() enforces the reserved namespace's own owner OK");
 };
 
-// ── 15. isAuthorizedSid(): the ANON_SID_PREFIX ("an:") namespace is
-//       enforced exactly the same way as PRINCIPAL_SID_PREFIX ("ii:") —
-//       and a sid in neither reserved namespace is rejected outright for
-//       every principal, since every legal sid must now be
-//       principal-bound. There is no more fully-decoupled, plain-text
-//       tier.
-// ────────────────────────────────────────────────────────────────────
+// ── 15. isAuthorizedSid(): the ANON_SID_PREFIX ("an:") namespace is enforced
+//      exactly the same way as PRINCIPAL_SID_PREFIX ("ii:") ─────────────────
 do {
   let anonSid = Ws.sidFor(Ws.ANON_SID_PREFIX, PA);
   if (not anonSid.startsWith(#text(Ws.ANON_SID_PREFIX))) {
@@ -345,10 +267,9 @@ do {
   Debug.print("15. isAuthorizedSid() enforces ANON_SID_PREFIX the same way, and rejects every unrecognized sid OK");
 };
 
-// ── 16. remember(): the SAME principal switching to a DIFFERENT sid (an
-//       in-place "new sid" swap, no reconnect) must scrub the OLD sid's
-//       own `bySid` entry, not just repoint `byPrincipal`.
-// ────────────────────────────────────────────────────────────────────
+// ── 16. remember(): the SAME principal switching to a DIFFERENT sid (an in-
+//      place "new sid" swap, no reconnect) must scrub the OLD sid's own
+//      `bySid` entry, not just repoint `byPrincipal`. ───────────────────────
 do {
   let hub = Ws.createHub();
   Ws.remember(hub, "sid-1", PA); // this tab's original sid
@@ -359,14 +280,9 @@ do {
   Debug.print("16. remember() on a same-connection sid swap scrubs the old sid's bySid entry OK");
 };
 
-// ── 17. playerKey(): strips a recognized namespace prefix down to the
-//       bare principal text, for a host that wants to key something
-//       (e.g. `mo:duel-game-core/leaderboard`) per PLAYER rather than per
-//       session — and leaves anything outside those two namespaces (most
-//       notably a `cp:` canister-player session, deliberately per-table,
-//       not per-player) untouched, since this module has no business
-//       knowing `canister_players.mo` exists.
-// ────────────────────────────────────────────────────────────────────
+// ── 17. playerKey(): strips a recognized namespace prefix down to the bare
+//      principal text, for a host that wants to key something (e.g. `mo:duel-
+//      game-core/leaderboard`) per PLAYER rather than per session ───────────
 do {
   let iiSid = Ws.sidForPrincipal(PA);
   let anSid = Ws.sidFor(Ws.ANON_SID_PREFIX, PA);
@@ -382,13 +298,7 @@ do {
   Debug.print("17. playerKey() strips ii:/an: prefixes and leaves anything else alone OK");
 };
 
-// ── 18. isFreshMatch(): the field combination `OnGameStarted` fires on —
-//       true only for a brand-new match (turn 0, nobody's move pending,
-//       touched THIS instant), false for every other shape an `Active`
-//       record can take (a later round, a pending first submit, or an
-//       untouched table caught by an unrelated call at a different
-//       `now`).
-// ────────────────────────────────────────────────────────────────────
+// ── 18. isFreshMatch(): the field combination `OnGameStarted` fires on ─────
 do {
   func active(pending1 : ?Nat, pending2 : ?Nat, turn : Nat, lastActivity : Int) : TP.Active<Nat, Nat> = {
     p1 = "sid-1";

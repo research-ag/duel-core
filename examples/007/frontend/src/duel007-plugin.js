@@ -1,12 +1,5 @@
-// GamePlugin for the 007 duel — the only game-specific piece the client
-// needs. Everything else (lobby, staging, rematch, debrief chrome, session
-// identity, real-time push) comes from the `duel-game-core` npm package's
-// generic `start()`/`renderView()` — see app.js.
-//
-// The `Action`/`State` Candid shapes and the LOAD/SHOOT/SHIELD/MIRROR rules
-// they describe must mirror `../Duel007Rules.mo` exactly; `legal()` below
-// is a cosmetic echo of that module's `validate` (CLAUDE.md architecture
-// rule 4 — the server is the only real legality gate).
+// GamePlugin for the 007 duel. Candid shapes mirror ../Duel007Rules.mo;
+// `legal()` is a cosmetic echo of that module's `validate`.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -49,7 +42,6 @@ function pips(filled, total, cls) {
 function statsPanel(who, seat, st, opts = {}) {
   const charged = st.charge >= LASER_CHARGE;
   const broken = st.shieldHits >= SHIELD_CAPACITY;
-  // `charge` keeps counting past 5, so clamp the pip row.
   const chargePips = st.charge > LASER_CHARGE ? LASER_CHARGE : st.charge;
   const shieldLeft = SHIELD_CAPACITY - (broken ? SHIELD_CAPACITY : st.shieldHits);
   return `
@@ -126,12 +118,7 @@ export const plugin = {
     return SEAT_NAME[seat];
   },
 
-  // Called both for a live game and for a finished debrief's final state.
-  // render.js already wraps this in a `.board` div — the two-panel grid
-  // gets its own `.agents` class so the narration paragraph above it
-  // doesn't become a stray third grid cell. Panels are always ordered
-  // BOND (p1) left, SILVA (p2) right, regardless of which seat is mine —
-  // only the "You"/"Opponent" label and the `self` styling follow mySeat.
+  // Panels are always BOND left, SILVA right; only the label follows mySeat.
   renderBoard(gameState, mySeat, oppSeat) {
     const panel = (seat) =>
       statsPanel(seat === mySeat ? "You" : "Opponent", seat, gameState[seat], {

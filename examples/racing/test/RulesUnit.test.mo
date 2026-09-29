@@ -1,8 +1,6 @@
-// Unit checks for the pure racing rules that Rules.test.mo's scenario walk
-// misses: nextStepArea's shape, the reverse-never-crashes carve-out, the
-// lap-decrement guard, and validate() driven from synthetic states ordinary
-// play cannot reach. Run: moc -r --package core <core/src>
-// --package duel-game-core <backend/src> test/RulesUnit.test.mo
+// Unit checks for the pure racing rules that Rules.test.mo misses:
+// nextStepArea's shape, the reverse-never-crashes carve-out, the lap-
+// decrement guard, and validate() from synthetic states.
 import R "../src/RacingRules";
 import Float "mo:core/Float";
 import Debug "mo:core/Debug";
@@ -11,11 +9,7 @@ import Runtime "mo:core/Runtime";
 let PI : Float = 3.14159265358979323846;
 let STILL : R.Action = { l = 0.0; c = 0.0 };
 
-// Same spot on Track.roadPath's wrap segment Rules.test.mo uses — see that
-// file's `nearFinish` for how these numbers were derived. lap = 1 (not 0):
-// the starting grid sits right before this spot, so a real race already
-// has lap = 1 after its first move (a free crossing, not a real lap) —
-// see RacingRules.mo's `resolve` comment.
+// Same spot on Track.roadPath's wrap segment Rules.test.mo uses
 func nearFinish() : R.CarState = {
   position = (101.5761, -19.8641);
   rotation = 1.4090;

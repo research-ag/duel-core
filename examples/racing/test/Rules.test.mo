@@ -1,18 +1,9 @@
-// Scenario walk of the headline racing rules. Run: moc -r RacingRules.test.mo
+// Scenario walk of the headline racing rules.
 import R "../src/RacingRules";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
-// A car one small step from the finish line, on lap 1 — the starting grid
-// sits right before this same spot (see RacingRules.mo's `resolve`
-// comment), so every real race already has lap = 1 after its very first
-// move (a free crossing, not a real lap); this crossing — the second — is
-// the one that completes an actual lap and (LAPS_TO_WIN is 1, checked as
-// `lap > LAPS_TO_WIN`) wins. Used to reach a #p1Wins / #p2Wins / #draw
-// verdict without having to actually drive a full lap around the real
-// track in a test. Position and heading sit right on Track.roadPath's
-// wrap segment (last point → first point); `distanceFromStart` matches
-// that spot, ~99.6% of the way around.
+// A car one small step from the finish line, on lap 1
 func nearFinish() : R.CarState = {
   position = (101.5761, -19.8641);
   rotation = 1.4090;
@@ -90,7 +81,7 @@ switch (R.validate(s, #p1, { l = 1.0; c = 0.0 })) {
 };
 Debug.print("4. crash → 2-step recovery penalty OK");
 
-// ── 5. Completing the lap wins ──────────────────────────────────────────────
+// ── 5. Completing the lap wins ─────────────────────────────────────────────
 let winState : R.State = { p1 = nearFinish(); p2 = idleCar(); step = 40 };
 let win = R.resolve(winState, { l = 5.0; c = 0.0 }, STILL);
 switch (win.verdict) {

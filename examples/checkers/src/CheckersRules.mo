@@ -1,54 +1,24 @@
-/// ═══════════════════════════════════════════════════════════════════════════
-/// CheckersRules — standard English draughts, as a pure module.
+/// CheckersRules — standard English draughts, as a pure `#alternating`
+/// module. #p1 = Black (rows 5–7, moving toward row 0), #p2 = Red (rows
+/// 0–2, moving toward row 7). 8x8, row-major (`index = row*8 + col`), dark
+/// squares (`(row+col)` odd) only.
 ///
-/// No actor, no shared functions, no storage, no Time — just the rules.
-/// Plugs into the generic `duel-game-core` engine via `spec()`:
-///
-///   TP.Spec<State, Action> = #alternating { init; validate; resolve }
-///
-/// Seats take turns in order (p1 moves first — see lib.mo's `Table.toMove`
-/// doc); there is no "whose turn" flag in `State` because the engine
-/// already tracks that. Seat mapping: #p1 = Black, starting on rows 5-7 and
-/// moving toward row 0; #p2 = Red, starting on rows 0-2 and moving
-/// toward row 7. The board is 8x8, row-major (`index = row*8 + col`),
-/// only the dark squares (`(row+col)` odd) ever hold a piece.
-///
-/// ── Rules ──────────────────────────────────────────────────────────────────
-///   MOVE  a man moves one square diagonally FORWARD (toward its own back
-///         row) onto an empty square; a king moves one square diagonally
-///         in ANY of the four directions.
+/// Rules:
+///   MOVE  a man moves one square diagonally FORWARD onto an empty square;
+///         a king moves one square diagonally in ANY direction.
 ///   JUMP  a man captures by jumping an adjacent enemy piece — forward
-///         only — landing on the empty square immediately beyond; a king
-///         captures in any direction. Capturing is MANDATORY: if the
-///         seat to move has any legal capture available (with any of
-///         their own pieces), only a #jump is legal, never a plain
-///         #move. A single #jump submission carries the WHOLE capture
-///         chain (every square the piece lands on, start to finish) —
-///         the engine resolves one full turn per submission, so a
-///         multi-jump combo can't be split across several `submit`
-///         calls the way it would be across several physical clicks.
-///         The chain must be maximal: it's illegal to stop partway
-///         through if the same piece could still capture again from
-///         where it landed.
-///   KING  a man that reaches the far row (row 0 for Black, row 7 for
-///         Red) is promoted once its full move — the whole capture
-///         chain, for a multi-jump — resolves and it ends there.
-///   WIN   a seat with no legal move at all on their own turn (no pieces
-///         left, or every piece blocked) loses.
+///         only — onto the empty square beyond; a king in any direction.
+///         Capturing is MANDATORY: if the seat to move has any capture,
+///         only a #jump is legal. A single #jump carries the WHOLE chain
+///         (every landing square), and the chain must be maximal.
+///   KING  a man reaching the far row is promoted once its full move
+///         resolves and ends there.
+///   WIN   a seat with no legal move on their turn loses.
 ///
-/// ── Deliberate simplifications (see the duel-game-core skill's porting
-///    guidance) ──────────────────────────────────────────────────────────
-///   - Mandatory capture only requires SOME capture be taken — not the
-///     capture sequence with the most pieces taken among several
-///     options, a stricter rule some rule sets additionally enforce.
-///   - A man's own kind is used for the WHOLE capture chain it's
-///     currently making, even if an intermediate landing square is its
-///     own back row — i.e. no mid-chain promotion. Promotion is checked
-///     only once, against the chain's FINAL landing square.
-///   - No draw condition (by repetition, or a move cap with no capture)
-///     is implemented — a game only ends by one seat running out of
-///     legal moves.
-/// ═══════════════════════════════════════════════════════════════════════════
+/// Deliberate simplifications:
+///   - Mandatory capture only requires SOME capture, not the longest.
+///   - No mid-chain promotion; only the final landing square is checked.
+///   - No draw condition.
 
 import TP "mo:duel-game-core";
 import Array "mo:core/Array";
@@ -59,18 +29,10 @@ import Runtime "mo:core/Runtime";
 
 module {
 
-  // ────────────────────────── moves & state ──────────────────────────────
-
   public type Piece = { #manP1; #manP2; #kingP1; #kingP2 };
 
-  /// 64 cells, row-major (`index = row*8 + col`); only dark squares
-  /// (`(row+col)` odd) are ever `?Piece` — every light square stays
-  /// `null` for the life of the game.
   public type Board = [?Piece];
 
-  /// A plain move carries just the endpoints; a capture chain carries
-  /// every square visited, start to finish (see this module's own doc
-  /// header for why the whole chain is one Action).
   public type Action = {
     #move : { from : Nat; to : Nat };
     #jump : { path : [Nat] };
@@ -78,13 +40,9 @@ module {
 
   public type State = { board : Board };
 
-  // ────────────────────────── board geometry ──────────────────────────────
-
   let SIZE : Nat = 8;
   let SQUARES : Nat = 64;
 
-  // The four diagonal directions, as (row delta, col delta) — shared by
-  // both a one-square move and a two-square (times this) capture leg.
   let DIAGS : [(Int, Int)] = [(1, 1), (1, -1), (-1, 1), (-1, -1)];
 
   func rowOf(i : Nat) : Nat = i / SIZE;
@@ -113,7 +71,6 @@ module {
     case (#p1) #p2;
     case (#p2) #p1;
   };
-  // Black (#p1) marches toward row 0; Red (#p2) toward row 7.
   func forwardDelta(seat : TP.Seat) : Int = switch seat {
     case (#p1) -1;
     case (#p2) 1;
@@ -131,9 +88,6 @@ module {
     func(i) {
       if (not isPlayable(i)) null else {
         let r = rowOf(i);
-        // 3 rows of pieces per side; SIZE is fixed at 8, so row 5 (not
-        // `SIZE - 3`, which the compiler can't see is underflow-safe) is
-        // p1's own back three rows.
         if (r <= 2) ?#manP2 else if (r >= 5) ?#manP1 else null;
       };
     }
@@ -141,13 +95,7 @@ module {
 
   public func init(_variant : Text) : State = { board = startBoard() };
 
-  // ────────────────────────── move generation ─────────────────────────────
-  // Both used by `validate` (is THIS specific move/leg legal?) and by the
-  // win check (does a seat have ANY legal action at all?) — one source of
-  // truth for "what can this piece do," never duplicated.
-
-  /// Legal one-square, non-capturing destinations for `piece` sitting at
-  /// `i`, given the CURRENT board.
+  /// Legal one-square, non-capturing destinations for `piece` at `i`.
   func stepTargets(board : Board, piece : Piece, i : Nat) : [Nat] {
     let r = rowOf(i).toInt();
     let c = colOf(i).toInt();
@@ -168,8 +116,7 @@ module {
     );
   };
 
-  /// Legal one-leg captures for `piece` sitting at `i`, given the CURRENT
-  /// board — each result is `(capturedSquare, landingSquare)`.
+  /// Legal one-leg captures for `piece` at `i`: `(captured, landing)`.
   func jumpTargets(board : Board, piece : Piece, i : Nat) : [(Nat, Nat)] {
     let r = rowOf(i).toInt();
     let c = colOf(i).toInt();
@@ -186,7 +133,7 @@ module {
         let mid = mr.toNat() * SIZE + mc.toNat();
         let land = lr.toNat() * SIZE + lc.toNat();
         switch (board[land]) {
-          case (?_) return null; // landing square must be empty
+          case (?_) return null;
           case null {};
         };
         switch (board[mid]) {
@@ -218,12 +165,7 @@ module {
     false;
   };
 
-  /// Every MAXIMAL capture chain starting at `origin` (`piece` sitting
-  /// there), as full root-to-leaf paths — generalizes `validate`'s own
-  /// `#jump` walk (which checks one GIVEN path against the same
-  /// `jumpTargets`/maximality rule) into enumerating every branch. A leg
-  /// with no further capture available from its landing square (the same
-  /// test `validate`'s `stillCapturing` check makes) ends that branch.
+  /// Every MAXIMAL capture chain from `origin`, as full paths.
   func captureChainsFrom(board : Board, piece : Piece, origin : Nat) : [[Nat]] {
     let results = List.empty<[Nat]>();
     func go(board : Board, cur : Nat, path : List.List<Nat>) {
@@ -245,29 +187,14 @@ module {
     results.toArray();
   };
 
-  /// Every legal `Action` for `seat` on the CURRENT board — the same
-  /// legality `validate` enforces (if `seat` has ANY capture available,
-  /// only `#jump`s are returned, never a `#move`; each `#jump` already
-  /// carries its full, maximal chain), exported so a caller — a bot's own
-  /// move selection, most notably (see
-  /// `../../../CLAUDE.md`'s "Canister players" note and
-  /// `../../../skills/duel-game-core/SKILL.md`'s authoring guide) — has
-  /// one source of truth for "what can `seat` do right now" rather than
-  /// re-deriving these same capture/mandatory-capture rules itself. An
-  /// empty result means `seat` has no legal action at all — the same
-  /// condition `resolve`'s own win check tests via
-  /// `seatHasAnyLegalAction`.
+  /// Every legal `Action` for `seat` — exactly what `validate` accepts.
+  /// Empty means no legal action at all (the losing condition).
   public func legalActions(s : State, seat : TP.Seat) : [Action] {
     let out = List.empty<Action>();
     if (seatHasCapture(s.board, seat)) {
       for (i in Nat.range(0, SQUARES)) {
         switch (s.board[i]) {
-          // Only a piece that ITSELF has a capture available contributes
-          // chains — `seatHasCapture` only guarantees SOME piece does,
-          // not this one; skipping this check would let a capture-less
-          // piece's own empty leg set look like a (bogus, one-square,
-          // non-capturing) "maximal chain" via `captureChainsFrom`'s base
-          // case.
+          // Only a piece that itself can capture contributes chains.
           case (?p) if (ownerOf(p) == seat and jumpTargets(s.board, p, i).size() > 0) {
             for (path in captureChainsFrom(s.board, p, i).values()) {
               out.add(#jump { path });
@@ -291,10 +218,6 @@ module {
     out.toArray();
   };
 
-  // ────────────────────────── Spec: validate ───────────────────────────────
-
-  /// null = legal. Called only for the seat currently on turn — the
-  /// engine itself rejects an off-turn submission before this ever runs.
   public func validate(s : State, seat : TP.Seat, a : Action) : ?Text {
     switch (a) {
 
@@ -323,13 +246,7 @@ module {
           case null return ?"There's no piece there.";
         };
 
-        // Walk the chain leg by leg against a board updated after EACH
-        // leg (captured piece removed, prior square cleared, piece
-        // placed at the new landing square) — otherwise a later leg
-        // would be checked against the ORIGINAL board, which still
-        // shows the piece's own vacated squares as occupied and could
-        // wrongly reject a legal landing there. `captured` separately
-        // tracks victims so the same one can't be jumped twice.
+        // Walk the chain against a board updated after each leg.
         let captured = List.empty<Nat>();
         var board = s.board;
         var cur = path[0];
@@ -351,9 +268,6 @@ module {
           k += 1;
         };
 
-        // The chain must be maximal: this SAME piece (by kind — see this
-        // module's own doc header on mid-chain promotion) may not still
-        // have a capture available from where it ended up.
         let stillCapturing = jumpTargets(board, piece, cur).find<(Nat, Nat)>(
           func((mid, _)) = not captured.contains<Nat>(Nat.equal, mid)
         );
@@ -366,10 +280,6 @@ module {
     };
   };
 
-  // ────────────────────────── Spec: resolve ────────────────────────────────
-
-  /// The on-turn seat's move is already validated. Pure: State in, new
-  /// State + optional verdict out.
   public func resolve(s : State, seat : TP.Seat, a : Action) : {
     state : State;
     verdict : ?TP.Verdict;
@@ -385,9 +295,7 @@ module {
     };
 
     var board = setAt(s.board, origin, null);
-    // Clear the captured victim of every CAPTURING leg (two squares
-    // apart) — a plain #move's single leg is one square apart, so this
-    // loop is a no-op for it.
+    // Clear the victim of every capturing (two-square) leg.
     var k = 0;
     while (k + 1 < path.size()) {
       let a2 = path[k];
@@ -416,11 +324,6 @@ module {
     { state = { board }; verdict };
   };
 
-  // ────────────────────────── the plug ─────────────────────────────────────
-
-  /// Hand this to every duel-game-core engine call. Built fresh per call —
-  /// function values are never stored, so upgrades stay trivial.
-  /// `#alternating`: Black and Red take turns, one move per submission.
   public func spec() : TP.Spec<State, Action> = #alternating {
     init;
     validate;

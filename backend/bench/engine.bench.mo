@@ -1,7 +1,4 @@
-/// Benchmarks the engine's own overhead — the bookkeeping it does around
-/// a game's `Spec` calls — using `FakeGame.mo` (see `test/FakeGame.mo`)
-/// as the plugged-in `Spec`, since a real game's `resolve` cost would
-/// otherwise swamp the numbers this is meant to isolate.
+/// Benchmarks the engine's own overhead, using FakeGame.mo as the `Spec`.
 import Bench "mo:bench-helper";
 import Runtime "mo:core/Runtime";
 
@@ -63,27 +60,13 @@ module {
             ignore reg.submit(spec, 0, "b", 1, i, #gather);
             i += 1;
           };
-          // FakeGame's #gather never ends the match, so the table is
-          // still #active here — `leave` from an active game is an
-          // ABORT (rule 7): it creates a shared #aborted debrief but
-          // does NOT auto-ack the leaver itself (Registry.leave's own
-          // doc — a real client shows them that debrief and lets them
-          // click "Return to lobby" separately). "a" leaves (aborts,
-          // stays parked at the table), "b" leaves (acks its own half,
-          // returns to lobby, but the table stays #debrief since "a"
-          // is still unacked), so "a" must leave AGAIN to ack its own
-          // half and actually free itself — otherwise it stays mapped
-          // to this table and the next freshGame() call fails with
-          // "you are already at another table".
+          // FakeGame's #gather never ends the match, so the table is still
+          // #active here
           ignore reg.leave(0, "a", 1);
           ignore reg.leave(0, "b", 1);
           ignore reg.leave(0, "a", 1);
         };
-        // One live game, N `status` queries. Isolates the read path
-        // `ws.mo`'s `pushView` calls on every affected session for almost
-        // every mutation (and that any caller can also hit directly as a
-        // plain query, WS handshake or not) — must stay cheap and
-        // side-effect-free (CLAUDE.md rule 8).
+        // One live game, N `status` queries.
         case (2) {
           freshGame();
           while (i < n) {

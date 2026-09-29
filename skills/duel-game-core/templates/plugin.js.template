@@ -1,32 +1,24 @@
-// GamePlugin for __GAME_TITLE__ — the only game-specific piece the
-// client needs. Everything else (the multi-table lobby, staging,
-// rematch, debrief chrome, session identity, real-time push) comes from
-// the duel-game-core npm package's generic start()/renderStatus() — see
-// app.js. The Action/State Candid shapes here must mirror
-// ../src/__RULES_MODULE__.mo exactly. `legal()` below is a COSMETIC echo
-// of that module's `validate` (disabled buttons only — the server is the
-// only real legality gate, CLAUDE.md architecture rule 4).
+// GamePlugin for __GAME_TITLE__ — the only game-specific client code.
+// Action/State must mirror ../src/__RULES_MODULE__.mo exactly. `legal()`
+// is a cosmetic echo of that module's `validate`.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
 const SEAT_NAME = { p1: "__P1_NAME__", p2: "__P2_NAME__" };
 
-// One entry per Action variant. `key` must match the variant name.
+// One entry per Action variant; `key` is the variant name.
 const ACTIONS = [
   // { key: "yourMove", label: "YOUR MOVE", hint: "what it does" },
 ];
 
 function legal(mySide, actionKey) {
-  // Mirror validate()'s logic here, read-only, for disabling buttons.
   return true;
 }
 
 export const plugin = {
   idlTypes({ IDL }) {
-    // Mirror ../src/__RULES_MODULE__.mo's Action/State/Side/Round types
-    // exactly — Candid shape, not JS naming. A Motoko `Nat`/`Int` field
-    // decodes to a JS `bigint`; a Motoko tuple decodes to a plain array,
-    // not `.0`/`.1`.
+    // Candid shape, not JS naming. Nat/Int decode to bigint; a tuple to
+    // an array.
     const Side = IDL.Record({
       // ...your Side fields...
     });
@@ -41,9 +33,7 @@ export const plugin = {
       p1: Side,
       p2: Side,
       lastRound: IDL.Opt(Round),
-      // Only if your Rules module's own State carries a `variant` field
-      // (see this file's own `variantChoices`/`formatVariant` comment
-      // below): variant: IDL.Variant({ classic: IDL.Null, yourOtherVariant: IDL.Null }),
+      // variant: IDL.Variant({ classic: IDL.Null, yourOtherVariant: IDL.Null }),
     });
     return { Action, State };
   },
@@ -52,19 +42,13 @@ export const plugin = {
     return SEAT_NAME[seat];
   },
 
-  // Full board markup for one game state, from mySeat's point of view.
-  // Called for both a live game and a finished debrief's final state —
-  // render whatever makes sense in each case from gameState alone.
-  // render.js already wraps this in a `.board` div.
+  // Called for a live game and for a debrief's final state.
   renderBoard(gameState, mySeat, oppSeat) {
     return `<pre>${esc(JSON.stringify(gameState, (_, v) =>
       typeof v === "bigint" ? v.toString() : v, 2))}</pre>`;
   },
 
-  // Action buttons for mySeat — only ever called while it's legal for
-  // them to move (the framework hides this once they've submitted).
-  // Each button must carry its move value via the actionAttr helper so
-  // the framework's click handling can submit it as-is.
+  // Only called while it's legal for mySeat to move.
   renderActions(gameState, mySeat) {
     const me = gameState[mySeat];
     return ACTIONS.map((a) => {
@@ -77,30 +61,16 @@ export const plugin = {
     }).join("");
   },
 
-  // Optional — only add this if the backend wires
-  // mo:duel-game-core/leaderboard (see the engine README's "Leaderboard"
-  // section). Renders one leaderboard entry's raw score for display; omit
-  // it entirely for an ELO-scored game (the library's own default — the
-  // plain integer — is already correct). Only needed if this game's own
-  // backend stores a CONVERTED score instead (e.g. a best-lap-time game
-  // storing `3_600_000 - lapMs` so higher still means better):
+  // Optional — only for a leaderboard storing a converted score (an ELO
+  // game keeps the default plain integer):
   //
   // formatScore(score) {
   //   const ms = 3_600_000n - score;
   //   ...format ms as a time string...
   // },
 
-  // Optional pair — only add these if this game has more than one rules
-  // variant of its own (SKILL.md step 2, question 8; see the engine
-  // README's "Table variants" section). `variantChoices()`'s FIRST entry
-  // is the default selection; each `key` is exactly the `Text` a table
-  // creator's pick sends as `WsRequest.createTable.variant` and, on the
-  // backend, what your Rules module's own `init(variant)` receives.
-  // `formatVariant` turns a browsed table's own stored
-  // `TableSummary.variant` back into the same label text, so a table row
-  // and the picker that created it read identically. Omitting both
-  // (the default, and every existing example but rock-paper-scissors)
-  // renders no picker and no variant text on any table row.
+  // Optional pair — only for a game with rules variants. First entry is
+  // the default; `key` is what the backend's init(variant) receives.
   //
   // variantChoices() {
   //   return [

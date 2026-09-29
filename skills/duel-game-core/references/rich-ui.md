@@ -1,47 +1,29 @@
 # A rich UI alongside the generic chrome
 
-Read this when your game's whole UI genuinely doesn't fit buttons and
-text — a canvas, a 3D scene, drag-and-drop, anything with persistent DOM
-state that a plain HTML-string re-render would destroy. If a
-`renderBoard`/`renderActions` pair returning markup covers your game
-(the common case for anything you'd naturally describe as "pick a move
-each round"), you don't need this file.
+Read this when the game's UI genuinely doesn't fit buttons and text — a
+canvas, a 3D scene, drag-and-drop, anything with persistent DOM state. If
+`renderBoard`/`renderActions` returning markup covers your game, skip
+this file.
 
 ## The one fact that makes or breaks this
 
-`app.js` does `screenEl.innerHTML = renderStatus(...)` on **every message
-`ws` delivers** (its poller ticks every 500ms by default, plus
-immediately after every action), unconditionally, for as long as the
-game is running. Anything with real persistent state — a mounted
-framework app, a `<canvas>` with an active WebGL context and event
-listeners, anything that isn't a plain string — placed inside `#screen`
-gets destroyed and reparsed from scratch every single tick. There is no
-way to make `renderBoard`'s return value "skip" this; it's a dumb
-unconditional replace, by design (the npm package's `render.js` is meant
-to stay a pure `Status -> HTML string` renderer).
+`app.js` replaces `screenEl.innerHTML` with `renderStatus(...)` on every
+status the `ws` delivers that differs from the last one. Anything with
+real state placed inside `#screen` — a mounted framework app, a `<canvas>`
+with a WebGL context — is destroyed and reparsed. `render.js` is a pure
+`Status -> HTML string` renderer by design; there is no opt-out.
 
 ## The pattern that works
 
-1. Run the npm package's `start({ plugin, ws })` completely unmodified,
-   in its own small bootstrap script, for the chrome (the multi-table
-   lobby/staging/rematch/debrief) exactly as the generic-chrome path
-   does.
-2. Give your real UI its OWN persistent DOM region, a **sibling** of
-   `#screen`, never a descendant. Your own bootstrap script (or
-   framework of choice) owns that.
-3. **Share the SAME `ws` (and actor, and session id) between the two
-   halves** — do NOT build a second, independent connection for your
-   rich UI. `GatewayWs` extends `EventTarget` specifically so more than
-   one consumer can listen (`ws.addEventListener("message", ...)`)
-   without stealing the generic chrome's own `ws.onmessage`; a second
-   independent connection racing the first one's own fetches with no
-   ordering guarantee between them is a real bug, not just wasted
-   queries — two unordered views of the same game state can arrive out
-   of sequence and visibly show your rich UI's state briefly at a stale
-   position before the correct one lands. Publish all three via
-   `Promise`s set up **synchronously in an inline (non-module)
-   `<script>`** in `<head>`, before either deferred `type="module"`
-   script runs:
+1. Run `start({ plugin, ws, session })` unmodified for the chrome.
+2. Give your UI its own persistent DOM region, a **sibling** of `#screen`.
+3. **Share the same `ws`, actor, and session** — never open a second
+   connection (two pollers can deliver views out of order, showing a
+   stale position before the fresh one). `GatewayWs` extends
+   `EventTarget`, so `ws.addEventListener("message", ...)` coexists with
+   the chrome's own `ws.onmessage`. Publish the shared objects via
+   Promises created synchronously in an inline `<script>` in `<head>`,
+   before either module script runs:
    ```html
    <script>
      window.duelActorReady = new Promise((r) => {
@@ -52,79 +34,38 @@ to stay a pure `Status -> HTML string` renderer).
      });
    </script>
    ```
-   This makes load order between the two scripts irrelevant — whichever
-   awaits `window.duelActorReady`/`duelWsReady` just waits for the other
-   to resolve them. Session id: read the same `sessionStorage` key
-   `app.js` already writes (currently `"sid"` — check the installed
-   `app.js` for the exact key, don't hardcode a guess into two places).
-   If your rich UI needs to submit its own moves (not just render
-   state), use the shared `ws`'s `request(sid, req)` — not `send()` — so
-   you get THIS call's own correlated `{ view } | { err }` back instead
-   of whatever the shared poller's next tick happens to deliver.
-4. `renderBoard`/`renderActions` can be near-stubs (return a short
-   status note, or even `''`) once the real UI lives elsewhere — the
-   turn counter, "opponent is deciding"/"locked in", verdict banner, and
-   the claim-win warnings — the "Claim the win" control once YOUR
-   opponent's move has sat pending long enough, and its mirror image
-   ("your opponent can claim the win in Ns") once it's YOU who's sitting
-   on the overdue move (see the main `SKILL.md`'s "Claim a win") — around
-   them are still real and correct (driven by the engine's own
-   `youSubmitted`/`oppSubmitted`/`turn`/`claimWinAvailable`, not by your
-   plugin), so this still functions as a lightweight, always-accurate
-   status HUD even though your rich UI never provides it any data.
-5. To reach a verdict, your rich UI should NOT rely on `renderBoard`
-   telling it the round advanced — listen to the shared `ws`'s own
-   `message` event (step 3) and detect the round boundary yourself
-   (e.g. compare a monotonic round/step counter in `State` between
-   consecutive views) and drive your own game loop off that.
+   Read the session id from the `sessionStorage` key `app.js` writes
+   (`"sid"`). To submit moves from your UI, use `ws.request(sid, req)`,
+   which resolves with that call's own `{ view } | { err }`.
+4. `renderBoard`/`renderActions` can be near-stubs. The turn counter,
+   "opponent is deciding"/"locked in", verdict banner, and claim-win
+   warnings around them stay correct, since they are driven by the
+   engine's own view fields.
+5. Detect round boundaries from the shared `ws`'s `message` events (a
+   monotonic counter in `State`), not from `renderBoard` being called.
 
-See
-[`examples/racing`](https://github.com/research-ag/duel-core/tree/main/examples/racing)
-in the framework's own repo for a complete worked example (a Three.js
-scene, its own gameplay loop, sharing one `ws` connection with the
-generic chrome) and its
-[`frontend/CLAUDE.md`](https://github.com/research-ag/duel-core/blob/main/examples/racing/frontend/CLAUDE.md)
-for the concrete code, including
-[`lobby-connection.service.ts`](https://github.com/research-ag/duel-core/blob/main/examples/racing/frontend/src/app/modules/gameplay/game-communication/services/lobby-connection.service.ts)'s
-`emitNextStep()` for a full `request()` example.
+`examples/racing` in the framework repo is the worked example (a Three.js
+scene sharing one `ws` with the chrome); its `frontend/CLAUDE.md` and
+`lobby-connection.service.ts`'s `emitNextStep()` show a full `request()`
+use.
 
-## Adapting an existing (e.g. third-party, framework-based) client
+## Adapting an existing framework-based client
 
-Don't assume the framework has to go. Angular/React/etc. usually only
-touch three things in a client like this: dependency injection, routing,
-and top-level page composition — and the generic chrome already replaces
-routing and page composition (there's only ever one "page": your game).
-What's usually left after removing those is a pile of plain classes with
-constructor-injected dependencies, which is _already_ framework-agnostic
-logic wearing a framework's decorators. Concretely, for an Angular app:
+The framework usually only supplies dependency injection, routing, and
+page composition — and the generic chrome already replaces the last two.
+For an Angular app:
 
-- `@Injectable()`/`@Component()`/`@NgModule()` decorators, and their
-  `@angular/core`/`@angular/router` imports, can usually be deleted
-  outright — most services underneath are plain classes.
-- Angular's DI container becomes one hand-written entry file that
-  constructs every service with `new X(...)` in dependency order (read
-  each constructor's parameter list to get the order right — do this
-  file last, once every service is already decorator-free, so you can
-  see the real dependency graph in each constructor signature).
-  Components with actual page composition (routing, multi-screen
-  orchestration) usually get deleted, not converted — that's exactly
-  the layer the generic chrome subsumes.
-- `HttpClient` → `fetch`; `ElementRef`/`Renderer2` → plain
-  `document.createElement`/`appendChild`; `MatDialog`/routing-triggered
-  modals → usually just delete (there's nowhere left to navigate to).
-- RxJS itself (`BehaviorSubject`, operators) is NOT Angular-specific —
-  it's a plain library. Reactive state built on it can be kept verbatim;
-  only the `@Injectable` wiring around it needs to go.
-- A minimal bundler (esbuild is enough for e.g. a Three.js game — one
-  `build.js` calling `esbuild.build({ entryPoints, bundle, outfile })`
-  plus a few `cpSync` calls for static files) replaces a framework CLI's
-  build step. Keep `tsc --noEmit` as a separate typecheck — esbuild only
-  transpiles, it does not type-check, so a broken build can still bundle
-  "successfully."
-- Work through the compiler, not by inspection: strip decorators file by
-  file (a small script doing the mechanical `@Injectable()`/import-line
-  removal across the whole tree is fine — grep afterward for anything it
-  couldn't have caught, like Angular-specific member usage inside a
-  method body), then let `tsc --noEmit` and the bundler's own resolution
-  errors find what's left. Fix in that order; don't try to trace the
-  whole dependency graph by hand up front.
+- Delete `@Injectable()`/`@Component()`/`@NgModule()` decorators and
+  `@angular/*` imports; most services are plain classes underneath.
+- Replace the DI container with one entry file constructing every service
+  with `new X(...)` in dependency order (do this last, once the
+  constructors' parameter lists show the real graph). Components that only
+  compose pages get deleted, not converted.
+- `HttpClient` → `fetch`; `ElementRef`/`Renderer2` → `document.createElement`;
+  routing-triggered modals → delete.
+- RxJS is not Angular-specific; keep it.
+- esbuild (one `build.js` with `esbuild.build({ entryPoints, bundle,
+outfile })` plus `cpSync` for static files) replaces the framework CLI.
+  Keep `tsc --noEmit` as the type check — esbuild doesn't type-check.
+- Work through the compiler: strip decorators mechanically, then let
+  `tsc --noEmit` and the bundler find what's left.

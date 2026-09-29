@@ -37,10 +37,7 @@ const plugin: GamePlugin<{ turn: string }> = {
 };
 
 /// Whether the claim-win button's own `<button id="duel-claim-button" ...>`
-/// tag carries `hidden` — attribute order inside that tag isn't fixed
-/// (`id` always comes first, `hidden` only when present, appended last),
-/// so a fixed-adjacency string match on the raw HTML would be brittle;
-/// this pulls out the button's own opening tag first and checks it there.
+/// tag carries `hidden`
 function claimButtonHidden(html: string): boolean {
   const tagMatch = new RegExp(`<button id="${DUEL_CLAIM_BUTTON_ID}"[^>]*>`).exec(html);
   return tagMatch !== null && /\bhidden\b/.test(tagMatch[0]);
@@ -565,11 +562,7 @@ test("renderView: inGame warns the STILL-DECIDING player that their opponent cou
   );
   assert.match(farOut, new RegExp(`id="${DUEL_CLAIM_WARNING_ID}" hidden`));
 
-  // Once the window has fully elapsed, the warning — unlike the waiting
-  // player's own, which steps aside for the Claim button — keeps reading
-  // "now" instead of disappearing: this player has no button to hand off
-  // to, only their own next move (or the opponent's eventual click) ends
-  // the wait.
+  // Once the window has fully elapsed, the warning
   const overdue = renderView<{ turn: string }>(
     {
       inGame: {
@@ -742,11 +735,8 @@ test("renderLeaderboard: ranks entries in the order given, 1-indexed, with no pl
 });
 
 test("renderLeaderboard: renders the FULL player id (unlike renderTableRow's fixed-length truncation) and always attaches it as a title", () => {
-  // A leaderboard row has real width to spare, unlike a cramped table
-  // row next to seat buttons — truncation for display is CSS's job
-  // (`.leaderboard-player`'s own `text-overflow: ellipsis`, clipped
-  // responsively against whatever width it actually gets), not a fixed
-  // char count baked into the HTML.
+  // A leaderboard row has real width to spare, unlike a cramped table row
+  // next to seat buttons
   const longId = "ii:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const html = renderLeaderboard([{ player: longId, score: 1200n, updatedAt: 0n }], plugin);
   assert.match(html, new RegExp(`>${esc(longId)}<`));

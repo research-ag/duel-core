@@ -1,15 +1,6 @@
-// Proves the rock-paper-scissors bot (`../bot/Bot.mo`/`BotLogic.mo`, the
-// rule-following canister player — no lookahead, no opponent modeling)
-// two ways: (1) `BotLogic.chooseMove` always returns a value from its own
-// fixed action set, offline, no engine, no actor; and (2) wired live
-// through `mo:duel-game-core/canister_players`, two canister-seated bots
-// play each other through a full, real #simultaneous match to a decisive
-// finish — the "testing offline" pattern `../../CLAUDE.md`'s "Canister
-// players" note describes, using `BotLogic.chooseMove` directly as the
-// `callBot` continuation so no real second canister is needed here, same
-// as `backend/test/CanisterPlayers.test.mo` and
-// `examples/racing/test/Bot.test.mo`.
-// Run: mops test Bot
+// Proves the rock-paper-scissors bot: `chooseMove` always returns a legal
+// pick per variant (offline), and two canister-seated bots play a full real
+// match per variant through `canister_players`.
 import Debug "mo:core/Debug";
 import Nat "mo:core/Nat";
 import Principal "mo:core/Principal";
@@ -24,9 +15,7 @@ import Rules "../src/RockPaperScissorsRules";
 
 let spec = Rules.spec();
 
-// ── 1. chooseMove always returns a legal pick, whatever the turn — in
-//        BOTH variants, since the SAME bot serves either one, reading
-//        which off req.game.variant ──────────────────────────────────────
+// ── 1. chooseMove always returns a legal pick, whatever the turn ───────────
 for (raw in ["", "well"].values()) {
   let s0 = Rules.init(raw);
   for (turn in Nat.range(0, 6)) {
@@ -53,9 +42,7 @@ for (raw in ["", "well"].values()) {
 Debug.print("1. BotLogic.chooseMove always picks a legal move, in classic and well alike OK");
 
 // ── 2/3. wired live through canister_players.mo, two canister seats play a
-//        full real #simultaneous match to a decisive finish — once per
-//        variant, since a table's variant is picked at createTable time and
-//        must flow all the way through to each bot's own chooseMove ───────
+//      full real #simultaneous match to a decisive finish ───────────────────
 let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
@@ -85,23 +72,11 @@ func playFullMatch(variant : Text) : async* () {
   let id = ok(await* cp.createTable(bot1, #p1, #open, variant, ""), "bot1 creates a table");
   let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "");
   // bot2's own joinTable eagerly triggers both seats' opening picks with no
-  // sweep call needed at all — and, since a #simultaneous round leaves
-  // BOTH seats due again for the next round the instant it resolves,
-  // `notifyAndApply`'s own `maybeSettleBoth` re-check (see
-  // canister_players.mo's own doc) keeps cascading through several rounds
-  // in a row from this ONE call, unlike checkers' #alternating counterpart
-  // (where only one seat is ever due at a time). A #simultaneous bot-vs-bot
-  // match with a bot on both sides can therefore finish — and get its
-  // debrief auto-acked (canister vs canister, unconditional) — entirely
-  // within this single call, with the table already back to #browsing by
-  // the time it returns.
+  // sweep call needed at all
   ignore ok(await* cp.joinTable(bot2, id, #p2, null, ""), "bot2 joins; game starts");
 
-  // Whatever didn't already cascade to conclusion above gets driven the
-  // rest of the way here — never more than a handful of sweeps for a
-  // match that must decide within a few rounds (see BotLogic.mo's own doc
-  // on why the per-seat multiplier guarantees a decisive round well before
-  // `round` below runs out).
+  // Whatever didn't already cascade to conclusion above gets driven the rest
+  // of the way here
   var round = 0;
   var stalled = true;
   label loop_ while (round < 12) {

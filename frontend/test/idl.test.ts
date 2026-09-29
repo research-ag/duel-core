@@ -30,7 +30,8 @@ test("buildEngineTypes builds every named type without throwing", () => {
 test("makeIdlFactory produces a Service with status + get_leaderboard + bot discovery + the four ws_* methods, no plain mutating game method", () => {
   const idlFactory = makeIdlFactory(sampleGameTypes);
   const service = idlFactory({ IDL });
-  // IDL.Service exposes its method table via ._fields (array of [name, FuncClass]).
+  // IDL.Service exposes its method table via ._fields (array of [name,
+  // FuncClass]).
   const names = (service as unknown as { _fields: Array<[string, unknown]> })._fields.map(
     ([name]) => name,
   );

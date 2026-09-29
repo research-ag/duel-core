@@ -1,12 +1,6 @@
-// Interpreter-run simulation of a multi-table lobby session: two tables
-// running independently and interleaved, through `Registry` layered on
-// top of the same generic engine `Lifecycle.test.mo` already exercises
-// for a single table. Exists to prove tables never cross-talk over a
-// full match — join, interleaved rounds, a finish, a rematch, and a
-// mid-game abort — not to re-cover what `Lobby.test.mo` already checks
-// per operation (bad ids/codes, GC, idle takeover). Plugged-in rules:
-// FakeGame.mo.
-// Run: moc -r --package core <core/src> test/LobbyLifecycle.test.mo
+// A multi-table narrative: two tables running independently and interleaved
+// through `Registry` (join, interleaved rounds, a finish, a rematch, a mid-
+// game abort), proving tables never cross-talk.
 import Rules "FakeGame";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
@@ -43,7 +37,7 @@ func turnOf(session : Text) : Nat = switch (atTableView(session)) {
   case (_) Runtime.trap("turnOf: " # session # " is not in an active game");
 };
 
-// ── 1. two tables created and filled, interleaved ───────────────────────────
+// ── 1. two tables created and filled, interleaved ──────────────────────────
 let tableA = ok(reg.createTable(spec, tick(), "alice", #p1, #open, ""), "alice opens table A");
 let tableB = ok(reg.createTable(spec, tick(), "carol", #p1, #code("friends-only"), ""), "carol opens protected table B");
 assert tableA != tableB;
@@ -105,11 +99,7 @@ switch (atTableView("carol")) {
 };
 Debug.print("3. a finish + rematch on A leaves B's own live game completely untouched OK");
 
-// ── 4. table B ends early (a mid-game leave); both ack; B is GC'd, A lives on
-// Leaving a LIVE game aborts into a shared debrief WITHOUT auto-acking the
-// leaver (same rule the single-table Lifecycle suite's own step 5 covers) —
-// carol still sees her own #aborted debrief after this call, so her session
-// must stay mapped to table B, not bounce straight back to browsing.
+// ── 4. table B ends early (a mid-game leave) ───────────────────────────────
 ignore ok(reg.leave(tick(), "carol", genOf("carol")), "carol forfeits table B mid-game");
 switch (atTableView("carol")) {
   case (#debrief d) switch (d.end) {

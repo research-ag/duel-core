@@ -1,21 +1,5 @@
-// Unit checks for `ws.mo`'s `rematchOpenedLobby` — the decision behind
-// whether a just-succeeded `#rematch` needs to broadcast a fresh status
-// to every OTHER browsing session, pulled out of `attach()`'s own
-// `onMessage` specifically so it's testable without the full
-// `IcWebSocketCdk` actor machinery (not exercisable in this interpreter
-// harness — see `Hub.test.mo`'s own doc for the same constraint). Drives
-// a real `Registry` through `registry.mo`'s own public API (exactly like
-// `Lobby.test.mo`) to reach each table phase, then asserts what
-// `rematchOpenedLobby` says about it directly.
-//
-// This is a regression suite for a real, previously-shipped bug: a
-// rematch requested after the partner had already left their own
-// debrief opened a fresh, unreserved, immediately-browsable staging —
-// but the fixed call site always passed `broadcastLobby = false` for
-// `#rematch` (reasoning that a rematch can never change which tables are
-// open, true for every OTHER rematch outcome), so nobody already sitting
-// in the lobby ever learned the seat existed until it timed out.
-// Run: moc -r --package core <core/src> ... test/WsBroadcast.test.mo
+// Unit checks for `ws.mo`'s `rematchOpenedLobby`: a rematch left unreserved
+// by a departed partner must be broadcast to every browsing session.
 import Rules "FakeGame";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
@@ -61,7 +45,7 @@ func playToDebrief(reg : Reg, id : TP.TableId) {
   ignore ok(reg.submit(spec, T0, "b", genOf(reg, T0, "b"), turnOf(reg, T0, "b"), #gather), "b gathers again; a wins, both land in debrief");
 };
 
-// ── 1. no table at all: null id, or an id naming nothing ───────────────
+// ── 1. no table at all: null id, or an id naming nothing ───────────────────
 do {
   let reg = fresh();
   assert not Ws.rematchOpenedLobby(reg, null);
@@ -69,9 +53,8 @@ do {
   Debug.print("1. no table (null id, or a bogus one) never opens the lobby OK");
 };
 
-// ── 2. the normal rematch outcome: the partner is still around, so the
-//         new staging comes back RESERVED for them — unlisted, exactly
-//         like before the rematch call — must stay false ─────────────
+// ── 2. the normal rematch outcome: the partner is still around, so the new
+//      staging comes back RESERVED for them ─────────────────────────────────
 do {
   let reg = fresh();
   let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
@@ -81,9 +64,8 @@ do {
   Debug.print("2. a rematch reserved for a still-present partner doesn't open the lobby OK");
 };
 
-// ── 3. the actual bug: the partner already left their own debrief before
-//         the rematch request — the new staging comes back UNRESERVED,
-//         freshly browsable the instant it exists — must be true ──────
+// ── 3. the actual bug: the partner already left their own debrief before the
+//      rematch request ──────────────────────────────────────────────────────
 do {
   let reg = fresh();
   let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
@@ -94,8 +76,7 @@ do {
   Debug.print("3. a rematch left unreserved by a departed partner DOES open the lobby OK");
 };
 
-// ── 4. accepting a live reservation starts the game outright — #active
-//         either way was never listed, stays false ─────────────────────
+// ── 4. accepting a live reservation starts the game outright ───────────────
 do {
   let reg = fresh();
   let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
@@ -107,9 +88,7 @@ do {
 };
 
 // ── 5. an idempotent re-click on an ALREADY-unreserved staging (no new
-//         staging was created) — still true, since it's still currently
-//         unreserved-and-browsable; a harmless redundant broadcast, not
-//         an incorrect one ─────────────────────────────────────────────
+//      staging was created) ─────────────────────────────────────────────────
 do {
   let reg = fresh();
   let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");

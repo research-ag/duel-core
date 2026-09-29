@@ -1,13 +1,5 @@
-/* __GAME_TITLE__-specific visuals, layered on top of duel-game-core.css
- * (loaded first — see index.html), which already supplies the page
- * chrome (header, buttons, lobby seats, turnbar, verdict banner, ...)
- * and the CSS custom properties reused below: --bg, --panel, --panel-2,
- * --line, --ink, --muted, --accent, --red, --green, --blue.
- *
- * build.js copies this file to dist/style.css verbatim — nothing here
- * needs a build step of its own. Leave it empty (or nearly so) if your
- * renderBoard()/renderActions() markup reads fine with only the generic
- * chrome; add rules here only for board-specific layout the generic
- * styles don't cover (e.g. a grid for renderBoard's own markup, seat
- * accent colors, custom panels).
+/* __GAME_TITLE__-specific visuals, layered on duel-game-core.css (loaded
+ * first), which supplies the page chrome and the custom properties --bg,
+ * --panel, --panel-2, --line, --ink, --muted, --accent, --red, --green,
+ * --blue. build.js copies this file verbatim; it may stay empty.
  */

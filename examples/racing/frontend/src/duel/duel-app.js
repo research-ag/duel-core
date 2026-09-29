@@ -1,26 +1,8 @@
-// Bootstrap for the racing duel client. Builds the actor and a
-// push-shaped `ws` over it, then hands off to duel-game-core's generic
-// session/render wiring for everything that's the same for every game on
-// this engine (lobby, staging, rematch, debrief) — see index.html's
-// #screen. It also publishes that same actor AND `ws` on
-// `window.duelActorReady`/`duelWsReady` so the app's own esbuild bundle
-// loaded alongside this page (see main.ts) can drive the actual 3D race
-// against the identical session and the SAME poller, without building
-// either a second actor or a second poll loop — see
-// ../app/modules/gameplay/game-communication/utils/duel-actor.ts and
-// game-communication/services/lobby-connection.service.ts.
-//
-// This file is bundled by esbuild (see ../build.js) into dist/duel-app.js,
-// so every import below — @icp-sdk/core and duel-game-core alike —
-// resolves normally from node_modules at build time and ships as one
-// self-contained bundle; the deployed asset canister carries no
-// node_modules directory of its own. `duel-game-core` itself is fetched
-// once via `npm install` (see package.json / .npmrc) — its own dist/ is
-// what these imports resolve against (its source is TypeScript; see
-// ../../../../CLAUDE.md's "After touching anything under frontend/"
-// section — `npm run build` there has to run BEFORE this example's own
-// `npm install`, since this repo's `allow-scripts` gate blocks
-// duel-game-core's own `prepare` script from doing it automatically).
+// Bootstrap for the racing duel client: build the actor and push
+// transport, hand off to duel-game-core's generic wiring, publish both on
+// `window.duelActorReady`/`duelWsReady` so main.ts's own bundle drives the
+// 3D race over the same session and connection, and wire the leaderboard
+// and bot-challenge overlays. Bundled by esbuild (../../build.js).
 
 import { Actor, HttpAgent } from '@icp-sdk/core/agent';
 import { Principal } from '@icp-sdk/core/principal';
@@ -32,10 +14,7 @@ import { readIcEnv, deriveHost } from 'duel-game-core/ic-env.js';
 import { errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag } from 'duel-game-core/render.js';
 import { plugin } from './duel-racing-plugin.js';
 
-// `window.duelActorReady` / `window.__resolveDuelActor` are set up by an
-// INLINE (non-module) script in index.html's <head>, so the Promise exists
-// before any deferred module script runs — the app's own bundle can then
-// safely `await` it no matter which of the two loads/executes first.
+// Set up by an inline script in index.html's <head>, before any module runs.
 if (!window.__resolveDuelActor || !window.__resolveDuelWs) {
   throw new Error("window.__resolveDuelActor/__resolveDuelWs is missing — check index.html's inline bootstrap script");
 }
@@ -53,37 +32,10 @@ if (!canisterId) {
 
 const host = deriveHost();
 
-// This tab's own identity — a real, permanent Internet Identity login if
-// one's already active, otherwise a persisted, non-spoofable anonymous
-// keypair (`duel-game-core/anon-identity.js`'s `resolveAnonymousIdentity()`,
-// which `resolveIdentity()` falls back to). See duel-game-core/README.md's
-// "Logging in with Internet Identity" section for the full mechanism.
-//
-// `ic-websocket-cdk`'s `ws_open` hard-rejects the anonymous principal
-// outright ("Anonymous principal is not allowed"), so an anonymous
-// session (no login) can't just build `agent` with `HttpAgent.create({
-// host })` and nothing else — the WS handshake, and with it the whole
-// app (there's no polling fallback), never comes up.
-//
-// `session.identity`'s keypair is deliberately STABLE across a reload of
-// this tab (persisted in `sessionStorage`, same storage `sid` itself
-// already used), and `session.sid` is derived from its own principal —
-// the backend's `isAuthorizedSid` guard requires exactly this: the WS
-// connection's authenticated principal must match the principal `sid`
-// names, for both the anonymous and logged-in case alike. An earlier
-// version of this file used a FRESH, unrelated keypair every page load
-// instead, specifically to dodge a real bug in `ic-websocket-cdk@0.4.1`'s
-// own bookkeeping: `remove_client` (in its `State.mo`) used to delete its
-// principal->client_key lookup by PRINCIPAL ALONE, not scoped to the
-// exact client_key being removed, so a belated close for an old,
-// already-superseded connection could erase a newer, still-live one's
-// lookup entry after a same-principal reconnect (a plain reload). That
-// bug is fixed directly in the vendored CDK now (`remove_client` only
-// clears the lookup when it's still the exact connection being closed),
-// so a stable, sid-matching principal across reload is safe — the fresh-
-// per-load workaround is no longer needed, and would in fact break
-// `sid`'s own non-spoofability if reintroduced (a fresh keypair each load
-// can't match a `sid` that's supposed to survive the reload).
+// An Internet Identity login if active, else a persisted anonymous keypair
+// (the CDK rejects the anonymous principal outright). The keypair is
+// stable across a reload and `sid` derives from it, as `isAuthorizedSid`
+// requires; the vendored CDK's `remove_client` fix makes that safe.
 const session = await resolveIdentity();
 const agent = await HttpAgent.create({
   host,
@@ -95,40 +47,15 @@ const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
 window.__resolveDuelActor(actor);
 
-// A real push transport for the generic lobby/staging/rematch/debrief
-// chrome below — see ../../../../../frontend/README.md's "Real-time
-// push" section. connectWs() builds a GatewayWs that speaks
-// mo:duel-game-core/ws's ic-websocket-cdk protocol directly,
-// self-registering this tab as its own Gateway (see
-// ../../../../../frontend/ws/gateway-transport.js) — genuine canister
-// push, and a genuine server-side signal if this tab goes quiet.
-// `principal` is the same identity `agent`/`actor` already sign calls
-// with; `gameIdlTypes` supplies this game's own Action/State Candid
-// shape (needed to decode the message content blob). `app.js`'s start()
-// sends every action and refresh over this — there is no
-// plain-actor-call/polling code path any more, `ws` is required.
-//
-// Published on window.duelWsReady (same pattern as the actor above) so
-// lobby-connection.service.ts shares this EXACT client for the actual
-// race instead of running a second independent one — `GatewayWs`
-// extends EventTarget for exactly this, see its own header.
+// Shared with lobby-connection.service.ts via window.duelWsReady, so the
+// race runs over this one connection instead of a second poller.
 const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
 window.__resolveDuelWs(ws);
 
 start({ plugin, ws, session });
 
-// The leaderboard: a dedicated full-page overlay (#leaderboard-panel,
-// styled `position: fixed; inset: 0` — see duel-game-core.css — and also
-// hidden outright during an active race, alongside #duel-header/
-// #bot-challenge-panel, by style.css's own body.in-race rules), fetched
-// fresh via a plain Candid query on the SAME actor built above
-// (get_leaderboard needs no `ws` round-trip — see
-// duel-game-core/README.md's "Leaderboard" section) each time it's
-// opened, rather than kept live-pushed like the game screen itself.
-// `plugin.formatScore` (duel-racing-plugin.js) converts each stored
-// score back into a real lap time for display; `yourSid: session.sid`
-// lets renderLeaderboard pick out and badge this player's own row, if
-// they're on the ranked list.
+// Leaderboard: a full-page overlay fetched via plain queries on open;
+// `plugin.formatScore` turns each stored score back into a lap time.
 const leaderboardToggle = document.getElementById('leaderboard-toggle');
 const leaderboardBack = document.getElementById('leaderboard-back');
 const leaderboardPanel = document.getElementById('leaderboard-panel');
@@ -137,12 +64,6 @@ leaderboardToggle.addEventListener('click', async () => {
   leaderboardPanel.hidden = false;
   leaderboardBody.innerHTML = `<p class="muted">Loading…</p>`;
   try {
-    // Fetched alongside the ranked entries themselves (both plain Candid
-    // queries, no `ws` round-trip either) purely so a bot's own row can
-    // show its self-reported `name` instead of a bare principal — see
-    // `renderLeaderboard`'s own `opts.botNames` doc. A `list_bots()`
-    // failure (or a host with no bot discovery wired at all) still lets
-    // the leaderboard itself render, just without any bot alias.
     const [entries, bots] = await Promise.all([actor.get_leaderboard(), actor.list_bots().catch(() => [])]);
     const botNames = new Map(bots.map((b) => [b.principal.toString(), b.name]));
     leaderboardBody.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames });
@@ -155,38 +76,10 @@ leaderboardBack.addEventListener('click', () => {
   leaderboardPanel.hidden = true;
 });
 
-// ── "🤖 Bots" — discover and challenge any bot that's self-registered
-// with THIS host (see ../../../../../backend/README.md's "Canister
-// players" section, "Bot discovery") ─────────────────────────────────
-// Two entry points converge on the SAME challenge flow below:
-//   - `#bot-add-panel`'s own "Add Bot" button (`index.html`, a sibling of
-//     `#screen`) — Flow 1's own human-facing entry point, exactly where
-//     the old single-hardcoded-bot version of this control lived: shown
-//     ONLY for the "Waiting for an opponent" screen (`stagingYou`,
-//     tracked below), since that's the one screen where a seat's already
-//     been picked (via the ordinary "Start a new table" flow) and there's
-//     an open seat to fill. Clicking it opens `#bot-challenge-panel` with
-//     the ranked bot list (`list_bots()` — a plain Candid query, same
-//     class as `get_leaderboard()` above, no `ws` round-trip — one row per
-//     bot AND complexity, so picking a row is also picking which of that
-//     bot's own ways of playing to face); picking one fills THAT table's
-//     own open seat directly, no further choice needed.
-//   - a bot's own row in the leaderboard panel above (`renderLeaderboard`'s
-//     own Challenge button) — reachable from ANY screen, so it can't
-//     assume an open seat already exists: if this player isn't already
-//     staging a table, a seat-choice step (`renderSeatChoice`) creates a
-//     brand-new one first — a normal `createTable` request sent directly
-//     over the shared `ws` (`ws.request`, the same correlatable call
-//     `lobby-connection.service.ts` already uses to bypass `app.ts`'s own
-//     internals: still the one `ws.mo` channel, just issued from here
-//     instead of from a `data-create-table` button inside `#screen`).
-//
-// Either way, the actual invite is the same PLAIN Candid call straight to
-// the bot's own `play(host, tableId, seat, code, complexity)` (see
-// `../../../bot/Bot.mo`) Flow 1 always used — never routed through
-// `ws.mo`'s protocol — except now the target canister id comes from
-// whichever bot a player picked in `renderBotList`/`renderLeaderboard`,
-// never a hardcoded env var.
+// "🤖 Bots": two entry points (the staging screen's "Add Bot" button and a
+// leaderboard row's Challenge button) converge on one flow that calls the
+// chosen bot's own `play` directly. See ../../../../../frontend/README.md,
+// "Bot registry".
 const hostPrincipal = Principal.fromText(canisterId);
 const botPanel = document.getElementById('bot-challenge-panel');
 const botBack = document.getElementById('bot-challenge-back');
@@ -194,26 +87,8 @@ const botBody = document.getElementById('bot-challenge-body');
 const botAddPanel = document.getElementById('bot-add-panel');
 const botAddTrigger = document.getElementById('bot-add-trigger');
 
-// Refreshed off every status push with exactly what a same-table
-// challenge needs: the open seat (the one this session ISN'T holding)
-// and the access code, if any (`StagingYouView.visibility` — known only
-// to this table's own occupant, exactly the caller here). `null` outside
-// the "Waiting for an opponent" screen specifically — not merely "at a
-// table" (browsing/busy/awaitingRematch/inGame/debrief/endedByOther all
-// clear it, and hide `#bot-add-panel` right along with it). `ws`
-// (GatewayWs) extends EventTarget specifically so more than one consumer
-// can listen without stealing app.js's own `ws.onmessage` — see the
-// duel-game-core skill's rich-UI pattern.
-//
-// `lastBot` is the bot (principal, name, complexity) this player last
-// got into a game with, and at which table — so a Rematch from THAT
-// game's debrief re-invites the same bot straight away instead of
-// leaving the player on "Waiting for an opponent" for a partner that
-// has no "Accept rematch" click of its own (see
-// ../../../../../frontend/README.md's "Bot registry" section, "Rematch
-// against a bot"). Kept in sessionStorage so a page reload mid-game
-// doesn't forget it; cleared the moment this session is anywhere but
-// that table.
+// `lastBot` remembers the bot and table of the last successful `play`, so a
+// Rematch from that game re-invites it when the reserved staging lands.
 const LAST_BOT_KEY = 'duel-last-bot';
 let lastBot = null;
 try {
@@ -227,6 +102,8 @@ function setLastBot(bot) {
     else sessionStorage.removeItem(LAST_BOT_KEY);
   } catch (_) {}
 }
+// The open seat and code of this session's own staging, tracked off the
+// live status push; `null` on any other screen.
 let staging = null;
 ws.addEventListener('message', (ev) => {
   const payload = ev.data;
@@ -246,19 +123,11 @@ ws.addEventListener('message', (ev) => {
     code: 'code' in v.visibility ? [v.visibility.code] : [],
   };
   botAddPanel.hidden = false;
-  // A rematch staging at the bot's own table: the open seat is reserved
-  // for the bot's session, which `play` below fills the same way it did
-  // the first time (same principal + table + complexity = same session).
   if (lastBot && v.reservedForPartner && !pendingBot) {
     onChallengeClick(lastBot.principalText, lastBot.name, lastBot.complexity);
   }
 });
 
-// The bot chosen off either entry point — and which of its own
-// complexities to play it at, since every row in `renderBotList`/
-// `renderLeaderboard` is one bot-complexity pair, so picking a row IS
-// picking both — waiting on a seat pick; `null` whenever the dialog
-// isn't mid-challenge.
 let pendingBot = null;
 
 function openBotPanel(bodyHtml) {
@@ -284,9 +153,7 @@ botBack.addEventListener('click', () => {
   pendingBot = null;
 });
 
-// One table id/seat/code to hand `bot.play` — either this session's own
-// already-staged table (`seat === undefined`), or a brand-new one created
-// on the spot for the chosen `seat`.
+// This session's own staging (`seat === undefined`), or a new table.
 async function stageFor(seat) {
   if (seat === undefined) return staging;
   const res = await ws.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, variant: "" } });
@@ -311,11 +178,7 @@ async function inviteBot(seat) {
     const botActor = Actor.createActor(buildBotPlayIdlFactory, { agent, canisterId: principalText });
     const res = await botActor.play(hostPrincipal, tableId, openSeat, code, complexity);
     if ('err' in res) throw new Error(errText(res.err));
-    // On success the bot's own `join_table_as_canister` call reuses
-    // `attached.afterMutation` (Host.mo) to push a fresh status to THIS
-    // human's own connection in real time — app.js's own `ws.onmessage`
-    // picks it up and re-renders #screen to the fresh #active game on
-    // its own; nothing further to do here.
+    // The bot's join pushes a fresh status to this connection on its own.
     setLastBot({ principalText, name, complexity, tableId });
     botPanel.hidden = true;
     pendingBot = null;
@@ -335,10 +198,6 @@ function onChallengeClick(principalText, name, complexity) {
   }
 }
 
-// Delegated on each STABLE container (never re-bound after an `innerHTML`
-// swap) so both this dialog's own bot list and its own seat-choice step
-// share one listener, and the leaderboard panel's per-row Challenge
-// button (`renderLeaderboard`) reaches the exact same flow.
 botBody.addEventListener('click', (ev) => {
   const seatBtn = ev.target.closest('[data-challenge-seat]');
   if (seatBtn) { void inviteBot(seatBtn.dataset.challengeSeat); return; }

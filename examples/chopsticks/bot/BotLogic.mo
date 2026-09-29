@@ -5,8 +5,8 @@ import Rules "../src/ChopsticksRules";
 
 module {
 
-  /// Sent verbatim by `Bot.mo`'s `register`. See `../CLAUDE.md`'s
-  /// `bot/BotLogic.mo` bullet for what each tier does.
+  /// Sent by `Bot.mo`'s `register`. Bunny: no lookahead. Fox: one ply.
+  /// Bear: depth-limited negamax (the position graph is cyclic).
   public let COMPLEXITIES : [Text] = ["Bunny", "Fox", "Bear"];
 
   let BEAR_DEPTH : Nat = 6;
@@ -26,13 +26,9 @@ module {
 
   func canWinNow(s : Rules.State, seat : TP.Seat) : Bool = Rules.legalActions(s, seat).any<Rules.Action>(func(a) = winsNow(s, seat, a));
 
-  // ── Bunny: no lookahead ─────────────────────────────────────────────────
-
   func bunnyMove(req : TP.MoveRequest<Rules.State, Rules.Action>) : Rules.Action = pick(Rules.legalActions(req.game, req.seat), req.turn);
 
-  // ── Fox: one ply — win now if possible, else never hand the opponent an
-  //    immediate win ────────────────────────────────────────────────────────
-
+  // Take an immediate win; otherwise never hand the opponent one.
   func foxMove(req : TP.MoveRequest<Rules.State, Rules.Action>) : Rules.Action {
     let s = req.game;
     let seat = req.seat;
@@ -44,8 +40,6 @@ module {
     let safe = moves.filter<Rules.Action>(func(a) = not canWinNow(Rules.resolve(s, seat, a).state, Rules.other(seat)));
     pick(if (safe.size() > 0) safe else moves, req.turn);
   };
-
-  // ── Bear: depth-limited negamax with alpha-beta ─────────────────────────
 
   func eval(s : Rules.State, seat : TP.Seat) : Int = Rules.liveHands(Rules.handsOf(s, seat)) - Rules.liveHands(Rules.handsOf(s, Rules.other(seat)));
 

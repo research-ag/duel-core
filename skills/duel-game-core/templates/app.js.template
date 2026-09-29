@@ -1,14 +1,7 @@
-// Bootstrap for __GAME_TITLE__. Builds the actor and a push-shaped `ws`
-// over it, then hands off to duel-game-core's generic session/render
-// wiring. This file only knows how to reach the canister and which
-// GamePlugin to use — everything else (the multi-table lobby, staging,
-// rematch, debrief chrome) lives in the npm package.
-//
-// This file is bundled by esbuild (see ../build.js) into dist/app.js, so
-// every import below — @icp-sdk/core and duel-game-core alike — resolves
-// normally from node_modules at build time and ships as one self-
-// contained bundle; the deployed asset canister carries no node_modules
-// directory of its own.
+// Bootstrap for __GAME_TITLE__: build the actor and push transport, hand
+// off to duel-game-core's generic wiring. Bundled by esbuild (../build.js)
+// into dist/app.js, so every import resolves from node_modules at build
+// time.
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { makeIdlFactory } from "duel-game-core/idl.js";
@@ -30,12 +23,8 @@ if (!canisterId) {
 }
 
 const host = deriveHost();
-// A real, non-spoofable identity with no login step: a keypair this tab
-// generates once and persists in `sessionStorage` (see anon-identity.js's
-// own doc) — `session.sid` is a pure function of `session.principal`, and
-// `session.identity` is exactly the identity that must open the WS
-// connection below, since the backend checks the two match on every
-// request (see ../backend/src/ws.mo's `isAuthorizedSid`).
+// The same identity must build the agent and open the WS connection;
+// the backend checks the two match on every request.
 const session = resolveAnonymousIdentity();
 const agent = await HttpAgent.create({
   host,

@@ -1,22 +1,6 @@
-// Regression test for a real, previously-shipped bug in the vendored
-// `ic-websocket-cdk`: `IcWebSocketState.remove_client` used to delete
-// `CURRENT_CLIENT_KEY_MAP`'s entry for a principal unconditionally, keyed
-// by the bare principal alone rather than the full `ClientKey` (principal
-// + client_nonce). A belated `remove_client` for an OLD, already-
-// superseded connection (the same principal reconnecting — both `ii:`
-// and `an:` identities now persist their keypair across a reload, see
-// `frontend/src/identity.ts`) could therefore erase a NEWER, still-live
-// connection's own lookup entry, producing a spurious "doesn't have an
-// open connection" failure for a client that never actually left.
-//
-// Every other map `remove_client` touches was already scoped by the
-// full `ClientKey` (`Types.compareClientKey`); only this one map was
-// keyed by bare principal. This test drives `IcWebSocketState` directly
-// — no actor/gateway machinery needed for `add_client`/
-// `get_client_key_from_principal`/`remove_client` themselves — mirroring
-// how `Hub.test.mo` drives `Ws.Hub` directly instead of the full
-// `IcWebSocketCdk` actor.
-// Run: moc -r --package core <core/src> --package ic-websocket-cdk <cdk/src> ... test/CdkClientKeyMap.test.mo
+// Regression test for the vendored CDK's `remove_client`: a belated removal
+// for a superseded `ClientKey` must not erase a newer, live connection's
+// `CURRENT_CLIENT_KEY_MAP` entry.
 import State "mo:ic-websocket-cdk/State";
 import Types "mo:ic-websocket-cdk/Types";
 import Principal "mo:core/Principal";
@@ -26,10 +10,9 @@ import Runtime "mo:core/Runtime";
 let gateway = Principal.fromText("aaaaa-aa");
 let clientP = Principal.fromText("2vxsx-fae");
 
-// ── 1. A belated remove_client for a SUPERSEDED client_key (older
-//       nonce, same principal) must NOT erase the newer, live one's
-//       CURRENT_CLIENT_KEY_MAP entry.
-// ────────────────────────────────────────────────────────────────────
+// ── 1. A belated remove_client for a SUPERSEDED client_key (older nonce,
+//      same principal) must NOT erase the newer, live one's
+//      CURRENT_CLIENT_KEY_MAP entry. ────────────────────────────────────────
 await async {
   let state = State.IcWebSocketState(Types.WsInitParams(null, null));
 
@@ -74,9 +57,7 @@ await async {
 };
 
 // ── 2. remove_client() for the CURRENT (not superseded) client_key must
-//       still clear the lookup entirely — the fix must not accidentally
-//       make removal a no-op in the ordinary, non-racy case.
-// ────────────────────────────────────────────────────────────────────
+//      still clear the lookup entirely ──────────────────────────────────────
 await async {
   let state = State.IcWebSocketState(Types.WsInitParams(null, null));
   let key : Types.ClientKey = { client_principal = clientP; client_nonce = 1 };

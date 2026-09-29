@@ -2,271 +2,131 @@
 
 ## Overview
 
-A generic 2-player multi-table lobby session engine for the Internet
-Computer. It solves the plumbing every simultaneous-reveal, turn-based
-2-player game needs — and knows nothing about any particular game's
-rules:
+A generic 2-player multi-table session engine for the Internet Computer.
+It handles everything a 2-player game needs except the game itself:
 
-- **Tables** — anyone may open a new table: `#open` (joinable outright by
-  anyone browsing the lobby) or protected with an access code shared with
-  a friend out of band. Both are discoverable through the same browsable
-  table list — a protected table just flagged as such, so a visitor knows
-  a code is needed (and who, if anyone, already holds a seat) before
-  attempting to join it. Any number of tables run independently and
-  simultaneously; a shared `Registry` creates them and routes every
-  session's calls to the right one.
-- **Seating** — two players join a table (seats `#p1` / `#p2`); a third
-  caller is turned away while a match is in progress on it.
-- **Rounds** — a `#simultaneous` game has each seated player submit one
-  move per round; once both are in, the game's own `resolve` function
-  runs and either continues the game or ends it with a verdict. An
-  `#alternating` game instead resolves the instant the one seat
-  currently on turn submits their move — there's no second move to wait
-  on (see "Design" below for both modes).
-- **Debrief** — a finished game puts BOTH players in a debrief (win /
-  lose / draw), with the final game state attached.
-- **Early leave** — a player may leave mid-game; both players get a
-  shared `#aborted` debrief instead of the game silently vanishing.
-- **Rematch** — from the debrief, either player can request a rematch,
-  reusing the SAME table; two simultaneous rematch clicks converge
-  race-free (see Design). Leaving a debrief dismisses it for you
-  specifically: your own `status` stops showing it (and `joinTable`/
-  `rematch` stop treating you as one of its two participants) right
-  away, even though the underlying table can legitimately linger in that
-  debrief until your partner also leaves (or it expires) — their own
-  rematch option isn't cut short by your exit. Requesting a rematch
-  against a partner who already left doesn't reserve a seat for them
-  either — that seat opens immediately, since nobody's coming back to
-  accept it. And the reserved partner isn't limited to accepting or
-  waiting it out: `leave` while looking at `#awaitingRematch` declines
-  it, freeing just the reservation (the requester's own staging survives,
-  now open to anyone).
-- **Idle takeover** — after a configurable timeout, third parties may
-  reclaim a squatted staging seat, reset a dead game, or start fresh over
-  an expired debrief — discoverable through the browsable table list
-  the same as any other joinable table. No table is occupied forever by
-  a player who vanished, and a table nobody ever revisits is eventually
-  garbage-collected — including pruning any `#endedByOther` notice nobody
-  plausibly still owes a look at, so a participant who's never coming
-  back to acknowledge one can't pin that table's id in the registry
-  forever — so ids don't accumulate without bound.
-- **Claim a win** — once your own move has sat pending against your
-  opponent's silence for longer than a second, independent, much shorter
-  timeout (`claimTimeoutNs`), you may optionally claim the win outright
-  instead of waiting them out — never automatic, and never at the expense
-  of giving them more time if you'd rather.
-- **Status views** — every caller gets one truthful, per-caller
-  `SessionStatus`: either the browsable table list, or a specific table's
-  own `View` — including a proactive `#endedByOther` notice when their
-  game was ripped out from under them by an idle takeover.
+- **Tables** — anyone opens a table, `#open` or protected by an access
+  code shared out of band. Both kinds are browsable (a protected one is
+  flagged, and shows who already holds a seat); any number run at once,
+  routed by one `Registry`.
+- **Seating** — two players take seats `#p1`/`#p2`; a third is turned
+  away while a match is in progress.
+- **Rounds** — a `#simultaneous` game resolves once both seats have
+  submitted; an `#alternating` game resolves the instant the on-turn seat
+  submits.
+- **Debrief** — a finished game puts both players in a debrief with the
+  final state attached.
+- **Early leave** — leaving mid-game gives both players a shared
+  `#aborted` debrief.
+- **Rematch** — either player requests one from the debrief, reusing the
+  same table; simultaneous clicks converge race-free. Leaving a debrief
+  dismisses it for you only; the partner's rematch option survives, and a
+  rematch requested after the partner left opens the seat immediately.
+  The reserved partner may also decline.
+- **Claim a win** — once your move has sat pending against the
+  opponent's silence for `claimTimeoutNs`, you may claim the win. Never
+  automatic.
+- **Idle takeover** — after `idleTimeoutNs`, third parties may reclaim a
+  squatted seat, reset a dead game, or start over an expired debrief.
+  Abandoned tables are garbage-collected, including pruning
+  `#endedByOther` notices nobody will ever ack.
+- **Status views** — one truthful per-caller `SessionStatus`: the
+  browsable table list, or a specific table's `View`, including the
+  `#endedByOther` notice after a takeover.
 
-It does **not** know how to play any game — that's entirely up to you.
-Pair it with [`duel-game-core` for npm](../frontend/README.md), the
-matching client plumbing.
-
-### Links
-
-Not yet published. Once it ships, this package will be on
-[MOPS](https://mops.one/duel-game-core) and GitHub, with generated API
-docs linked from the MOPS listing.
-
-### Motivation
-
-Every 2-player game backend ends up re-solving the same handful of hard,
-game-independent problems: how players find and claim a seat, how one
-player's move becomes visible to the other, what happens when a player
-disconnects mid-game or never comes back, how a rematch avoids stranding
-one player if both click "play again" at once, and how to avoid either a
-game that never lets go of the table or a client that can bypass its own
-UI to cheat. Those problems are identical whether the game is chess, a
-duel, or something not yet imagined — only `init`/`validate`/`resolve`
-differ. This package implements the shared half once, as a pure state
-machine, so a new game only has to supply the rules.
+Pair it with [`duel-game-core` for npm](../frontend/README.md).
 
 ### Interface
 
-The engine is built around two type parameters a game supplies: `S`
-(game state) and `M` (one player's move). Its shared type surface —
-`Spec`, `Seat`, `Phase`, `View`, `Err`, `Res`, `Table`, `Registry`, and
-everything else below — lives in `src/types.mo` and is re-exported by
-`src/lib.mo` (`mo:duel-game-core`, no subpath) so a host actor can name
-all of them off one import. The two layers of actual operations are
-separate sibling modules, both built on those same types:
+Two type parameters: `S` (game state) and `M` (one move). Types live in
+`src/types.mo`, re-exported by `src/lib.mo` (`mo:duel-game-core`).
 
-- `Spec<S, M>` — the three pure functions a game implements: `init`,
-  `validate`, `resolve` (see Design). Tagged by `Mode`
-  (`#simultaneous`/`#alternating`) — a game builds exactly one arm,
-  `#simultaneous { init; validate; resolve }` (both seats act every
-  round — `resolve` takes both moves; the common case) or
-  `#alternating { init; validate; resolve }` (seats take turns —
-  `resolve` takes just the one seat on turn and their move). `init` takes
-  this table's own rules `variant` (a `Text`, opaque to the engine — see
-  "Table variants" below) and returns a fresh `S`. See Design's
-  "Alternating-turn games" section.
-- `src/table.mo` (`mo:duel-game-core/table`) — `Table<S, M>`, the stable
-  session state for ONE board, and the low-level primitive `Registry`
-  (below) is built from: `Table.new(idleTimeoutNs, claimTimeoutNs,
-visibility, createdBy, variant)` plus `join`/`submit`/`rematch`/`leave`/
-  `reset`/`claimWin`/`ackEnded`/`status`/`sweep` on the table it returns
-  (Motoko dot-notation call sugar — plain functions taking the table as
-  their first argument). A game that genuinely wants exactly one fixed
-  board with no lobby of its own can use this directly instead of
-  `Registry`.
+- `Spec<S, M>` — the game's three pure functions, tagged by `Mode`:
+
+```motoko
+public type Spec<S, M> = {
+  #simultaneous : {
+    init : (Text) -> S; // this table's rules variant in, fresh state out
+    validate : (S, Seat, M) -> ?Text; // null = legal; ?text = rejection
+    resolve : (S, M, M) -> { state : S; verdict : ?Verdict };
+  };
+  #alternating : {
+    init : (Text) -> S;
+    validate : (S, Seat, M) -> ?Text;
+    resolve : (S, Seat, M) -> { state : S; verdict : ?Verdict }; // the on-turn seat
+  };
+};
+
+```
+
+- `src/table.mo` (`mo:duel-game-core/table`) — `Table<S, M>`, one board:
+  `Table.new(idleTimeoutNs, claimTimeoutNs, visibility, createdBy,
+variant)` plus `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
+  `ackEnded`/`status`/`sweep`. For a game that wants exactly one fixed
+  board and no lobby.
 - `src/registry.mo` (`mo:duel-game-core/registry`) — `Registry<S, M>`,
-  the stable multi-table registry: created once per host actor with
-  `Registry.new(idleTimeoutNs, claimTimeoutNs)`. `createTable`/
-  `listTables`/`joinTable` create, discover, and join a specific table;
-  `submit`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded`/`status`
-  resolve the caller's own current table (via a `SessionId -> TableId`
-  mapping the registry keeps) and delegate straight into the matching
-  `Table` operation above — no game logic is reimplemented at this
-  layer. `sweep` idle-evicts and garbage-collects across every table.
-  `attachMetrics(pt : PT.Tracker)`, from `mo:promtracker`, is a separate,
-  entirely optional call some time after `Registry.new` — see "Metrics"
-  below. `peekNextTableId` is a small pure getter alongside all of the
-  above — as side-effect-free as `status` — returning the `TableId` the
-  NEXT `createTable`/`createTableReserving` call will assign; see
-  "Canister players" below for the one real user of it.
-- Eight per-table operations, on either `Table<S, M>` or `Registry<S,
-M>`: `join`/`createTable`+`joinTable`, `submit`, `rematch`, `leave`,
-  `reset`, `claimWin`, `ackEnded`, `status` (plus `sweep`, not
-  caller-facing). Every one that can mutate takes `spec` and the current
-  time (`now : Int`, nanoseconds) as explicit parameters — see
-  Implementation notes. At the
-  `Registry` layer, every mutating operation is called ONLY from inside
-  `mo:duel-game-core/ws`'s `ws_message` dispatch — they are not, and
-  must not be, exposed as plain Candid methods on a host actor (see
-  "Real-time push" below for why). `status` is the exception: it stays a
-  plain public `query` too, since it's side-effect-free and carries no
-  race risk.
-- `View<S>` — one table's own per-caller screen: exactly one of `#lobby`,
-  `#busy`, `#stagingYou`, `#awaitingRematch`, `#inGame`, `#debrief`,
-  `#endedByOther`. `SessionStatus<S>` wraps it for the multi-table case:
-  either `#browsing { tables : [TableSummary] }` (not currently at any
-  table) or `#atTable { id : TableId; view : View<S> }`.
+  created once with `Registry.new(idleTimeoutNs, claimTimeoutNs)`.
+  `createTable`/`createTableReserving`/`listTables`/`joinTable` create,
+  discover, and join tables; `submit`/`rematch`/`leave`/`reset`/
+  `claimWin`/`ackEnded`/`status` resolve the caller's current table via a
+  `SessionId -> TableId` map and delegate to `Table`. `sweep` evicts and
+  garbage-collects across every table. `attachMetrics(pt)` is optional
+  (see Metrics). `peekNextTableId` is a pure read of the id nonce.
+- Every mutating operation takes `spec` and `now : Int` (nanoseconds).
+  At the `Registry` layer they are called only from `mo:duel-game-core/ws`
+  — never exposed as plain Candid methods. `status` is the exception
+  (side-effect-free `query`).
+- `View<S>` — one table's per-caller screen: `#lobby`, `#busy`,
+  `#stagingYou`, `#awaitingRematch`, `#inGame`, `#debrief`,
+  `#endedByOther`. `SessionStatus<S>` wraps it: `#browsing { tables }` or
+  `#atTable { id; view }`.
+
+`Registry<S, M>` and `Table<S, M>` are stable types whenever `S`/`M`
+are; the `Spec` is passed on every call and never stored, so upgrades
+need no migration.
 
 ## Usage
-
-### Install with mops
-
-You need `mops` installed. In your project directory run:
 
 ```
 mops add duel-game-core
 ```
 
-(Unpublished: add it as a local/git path dependency in `mops.toml` until
-it ships to mops.one.)
+(Unpublished: use a local path dependency until it ships to mops.one.)
 
-In the Motoko source file import the package as:
-
-```motoko
-import TP "mo:duel-game-core";
-
-```
-
-### Example
-
-A game is a pure `Spec<S, M>`, tagged by `Mode`:
-
-```motoko
-public type Spec<S, M> = {
-  #simultaneous : {
-    init : (Text) -> S; // this table's own rules variant in, fresh state out
-    validate : (S, Seat, M) -> ?Text; // null = legal; ?text = rejection
-    resolve : (S, M, M) -> { state : S; verdict : ?Verdict }; // both moves at once
-  };
-  #alternating : {
-    init : (Text) -> S;
-    validate : (S, Seat, M) -> ?Text;
-    resolve : (S, Seat, M) -> { state : S; verdict : ?Verdict }; // one seat, on turn
-  };
-};
-
-```
-
-A game builds exactly one arm — see "Alternating-turn games" under
-Design for the `#alternating` case, and "Table variants" just below for
-what `init`'s own `Text` argument is and when a game needs to read it at
-all.
-
-A host actor forwards every call to the engine, supplying `Time.now()`
-and your `Spec` — but only `status` is a plain Candid method. Everything
-that can mutate state (`createTable`/`joinTable`/`submit`/`rematch`/
-`leave`/`reset`/`claimWin`/`ackEnded`) is driven exclusively through
-`mo:duel-game-core/ws`'s `ws_message`, wired alongside `status` in the
-SAME actor — there is no plain Candid method for any of them, and no
-fallback: see "Real-time push" below for why, and for the idle-sweep
-timer that also belongs in this actor. A minimal host actor's non-WS
-half:
+The non-WS half of a minimal host actor:
 
 ```motoko
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
-import Rules "YourGameRules"; // your module, implementing TP.Spec<S, M>
+import Rules "YourGameRules"; // implements TP.Spec<S, M>
 import Time "mo:core/Time";
-import Timer "mo:core/Timer";
 
 persistent actor {
-  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(60_000_000_000, 15_000_000_000); // 60s idle timeout, 15s claim-win window, shared by every table
+  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(60_000_000_000, 15_000_000_000); // 60s idle, 15s claim window
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Rules.spec(), Time.now(), sid);
   };
 
-  // Frees every abandoned table on its own — with only 2 players per
-  // table, there's often nobody left to visit an idle one and trigger
-  // the lazy, visitor-driven eviction `joinTable`/`reset` already do.
-  // This bare top-level call reruns automatically on every upgrade too
-  // (no `postupgrade` override needed), so the timer never stays dead
-  // after one.
-  func startSweeping<system>() {
-    ignore Timer.recurringTimer<system>(
-      #seconds(300),
-      func() : async () {
-        registry.sweep(Time.now());
-      },
-    );
-  };
-  startSweeping<system>();
-
-  // ...wire mo:duel-game-core/ws here — see "Real-time push" below for
-  // the full `ActorMixin` wiring (all four `ws_*` methods plus this same
-  // idle-sweep timer, in one `include`), which is what actually drives
-  // createTable/joinTable/submit/rematch/leave/reset/claimWin/ackEnded.
+  // ...Ws.attach + ActorMixin — see "Real-time push"; that include also
+  // supplies the idle-sweep timer.
 };
 
 ```
 
-`Registry<S, M>` (and the `Table<S, M>` it's built from) is a
-stable type whenever `S` and `M` are stable types — the `Spec`
-(functions) is passed on every call and never stored, so the engine
-survives canister upgrades with no migration code.
-
-From there, generate (or hand-write) the Candid interface for this
-service and pair it with a **GamePlugin** on the frontend — see
-[`../frontend/README.md`](../frontend/README.md).
-
 ### Table variants
 
-A table's creator may pick a rules variant when they start it — "Classic"
-vs "Well" for `examples/rock-paper-scissors`, say — and a visitor
-browsing the lobby sees which variant each table runs, as plain text,
-before they ever join it. The engine's own part in this is a single
-opaque field: `variant : Text`, supplied once at `createTable`/
-`createTableReserving` time, stored on the `Table` for its whole
-lifetime (a rematch on the same `TableId` reuses it automatically — see
-architecture rule 6), and surfaced read-only on `TableSummary` for
-`listTables`/`status` to hand to a browsing visitor. The engine never
-validates or interprets this text — an unrecognized value is entirely a
-game's own call to fall back safely on, inside its own `init`:
+A table's creator may pick a rules variant (`variant : Text`, passed to
+`createTable`/`createTableReserving`, stored on the `Table`, surfaced on
+`TableSummary`). The engine never interprets it; the game's `init` does,
+falling back safely on anything unrecognized:
 
 ```motoko
 public type Variant = { #classic; #well };
 
 func parseVariant(raw : Text) : Variant = switch (raw) {
   case ("well") #well;
-  case (_) #classic; // safe default — never trap on garbage or "" input
+  case (_) #classic; // never trap on "" or garbage
 };
 
 public func init(raw : Text) : State = {
@@ -276,247 +136,89 @@ public func init(raw : Text) : State = {
 
 ```
 
-A game with no modes of its own simply ignores the argument
-(`init = func(_ : Text) : S = { ... }`) — every existing example but
-`rock-paper-scissors` and `chopsticks` does exactly this; nothing about
-`createTable` changes shape for them, they just never read the text
-they're handed.
+A game without variants ignores the argument (`init = func(_ : Text) : S
+= { ... }`).
 
-**Same fields, different legality.** When a variant only changes which
-moves are allowed, not what a move even contains, keep `M`/`S` flat and
-gate the difference in `validate` — architecture rule 4 already makes
-`validate` the sole legality gate, so a mode restriction is just one more
-branch there, no new engine mechanism:
+**Same fields, different legality** — keep `M`/`S` flat, store the
+variant on `S`, and gate in `validate`; build `resolve` against the
+variant with the most legal moves (`examples/rock-paper-scissors`). When
+a variant also changes what a move does, `resolve` branches on
+`s.variant` too (`examples/chopsticks`).
 
-```motoko
-public func validate(s : State, _seat : Seat, a : Action) : ?Text {
-  switch (a, s.variant) {
-    case (#well, #classic) ?"well is not available in classic mode";
-    case (_, _) null;
-  };
-};
+**Different fields entirely** — make `M` a tagged union over each
+variant's payload and dispatch once through a variant-keyed lookup built
+at module level (never stored on the actor). Either way it is one Candid
+type for the whole game, which is why `variant` is opaque `Text` rather
+than a third `Spec` type parameter: `TableSummary` is not generic over
+`S`/`M`.
 
-```
-
-`resolve` usually needs no variant branch at all in this shape: build it
-against the variant with the MOST legal moves (a strict superset), since
-`validate` has already kept anything else out of a narrower variant's own
-match — `examples/rock-paper-scissors`'s own `RockPaperScissorsRules.mo`
-(Classic vs Well) is the worked reference. When a variant changes what a
-move DOES, not only whether it's allowed, `resolve` reads `s.variant`
-too, the same way — `examples/chopsticks`'s own `ChopsticksRules.mo`
-(Classic's "5 or more is out" vs Instructables' "exactly 5 is out, more
-wraps `mod 5`") is the worked reference for that.
-
-**Different fields entirely.** When a variant's data genuinely doesn't
-overlap, widening one flat type stops making sense — turn `M` into a
-tagged union over each variant's own payload type instead, dispatched
-once, by variant, rather than hand-matched in every function that needs
-to know:
-
-```motoko
-type VariantModule = {
-  validate : (State, Seat, M) -> ?Text;
-  resolve : (State, M) -> { state : State; verdict : ?Verdict };
-};
-
-// Module-level, not stored on the actor — rebuilt fresh every call, the
-// same discipline `Spec` itself already follows (architecture rule 1).
-let variants : Map.Map<Text, VariantModule> = Map.fromIter(
-  [("a", variantAModule), ("b", variantBModule)].values(),
-  Text.compare,
-);
-
-```
-
-Either way it's still exactly one Candid type for the whole game (the
-union itself), so a per-table config still flows through `TableSummary`
-as plain text — `TableSummary` isn't generic over `S`/`M` at all, so a
-richer per-game config type could never flow through it directly; that's
-what settles `variant`'s own shape as opaque `Text` rather than a generic
-third type parameter on `Spec`.
-
-On the frontend, `GamePlugin.variantChoices()`/`formatVariant()` are the
-matching optional hooks — see
-[`../frontend/README.md`](../frontend/README.md)'s "GamePlugin" section.
+Frontend: `GamePlugin.variantChoices()`/`formatVariant()` in
+[`../frontend/README.md`](../frontend/README.md).
 
 ### Real-time push
 
-Every game on this engine is driven by `duel-game-core/ws.js` on the
-frontend — a `GatewayWs` that speaks this section's protocol directly
-against your canister's `ws_*` Candid methods, the ONLY way a client can
-mutate game state (see that package's README for the frontend half in
-full; `ws` is required, there's no plain-polling fallback). A direct
-update call bypassing this transport is exactly the race it exists to
-close: two independent update calls have no guaranteed relative
-processing order once both are in flight, so a plain `submit` racing
-this transport's own traffic could resolve out of order against it —
-which is why `createTable`/`joinTable`/`submit`/`rematch`/`leave`/
-`reset`/`claimWin`/`ackEnded` are not exposed as plain Candid methods at
-all, only reachable via `ws_message`.
-
-`src/ws.mo` — imported separately as `mo:duel-game-core/ws`, never merged
-into the engine itself — is built on
+`src/ws.mo` (`mo:duel-game-core/ws`), built on the vendored
 [`ic-websocket-cdk`](https://github.com/omnia-network/ic-websocket-cdk-mo)
-(mops). The IC has no native WebSocket support; `ic-websocket-cdk`'s
-normal deployment shape has the browser open a real WebSocket to an
-off-chain relay, the **WS Gateway**, which polls the canister's
-`ws_get_messages` and relays both directions. This repo runs it
-differently, and deliberately: `ic-websocket-cdk` doesn't require a
-pre-registered Gateway principal — a client's own `ws_open` call
-supplies whichever principal it wants registered as its
-`gateway_principal`, and the CDK accepts that dynamically (see
-`ic-websocket-cdk-mo`'s `State.mo`, `REGISTERED_GATEWAYS`) — so
-`duel-game-core/ws.js`'s `GatewayWs` has each browser tab register
-**itself** as its own Gateway and poll its own messages, exactly as a
-real Gateway process would poll on a client's behalf. No relay process
-to run, no `ic-websocket-js` dependency, no second signing identity — a
-genuinely separate relay process buys nothing a 2-player casual game
-actually needs. That CDK's last upstream release (`0.4.1`, Oct 2024)
-predates this repo, so it's vendored here at
-`backend/src/ic-websocket-cdk/src` rather than pulled from the mops
-registry — which also let it be migrated in place from `mo:base` to
-`mo:core` (this package's own code never uses `mo:base` — see the root
-`CLAUDE.md`'s toolchain rule), so it no longer carries that legacy
-dependency itself. It does still depend on the third-party
-`ic-certification` mops package for its Merkle certification tree, and
-that package's own code still uses `mo:base` internally — genuinely
-outside this repo's control, unlike the vendored CDK. Keeping the CDK
-confined to `ws.mo` means a host actor that never imports
-`mo:duel-game-core/ws` never compiles any of that in; `src/lib.mo` stays
-exactly as pure as the architecture rules require.
+at `backend/src/ic-websocket-cdk/src` (migrated to `mo:core`; its
+`ic-certification` dependency still uses `mo:base`), is the only way a
+client mutates game state. Two independent update calls have no
+guaranteed relative processing order once both are in flight, so a
+plain `submit` racing the WS channel could resolve out of order — hence
+no plain Candid method for any mutating operation.
 
-**Disappearance handling.** Real WS close detection is exactly what
-makes it possible for the backend to tell a genuinely vanished player
-apart from one merely thinking — `attach()`'s `onClose` (see `ws.mo`)
-drives an implicit `Registry.leave` on behalf of whichever session's
-connection just closed, whether that close was the client's own
-cooperative goodbye or the CDK's internal keep-alive timeout catching an
-involuntary disappearance (crash, force-quit, network drop): a live game
-someone vanished from ends in a shared debrief instead of leaving the
-opponent staring at a move that's never coming, and if the OTHER
-participant is also found disconnected at that point, their side of the
-same debrief is acked too, freeing the table immediately instead of it
-sitting occupied with nobody left to poll it free. The CDK's keep-alive
-timeout is fixed at 60s (not configurable via `WsInitParams`), so an
-involuntary disappearance has a real detection floor of roughly
-60-180s depending on where in the ack cycle it happens — not instant,
-but bounded, and independent of `Registry.sweep` (see `src/registry.mo`),
-which stays in place underneath this as a second, timeout-based
-backstop for anything that reaches the engine outside this transport at
-all (e.g. a canister upgrade dropping every live connection until
-browsers reconnect on their own).
+The CDK normally expects an off-chain Gateway relay, but does not require
+a pre-registered Gateway principal: a client's own `ws_open` names its
+`gateway_principal`. The frontend's `GatewayWs` therefore has each
+browser tab register itself as its own Gateway and poll its own
+`ws_get_messages`. No relay process, no second identity.
 
-**Push overhead.** Internally, `attach()`'s push helpers
-(`pushTo`/`pushStatus`/`afterMutation`, plus `finishClose`/
-`sweepAndPush`) are `async*`/`await*`, not plain `async`/`await` — only
-`pushTo`'s own call into `IcWebSocketCdk.send` is a genuine send; the
-rest are thin fan-out/dispatch wrappers around it with nothing to await
-themselves. On the IC, a plain `async` call is its own message with its
-own commit point regardless of whether it suspends, so e.g. broadcasting
-to both seats of an `#active` game would otherwise cost two extra round
-trips through the scheduler on top of the one real send. `async*`/
-`await*` inlines a wrapper into its caller's own async state machine
-instead of starting a new one, so the whole dispatch tree down to
-`pushTo`'s single real `await` compiles to one message, not one per
-wrapper — same number of genuine sends, far fewer commit points and
-continuation-closure allocations. `disconnectSession` goes further still
-and isn't `async` at all: it only calls `Registry.leave` (synchronous
-engine code), so there's no async state machine to build. See `ws.mo`'s
-own comments on `Attached`/`pushTo` before "fixing" one of these back to
-plain `async`/`await` for readability — it silently reintroduces that
-per-wrapper overhead.
+**Disappearance handling.** `attach()`'s `onClose` drives an implicit
+`Registry.leave` for the closed session, whether the close was
+cooperative or the CDK's keep-alive timeout (fixed at 60s, giving an
+involuntary-disappearance detection floor of roughly 60–180s). A live
+game the player vanished from ends in a shared debrief; if the partner
+is also disconnected, their side is acked too and the table frees
+immediately. `Registry.sweep` stays as the timeout-based backstop.
 
-**The wire protocol.** `ic-websocket-js` requires ONE application-message
-type shared by both directions (it reads the type straight off the
-canister's `ws_message` method's second Candid parameter at runtime) — so
-`Ws.Msg<S, M>` is a variant covering client→canister requests
-(`#req { sid; req; reqId }`, where `req` mirrors `Registry`'s own
-mutating operations plus an explicit `#status` resync) AND
-canister→client pushes (`#view { reqId; view }` / `#err { reqId; err }`),
-not two separate types — `view` here is a `TP.SessionStatus<S>`, not a
-bare `View<S>`, since a push has to say WHICH table (if any) it's about.
-Every mutating request re-uses `registry.mo`'s own operations
-(`createTable`, `joinTable`, `submit`, ...) directly — `ws.mo`
-reimplements no game logic or table routing, and these are the ONLY
-place those operations are ever called from a host actor, since none of
-them is exposed as a plain Candid method — and, after each one, pushes a
-fresh status to whoever needs to see it changed: the affected table's
-own current occupants (once a match has two fixed seats, `#active`/
-`#debrief`, that's read directly off the table's own `p1`/`p2` fields —
-plus a `#staging` rematch reservation's own named partner, so an
-invitation reaches them proactively — so a connection routinely receives
-a push it never asked for whenever the OTHER seat, or a rematch partner,
-is the one who acted) and, whenever the open-table list itself might
-have changed (a table created, filled, freed, or garbage-collected),
-every OTHER session `Hub` currently knows is connected AND isn't
-currently at any table (see below). Either way, a client can receive a
-status it never requested. `reqId` is an opaque token the CLIENT makes
-up for a `#req` it wants correlated to its own reply; `ws.mo` only ever
-echoes it straight back on that SAME session's own push, never
-inspecting or generating it — a push to anyone else always carries
-`reqId = null`, since it's a broadcast, not a reply to anything they
-asked. This exists because, without it, a client has no way to tell "the
-reply to my own request" apart from "an unrelated broadcast that
-happened to arrive around the same time" — a real bug this closes: a
-client-side FIFO match-next-message-to-oldest-pending-request scheme let
-an opponent's broadcast steal the slot meant for this connection's own
-reply, silently hanging the real one forever. `Hub` is the other half of
-the bridge: the engine's identity is a client-chosen `SessionId`
-(`Text`), decoupled from any IC principal by default, but a WebSocket
-connection is keyed by principal — `Hub` learns the `sid <-> principal`
-pairing from the `sid` every inbound message carries, and forgets it on
-`ws_close`.
+**Push helpers are `async*`/`await*`.** Only `pushTo`'s call into
+`IcWebSocketCdk.send` is a genuine send; `pushStatus`/`afterMutation`/
+`finishClose`/`sweepAndPush` are wrappers. Plain `async` would make each
+wrapper its own message with its own commit point; `async*` inlines them
+into one. Don't widen them back. `disconnectSession` is not async at all.
 
-**Player identity: anonymous and logged-in players, treated equally, both
-non-spoofable.** `Table`/`Registry` never look at a `SessionId` beyond
-comparing it for equality, so an anonymous player (today's default — no
-login required) and a real, permanently identified player (someone who
-logged in via Internet Identity) sit at the very same tables with no
-special-casing anywhere in the engine. Both are non-spoofable, though: `Ws`
-is the layer bridging `sid` to a caller's authenticated principal, and it
-recognizes two reserved `sid` namespaces, each a pure, permanent function of
-a principal — `Ws.sidFor(prefix, p) = prefix # Principal.toText(p)`.
-`Ws.PRINCIPAL_SID_PREFIX` (`"ii:"`) is a real Internet Identity login;
-`Ws.ANON_SID_PREFIX` (`"an:"`) is a locally generated keypair a frontend
-persists on its own, with no login step at all — either way the id is
-"issued" for free the moment the principal is first seen (nothing to
-allocate or store) and can never change for as long as the same
-keypair/login keeps resolving to the same principal. `onMessage` rejects
-any inbound `sid` whose principal doesn't match the connection's own
-`args.client_principal` under its own namespace's scheme — or that names no
-recognized namespace at all — with `Err.#unauthorized`, before the request
-ever reaches `Hub` or `Registry`. There is no third, client-asserted tier:
-every legal `sid` is principal-bound. See `../frontend/README.md`'s
-"Logging in with Internet Identity" section for the matching frontend half
-(`duel-game-core/identity.js`'s `resolveAnonymousIdentity()`/
-`resolveIdentity()`, which compute the identical `sidFor` values).
+**Wire protocol.** `Ws.Msg<S, M>` is one variant for both directions:
+`#req { sid; req; reqId }` (client→canister; `req` mirrors `Registry`'s
+operations plus `#status`) and `#view { reqId; view }`/`#err { reqId;
+err }` (canister→client; `view` is a `SessionStatus<S>`). After each
+successful mutation the module pushes a fresh status to the acting
+session, the table's other occupants (including a rematch reservation's
+named partner), and — when the open-table list may have changed — every
+other connected session not at a table. `reqId` is an opaque
+client-chosen token echoed back only on that session's own reply; every
+other push carries `null`. It exists because a FIFO "next message is my
+reply" scheme let an opponent's broadcast steal a reply's slot. `Hub`
+bridges `sid <-> principal`, learned from each inbound message and
+forgotten on `ws_close`.
 
-**Replay safety.** `#submit`/`#leave`/`#reset`/`#claimWin` each carry a
-`gen : Nat` (and `#submit` additionally a `turn : Nat`) — the match
-generation (and,
-for submit, round number) the client last saw in a `View`. A client can't
-always tell whether a mutating call it believes failed (a dropped
-connection, a decode error) actually reached `ws.mo`'s `onMessage` —
-`ws/gateway-client.ts`'s resend queue exists to retry exactly that
-ambiguous case — so without this, a resent `submit` whose original copy
-secretly already resolved the round (or ended the match) would be
-silently replayed against whatever round/match is current by the time the
-resend lands, and a resent `leave`/`reset` could silently abort a
-brand-new match the SAME session later started (typically a same-partner
-rematch) instead of the one it actually meant to end. `Registry.submit`/
-`leave`/`reset`/`claimWin` reject a mismatch as `Err.#stale` instead of
-applying it;
-the client's fix is always the same regardless of cause — refetch
-`status` (or just look at the next pushed status) and act on the real,
-current one. `#createTable`/`#joinTable`/`#rematch`/`#ackEnded` carry no
-such binding: each already recomputes its effect from live state
-(current partner, current seat availability, current debrief membership)
-rather than applying a stale payload, so a replay of any of them is
-already either a no-op or a pre-existing, harmless error — see `lib.mo`'s
-doc-header guarantee 6 for the full reasoning.
+**Player identity.** `Table`/`Registry` only compare `SessionId`s for
+equality, so anonymous and logged-in players share tables with no
+special-casing. Both are non-spoofable: `Ws.sidFor(prefix, p) = prefix #
+Principal.toText(p)` with `PRINCIPAL_SID_PREFIX` (`"ii:"`, Internet
+Identity) or `ANON_SID_PREFIX` (`"an:"`, a locally persisted keypair).
+`onMessage` rejects any `sid` whose principal doesn't match the
+connection's `client_principal` under its namespace, or that names no
+namespace, with `#unauthorized`. There is no client-asserted tier.
+`Ws.playerKey(sid)` strips the prefix to a stable per-player key.
 
-**Wiring it into a host actor** — extending the example above:
+**Replay safety.** `#submit`/`#leave`/`#reset`/`#claimWin` carry the
+`gen` (and `#submit` the `turn`) the client last saw. The client's resend
+queue retries a call it cannot tell landed or not, so without this a
+resent `submit` could replay against a later round, and a resent
+`leave`/`reset` could abort a new match. A mismatch is `Err.#stale`; the
+client refetches `status`. `#createTable`/`#joinTable`/`#rematch`/
+`#ackEnded` recompute from live state and need no binding.
+
+**Wiring:**
 
 ```motoko
 import Ws "mo:duel-game-core/ws";
@@ -525,306 +227,118 @@ import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
 persistent actor {
   let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(60_000_000_000, 15_000_000_000);
+  // ...status...
 
-  // ...`status` from the example above, unchanged...
-
-  // `IcWebSocketCdk.IcWebSocket` holds live connections/closures — not a
-  // stable type. `transient` rebuilds it fresh on every upgrade; no game
-  // state is lost, since `registry` is untouched by any of this and
-  // browser clients reconnect on their own.
+  // Not stable (live connections/closures) — rebuilt on every upgrade;
+  // `registry` is untouched and browsers reconnect on their own.
   transient let wsHub : Ws.Hub = Ws.createHub();
   transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
     wsHub,
-    // Built here, where S/M are concrete — sidesteps any question of
-    // whether to_candid/from_candid specialize inside a function still
-    // generic over S/M.
+    // Built where S/M are concrete.
     {
       encode = func(m : Ws.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
       decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
-    // 120s: comfortably above the CDK's hardcoded 60s keep-alive timeout
-    // (send_ack_interval_ms must exceed it) — trades a longer
-    // involuntary-disappearance detection floor for fewer recurring
-    // timer callbacks than the legal minimum would cost (see this
-    // section's "Disappearance handling").
+    // send_ack_interval_ms must exceed the CDK's fixed 60s keep-alive.
     IcWebSocketCdkTypes.WsInitParams(null, ?120_000),
-    null, // no `mo:duel-game-core/canister_players` wired — see "Canister players" below otherwise
-    null, // no leaderboard wired — see "Leaderboard" below otherwise
-    null, // no match-start timing needed either — see "Leaderboard" below
+    null, // onSettled — see "Canister players"
+    null, // onGameEnded — see "Leaderboard"
+    null, // onGameStarted — see "Leaderboard"
   );
-  attached.ws.init<system>(); // starts the CDK's keep-alive/ack timers —
-  // this bare top-level call (like `wsHub`/`attached` themselves) reruns
-  // automatically on every upgrade too, so no `postupgrade` override is
-  // needed to restart it
+  attached.ws.init<system>(); // reruns on every upgrade; no postupgrade needed
 
-  // Supplies `ws_open`/`ws_close`/`ws_message`/`ws_get_messages` AND the
-  // idle-sweep timer in one `include` — no host actor hand-declares any
-  // of the four. Wiring `attached.sweep` (not a bare
-  // `registry.sweep(Time.now())`) is what makes a
-  // still-connected tab whose game the sweep just ended get a fresh push
-  // instead of silently keeping a stale status — see `Ws.Attached`'s own
-  // doc. `ws_message`'s
-  // second Candid parameter (`ActorMixin`'s own `msgType`) is a plain
-  // `Blob`, not `Ws.Msg<Rules.State, Rules.Action>` — the mixin only ever
-  // holds the already-built `ws`, with no `S`/`M` in scope to name a
-  // game-specific type with, and the CDK ignores this parameter's VALUE
-  // regardless of its declared type (it exists solely to shape the
-  // canister's `.did`, for tooling that introspects it). The real message
-  // driving this call always arrives through `args`'s own `content`
-  // field, decoded via `codec.decode` exactly as before;
-  // `from_candid(msgType) : ?Ws.Msg<Rules.State, Rules.Action>` recovers
-  // the identical value if you ever need it too.
+  // ws_open/ws_close/ws_message/ws_get_messages + the idle-sweep timer.
+  // `attached.sweep` (not a bare `registry.sweep`) pushes to sessions the
+  // sweep just evicted.
   include ActorMixin<system>(attached.ws, attached.sweep);
 };
 
 ```
 
-Add the dependency: `mops add ic-websocket-cdk` (pins `0.4.1`). On the
-frontend, `duel-game-core/idl.js`'s `makeIdlFactory` (via its exported
-`buildEngineTypes`) already declares the four `ws_*` Candid methods for
-every game (fixed CDK shapes plus your game's `Action`/`State` embedded
-in `Ws.Msg`, and a plain `blob` for `ws_message`'s otherwise-unused
-second parameter) — nothing game-specific to add there;
-`duel-game-core/ws.js`'s `connectWs()` calls all four directly (see
-`../frontend/README.md`'s "Real-time push" section for the frontend
-half).
+`ws_message`'s second Candid parameter is a plain `?Blob`: the CDK
+ignores its value (it only shapes the `.did`), and the mixin has no
+`S`/`M` in scope. The real message arrives in `args.content`.
 
-`examples/007/src/Host.mo` and `examples/racing/src/Host.mo` both wire
-`ws.mo` exactly this way — it's the live transport both examples'
-frontends actually talk to, not a reference-only add-on. **The Motoko
-side has been type-checked and reviewed against the CDK's actual
-source; the Candid/CBOR codec on the frontend side has been round-tripped
-against the same type descriptions in a standalone script (encode →
-decode agreement, no live canister involved). The full round trip — a
-real canister, a browser tab registering as its own Gateway, and an
-actual push arriving — has not been proven end-to-end.** Treat it as a
-solid, carefully-reasoned starting point, not a battle-tested one, and
-sanity-check it against a real deploy before relying on it.
+The frontend's `makeIdlFactory` already declares the four `ws_*` methods;
+`connectWs()` calls them. See `examples/*/src/Host.mo` for this wired
+end to end.
 
 ### Canister players
 
-`mo:duel-game-core/canister_players` lets a CANISTER take a seat at a table
-and play, against a human or another canister, with no polling and no second
-inbound entry point for a move to arrive through. The key simplification: `ws.mo`
-exists only because the IC has no native WebSocket, so a browser has to fake real-time
-push. A canister player needs none of that — two canisters calling each other
-with `async`/`await` already IS a real, ordered, request-response
-channel, the primitive the whole IC is built on. So the whole feature
-reframes to "let the GAME canister call the PLAYER canister directly and
-treat the reply as the move" — never a one-way "your turn" notice
-followed by the player canister calling back independently, which would
-reopen exactly the unordered-second-channel problem `ws.mo`'s own
-architecture rule (11) closes. A single `await` whose return value IS
-the chosen action needs no second inbound entry point at all: nothing
-new is exposed for a stray caller to hit, and there's nothing to spoof —
-the reply can only ever come from the one principal this module itself
+`mo:duel-game-core/canister_players` lets a canister take a seat. Two
+canisters calling each other with `await` already form an ordered
+request/response channel, so the game canister calls the player
+canister's `make_move` and treats the reply as the move — never a "your
+turn" notice followed by an independent callback, which would reopen the
+unordered-second-channel race rule 11 closes. Nothing new is exposed and
+nothing can be spoofed: the reply comes from the principal this module
 decided to call.
 
-**Identity: a third `sid` namespace, one per board.** Exactly like
-`ws.mo`'s `ii:`/`an:`, `CanisterPlayers.CP_SID_PREFIX` (`"cp:"`) is a
-third reserved namespace. It's actually simpler here than for a
-browser: `ws.mo` has to cross-check a client-ASSERTED `sid` against a
-separately authenticated WebSocket connection, because that transport
-decouples the two. A plain canister-to-canister Candid call has no such
-gap — `msg.caller` already IS the authenticated identity — so every
-entry point computes its own `cp:` session rather than accepting a
-client-supplied `sid`. There's nothing to check, because there's
-nothing to spoof.
+**Identity.** `CP_SID_PREFIX` (`"cp:"`) is a third namespace, but there
+is no client-asserted `sid` to cross-check: `msg.caller` already is the
+authenticated identity. `sidForCanister(p, tableId, complexity)` mints
+`"cp:" # p # ":" # tableId # ":" # complexity` — one session per board,
+so one bot canister may hold seats at many tables. `createTable` uses
+`Registry.peekNextTableId` to know the id one call early (safe with no
+`await` in between). `leave`/`ackEnded`/`claimWin`/`reset` take an
+explicit `tableId` and look the session up on that board's own phase
+record. `principalOfCanisterSession`/`complexityOfCanisterSession` invert
+the two segments a host needs.
 
-A `Registry` table is still exactly one SESSION's worth of "my one
-game" — nothing about that changes. What's not one-to-one any more is a
-canister PRINCIPAL to a session: `CanisterPlayers.sidForCanister(p,
-tableId, complexity)` mints a SEPARATE session per board
-(`"cp:" # p.toText() # ":" # tableId.toText() # ":" # complexity`), so
-the same bot canister can hold a live seat at any number of tables at
-once, each one an ordinary, fully independent session as far as
-`Table`/`Registry` are concerned. `tableId` is free to supply everywhere
-except `createTable` itself, where the id doesn't exist yet at the point
-a session is needed to create it — `Registry.peekNextTableId` (a pure
-read of the registry's own id nonce, as side-effect-free as `status`)
-supplies it one call early, safe as long as nothing `await`s between
-peeking it and creating the table with it. Every OTHER entry point that
-acts on an EXISTING board — `leave_as_canister`/`ack_ended_as_canister`/
-`claim_win_as_canister`/`reset_as_canister` — takes `tableId` as an
-explicit argument instead of trying to infer "my one game": with more
-than one live board per canister that's ambiguous, so the caller says
-which board it means, the same `tableId`
-`create_table_as_canister`/`join_table_as_canister` returned; the
-session itself is then looked up on that board's own phase record
-(principal + `tableId` prefix), never re-derived, since its complexity
-segment was chosen once at seating time and needn't be repeated.
-`CanisterPlayers.principalOfCanisterSession` and
-`complexityOfCanisterSession` are `sidForCanister`'s own inverses —
-the former recovers the calling canister's principal from one of its
-`cp:` sessions, used below by a host's own `callBot` closure to know
-which canister to actually call `make_move` on; the latter recovers the
-seat's complexity, which `MoveRequest.complexity` carries to the bot on
-every ask.
+**Complexity.** A bot may offer several ways to play ("Easy"/"Hard",
+"Rabbit"/"Fox"/"Lion", ...). Each is a `complexity : Text`, as opaque
+here as `variant` is to the engine. The bot declares its list once at
+registration; whoever seats it picks one, which becomes the session id's
+last segment and reaches the bot as `MoveRequest.complexity` on every
+ask. A bot with one way to play registers `[]` and is listed under
+`DEFAULT_COMPLEXITY` (`"Default"`); every complexity is rated separately
+via `leaderboardKey(p, complexity)`.
 
-**Complexity: one bot, several ways to play.** A single bot canister
-may offer more than one way of playing — an "Easy"/"Medium"/"Hard"
-ladder, a "Rabbit"/"Fox"/"Lion" one, or something that isn't a
-difficulty at all ("Look-ahead" vs. "Reactive"). Each is a
-`complexity : Text`, opaque to this package in exactly the way a table's
-own `variant` is opaque to the engine (see "Table variants" above):
-never validated or interpreted here, only carried. A bot declares its
-own list once, at registration (`register_bot(name, complexities)`, see
-"Bot discovery" below — a constant in the bot's own code; if it ever
-changes, the bot simply re-registers), and whoever seats the bot at a
-table picks ONE of them for that session: a human challenger, from the
-"🤖 Bots" dialog (`play(host, tableId, seat, code, complexity)`, Flow
-1 below); an orchestrator naming a `reservedFor` session for a
-bot-vs-bot match (`sidForCanister(botPrincipal, nextId, complexity)`,
-Flow 2 below); or the bot itself, on
-`create_table_as_canister`/`join_table_as_canister`'s own trailing
-`complexity` argument. The pick becomes the last segment of the seat's
-session id, so it lives on the table's own phase record for the
-session's whole life — no separate map to keep stable across an
-upgrade — and reaches the bot on every ask as
-`MoveRequest.complexity`, so one stateless `query` bot can be "Hard"
-on one board and "Easy" on another with no memory of its own. A bot
-with just one way to play needs none of this: it registers with an
-empty list (`[]`, listed under `CanisterPlayers.DEFAULT_COMPLEXITY`,
-`"Default"` — the same normalization an empty `complexity` argument
-gets anywhere in this module) and ignores `req.complexity`; a bot with
-several should treat a value it doesn't recognize as its own default
-rather than trap. Every complexity is scored separately on a
-leaderboard — `leaderboardKey(p, complexity)`, see "Leaderboard"
-below — since "CheckersBot (Hard)" and "CheckersBot (Easy)" are
-genuinely different opponents.
+**Call/response.** `notifyAndApply` builds a `MoveRequest<S, M>` from the
+table's own `Registry.status` (plus `opponent`/`opponentLastMove`/
+`lastRoundDurationNs`, read off the `Active` record in the same
+synchronous step), hands it to the host's `callBot`, re-reads `gen`/`turn`
+fresh after the reply (the human may have claimed, left, or been swept
+meanwhile), applies via `registry.submit`, and runs
+`Ws.Attached.afterMutation`. `callBot` is continuation-passing —
+`(SessionId, MoveRequest<S, M>, (?M) -> async* ()) -> async* ()` — because
+Motoko rejects `async M` for an unconstrained generic `M`; the host's
+concrete closure does the `try`/`catch`. An `#illegalMove` reply is
+retried once with `retryReason` set to `validate`'s text; a trap, error,
+or any other rejection is treated as silence and left to
+`claimTimeoutNs`/`idleTimeoutNs`.
 
-**The call/response protocol.** `notifyAndApply` (internal) builds a
-`TP.MoveRequest<S, M>` from the table's own current, truthful
-`Registry.status` for the fields `View.#inGame` already reports (never a
-second, divergent read of `Table`'s internals there), plus a handful
-more a human's own screen has no use for — the opponent's own identity,
-their most recently resolved move, and the last round's own duration —
-read directly off the table's `Active` record in that same synchronous
-call (see "Writing the bot itself" below for what these are for); hands
-the whole thing to a host-supplied `callBot`, re-reads `gen`/`turn`
-FRESH once the bot replies (never the copies closed over from before
-that call — the table can legitimately change underneath a long-running
-bot call: the human claims a win, leaves, or gets idle-swept while the
-bot is still thinking), applies the move via `registry.submit`, and runs
-the EXACT SAME push fan-out `ws.mo` itself runs
-(`Ws.Attached.afterMutation`, exposed for exactly this reuse — see
-`ws.mo`'s own `Attached` doc), so a human opponent's browser learns
-about a canister-driven move in real time, same as any other. `callBot`
-is continuation-passing —
-`(SessionId, MoveRequest<S, M>, (?M) -> async* ()) -> async* ()`, not a
-plain `(...) -> async M` — because Motoko rejects `async M` as a type
-for an unconstrained generic `M`; the host's own implementation is the
-one place able to `try`/`catch` the actual inter-canister call, since
-its own game's `Action` type is concrete there, and calls the
-continuation with `?move` on success or `null` on a trapped/errored
-call.
+**`settle(now, id)`.** For an `#active` table: a seat due to move
+(`View.#inGame.youSubmitted == false`, which means "due" in either mode)
+is asked; the WAITING seat with `claimWinAvailable` claims the win; a
+waiting seat not yet overdue arms `armClaimCheck(id, secondsUntilClaimable)`
+for one precise wakeup. For a `#debrief`: a canister seat is acked (via
+`registry.leave`) once the other seat is no longer a live participant or
+is itself a canister, so two canister seats never deadlock on each
+other's ack and a deciding human's rematch window is never cut short. A
+one-bit in-flight flag per (table, seat) prevents double asks.
+Canister-driven mutations call `settle` inline; human-driven ones reach
+it through `Ws.attach`'s `onSettled`. `sweep` is the slow full-registry
+fallback, folded into the existing idle-sweep timer.
 
-**Silence is already a first-class outcome.** A bot canister can fail in
-every ordinary way software fails: it traps, it's out of cycles, it's
-mid-upgrade, it times out, or it just returns an illegal move. None of
-that needs new machinery — this engine already has a complete story for
-"a seat didn't move" (`claimTimeoutNs`, `idleTimeoutNs`, `#aborted`
-debriefs — see the Design section's guarantee 4), and a misbehaving bot
-is, from the engine's point of view, indistinguishable from a human who
-put the phone down. So `notifyAndApply`'s own failure handling stays
-small: an `#err(#illegalMove _)` reply is retried once; a trapped/
-errored call, or any other rejection (the table moved on underneath the
-bot — a claim, a leave, an idle takeover), is treated exactly like
-silence — do nothing, and let the existing timeout machinery take it
-from there. That one retry still gives the bot something to work with:
-the retried `MoveRequest<S, M>`'s `retryReason` field carries the exact
-text the game's own `validate` rejected the first reply with, so
-`make_move` can inspect why its move was illegal and correct that
-specifically, rather than just being asked again with no new
-information. `retryReason` is `null` on every non-retry ask; a
-trapped/errored call never reaches a retry at all, since there's no
-rejection text to carry.
-
-**When a canister seat gets asked, claims a win, or acks a finished
-debrief.** `settle(now, id)` is one table's worth of that check: for its
-`#active` phase, per seat, either due to move (`View.#inGame.youSubmitted`
-is `false` — that one Boolean already means "due to move" in EITHER mode,
-the same way it means "the waiting seat" that may `claimWin` — see
-`Table.status`'s own doc), in which case it's asked via `callBot`; the
-WAITING seat with `claimWinAvailable` now true, in which case `settle`
-claims the win on its behalf outright; or the WAITING seat NOT yet
-overdue, in which case it asks the host to schedule exactly one wakeup
-for the moment it will be (`armClaimCheck`, below) instead of polling for
-it. For its `#debrief` phase, per seat: if the OTHER seat is no longer a
-live participant of that SAME debrief either (`Table.activeDebriefSeat`
-returns `null` for a seat that's already acked, or was never filled) — or
-is itself canister-seated, so there's nobody around to decide on a
-rematch at all — `settle` acks the canister seat's own side immediately
-(via `registry.leave`, the same call a human's "return to lobby" makes),
-freeing it for a fresh `createTable`/`joinTable` with no wait. A
-still-deciding HUMAN partner's own rematch window is never cut short by
-this: their own debrief seat staying unacked is exactly what keeps the
-canister seat's from firing. The move-asking case is additionally guarded
-by a one-bit-per-(table, seat) in-flight flag so an overlapping call can
-never ask the same due seat twice while the first ask is still pending.
-
-A canister-initiated mutation calls `settle` on itself directly, in-line
-— `joinTable`/`rematch`'s own implementations call it internally, and so
-does a canister's own move landing via `notifyAndApply` (in case that
-move just ended the game) — so a bot-vs-bot match starting, resolving a
-round, or settling its own debrief never waits on anything else. A
-HUMAN-driven mutation reaches the exact same `settle` through one more
-hop: `Ws.attach`'s own optional `onSettled` parameter (see that module's
-own doc) runs right after `afterMutation`'s push fan-out, for every
-successful WS request that touched a table — so asking a canister
-opponent to move (or acking its own finished debrief) is a same-call
-reaction to whichever mutation just made it due, human- or
-canister-driven alike, with no polling timer needed for either half of
-that pairing. The one thing nothing ever calls back in about on its own
-is the passage of time — a stalled opponent going silent — which is what
-`armClaimCheck(id, secs)` is for: a host-supplied hook that schedules
-exactly one precisely-timed wakeup, calling back into `settle` once
-`secs` have passed, using `Timer.setTimer`'s own `<system>` capability
-(available only inside an actor, which is why this is a parameter
-`canister_players.mo` takes rather than something it does itself — see
-`attach`'s own doc for why this keeps the module free of `<system>`
-entirely, testable in the plain interpreter harness with a stubbed
-`armClaimCheck` the same way `afterMutation` already is).
-
-**Wiring it into a host actor** — extending the `ws.mo` example above.
-`Ws.attach`'s own `onSettled` hook and `CanisterPlayers.attach`'s own
-`armClaimCheck` parameter each need to call back into the OTHER side's
-result before either exists, so a host breaks that cycle with one small
-mutable indirection, filled in once `cpAttached` itself is built. The
-six Candid methods a canister player calls
-(`create_table_as_canister`/`join_table_as_canister`/`leave_as_canister`/
-`ack_ended_as_canister`/`claim_win_as_canister`/`reset_as_canister`)
-— plus `register_bot`/`unregister_bot`/`list_bots` (bot DISCOVERY, see
-"Bot discovery" below) — come from a single
-`include CanisterPlayersActorMixin(cpAttached, botDirectory, leaderboard)`
-— `mo:duel-game-core/canister_players_actor_mixin`, the
-`canister_players.mo` counterpart to `ActorMixin` above; no host
-hand-declares any of the nine. There is no `rematch_as_canister`: a
-canister-vs-canister debrief auto-acks both sides unconditionally the
-moment neither is a live human still deciding (see "Unattended,
-canister-vs-canister matches" below), so nothing is ever left waiting
-on a canister's own rematch click the way a human's own "Rematch"
-button is:
+**Wiring** (the two `attach` calls need each other's result, so one
+mutable indirection breaks the cycle):
 
 ```motoko
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
-import Principal "mo:core/Principal"; // enables p.toText() dot notation below
+import Principal "mo:core/Principal";
 import Timer "mo:core/Timer";
-
-import BotIface "BotIface"; // this game's own CanisterPlayer actor type
+import BotIface "BotIface"; // this game's CanisterPlayer actor type
 
 persistent actor {
-  // ...registry / status from the `ws.mo` example above, unchanged...
+  // ...registry/status...
 
   transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
   transient let settle = func(now : Int, id : TP.TableId) : async* () {
-    switch (settleTable) {
-      case (?f) await* f(now, id);
-      case null {};
-    };
+    switch (settleTable) { case (?f) await* f(now, id); case null {} };
   };
 
   transient let wsHub : Ws.Hub = Ws.createHub();
@@ -834,46 +348,30 @@ persistent actor {
     wsHub,
     codec,
     wsParams,
-    ?settle, // see `Ws.attach`'s own `onSettled` doc
-    null, // no leaderboard wired — see "Leaderboard" above otherwise
-    null, // no match-start timing needed either — see "Leaderboard" above
+    ?settle,
+    null,
+    null,
   );
   attached.ws.init<system>();
 
   transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
-    attached.afterMutation, // reuses ws.mo's own push fan-out — see above
+    attached.afterMutation,
     func(session, req, k) : async* () {
       let p = CanisterPlayers.principalOfCanisterSession(session);
       let bot : BotIface.CanisterPlayer = actor (p.toText());
       try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
     },
     func(id : TP.TableId, secs : Nat) : async* () {
-      ignore Timer.setTimer<system>(
-        #seconds secs,
-        func() : async () {
-          await* settle(Time.now(), id);
-        },
-      );
+      ignore Timer.setTimer<system>(#seconds secs, func() : async () { await* settle(Time.now(), id) });
     },
   );
   settleTable := ?cpAttached.settle;
 
-  // `botDirectory` is a plain, stable `CanisterPlayers.BotDirectory` this
-  // actor owns directly (no class, no closures) — see "Bot discovery"
-  // below. `null` here (no leaderboard wired in this worked example)
-  // means every bot's own `elo` comes back `null` from `list_bots` too; a
-  // host that DOES wire one passes `?leaderboard` instead, same as the
-  // two worked examples below do.
-  let botDirectory = CanisterPlayers.newBotDirectory();
-  include CanisterPlayersActorMixin(cpAttached, botDirectory, null);
+  let botDirectory = CanisterPlayers.newBotDirectory(); // plain stable field
+  include CanisterPlayersActorMixin(cpAttached, botDirectory, null); // ?leaderboard if wired
 
-  // Fold `cpAttached.sweep` — the slow, full-registry safety net for
-  // whatever `settle` never gets called for (most commonly: the OTHER
-  // seat vanishing without ever sending a mutating request at all) —
-  // into the SAME already-mandatory 5-minute idle-sweep timer. No separate
-  // timer at all:
   transient let combinedSweep = func(now : Int) : async* () {
     await* attached.sweep(now);
     await* cpAttached.sweep(now);
@@ -883,385 +381,137 @@ persistent actor {
 
 ```
 
-Note what's absent: no `submit_as_canister`. A canister player's move
-never arrives as an independent inbound call under this design — it's
-always the direct reply to the call `notifyAndApply` itself made, applied
-by the same code that made it (see "The call/response protocol" above).
+The mixin supplies `create_table_as_canister`/`join_table_as_canister`/
+`leave_as_canister`/`ack_ended_as_canister`/`claim_win_as_canister`/
+`reset_as_canister` plus `register_bot`/`unregister_bot`/`list_bots`.
+There is no `submit_as_canister` (a move only ever arrives as the reply
+to `make_move`) and no `rematch_as_canister` (a canister-vs-canister
+debrief auto-acks; a human-vs-canister rematch is the human's frontend
+re-issuing `play`). `claim_win_as_canister`/`reset_as_canister` let a
+participant act the instant it is entitled to instead of waiting on the
+armed wakeup; each acts only on a board the caller's own principal is
+seated at.
 
-**Unattended, canister-vs-canister matches.** `claimWin`/`Table.claimWin`
-is shaped for a human: someone looks at the screen and decides to stop
-waiting. In an all-canister match there's nobody looking. `settle`
-already covers the ordinary due-to-move case eagerly for both seats via
-the in-line chain above, and `armClaimCheck`'s own wakeup covers the
-"waiting on silence" case for whichever seat is the WAITING one, without
-either seat needing to be human — claiming the win on its behalf the
-instant `claimWinAvailable` turns true, no separate wiring needed. The
-same "nobody's looking" reasoning applies once that claim (or any other
-route into a shared debrief) leaves both seats canister-occupied: a
-still-deciding human partner is exactly who a canister seat's own
-debrief-ack waits on (see "When a canister seat gets asked, claims a win,
-or acks a finished debrief" above) — but two canister seats waiting on
-EACH OTHER'S own ack first would simply deadlock, since neither would
-ever see the other as "gone" without something eventually re-checking
-both. So when the OTHER seat is also canister-seated, `settle` acks both
-sides unconditionally instead, settling an all-canister match's own
-debrief immediately rather than leaving it stuck until the idle-sweep
-timer eventually clears it. `claim_win_as_canister`/`reset_as_canister`
-exist alongside that mainly so a canister PARTICIPANT that wants to act
-the moment it's entitled to — rather than wait on the armed wakeup —
-can call either directly, naming the `tableId` it means (a canister may
-hold more than one live seat at once — see "Identity" above); each
-still only ever acts on a board the CALLER'S OWN principal is actually
-seated at, since the session a `tableId` derives is always scoped to
-`caller` itself — a supervising tournament-orchestrator canister
-resetting or claiming a table it isn't itself seated at is a further
-capability this module doesn't provide.
+A lobby needs no new field to show "vs 🤖": `TableSummary.p1Session`/
+`p2Session` already carry the raw `SessionId`, and `isCanisterSession`
+checks the prefix.
 
-A lobby frontend needs no new field to show "vs 🤖" either:
-`TableSummary.p1Session`/`p2Session` already carry the raw `SessionId`
-text, so a client-side check against the `cp:` prefix
-(`CanisterPlayers.isCanisterSession`, or just
-`Text.startsWith(session, #text "cp:")` on the frontend) is purely
-cosmetic, reading data the engine already exposes.
-
-**Flow 2: eager dual-seat assignment.** Flow 1 above (self-join) has the
-bot claim its own seat, on its own account, once someone hands it a
-table id/seat/access code. `Registry.createTableReserving` is the
-alternative: a creator names BOTH seats in one call — themselves, and
-`reservedFor`, some OTHER already-known `SessionId` — and the table
-lands directly in `#active`, with no second `joinTable` needed from
-either side:
+**Flow 2: eager dual-seat assignment.** `Registry.createTableReserving`
+seats both the creator and a named `reservedFor` session atomically, so
+the table lands directly in `#active`:
 
 ```motoko
-let nextId = registry.peekNextTableId(); // safe: nothing else can create a table between this line and the next
+let nextId = registry.peekNextTableId();
 switch (registry.createTableReserving(spec, now, mySession, #p1, #open, CanisterPlayers.sidForCanister(botPrincipal, nextId, "Hard"), "")) {
-  case (#ok id) { /* both seats are already live, id == nextId */ };
+  case (#ok id) { /* both seats live, id == nextId */ };
   case (#err e) { /* ... */ };
 };
 
 ```
 
-This is the whole of the feature: a small, generic `Registry` addition
-(rejecting a self-reservation, and a `reservedFor` already busy
-elsewhere, the same way `createTable` itself rejects a creator who's
-already busy elsewhere), proven end to end against `canister_players.mo`
-in `backend/test/CanisterPlayers.test.mo` — a canister seated this way
-is due to move the instant the table exists, picked up by `sweep`'s own
-slow safety-net scan, with no `joinTable` call from the bot at all.
-Deliberately NOT wired any further than that here: `ws.mo`'s own `Msg`
-protocol has no request variant reaching this call, and no game in this
-repo calls it from a browser tab — `examples/racing`'s and
-`examples/checkers`'s own `Add Bot` controls (see each one's own
-`CLAUDE.md`'s `frontend/` bullet) use Flow 1 instead, since it fills an
-ALREADY-STAGED table's open seat, which this call structurally can't do
-(it only ever seats both sides of a BRAND NEW
-table, atomically, in the one call — there's no "join the other seat of
-a table that already exists" version of it). The scenario this call
-_would_ suit — an orchestrator seating two bots against each other with
-nobody waiting on a `#staging` screen at all — is left for whoever wants
-it to build as its own feature: most naturally a privileged Motoko
-caller invoking `registry.createTableReserving` directly (an admin
-canister, a test harness, a tournament orchestrator), not a new
-`ws.mo`/frontend request path, since `ws.mo`'s own request/push protocol
-is built around one human's own browser tab, not a third party
-launching two OTHER sessions' game for them.
+It rejects a self-reservation and a `reservedFor` already busy
+elsewhere. It only ever creates a brand-new table, so it cannot fill an
+already-staged table's open seat — the examples' "Add Bot" controls use
+Flow 1 (the bot's own `play` → `join_table_as_canister`) for that. No
+`ws.mo` request reaches this call; an orchestrator seating two bots
+would call it directly from Motoko.
 
-**Writing the bot itself: simple vs. stateful.** `TP.MoveRequest<S, M>`
-carries everything a bot needs to decide its move, and it splits cleanly
-into two groups. The first — `game`/`seat`/`mode`/`turn`/`gen`, plus
-`complexity` (which of the bot's own declared ways of playing this seat
-was seated at — see "Complexity" above) — is exactly what a HUMAN's
-own screen gets from `View.#inGame`: current state, which seat you are,
-and the round number. A bot that only ever looks at these can be, and
-in this repo's own reference examples IS, a pure function of its input:
-`examples/racing/bot/BotLogic.mo` and `examples/checkers/bot/BotLogic.mo`
-never remember anything between calls — the racing bot plays a fixed
-scripted arc indexed by `turn`, the checkers bot picks
-deterministically from `Rules.legalActions(game, seat)`, and
-`examples/tic-tac-toe/bot/BotLogic.mo` switches on `complexity` between
-that same deterministic pick ("Easy") and a full minimax search
-("Hard"). All declare `make_move` as a plain `query` in `Bot.mo`
-(`public query func make_move(req) : async Rules.Action`), and that's
-the right choice for exactly this shape of bot: a `query` call is
-cheaper and faster than an `update` call, and there's nothing here that
-needs the durability an `update` call buys, since the bot never
-mutates anything of its own.
+**Writing the bot.** `MoveRequest<S, M>` carries `game`/`seat`/`mode`/
+`turn`/`gen`/`complexity` (what a human's screen sees) and
+`opponent`/`opponentLastMove`/`lastRoundDurationNs` (for a bot that
+remembers). A bot that only reads the first group can be a pure function
+and declare `make_move` as a `query` — every example bot does. A bot
+that remembers anything across calls must declare `make_move` as an
+update method: a query's state changes are never committed. That costs
+consensus latency, so size `claimTimeoutNs`/`idleTimeoutNs` more
+generously. Per-match memory keys off `(tableId, gen)` (`gen` bumps on
+every fresh stage, rematch included); per-opponent memory keys off
+`opponent` for a human (stable across tables) or
+`principalOfCanisterSession(opponent)` for a canister (whose session is
+per-table). `opponentLastMove` is always the last RESOLVED move, never
+the pending one. See `skills/duel-game-core/references/canister-player-bots.md`.
 
-The second group — `opponent`, `opponentLastMove`, `lastRoundDurationNs`
-— exists for a bot that wants to remember something ACROSS calls: a
-running move-history for the current match, or a longer-lived model of
-one specific opponent's own tendencies (a rock-paper-scissors opponent
-who opens with scissors 90% of the time, say). `opponent` is the
-opposing seat's own `SessionId`, raw — for a human (`ii:`/`an:`) it
-reads the SAME on every table they ever play, so it's a ready-made,
-stable key for long-lived per-opponent memory; for a canister opponent
-(`cp:`) it's deliberately per-TABLE instead (mirroring
-`Ws.playerKey`'s own documented `cp:` caveat), so a bot modeling a
-specific canister opponent across several boards recovers its stable
-principal itself via `CanisterPlayers.principalOfCanisterSession`.
-`opponentLastMove` is the opponent's own most recently RESOLVED move —
-never the current round's still-secret one (architecture rule 9's
-secrecy guarantee is untouched; a pending move is never in this record
-either) — and `lastRoundDurationNs` is how many wall-clock nanoseconds
-that round took. Both are `null` exactly when `turn == 0` (nobody's
-moved yet this match). A per-MATCH memory (rather than per-opponent)
-keys off `(tableId, gen)` — `gen` bumps on every fresh `stage()`,
-REMATCH included, so a board replayed on the same `tableId` still hands
-a bot a `gen` it's never seen, the same signal a plain `turn == 0` reset
-already gives.
-
-The catch: **remembering anything across calls means `make_move` can no
-longer be a `query` method.** This is a hard IC constraint, not a style
-preference — a query call's own state mutations are never durably
-committed (the execution runs against a snapshot and is discarded once
-the call returns), regardless of who calls it or from what context, so
-a `query`-declared `make_move` that tries to write to a `Map` of
-opponent histories would silently lose every write the instant the call
-returns. A stateful bot's `make_move` must instead be an ordinary
-(`update`-shaped) `public func` — nothing else about this design
-changes: `BotIface.CanisterPlayer`'s own type never declared `query` in
-the first place (only the bot's OWN concrete `Bot.mo` does), so this is
-entirely the bot canister author's own choice, with no change needed to
-`Host.mo`, `BotIface.mo`, or the engine itself. The real cost is
-latency: an `update` call goes through full consensus (a couple of
-seconds, typically), where a `query` call is near-instant — so a host
-wiring a stateful bot should size `claimTimeoutNs`/`idleTimeoutNs` more
-generously than a purely reactive, `query`-based one needs. A
-`persistent actor` bot (the shape every example bot already uses) needs
-no further ceremony to make that state durable across upgrades either —
-a plain `var opponentModels : Map.Map<TP.SessionId, ...> = Map.empty()`
-field is automatically stable, no manual pre/post-upgrade hooks.
-
-See `skills/duel-game-core/references/canister-player-bots.md` (shipped
-alongside this package) for the full design guide — worked sketches of
-both a stateless query bot and a stateful update bot, storage-key
-choices for per-match vs. per-opponent memory, and the pitfalls each
-shape runs into.
-
-**Bot discovery.** Flow 1/Flow 2 above both assume something ALREADY
-knows a bot's own principal — a table id/seat/code handed to it directly,
-or a `reservedFor` session named up front. A human player challenging a
-bot they've never heard of needs the opposite: the bot announces itself
-to the host, and a frontend discovers the resulting list. This is a small
-extension of `canister_players.mo`/`canister_players_actor_mixin.mo`
-themselves (not a separate module — bot discovery is tied closely enough
-to canister players that it lives right alongside `Attached`), built on
-the same non-spoofable `msg.caller` discipline every other entry point in
-this module already relies on:
+**Bot discovery.** A bot self-registers with the host so a human can
+challenge it from a frontend's "🤖 Bots" dialog with no hardcoded bot id:
 
 ```motoko
-public let DEFAULT_COMPLEXITY : Text = "Default";
-
 public type BotInfo = {
-  principal : Principal.Principal;
+  principal : Principal;
   name : Text;
-  complexities : [Text]; // declared order kept; never empty
+  complexities : [Text];
   registeredAt : Int;
 };
 public type BotComplexityEntry = { complexity : Text; elo : ?Int };
 public type BotEntry = {
-  principal : Principal.Principal;
+  principal : Principal;
   name : Text;
-  complexities : [BotComplexityEntry]; // one rating per complexity, declared order
+  complexities : [BotComplexityEntry];
 };
-public type BotDirectory = { var bots : Map.Map<Principal.Principal, BotInfo> };
+public type BotDirectory = { var bots : Map.Map<Principal, BotInfo> };
 
 public func newBotDirectory() : BotDirectory;
-public func registerBot(d : BotDirectory, caller : Principal.Principal, name : Text, complexities : [Text], now : Int); // upsert by principal
-public func unregisterBot(d : BotDirectory, caller : Principal.Principal);
-public func listBots(d : BotDirectory) : [BotInfo];
-public func rankedBots(bots : [BotInfo], scoreOf : (Principal.Principal, Text) -> ?Int) : [BotEntry]; // best complexity's elo first, unrated last
-public func leaderboardKey(p : Principal.Principal, complexity : Text) : Text; // "cp:" # p.toText() # ":" # complexity
-public func leaderboardKeyOfSession(session : SessionId) : Text; // the same, read off a live cp: session
+public func registerBot(d, caller, name, complexities, now); // upsert by principal
+public func unregisterBot(d, caller);
+public func listBots(d) : [BotInfo];
+public func rankedBots(bots, scoreOf : (Principal, Text) -> ?Int) : [BotEntry]; // best complexity first, unrated last
+public func leaderboardKey(p, complexity) : Text; // "cp:" # p # ":" # complexity
+public func leaderboardKeyOfSession(session) : Text;
 
 ```
 
-`BotDirectory` is a plain, stable, mutable record — same "module of
-functions over a passed-in record" shape as `Table`/`Registry`/
-`Leaderboard.Board` themselves, so a host's own `botDirectory` field is
-genuinely stable across an upgrade. `registerBot` keeps `complexities`
-in the order the bot declared them (a ladder's order is meaningful —
-"Easy, Medium, Hard" shouldn't come back alphabetized), reads `""` as
-`DEFAULT_COMPLEXITY`, drops duplicates, and lists a bot that declared
-nothing at all under `[DEFAULT_COMPLEXITY]` — so a bot with one way to
-play registers with `[]` and shows up as "Default". `rankedBots` takes
-a plain scoring function rather than importing `leaderboard.mo`
-directly, so `canister_players.mo` itself stays exactly as
-dependency-free as its own doc header already promises (`core` plus
-sibling `registry.mo`/`types.mo` only) — the JOIN with an actual
-`Leaderboard.Board` happens one layer up, in
-`canister_players_actor_mixin.mo`'s own `list_bots`, once per
-complexity:
-
-```motoko
-mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDirectory, leaderboard : ?Leaderboard.Board) {
-  // ...the six *_as_canister methods, unchanged...
-
-  public shared ({ caller }) func register_bot(name : Text, complexities : [Text]) : async () {
-    CanisterPlayers.registerBot(directory, caller, name, complexities, Time.now());
-  };
-  public shared ({ caller }) func unregister_bot() : async () {
-    CanisterPlayers.unregisterBot(directory, caller);
-  };
-  public query func list_bots() : async [CanisterPlayers.BotEntry] {
-    let scoreOf = switch (leaderboard) {
-      case (?lb) func(p, complexity) : ?Int = ?Leaderboard.scoreOf(lb, CanisterPlayers.leaderboardKey(p, complexity));
-      case null func(_, _) : ?Int = null;
-    };
-    CanisterPlayers.rankedBots(CanisterPlayers.listBots(directory), scoreOf);
-  };
-};
-
-```
-
-`leaderboard` is genuinely optional (a host with none wired passes
-`null`, and every complexity's own `elo` comes back `null` too — a
-challenge dialog simply shows no rating). A leaderboard-backed host with
-a complexity that hasn't played yet still returns the leaderboard's own
-default rating, not `null` — `Leaderboard.scoreOf` already falls back to
-`defaultScore` for any player with no entry, bot or human alike, so a
-never-played row reads exactly like a brand-new human's would. Bots are
-ranked by their best-rated complexity; a bot's own complexities stay in
-declared order underneath. `register_bot`/`unregister_bot` call
-`Time.now()` directly, the same documented exception `ws.mo`/
-`actor_mixin.mo`/`canister_players.mo`'s own `Attached` functions
-already rely on — this mixin plays the host's own role for these two
-`msg.caller` entry points.
-
-On the BOT's own side, being challengeable takes one more method beyond
-`make_move`/`play` (Flow 1, above) — a one-time self-registration call,
-mirroring `play`'s own `(host, ...)` shape, sending the bot's own
-complexity list (a constant in its own code, `[]` for a bot with one
-way to play):
+`registerBot` keeps the declared order, normalizes `""` to `"Default"`,
+drops duplicates, and replaces `[]` with `["Default"]`. `rankedBots`
+takes a scoring function so this module stays free of `leaderboard.mo`;
+the mixin's `list_bots` joins each complexity with
+`Leaderboard.scoreOf(lb, leaderboardKey(p, c))` (or `null` when no
+leaderboard is wired). On the bot's side:
 
 ```motoko
 public shared func register(host : Principal.Principal, name : Text) : async () {
   let h : actor { register_bot : (Text, [Text]) -> async () } = actor (host.toText());
-  await h.register_bot(name, BotLogic.COMPLEXITIES); // e.g. ["Easy", "Hard"]; [] for a single way to play
+  await h.register_bot(name, BotLogic.COMPLEXITIES); // [] for one way to play
 };
 
 ```
 
-There's no deploy-time mechanism in this repo for one canister to learn a
-sibling's principal automatically, so this is called once, by hand, after
-both the bot and its host are deployed — e.g.
-`icp canister call bot register '(principal "<host-canister-id>", "RacerBot")'`
-(see `examples/racing/bot/Bot.mo`/`examples/checkers/bot/Bot.mo` for the
-full worked shape, `unregister` included, and
-`examples/tic-tac-toe/bot/` for a bot declaring two complexities). Once
-it succeeds, the bot shows up in every player's own "🤖 Bots" challenge
-dialog and leaderboard Challenge button, one row per complexity — see
-`../frontend/README.md`'s "Bot registry" section for `list_bots()`/
-`renderBotList`/`renderSeatChoice`/`renderLeaderboard`'s Challenge button
-and the unified challenge flow that follows: a browser still only ever
-calls a bot's own `play` DIRECTLY, exactly Flow 1's shape, just with the
-target canister id and complexity now coming from a player's own choice
-rather than a hardcoded env var. A human's Rematch against a bot is that
-same `play` call re-issued by their own frontend: `rematch` reserves the
-rematch staging's open seat for the bot's `cp:` session, and
-`join_table_as_canister` with the same principal, `TableId` (a rematch
-reuses it), and complexity derives exactly that session, so the bot
-matches the reservation the way a human partner's own accept would —
-nothing on the host needs to ask a bot to "accept" (see that same
-"Bot registry" section, "Rematch against a bot").
+Called once by hand after both canisters are deployed:
+`icp canister call bot register '(principal "<host-canister-id>", "RacerBot")'`.
+The frontend then calls the chosen bot's `play` directly (Flow 1); a
+human's rematch against a bot is that same `play` re-issued onto the
+rematch staging, since principal + table id + complexity derive the
+reserved session again.
 
 ### Leaderboard
 
-Also entirely opt-in, and — unlike Metrics below — split across three
-small, independent modules plus two hooks on `Ws.attach`, since scoring
-is inherently game-specific (an ELO rating needs a `Verdict`; a racing
-game's best lap needs to read its own game state) in a way the generic
-engine can never be:
+Opt-in, across three game-agnostic modules and two `Ws.attach` hooks:
 
-- `mo:duel-game-core/leaderboard` — a generic top-N `Board`, kept sorted
-  highest-score-first, always. There is no "lower is better" board: a
-  game whose own metric runs the other way (best lap TIME, say) converts
-  it to a higher-is-better score itself before ever storing it — see the
-  worked racing example below. `Leaderboard.new(keep, defaultScore)`
-  builds one — `keep` is the buffer size, typically 2x however many
-  entries a host actually wants to show ("store 50, show the top 25" is
-  just `new(50, ...)` plus `top(board, 25)`); `defaultScore` is the
-  host's OWN starting-score choice for a player with no entry yet (an
-  ELO "unrated" convention, say — this module takes no view on the
-  number, only stores it). `setScore(board, player, score, now)`
-  unconditionally overwrites a player's score (for a rating that can move
-  either direction, like ELO); `recordIfBetter(board, player, score, now)`
-  only overwrites on a strict improvement, returning whether it did (for
-  a personal-best metric that should never regress); `get(board, player)`
-  looks up one player's current entry; `scoreOf(board, player)` is a
-  small convenience over `get` returning just the score, falling back to
-  `defaultScore` for a player with no entry — the common shape a rating
-  update needs ("what am I updating FROM?"); `top(board, n)` returns the
-  ranked slice a host's own `get_leaderboard` hands back to the frontend.
-- `mo:duel-game-core/elo` — the standard chess-ELO formula, pure and
-  stateless: `Elo.update(ratingA, ratingB, outcome, k)` returns both
-  players' new ratings given who won (`#aWins`/`#bWins`/`#draw`) and a
-  k-factor (32 is the common default for a new/casual player); the two
-  ratings always move by exactly opposite amounts, same as real chess
-  ELO. Deliberately has no starting-rating opinion of its own (no
-  `STARTING_RATING` constant) — a NEW player's first rating is the host's
-  own call, made once, passed straight to `Leaderboard.new`'s own
-  `defaultScore` (see the worked example below); this module only ever
-  computes a NEXT rating from two given ones.
-- `mo:duel-game-core/leaderboard_actor_mixin` — supplies `get_leaderboard`
-  as a `mixin`, the same way `mo:duel-game-core/actor_mixin` supplies the
-  four `ws_*` methods: `include LeaderboardActorMixin(leaderboard, 25)`
-  and a host's actor has a `get_leaderboard() : async
-[Leaderboard.Entry]` query returning the top 25, with no hand-declared
-  method of its own. No `<system>` capability needed (nothing here
-  touches a timer), and purely read-only — every WRITE to `leaderboard`
-  still happens from the host's own `onGameEnded`/`onGameStarted`
-  closures, below. A host wanting a caller-chosen page size instead of a
-  fixed one can skip this mixin and hand-declare its own
-  `get_leaderboard(n : Nat)` calling `Leaderboard.top` directly.
-- `Ws.attach`'s `onGameEnded` parameter — an optional `(TableId,
-SessionId, SessionId, Debrief<S>) -> ()` closure, fired exactly once per
-  game ending (`submit`/`claimWin`/`leave` producing a FRESH `#debrief`
-  this exact call, detected via `Debrief.since == now` — never a later
-  call against an already-existing one). Purely synchronous: it only
-  ever writes into the host's own stable `Leaderboard.Board`, no
-  inter-canister call to await. A game whose score needs to know when a
-  match STARTED (real-world elapsed time, not just the final state —
-  `Table.Active` carries no `since` of its own) also wires
-  `Ws.attach`'s `onGameStarted` parameter, an optional `(TableId,
-SessionId, SessionId) -> ()` fired exactly once a table freshly enters
-  `#active` (detected from the resulting `Active` record's own shape —
-  `turn == 0`, no move pending on either side — rather than a single
-  timestamp field, since `Active` has none). Both hooks fire for a
-  canister player's own moves too (`canister_players.mo`'s mutations
-  reuse this SAME `afterMutation`), so a bot's games are scored exactly
-  like a human's.
-- **Player identity, not session identity.** A score has to survive
-  across many separate tables, but a session id doesn't always: `ii:`/
-  `an:` sids already encode a stable principal (`Ws.playerKey(sid)`
-  strips the prefix down to it), while a `cp:` canister-player session is
-  deliberately PER-TABLE (`sidForCanister(p, tableId, complexity)`) — a
-  host wiring `canister_players.mo` alongside a leaderboard special-cases
-  `CanisterPlayers.leaderboardKeyOfSession(sid)` itself before falling
-  back to `Ws.playerKey` for everything else. That key is
-  `"cp:" # p.toText() # ":" # complexity` — per bot AND per complexity,
-  never per table — so one bot's rating accumulates across every table
-  it plays instead of resetting per board, while each of its
-  complexities is rated on its own ("CheckersBot (Hard)" and
-  "CheckersBot (Easy)" are different opponents, and stay separate rows
-  even if the bot later registers more ways to play). It's the SAME
-  `CanisterPlayers.leaderboardKey(p, complexity)` convention
-  `CanisterPlayers.rankedBots`'s own caller in `list_bots` (see "Bot
-  discovery" above) joins each complexity's rating with, so a bot's
-  leaderboard rows and its own rows in a challenge dialog always agree.
+- `mo:duel-game-core/leaderboard` — `Board`, always sorted
+  highest-first. `Leaderboard.new(keep, defaultScore)` (`keep` is a
+  buffer, typically 2× what you show; `defaultScore` is the host's own
+  starting score), `setScore` (overwrite — ratings), `recordIfBetter`
+  (strict improvement only — personal bests), `get`, `scoreOf` (score or
+  `defaultScore`), `top(n)`.
+- `mo:duel-game-core/elo` — `Elo.update(ratingA, ratingB, outcome, k)`
+  returns both new ratings, zero-sum. No starting-rating opinion.
+- `mo:duel-game-core/leaderboard_actor_mixin` — `include
+LeaderboardActorMixin(leaderboard, 25)` supplies `get_leaderboard()`.
+- `onGameEnded : (TableId, SessionId, SessionId, Debrief<S>) -> ()` fires
+  once per game ending (`submit`/`claimWin`/`leave` producing a fresh
+  `#debrief`, detected via `Debrief.since == now`). `onGameStarted :
+(TableId, SessionId, SessionId) -> ()` fires once a table freshly
+  enters `#active` (`turn == 0`, no pending move, `lastActivity == now`).
+  Both are synchronous and fire for canister players' moves too.
+- **Player identity, not session identity.** Use `Ws.playerKey(sid)` for
+  `ii:`/`an:`; a `cp:` session is per-table, so a host wiring canister
+  players special-cases `CanisterPlayers.leaderboardKeyOfSession(sid)`
+  first. That key is per bot AND per complexity, matching what
+  `list_bots` joins with.
 
-A worked ELO example (007/checkers — every seat re-rates on every
-ending, `#claimed`/`#aborted` counted the same as a clean `#finished`
-win):
+ELO shape (`007`, `checkers`, ...; every ending re-rates both seats):
 
 ```motoko
-import Leaderboard "mo:duel-game-core/leaderboard";
-import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
-import Elo "mo:duel-game-core/elo";
-
-let STARTING_ELO : Int = 1200; // this game's own call — see elo.mo's own doc header
-let ELO_K : Nat = 32;
-let leaderboard = Leaderboard.new(50, STARTING_ELO); // keep 50, show the top 25
+let STARTING_ELO : Int = 1200;
+let leaderboard = Leaderboard.new(50, STARTING_ELO); // keep 50, show 25
 
 func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
   let outcome : Elo.Outcome = switch (d.end) {
@@ -1270,343 +520,143 @@ func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.
     case (#finished(#draw)) #draw;
     case (#claimed(#p1)) #aWins;
     case (#claimed(#p2)) #bWins;
-    case (#aborted(#p1)) #bWins; // p1 left — p2 credited with the win
+    case (#aborted(#p1)) #bWins;
     case (#aborted(#p2)) #aWins;
   };
-  let k1 = Ws.playerKey(p1);
-  let k2 = Ws.playerKey(p2);
-  let (r1, r2) = Elo.update(Leaderboard.scoreOf(leaderboard, k1), Leaderboard.scoreOf(leaderboard, k2), outcome, ELO_K);
+  let (k1, k2) = (Ws.playerKey(p1), Ws.playerKey(p2));
+  let (r1, r2) = Elo.update(Leaderboard.scoreOf(leaderboard, k1), Leaderboard.scoreOf(leaderboard, k2), outcome, 32);
   let now = Time.now();
   Leaderboard.setScore(leaderboard, k1, r1, now);
   Leaderboard.setScore(leaderboard, k2, r2, now);
 };
-
-let attached = Ws.attach<system, Rules.State, Rules.Action>(
-  Rules.spec(),
-  registry,
-  wsHub,
-  codec,
-  wsParams,
-  null, // onSettled
-  ?onGameEnded,
-  null, // onGameStarted — not needed; this game scores by Verdict alone
-);
-
-// ...attached.ws.init<system>()/ActorMixin exactly as elsewhere...
-
-include LeaderboardActorMixin(leaderboard, 25); // supplies get_leaderboard()
+// Ws.attach(..., null, ?onGameEnded, null);
+include LeaderboardActorMixin(leaderboard, 25);
 
 ```
 
-A worked best-lap example (`examples/racing`) runs the OPPOSITE direction
-from ELO, so it's converted to a higher-is-better score before ever
-touching `Leaderboard`. `defaultScore` is inert for this game — a lap
-time is never "computed FROM" a prior score the way an ELO rating is, so
-`Leaderboard.new`'s second argument is just a placeholder `0` here. It
-does NOT wire `onGameStarted`: rather than approximate a lap time from
-real-world wall-clock elapsed time (which would count however long the
-two humans took to think between clicks, nothing to do with the
-simulated race), this game's own round-based physics lets it compute the
-winner's exact in-game time directly from `Debrief.turns` and the
-winning car's own final `CarState` — each resolved round is a fixed
-1000ms of in-game time, and `distanceFromStart / speed` (in the state
-that JUST crossed the finish, where `distanceFromStart` is "progress
-this lap pass," i.e. exactly the overshoot past the line) is that final
-round's own overshoot, as a fraction of one round, subtracted back out
-so the reported time matches the instant the car actually crossed, not
-the round boundary after it:
+Best-lap shape (`racing`; lower is better, converted before storing;
+`defaultScore` is an inert placeholder; no `onGameStarted`, since each
+round is a fixed 1000ms of in-game time and `distanceFromStart / speed`
+of the winning car is the final round's overshoot):
 
 ```motoko
 let leaderboard = Leaderboard.new(50, 0);
 let ONE_HOUR_MS : Int = 3_600_000;
 func scoreFromLapMs(ms : Int) : Int = Int.max(0, ONE_HOUR_MS - ms);
 
-let STEP_DURATION_MS : Int = 1000;
 func lapMsFor(car : Rules.CarState, turns : Nat) : Int {
-  let overshootSteps = if (car.speed > 0.0) {
-    Float.max(0.0, Float.min(0.999, car.distanceFromStart / car.speed));
-  } else 0.0;
-  Float.nearest((turns.toFloat() - overshootSteps) * STEP_DURATION_MS.toFloat()).toInt();
+  let overshoot = if (car.speed > 0.0) Float.max(0.0, Float.min(0.999, car.distanceFromStart / car.speed)) else 0.0;
+  Float.nearest((turns.toFloat() - overshoot) * 1000.0).toInt();
 };
 
 func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
   switch (d.end) {
-    case (#finished(#p1Wins)) {
-      ignore Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(p1), scoreFromLapMs(lapMsFor(d.finalGame.p1, d.turns)), Time.now());
-    };
-    case (#finished(#p2Wins)) {
-      ignore Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(p2), scoreFromLapMs(lapMsFor(d.finalGame.p2, d.turns)), Time.now());
-    };
-    case (_) {}; // draw, claimed, or aborted — nobody finished a lap
+    case (#finished(#p1Wins)) ignore Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(p1), scoreFromLapMs(lapMsFor(d.finalGame.p1, d.turns)), Time.now());
+    case (#finished(#p2Wins)) ignore Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(p2), scoreFromLapMs(lapMsFor(d.finalGame.p2, d.turns)), Time.now());
+    case (_) {}; // nobody finished a lap
   };
 };
 
 ```
 
-A different racing-shaped game without round-based physics this precise
-— or any game whose "best" metric genuinely needs real-world elapsed
-time, not a value derivable from game state alone — is exactly what
-`onGameStarted` is for instead; see `skills/duel-game-core/SKILL.md`'s
-own "Leaderboard" step for that generic wall-clock recipe.
-
-The frontend side is exactly as small: `get_leaderboard` is a plain
-`query`, so `duel-game-core`'s `idl.js` declares it unconditionally on
-every actor `makeIdlFactory` builds (same class as `status` — a game
-whose own frontend never calls it just never does, at no cost to a host
-that never wired the backend half either); `render.js`'s
-`renderLeaderboard(entries, plugin)` renders the ranked list, calling
-`plugin.formatScore(score)` — a new, optional field on `GamePlugin` — to
-turn each raw `score` into display text. The default (used by 007/
-checkers) is the plain integer, already correct for an ELO rating with
-nothing to invert; racing supplies the inverse of its own
-`scoreFromLapMs`, so its panel reads "1:38.204", never the padded number
-the board actually sorts on. See `../frontend/README.md`'s "The
-GamePlugin contract" section for `formatScore`'s own doc.
+A metric that genuinely needs real elapsed time wires `onGameStarted`
+and keeps a `Map<TableId, Int>` of start times — see the skill's
+"Leaderboard" step. The frontend's `renderLeaderboard` calls the optional
+`GamePlugin.formatScore` to invert a conversion like `scoreFromLapMs`.
 
 ### Metrics
 
-Unlike `ws.mo`, this is entirely opt-in: a host actor that never wires
-this section gets no metrics and pays no cost for skipping it —
-`Registry`'s own state (`gamesStarted`/`activeGames`/`roundsPerGame`/
-`matchmakingWaitSecs`, all `?PT.Counter`/`?PT.Gauge`) simply stays `null`
-throughout, and every metrics call inside `registry.mo` is a no-op
-against `null`. Add the dependency: `mops add promtracker` (pins
-`1.0.1`).
+Opt-in: `mops add promtracker`, then `registry.attachMetrics(pt)` right
+after `Registry.new`. Four metrics, scoped to that registry:
 
-`Registry.attachMetrics(pt : PT.Tracker)` — called once, right after
-`Registry.new` — registers four metrics on that tracker, all scoped to
-that one `Registry` (so a canister with several independent registries
-can `attachMetrics` each onto its own child tracker and tell them apart
-by label):
-
-- `games_started` (counter) — bumped once per game that actually starts
-  (a fresh `#staging -> #active` transition, whether from `joinTable`
-  seating the second player or a `rematch` both sides agreed to).
-- `active_games` (gauge) — recomputed by scanning every table's current
-  phase after any call that could change how many are `#active` (join,
-  submit, rematch, claimWin, leave, reset, sweep) — the live count of
-  in-progress games on this registry right now.
-- `rounds_per_game` (gauge) — set to the just-finished game's own round
-  count (`Debrief.turns`) every time a game ends, by any of the four
-  paths that can end one (a resolved final round, a claimed win, or an
-  abort via `leave`/`reset`). Like every metric here, this is a snapshot
-  at the moment of the event, not a running average — a Prometheus
-  scrape between two games' endings sees whichever game ended last;
-  query `avg_over_time`/`quantile_over_time` over the scraped series if
-  you want a distribution across many games.
-- `matchmaking_wait_seconds` (gauge) — set every time a game starts, to
-  how long that table sat in `#staging` (its `since` timestamp) before
-  the second seat filled it, in whole seconds. Same snapshot caveat as
-  `rounds_per_game`.
-
-A minimal wiring, extending the host actor above (see
-`examples/racing/src/Host.mo` for the full worked example, including the
-`/metrics` HTTP endpoint):
+- `games_started` (counter) — each `#staging -> #active` transition.
+- `active_games` (gauge) — recomputed after any call that can change it.
+- `rounds_per_game` (gauge) — the just-finished game's `Debrief.turns`;
+  a snapshot, so use `avg_over_time` for a distribution.
+- `matchmaking_wait_seconds` (gauge) — how long the table sat in
+  `#staging` before a game started.
 
 ```motoko
 import PT "mo:promtracker";
 import Http "mo:promtracker/mixins/http";
 
 persistent actor {
-  let pt = PT.Tracker.new();
-  transient let renderer = PT.Renderer();
-  renderer.addValue(PT.allSystemMetrics); // IC/RTS metrics (cycles, heap, ...) — optional but nearly free
+  let pt = PT.Tracker.new(); // plain data — stable
+  transient let renderer = PT.Renderer(); // closures — rebuilt on upgrade
+  renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
   let registry = Registry.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000);
   registry.attachMetrics(pt);
-
-  // ...status/Ws.attach/ActorMixin exactly as above...
-
-  include Http(renderer.renderExposition, "/metrics"); // scrape endpoint
+  // ...
+  include Http(renderer.renderExposition, "/metrics");
 };
 
 ```
 
-`pt` itself (`PT.Tracker`) is a plain data record — no function values —
-so, left `transient`-free like `registry`, it's a genuinely stable field:
-every counter/gauge it holds survives a canister upgrade intact, same as
-the rest of the game state. `PT.Renderer` is the opposite: it's a class
-holding closures (the `Value`s passed to `addValue`), so it must be
-`transient`, like `wsHub`/`attached` above — cheap to rebuild from
-scratch on every upgrade (`renderer.addValue(pt.toValue())` just wraps
-the surviving `pt` again), and it holds no metric data of its own to
-lose.
-`mo:promtracker/mixins/http`'s `Http` mixin (`include Http(text, route)`)
-supplies a `http_request` query returning `text()`'s result — here,
-`renderer.renderExposition()`, the Prometheus text-exposition format — at
-whichever `route` you pick; consuming it is subject to the same toolchain
-note as `mo:duel-game-core/actor_mixin` (see the root `CLAUDE.md`'s
-toolchain section) since both are defined the same way, as a Motoko
-`mixin`. `PT.allSystemMetrics` is optional but nearly free to add
-alongside your own tracker — it bundles cycles balance, canister version,
-and Motoko RTS metrics (heap size, GC stats) without needing a `Tracker`
-of its own.
-
-### Build & test
-
-We need up-to-date versions of `node`, `moc` and `mops` installed.
-
-Then run:
+### Build, test, benchmark
 
 ```
 mops install
 mops test
+mops bench   # bench/engine.bench.mo — engine overhead only, against test/FakeGame.mo
 ```
-
-### Benchmark
-
-Run
-
-```
-mops bench
-```
-
-`bench/engine.bench.mo` measures the engine's own overhead — not any
-game's `resolve` cost — using the same throwaway `Spec`
-(`test/FakeGame.mo`) the test suites use, across `join`+`leave`, a full
-submitted round, and repeated `status` queries (the one plain Candid
-method a real host actor still exposes directly).
 
 ## Design
 
-**Alternating-turn games:** `Spec<S, M>` is tagged by `Mode`, so a game
-picks its own shape — `#simultaneous` (both seats submit every round;
-everything described in this section) or `#alternating` (seats take
-turns in order). A `#alternating` game's `resolve : (S, Seat, M) -> {
-state : S; verdict : ?Verdict }` takes just the one seat currently on
-turn and their move, and runs the instant that seat submits — there is
-no waiting on a second seat's move. The engine tracks whose turn it is
-on its own, from the match's own round counter (`p1` moves first, then
-it alternates every resolved round); a game's own `S` never needs a turn
-flag, and an off-turn submission is rejected by the engine itself
-(`Err.#notYourTurn`) before that game's `validate` ever runs. Idle
-takeover and claim-a-win both still apply exactly as described
-elsewhere in this file, with one restriction on the latter: only the
-seat currently WAITING on the other's turn may claim — the seat whose
-own turn it is can't, since they're the one holding up the game, not the
-one waiting on it.
+**Alternating-turn games.** An `#alternating` `resolve : (S, Seat, M) ->
+...` runs the instant the on-turn seat submits. The engine derives whose
+turn it is from the round counter (`p1` first, then alternating), so `S`
+needs no turn flag, and rejects an off-turn submission with
+`Err.#notYourTurn` before `validate` runs. Only the seat WAITING on the
+other's turn may `claimWin`; the on-turn seat gets `#wrongPhase`.
 
 **Rule contract for `Spec<S, M>`:**
 
-- **Pure.** No actor, no shared functions, no storage, no `Time` calls.
-  State transitions build new immutable records; they never mutate.
-- **`validate` is the only legality gate.** In `#simultaneous` mode the
-  engine calls it separately for each seat's own submission over the
-  course of a round; in `#alternating` mode it's called once, for
-  whichever seat is currently on turn. Either way, a client bypassing
-  disabled UI buttons cannot cheat.
-- **`resolve` runs once the round's move(s) are ready.** For
-  `#simultaneous`, once both seats have submitted; for `#alternating`,
-  immediately once the on-turn seat's single move is validated. Return
-  the next state and, if the game just ended, a `?Verdict` (`#p1Wins` /
-  `#p2Wins` / `#draw`).
+- Pure: no actor, no storage, no `Time`; new records, never mutation.
+- `validate` is the only legality gate — for each seat's submission in
+  `#simultaneous`, for the on-turn seat in `#alternating`.
+- `resolve` returns the next state and, if the game ended, `?Verdict`
+  (`#p1Wins`/`#p2Wins`/`#draw`); `null` means continue.
 
-**Claiming an overdue win:** once a player's own move has sat pending
-against their opponent's silence for at least `claimTimeoutNs` — a
-second, independent timeout from `idleTimeoutNs`, and normally set well
-below it — `claimWin` lets THAT player end the match outright, crediting
-themselves the win (`End.#claimed seat`) without touching `spec.resolve`
-at all: the opponent's move never arrived, so there's nothing for
-`resolve` to run against, and the game state simply stays exactly as it
-was. It's an entirely optional escape hatch, never automatic — nothing
-in `sweep` or anywhere else ever calls it on a player's behalf, and a
-player who'd rather give their opponent more time just doesn't click it.
-A `claimWin` sent before the window has actually elapsed comes back
-`Err.#notOverdue { secondsLeft }`, the same shape `#notIdle` already
-uses elsewhere. In a `#alternating` game "a player's own move has sat
-pending against their opponent's silence" means the same thing from a
-different angle — it's currently the OTHER seat's turn and they haven't
-taken it — so only the seat NOT currently on turn may call `claimWin`;
-the on-turn seat gets `Err.#wrongPhase` instead, same as any other
-misuse.
+**Claiming an overdue win.** After `claimTimeoutNs` (independent of and
+normally well below `idleTimeoutNs`), the waiting player may end the
+match with `End.#claimed seat`; `resolve` is not run and the state stays
+as it was. Too early is `Err.#notOverdue { secondsLeft }`.
 
-**Design guarantees** — each maps to a bug class commonly found in
-ad-hoc 2-player game backends. Stated here at the per-table primitive
-level (`Table.join`/`rematch`/...); every one holds equally at the
-`Registry` layer (`Registry.joinTable`/`rematch`/...), which just adds
-table creation/discovery/routing on top without changing any of them:
+**Design guarantees** (each maps to a bug class in ad-hoc backends; all
+hold at both the `Table` and `Registry` layer):
 
-1. **Race-free rematch.** `rematch` from a debrief stages a new game with
-   the open seat RESERVED for the partner — unless the partner already
-   acked (left) this same debrief, in which case the seat opens
-   unreserved instead of waiting on someone who's gone for good; the
-   partner's own `rematch` (or `join`) pattern-matches that staging and
-   gets seated, or `leave` (with the `gen` `#awaitingRematch` carries)
-   DECLINES it, freeing just the reservation. Because an IC actor
-   serializes update messages, two simultaneous rematch clicks always
-   execute as create-then-join — nobody is stranded.
-2. **No ghost lobbies.** Every phase carries its own timestamp (`since` /
-   `lastActivity`), stamped at creation — a first joiner who vanishes is
-   evictable after the idle timeout, not squatting forever.
-3. **Server-side legality.** The engine calls `spec.validate` on every
-   submitted move for BOTH players — a game plugged in here cannot be
-   cheated by a client bypassing UI button states.
-4. **No silent endings.** Aborting yields a shared `#aborted` debrief; an
-   overdue opponent may instead be claimed as a win (`#claimed seat`, via
-   `claimWin` — the submitter's own optional choice, never automatic);
-   an idle takeover records the evicted players so `status` shows them
-   `#endedByOther` until they acknowledge (`ackEnded` / any re-entry) —
-   or, failing that (nobody plausibly still coming back to look), until
-   `Table.pruneEnded` drops the notice on its own during a later `sweep`,
-   so one participant who never returns can't pin the notice — and, at
-   the `Registry` layer, the table it lives on — forever.
-5. **Leave means left.** `status`/`join`/`rematch` all treat a session
-   that already acked its own debrief (via `leave`) as no longer a
-   participant of it, even while the phase itself lingers in `#debrief`
-   for the still-deciding partner. Without this, "Return to lobby" kept
-   showing that same player the identical debrief screen — with live
-   Rematch/Leave buttons — until the partner ALSO left: visually
-   indistinguishable from the button doing nothing at all.
-6. **Replay-safe.** `submit`/`leave`/`reset`/`claimWin` all take a `gen`
-   (and, for `submit`, `turn`) the caller must have last observed via
-   `status`; a
-   mismatch against the table's CURRENT generation/round comes back
-   `#stale` instead of being applied — see this file's "Replay safety"
-   section above for the concrete scenario it closes.
+1. **Race-free rematch.** Create-then-join, seat reserved for the partner
+   unless they already acked; the partner's `rematch`/`join` matches it,
+   `leave` declines it. Actor serialization makes simultaneous clicks
+   safe.
+2. **No ghost lobbies.** Every phase carries a timestamp; an idle table
+   is evictable and resurfaces in `listTables` in every phase.
+3. **Server-side legality.** `validate` for both players, always.
+4. **No silent endings.** `#aborted`, `#claimed`, and `#endedByOther`
+   (until acked, or pruned by `Table.pruneEnded` after a generous
+   multiple of the idle timeout).
+5. **Leave means left.** A session that acked its debrief is no longer a
+   participant, even while the phase lingers for the partner.
+6. **Replay-safe.** `gen`/`turn` mismatches come back `#stale`.
 
 ## Implementation notes
 
-- **The engine owns time.** `now : Int` (nanoseconds — pass `Time.now()`
-  at the host) is an explicit parameter on every operation that needs
-  it; the engine module itself never imports `Time`. This is what makes
-  the test suites deterministic and side-effect-free.
-- **`status` is pure and safe as a `query`.** Idle-state resets are lazy
-  and only ever happen inside a mutating call — never inside `status`.
+- **The engine owns time.** `now` is a parameter everywhere; engine
+  modules never import `Time`. That is what makes the suites
+  deterministic.
+- **`status` is pure.** Idle resets happen only in mutating calls.
 - **Pending moves are hidden by construction.** `status` exposes only
-  Booleans for whether the opponent has moved this round, never the move
-  itself — there is no way for the frontend to leak it even by accident.
-- **`src/lib.mo` is the shared type surface,** imported as
-  `mo:duel-game-core` (no subpath needed) — `Spec`, `Seat`, `Phase`,
-  `View`, `Err`, `Res`, `Table`, `Registry`, and everything else are
-  defined once in `src/types.mo` and re-exported from here. The actual
-  operations live in two sibling modules, both importable by their own
-  subpath: `src/table.mo` (`mo:duel-game-core/table`), the single-table
-  primitive, and `src/registry.mo` (`mo:duel-game-core/registry`), the
-  multi-table router built on top of it. `src/ws.mo`
-  (`mo:duel-game-core/ws`) is a separately-imported, but MANDATORY,
-  module layered on top of both — never merged into `lib.mo` purely to
-  confine its `ic-websocket-cdk` dependency (see the root `CLAUDE.md`'s
-  toolchain note), not because wiring it is optional. `src/actor_mixin.mo`
-  (`mo:duel-game-core/actor_mixin`) supplies the four `ws_*` Candid
-  methods plus the idle-sweep timer, `include`d in the host actor
-  alongside it — see "Real-time push" above. `src/canister_players.mo`
-  (`mo:duel-game-core/canister_players`) is a further, entirely OPTIONAL
-  module letting a canister take a seat; `src/canister_players_actor_mixin.mo`
-  (`mo:duel-game-core/canister_players_actor_mixin`) is its own
-  `ActorMixin` counterpart — the six `*_as_canister` Candid methods a
-  host `include`s alongside it once it wires `CanisterPlayers.attach` —
-  see "Canister players" above. `src/leaderboard.mo`
-  (`mo:duel-game-core/leaderboard`) and `src/elo.mo`
-  (`mo:duel-game-core/elo`) are two further OPTIONAL, entirely
-  game-agnostic modules (a top-N score board; a pure chess-ELO formula
-  with no starting-rating opinion of its own); `src/leaderboard_actor_mixin.mo`
-  (`mo:duel-game-core/leaderboard_actor_mixin`) is `leaderboard.mo`'s own
-  `ActorMixin` counterpart — the single `get_leaderboard` Candid query a
-  host `include`s alongside it — see "Leaderboard" above.
-- `test/FakeGame.mo` is a deliberately trivial `Spec` used only by the
-  test suites and benchmarks to exercise the engine — it is not a real
-  game and ships no rendering.
+  Booleans about the opponent's pending move.
+- **Module layout.** `lib.mo` is the type surface; `table.mo`/
+  `registry.mo` the operations; `ws.mo` + `actor_mixin.mo` the mandatory
+  transport, kept separate only to confine the CDK dependency;
+  `canister_players.mo` + `canister_players_actor_mixin.mo`,
+  `leaderboard.mo` + `elo.mo` + `leaderboard_actor_mixin.mo` are
+  optional.
+- `test/FakeGame.mo`/`FakeTurnGame.mo` are throwaway specs for the
+  suites and benchmarks, not games.
 
 ## Copyright
 

@@ -1,22 +1,6 @@
-// GamePlugin for ultimate tic-tac-toe — the only game-specific piece the
-// client needs. Everything else (the multi-table lobby, staging, rematch,
-// debrief chrome, session identity, real-time push, turn-accurate copy
-// for an #alternating table) comes from the `duel-game-core` npm
-// package's generic `start()`/`renderView()` — see app.js.
-//
-// The `Action`/`State` Candid shapes below must mirror
-// `../src/UltimateTicTacToeRules.mo` exactly.
-//
-// Interaction model: click any empty cell of a currently-playable local
-// board to place your mark there — same one-click-per-move shape as
-// `examples/tic-tac-toe/frontend/src/tictactoe-plugin.js`, just decided
-// per cell by TWO things now instead of one: is this local board still
-// undecided, AND is it the one board routing currently allows (or is
-// routing free, in which case every undecided board qualifies). Every
-// legal cell renders as a real `<button data-act=...>` (`actionAttr()`);
-// everything else renders as a plain, non-interactive `<div>`.
-// `renderActions` returns nothing — everything happens by clicking the
-// board.
+// GamePlugin for ultimate tic-tac-toe. Candid shapes mirror
+// ../src/UltimateTicTacToeRules.mo. Every empty cell of a currently
+// playable local board is a `data-act` button while it is your turn.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -73,8 +57,6 @@ function drawBoard(state, yourTurn) {
 
 export const plugin = {
   idlTypes({ IDL }) {
-    // Mirrors ../src/UltimateTicTacToeRules.mo exactly — Candid shape,
-    // not JS naming. A Motoko `Nat` field decodes to a JS `bigint`.
     const Seat = IDL.Variant({ p1: IDL.Null, p2: IDL.Null });
     const BoardResult = IDL.Variant({ p1: IDL.Null, p2: IDL.Null, tie: IDL.Null });
     const Action = IDL.Variant({
@@ -92,16 +74,10 @@ export const plugin = {
     return SEAT_NAME[seat];
   },
 
-  // Called both for a live game (yourTurn set) and for a finished
-  // debrief's final state (yourTurn is `undefined` then — see
-  // GamePlugin's own doc — treated the same as `false`: a finished board
-  // is never clickable).
   renderBoard(gameState, _mySeat, _oppSeat, yourTurn) {
     return drawBoard(gameState, !!yourTurn);
   },
 
-  // Everything happens by clicking the board itself — no separate action
-  // panel needed.
   renderActions() {
     return "";
   },

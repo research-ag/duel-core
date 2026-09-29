@@ -11,22 +11,10 @@ import Tracker "mo:promtracker/Tracker";
 import Table "./table";
 import T "./types";
 
-/// A multi-table extension of the single-`Table`: many
-/// independent boards, each identified by a `TableId`, created and
-/// discovered through one shared `Registry`. Every function here is a
-/// thin router — it resolves which `Table` a call is actually about
-/// (by `TableId`, for `createTable`/`joinTable`; by looking up the
-/// caller's own current table otherwise) and delegates straight into
-/// the matching operation above; no game state or legality is
-/// reimplemented in this module. A host actor wires `Ws.attach` to a
-/// `Registry` (see `../README.md`'s "Real-time push" section) instead
-/// of a bare `Table` — that's the only thing that changes in how a
-/// game gets plugged in; `Spec`'s `init`/`validate`/`resolve` don't
-/// know or care how many tables exist.
-///
-/// A game that genuinely wants exactly one fixed board can still use
-/// `create`/`join`/`submit`/... directly above — `Lobby` is built on
-/// top of them, not a replacement for them.
+/// Many independent `Table`s behind one `Registry`. Every function here
+/// resolves which table a call is about (by id for `createTable`/
+/// `joinTable`, by the caller's current table otherwise) and delegates to
+/// `Table`; no game logic is reimplemented.
 module {
 
   public type Registry<S, M> = T.Registry<S, M>;
@@ -57,8 +45,6 @@ module {
       self.matchmakingWaitSecs := ?pt.newGauge("matchmaking_wait_seconds", [], []);
     };
   };
-
-  // ────────────────────── internal helpers ──────────────────────────────
 
   func recordActiveGames<S, M>(self : Registry<S, M>) {
     switch (self.activeGames) {
@@ -108,23 +94,11 @@ module {
     };
   };
 
-  /// Whether (and since when) a table would present an open seat to a
-  /// generic, not-yet-seated visitor right now — the same outsider
-  /// view `status` above already computes per phase, minus the
-  /// per-session `unackedEnded` check (meaningless for a listing
-  /// nobody has "asked" about yet). `null` = not currently joinable
-  /// (occupied, or reserved/idle-but-not-yet-expired). This is what
-  /// keeps an idle-abandoned table — in ANY phase — reachable through
-  /// `listTables`, not just a table whose id a visitor already
-  /// happens to know: without it, "no ghost lobbies" would silently
-  /// stop applying to every table but the one you already have a link
-  /// to. `p1Session`/`p2Session` name whichever session currently holds a
-  /// NOT-open seat — only ever non-null out of the `#staging` branch
-  /// below (the one phase `listTables` surfaces with exactly one seat
-  /// genuinely taken by a specific, still-there occupant); every other
-  /// branch reports both seats open with nobody in particular to name
-  /// (an idle-reclaimable board resets to a clean slate, not "join the
-  /// ghost who's still technically listed here").
+  /// How a table looks to a not-yet-seated visitor, per phase — the same
+  /// outsider view `Table.status` computes, minus the per-session
+  /// `unackedEnded` check. `null` = not joinable right now. This is what
+  /// keeps an idle-abandoned table in ANY phase reachable via `listTables`.
+  /// Only the `#staging` branch names an occupant.
   func openness<S, M>(t : T.Table<S, M>, now : Int) : ?{
     p1Open : Bool;
     p2Open : Bool;
@@ -184,15 +158,7 @@ module {
     if (elapsed <= 0) { 0 } else { elapsed.toNat() / 1_000_000_000 };
   };
 
-  /// A table that's quiesced (`#empty`, and nobody is still owed an
-  /// `#endedByOther` notice) carries no state worth keeping around —
-  /// drop it from the registry so ids don't accumulate forever. Skipped
-  /// otherwise: an `#empty` table can still owe an ack (see `noteEnded`'s
-  /// own doc) — cleared by that ack, or eventually by `Table.pruneEnded`
-  /// (driven by the periodic `sweep` a host wires, same as this GC check
-  /// itself) once nobody's plausibly still coming back to give one. Until
-  /// either happens, this table keeps resurfacing through `listTables`
-  /// looking freshly opened — see `openness`'s `#empty` branch.
+  /// Drops an `#empty` table with no outstanding `#endedByOther` notice.
   func gcIfQuiesced<S, M>(reg : Registry<S, M>, id : T.TableId, t : T.Table<S, M>) {
     switch (t.phase) {
       case (#empty) {
@@ -206,22 +172,14 @@ module {
 
   func alreadyAtATable<S, M>(reg : Registry<S, M>, session : T.SessionId) : Bool = reg.bySession.get(session).isSome();
 
-  /// Drops `session`'s `bySession` mapping if the table it points to no
-  /// longer considers them seated `now` (`Table.isStillSeated`) — see
-  /// that function's own doc for the ways a phase transition can move on
-  /// without ever routing through `leave`/`reset`/`ackEnded`. Without
-  /// this, `alreadyAtATable` reports `true` forever once that happens
-  /// (even past the table itself getting GC'd out of `reg.tables`
-  /// entirely), permanently refusing every later `createTable`/
-  /// `joinTable` for that session. Called at the top of both — the only
-  /// two ops that gate on `alreadyAtATable` — so a session that's
-  /// actually free to start something new isn't refused over
-  /// bookkeeping the phase itself already left behind.
+  /// Drops a `bySession` mapping whose table no longer considers the
+  /// session seated (a phase that moved on without `leave`/`reset`/
+  /// `ackEnded`), so `alreadyAtATable` can't refuse them forever.
   func releaseIfStale<S, M>(reg : Registry<S, M>, session : T.SessionId, now : Int) {
     switch (reg.bySession.get(session)) {
       case null {};
       case (?id) switch (reg.tables.get(id)) {
-        case null reg.bySession.remove(session); // stale mapping onto an already-GC'd table
+        case null reg.bySession.remove(session);
         case (?t) {
           if (not t.isStillSeated(now, session)) {
             reg.bySession.remove(session);
@@ -232,8 +190,6 @@ module {
     };
   };
 
-  /// Resolves `session`'s current table (if any) and runs `op` against
-  /// it — the shared shape every routed mutating call below follows.
   func withTable<S, M, T>(
     reg : Registry<S, M>,
     session : T.SessionId,
@@ -242,15 +198,12 @@ module {
     switch (reg.bySession.get(session)) {
       case null #err(#notSeated);
       case (?id) switch (reg.tables.get(id)) {
-        case null #err(#notSeated); // stale mapping onto an already-GC'd table
+        case null #err(#notSeated);
         case (?t) op(t);
       };
     };
   };
 
-  /// Clears `session`'s own table mapping after a successful `leave`/
-  /// `reset` — see `leave`'s own doc below — and GCs that table if
-  /// this was the last thing keeping it around.
   func returnToLobby<S, M>(reg : Registry<S, M>, session : T.SessionId) {
     switch (reg.bySession.get(session)) {
       case null {};
@@ -264,16 +217,8 @@ module {
     };
   };
 
-  // ────────────────────── operations ─────────────────────────────────────
-
-  /// Lists every table with at least one open seat right now — a
-  /// `#code`-protected table included, just flagged `protected = true`
-  /// and never carrying its own code (that stays known only to its own
-  /// occupant, via their own `#stagingYou` view — see `View`'s own doc):
-  /// a browsing visitor can see a protected table exists, that it needs a
-  /// code, and who (if anyone) is already seated on it, but has to be
-  /// handed the code itself out of band before `joinTable` will actually
-  /// seat them on it.
+  /// Every table with an open seat, protected ones flagged but never
+  /// carrying their code.
   public func listTables<S, M>(self : Registry<S, M>, now : Int) : [T.TableSummary] {
     let withSummaries = Map.filterMap<T.TableId, T.Table<S, M>, T.TableSummary>(
       self.tables,
@@ -297,33 +242,13 @@ module {
     withSummaries.toArray().map<(T.TableId, T.TableSummary), T.TableSummary>(func((_, v)) = v);
   };
 
-  /// The `TableId` the next `createTable`/`createTableReserving` call on
-  /// this registry will assign — a pure, side-effect-free peek at
-  /// `tableIdNonce` (as safe to call as `status`; see architecture rule
-  /// 8), not a reservation. Exists so a caller that needs to derive
-  /// something FROM a table's id — `canister_players.mo`'s own
-  /// `sidForCanister`, keyed per board rather than per caller, is the one
-  /// user today — can compute that derivation before the id is otherwise
-  /// knowable, i.e. before `createTable` itself returns. Only valid to
-  /// rely on with no `await`/`await*` between this call and the
-  /// `createTable` call it's paired with: this registry is single-
-  /// threaded within one update call, but nothing stops another table
-  /// being created in between two separate messages.
+  /// The id the next `createTable`/`createTableReserving` will assign —
+  /// a pure peek, valid only with no `await` before that call.
   public func peekNextTableId<S, M>(self : Registry<S, M>) : T.TableId = self.tableIdNonce;
 
-  /// Create a fresh table and seat `session` in `seat` on it. Rejects
-  /// with `#badCode` for a `#code("")` visibility — an empty access code
-  /// isn't just pointless, it's unreachable BY CONSTRUCTION: `joinTable`
-  /// below sends no code at all whenever its own code field is empty, so
-  /// an empty stored code could never be matched — the table would sit
-  /// protected and staged forever with nobody, not even a friend told
-  /// the table number, able to join it. Rejects with `#wrongPhase` if
-  /// `session` already has unfinished business at another table (a live
-  /// seat, an open debrief, an unacked `#endedByOther` notice) — leave/
-  /// ack that first. `variant` is this table's own rules variant (see
-  /// `Table.variant`'s own doc) — opaque to the registry, stored as-is
-  /// and handed to `Spec.init` once the match actually starts; a game
-  /// with no modes of its own simply ignores whatever text arrives here.
+  /// `#badCode` for `#code("")` (unreachable by construction, since
+  /// `joinTable` sends no code for an empty field); `#wrongPhase` if
+  /// `session` is busy elsewhere.
   public func createTable<S, M>(
     self : Registry<S, M>,
     spec : T.Spec<S, M>,
@@ -344,7 +269,7 @@ module {
     let id = self.tableIdNonce;
     let t = Table.new<S, M>(self.idleTimeoutNs, self.claimTimeoutNs, visibility, session, variant);
     switch (t.join(spec, now, session, seat)) {
-      case (#err e) #err(e); // unreachable on a brand-new table; kept for exhaustiveness
+      case (#err e) #err(e); // unreachable on a brand-new table
       case (#ok _) {
         self.tableIdNonce += 1;
         self.tables.add(id, t);
@@ -354,22 +279,9 @@ module {
     };
   };
 
-  /// Flow 2, "eager dual-seat assignment" (see `../../CLAUDE.md`'s
-  /// "Canister players" note): like `createTable` above, but ALSO seats
-  /// `reservedFor` in the other seat atomically, in this SAME call — the
-  /// table lands directly in `#active`, with no second `joinTable` call
-  /// needed from either side (contrast plain `createTable` plus
-  /// `Table.stage`'s own `reservedFor` widening, which only RESERVES the
-  /// other seat for someone to claim later). Shares `createTable`'s own
-  /// validation (`#badCode`/`#wrongPhase` for `session` already being
-  /// elsewhere); ADDITIONALLY rejects with `#wrongPhase` if `reservedFor`
-  /// is `session` itself (nothing here can atomically seat one session
-  /// against itself) or if `reservedFor` already has unfinished business
-  /// at another table — the exact same one-table-at-a-time invariant
-  /// `releaseIfStale`/`alreadyAtATable` already enforce for `session`,
-  /// just checked for the OTHER seat's own occupant too, since this
-  /// function is the one place seating them doesn't go through
-  /// `joinTable`'s own guard.
+  /// Seats both `session` and `reservedFor` atomically; the table lands in
+  /// `#active`. Rejects a self-reservation and a `reservedFor` busy
+  /// elsewhere.
   public func createTableReserving<S, M>(
     self : Registry<S, M>,
     spec : T.Spec<S, M>,
@@ -400,7 +312,7 @@ module {
     t.stage(now, session, seat, ?reservedFor);
     let otherSeat = switch (seat) { case (#p1) #p2; case (#p2) #p1 };
     switch (t.join(spec, now, reservedFor, otherSeat)) {
-      case (#err e) return #err(e); // unreachable — a fresh staging reserved for exactly this session always accepts its own reservation; kept for exhaustiveness
+      case (#err e) return #err(e); // unreachable — the staging is reserved for exactly this session
       case (#ok _) {};
     };
     self.tableIdNonce += 1;
@@ -408,16 +320,11 @@ module {
     self.bySession.add(session, id);
     self.bySession.add(reservedFor, id);
     bumpGamesStarted(self);
-    recordMatchmakingWait(self, now, ?now); // staged and started in the same instant — zero wait, recorded for consistency with joinTable's own accounting
+    recordMatchmakingWait(self, now, ?now);
     recordActiveGames(self);
     #ok(id);
   };
 
-  /// Join a specific table by id. Covers every case plain `join` above
-  /// does (switching seats while alone staging, a veteran rejoining
-  /// from their own debrief to start a rematch, idle takeover of an
-  /// abandoned table) — `code` is only inspected for a `#code`
-  /// -protected table, and must match exactly.
   public func joinTable<S, M>(
     self : Registry<S, M>,
     spec : T.Spec<S, M>,
@@ -471,7 +378,7 @@ module {
       let r = t.submit(spec, now, session, gen, turn, move);
       switch (r) {
         case (#ok(#gameEnded _)) {
-          recordActiveGames(self); // #active -> #debrief
+          recordActiveGames(self);
           recordRoundsPerGame(self, t);
         };
         case (_) {};
@@ -488,7 +395,6 @@ module {
       let r = t.rematch(spec, now, session);
       switch (r) {
         case (#ok(#started)) {
-          // #staging -> #active
           bumpGamesStarted(self);
           recordActiveGames(self);
           recordMatchmakingWait(self, now, waitSince);
@@ -506,7 +412,7 @@ module {
       let r = t.claimWin(spec, now, session, gen);
       switch (r) {
         case (#ok _) {
-          recordActiveGames(self); // #active -> #debrief
+          recordActiveGames(self);
           recordRoundsPerGame(self, t);
         };
         case (#err _) {};
@@ -515,17 +421,9 @@ module {
     },
   );
 
-  /// Whether a `leave`/`reset` call about to run against `t` is the
-  /// ABORT case — leaving a live game — rather than a plain staging
-  /// walkout or a debrief ack. Decided from the phase BEFORE the call:
-  /// `leave`'s own `#active` branch turns it INTO a shared `#aborted`
-  /// debrief in that same step, and the leaver is deliberately NOT
-  /// auto-acked by it (see plain `leave`'s own doc / architecture rule
-  /// 7 "no silent endings") — they still see that debrief themselves,
-  /// same as their opponent, so `session` must stay mapped to this
-  /// table for their own next `status` to resolve it. Only a call that
-  /// ISN'T an abort (a solo staging walkout, or a genuine debrief ack)
-  /// returns `session` to "browsing".
+  /// An abort (leaving a live game) keeps the leaver mapped to the table
+  /// so they still see the shared `#aborted` debrief; only a staging
+  /// walkout or a debrief ack returns them to browsing.
   func isAbort<S, M>(t : T.Table<S, M>) : Bool = switch (t.phase) {
     case (#active _) true;
     case (_) false;
@@ -540,7 +438,7 @@ module {
       switch (r) {
         case (#ok _) {
           if (abort) {
-            recordActiveGames(self); // #active -> #debrief
+            recordActiveGames(self);
             recordRoundsPerGame(self, t);
           } else {
             returnToLobby(self, session);
@@ -561,7 +459,7 @@ module {
       switch (r) {
         case (#ok _) {
           if (abort) {
-            recordActiveGames(self); // #active -> #debrief/#empty
+            recordActiveGames(self);
             recordRoundsPerGame(self, t);
           } else {
             returnToLobby(self, session);
@@ -573,10 +471,7 @@ module {
     },
   );
 
-  /// Same as plain `ackEnded` above, except it ALSO returns `session`
-  /// to "browsing" — acking an `#endedByOther` notice IS the "return
-  /// to lobby" action, so it should hand the session back to the
-  /// browsable list, not leave it pointed at the table it just left.
+  /// Acking an `#endedByOther` notice is the "return to lobby" action.
   public func ackEnded<S, M>(self : Registry<S, M>, session : T.SessionId) {
     switch (self.bySession.get(session)) {
       case null {};
@@ -592,23 +487,18 @@ module {
     switch (self.bySession.get(session)) {
       case (?id) switch (self.tables.get(id)) {
         case (?t) #atTable({ id; view = t.status(spec, now, session) });
-        case null #browsing({ tables = listTables(self, now) }); // stale mapping onto an already-GC'd table
+        case null #browsing({ tables = listTables(self, now) });
       };
       case null #browsing({ tables = listTables(self, now) });
     };
   };
 
-  /// Idle-eviction across every table in the registry — see plain
-  /// `sweep` above for what it does per table. Meant to be driven by a
-  /// host's own periodic timer, same as `sweep` itself. Snapshots the
-  /// table list into a plain array first: table GC below mutates
-  /// `reg.tables` in place, and doing that while an iterator over the
-  /// same live `Map` is still walking it is not something to rely on.
+  /// Snapshots the table list first: GC mutates `tables` in place.
   public func sweep<S, M>(self : Registry<S, M>, now : Int) {
     for ((id, t) in self.tables.toArray().values()) {
       t.sweep(now);
       gcIfQuiesced(self, id, t);
     };
-    recordActiveGames(self); // idle eviction can drop an #active table too
+    recordActiveGames(self);
   };
 };

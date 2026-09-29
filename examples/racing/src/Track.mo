@@ -1,17 +1,7 @@
-/// ═══════════════════════════════════════════════════════════════════════════
-/// Track — baked-in geometry for the single "island" map this example ships.
-///
-/// Generated once from `frontend/src/assets/maps/island/scene.meta`
-/// (itself exported from `racing-resources/res/maps/island/scene.blend` by
-/// the racing-resources Blender pipeline — see `frontend/CLAUDE.md`). This
-/// example supports exactly one track and one car, so the geometry is data,
-/// not configuration: no map-loading machinery lives on the backend.
-///
-/// `outerPolygon` / `innerPolygon` bound the drivable surface (a point is
-/// on-track iff it is inside `outerPolygon` and outside `innerPolygon`).
-/// `roadPath` is the centerline used only to measure race progress (lap
-/// percent / distance-from-start) — it does not constrain movement.
-/// ═══════════════════════════════════════════════════════════════════════════
+/// Track — baked-in geometry for the single "island" map, generated from
+/// `frontend/src/assets/maps/island/scene.meta`. A point is on-track iff
+/// inside `outerPolygon` and outside `innerPolygon`; `roadPath` is the
+/// centerline used only to measure progress.
 
 module {
 

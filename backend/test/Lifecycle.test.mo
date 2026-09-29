@@ -1,7 +1,4 @@
-// Interpreter-run simulation of the full session lifecycle through the
-// generic engine with a minimal fake ruleset plugged in (FakeGame.mo) —
-// exists purely to exercise the engine, not a real game.
-// Run: moc -r --package core <core/src> test/Lifecycle.test.mo
+// One long session narrative through the generic engine, against FakeGame.mo.
 import TP "../src/lib";
 import Table "../src/table";
 import Rules "FakeGame";
@@ -87,14 +84,7 @@ switch (t.status(spec, now, "bob")) {
 };
 Debug.print("4. rematch convergence OK");
 
-// ── 4b. A `leave` delayed across the rematch — the concrete scenario
-//        `gen`-binding exists to close (see gateway-client.ts's
-//        `_queueResend` doc): alice's OWN session sends a `leave` that
-//        only reaches the engine after she's already rematched with bob
-//        and a brand-new game is live. Session identity alone can't tell
-//        the two matches apart; only `gen` can — this must come back
-//        `#stale`, and the live rematch must survive completely untouched
-//        instead of being silently aborted out from under both players ───
+// ── 4b. A `leave` delayed across the rematch ───────────────────────────────
 switch (t.leave(now, "alice", firstMatchGen)) {
   case (#err(#stale)) {};
   case (_) Runtime.trap("alice's stale leave from the FIRST match must not abort the rematch");
@@ -132,7 +122,7 @@ switch (t.status(spec, now, "bob")) {
 Debug.print("5. shared abort debrief OK");
 
 // ── 6. Idle takeover over an EXPIRED DEBRIEF: no #endedByOther (they saw
-//       their debrief already) — they just fall back to the lobby ──────────
+//      their debrief already) ───────────────────────────────────────────────
 expectErr(t.join(spec, tick(), "carol", #p1), "carol during debrief precedence");
 now += 61_000_000_000; // 61s pass
 ignore ok(t.reset(now, "carol", 0), "carol reset after idle"); // outsider path
@@ -164,7 +154,7 @@ switch (t.status(spec, now, "dave")) {
 };
 Debug.print("7. active-game takeover: #endedByOther + per-player ack OK");
 
-// ── 8. Claim a win, short of the full idle eviction ─────────────────────────
+// ── 8. Claim a win, short of the full idle eviction ────────────────────────
 // "eve" is currently alone in staging (from step 7); "frank" fills the
 // other seat, "eve" moves, "frank" goes quiet. Once the (shorter)
 // claim-win window elapses — well short of the 60s idle eviction — "eve"

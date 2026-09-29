@@ -1,13 +1,5 @@
-// Per-operation unit checks for the engine's `#alternating` mode — turn
-// enforcement (`Table.toMove`, `Err.#notYourTurn`), immediate single-move
-// resolution, `status`'s mode/turn reporting, and claim-win gated to
-// whichever seat is currently WAITING (never the seat on turn). Mirrors
-// Engine.test.mo's shape, but only covers what's actually different in
-// this mode — join/rematch/leave/idle-takeover are already covered there
-// and in Lifecycle.test.mo, and don't change based on mode at all.
-// Plugged-in rules: FakeTurnGame.mo, a minimal throwaway `#alternating`
-// Spec that exists purely to exercise the engine — not a real game.
-// Run: moc -r --package core <core/src> test/Alternating.test.mo
+// Per-operation unit checks for the engine's `#alternating` mode, against
+// FakeTurnGame.mo.
 import TP "../src/lib";
 import Table "../src/table";
 import Rules "FakeTurnGame";
@@ -53,11 +45,7 @@ func gameOf(at : Int) : Tbl {
 };
 
 // ── 1. status reports #alternating mode, and whose turn it is via
-//      youSubmitted/oppSubmitted — "a" (p1) is on turn at a fresh game
-//      (turn 0), so THEY are the one with something to do, not the one
-//      waiting: oppSubmitted = true, youSubmitted = false (see types.mo's
-//      own doc on why this pair means "waiting" the same way in both
-//      modes) ─────────────────────────────────────────────────────────
+//      youSubmitted/oppSubmitted ────────────────────────────────────────────
 var t = gameOf(T0);
 switch (t.status(spec, T0, "a")) {
   case (#inGame v) {
@@ -78,7 +66,7 @@ switch (t.status(spec, T0, "b")) {
 };
 Debug.print("1. status reports mode + whose turn OK");
 
-// ── 2. the off-turn seat may not submit ─────────────────────────────────
+// ── 2. the off-turn seat may not submit ────────────────────────────────────
 t := gameOf(T0);
 expectErr(t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #inc), "b submits out of turn");
 switch (t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #inc)) {
@@ -87,9 +75,7 @@ switch (t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #inc)) {
 };
 Debug.print("2. off-turn submit rejected with #notYourTurn OK");
 
-// ── 3. validate still gates the on-turn seat's own move; a legal move
-//      resolves immediately (no waiting on a second seat) and flips
-//      whose turn it is ──────────────────────────────────────────────
+// ── 3. validate still gates the on-turn seat's own move ────────────────────
 t := gameOf(T0);
 expectErr(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), #winNow), "a wins with nothing to win with");
 switch (ok(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), #inc), "a incs")) {
@@ -109,7 +95,7 @@ expectErr(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), #inc), 
 Debug.print("3. validate + immediate single-move resolve + turn flip OK");
 
 // ── 4. resolve can end the match outright, same debrief shape as the
-//      simultaneous engine ─────────────────────────────────────────────
+//      simultaneous engine ──────────────────────────────────────────────────
 t := gameOf(T0);
 ignore ok(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), #inc), "a incs");
 switch (ok(t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #winNow), "b wins")) {
@@ -125,8 +111,8 @@ switch (t.status(spec, T0, "a")) {
 };
 Debug.print("4. resolve ending the match OK");
 
-// ── 5. claim-win: only the WAITING seat (not the one on turn) may claim,
-//      and only once overdue ───────────────────────────────────────────
+// ── 5. claim-win: only the WAITING seat (not the one on turn) may claim, and
+//      only once overdue ────────────────────────────────────────────────────
 t := gameOf(T0);
 ignore ok(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), #inc), "a incs, now it's b's turn");
 let gAtT0 = genOf(t, T0, "a");

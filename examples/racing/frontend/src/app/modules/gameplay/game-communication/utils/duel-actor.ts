@@ -1,16 +1,5 @@
-// Bridge to the actor (and its push poller) `duel-app.js` (loaded as a
-// plain script alongside this app's own esbuild bundle — see index.html)
-// builds once at page load. That module owns agent/actor/ws construction
-// (see its own comments for why); this app just needs the SAME instances
-// so both halves of the page talk to the same session over the same
-// poller, rather than each running their own. `index.html` sets
-// `window.duelActorReady`/`duelWsReady` up as Promises before either
-// script runs, so load order never matters. `getDuelActor()` is unused by
-// this example's own gameplay code today — lobby-connection.service.ts
-// only ever needs `getDuelWs()`, since every canister call it makes
-// (submit, status) goes through the shared poller — kept here as the
-// general-purpose escape hatch to the raw actor, should something ever
-// need a canister method the poller doesn't cover.
+// Bridge to the actor and `GatewayWs` duel-app.js builds, published via
+// Promises index.html sets up before either script runs.
 
 declare global {
   interface Window {
@@ -26,9 +15,6 @@ export async function getDuelActor(): Promise<any> {
   return window.duelActorReady;
 }
 
-// Resolves to the SAME `GatewayWs` duel-app.js's generic chrome uses (see
-// duel-game-core/ws/gateway-client.js) — always present; there is no
-// plain-polling fallback in duel-game-core by default any more.
 export async function getDuelWs(): Promise<any> {
   if (!window.duelWsReady) {
     throw new Error('window.duelWsReady is missing — check index.html\'s inline bootstrap script');
@@ -36,9 +22,7 @@ export async function getDuelWs(): Promise<any> {
   return window.duelWsReady;
 }
 
-// Session identity is per-tab (sessionStorage), owned by duel-app.js's
-// call to duel-game-core's start() — see its own comments. This app just
-// reads the same key.
+// Written by duel-app.js's start().
 export function getSid(): string {
   return sessionStorage.getItem('sid') || '';
 }

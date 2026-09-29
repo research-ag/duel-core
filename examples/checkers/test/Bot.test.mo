@@ -1,19 +1,7 @@
-// Proves the checkers bot (`../bot/Bot.mo`/`BotLogic.mo`, the
-// milestone-02 rule-following canister player) two ways: (1)
-// `BotLogic.chooseMove` only ever returns a `Rules.legalActions`-listed
-// move for a handful of synthetic positions, including one where a
-// capture is mandatory (no engine, no actor — the "testing offline"
-// pattern `../../../CLAUDE.md`'s "Canister players" note describes); and
-// (2) wired live through `mo:duel-game-core/canister_players`, TWO
-// canister-seated bots play each other through several real
-// `#alternating` plies with no illegal move and no trap — proving the
-// `#alternating` due-seat/turn-order trigger points specifically (`#p1`
-// first, then whichever seat the turn just passed to), the milestone-02
-// goal the canister-players design calls out. `BotLogic.chooseMove` is
-// used directly as the `callBot` continuation, so no real second canister
-// is needed here — same as `backend/test/CanisterPlayers.test.mo` and
-// `examples/racing/test/Bot.test.mo`.
-// Run: mops test Bot
+// Proves the checkers bot: `chooseMove` only ever returns a
+// `legalActions`-listed move (offline), and two canister-seated bots play
+// several real `#alternating` plies through `canister_players`, with
+// `chooseMove` as the `callBot` continuation.
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Nat "mo:core/Nat";
@@ -31,8 +19,7 @@ let spec = Rules.spec();
 
 func idx(r : Nat, c : Nat) : Nat = r * 8 + c;
 
-// ── 1. chooseMove never strays outside legalActions — including when a
-//        capture is mandatory, where only ONE result exists at all ──────
+// ── 1. chooseMove never strays outside legalActions ────────────────────────
 do {
   let s0 = Rules.init("");
   for (turn in Nat.range(0, 9)) {
@@ -85,8 +72,8 @@ do {
 };
 Debug.print("1. BotLogic.chooseMove always picks a Rules.legalActions-listed move, mandatory capture included OK");
 
-// ── 2. wired live through canister_players.mo, two canister seats play
-//        each other through several real #alternating plies ────────────
+// ── 2. wired live through canister_players.mo, two canister seats play each
+//      other through several real #alternating plies ────────────────────────
 let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
@@ -132,10 +119,7 @@ switch (atTableView(reg, T0, sidBot1)) {
 
 // `maybeNotifyBoth` re-reads status fresh between checking p1 and p2 (see
 // `canister_players.mo`'s own doc), so one `sweep` call typically resolves
-// TWO plies here (whichever seat is due, then — immediately due in
-// turn — the other), not one; this loop doesn't depend on that exact
-// count, only that #inGame never stalls (a sweep call that finds a due
-// seat but makes no progress at all) across several calls.
+// TWO plies here (whichever seat is due, then
 var round = 0;
 var lastTurn = switch (atTableView(reg, T0, sidBot1)) {
   case (#inGame v) v.turn;
@@ -161,13 +145,7 @@ switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
   };
   case (_, _) {
     // one seat may have already won (a real, if unlikely, outcome of two
-    // rule-following-but-lookahead-free bots after this many plies) —
-    // either a real #debrief, or (just as likely, since an all-canister
-    // debrief now gets acked on both sides immediately — see
-    // `canister_players.mo`'s own "canister vs canister" debrief-ack
-    // note) already settled all the way back to #browsing within the
-    // very same sweep call that ended it; either way, never a stuck
-    // #inGame with an unmet due seat.
+    // rule-following-but-lookahead-free bots after this many plies)
     switch (reg.status(spec, T0, sidBot1)) {
       case (#atTable { view = #debrief _ }) {};
       case (#browsing _) {};

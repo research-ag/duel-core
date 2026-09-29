@@ -1,11 +1,6 @@
-// Host actor for __GAME_SLUG__. This file barely ever changes between
-// games — it forwards `status` as a plain query and wires
-// `mo:duel-game-core/ws` for every mutating call. Copy verbatim; the only
-// per-game line is the `Rules` import. Wires a multi-table LOBBY, not a
-// single fixed board — anyone may open a table (open, or access-code
-// protected to share with a friend out of band), and any number run
-// independently and simultaneously; this game's own code never has to
-// know or care.
+// Host actor for __GAME_SLUG__. Copy verbatim; only the `Rules` import
+// and the two timeouts change between games. `status` is the only plain
+// Candid method — every mutation goes through `mo:duel-game-core/ws`.
 
 import Time "mo:core/Time";
 
@@ -19,7 +14,7 @@ import Rules "__RULES_MODULE__";
 
 persistent actor {
   let registry : TP.Registry<Rules.State, Rules.Action> =
-    Registry.new(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // idle takeover window, claim-win window, per table
+    Registry.new(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__);
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Rules.spec(), Time.now(), sid);
@@ -35,13 +30,11 @@ persistent actor {
       decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
     IcWebSocketCdkTypes.WsInitParams(null, ?120_000),
-    null, // no `mo:duel-game-core/canister_players` wired — see the engine README's "Canister players" section otherwise
-    null, // no leaderboard wired — see the engine README's "Leaderboard" section otherwise
-    null, // no match-start timing needed either — see "Leaderboard" above
+    null, // onSettled — canister players
+    null, // onGameEnded — leaderboard
+    null, // onGameStarted — leaderboard
   );
   attached.ws.init<system>();
 
-  // `attached.sweep` (not a bare `registry.sweep(Time.now())`)
-  // pushes a fresh status to every session the idle sweep just evicted.
   include ActorMixin<system>(attached.ws, attached.sweep);
 };

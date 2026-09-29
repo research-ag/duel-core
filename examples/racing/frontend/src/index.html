@@ -9,24 +9,15 @@
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="duel-game-core.css">
   <link rel="stylesheet" href="style.css">
-  <!--
-    Sets up window.duelActorReady/duelWsReady synchronously, before either
-    the duel-app.js module script below or main.js (this app's own
-    bundle, built by esbuild — see package.json's "build" script) runs —
-    so both are always there for
-    app/modules/gameplay/game-communication/utils/duel-actor.ts to await,
-    whichever of the two happens to execute first. See duel/duel-app.js.
-  -->
+  <!-- Set up synchronously so duel-app.js and main.js can each await the
+       other's result regardless of load order (see duel-actor.ts). -->
   <script>
     window.duelActorReady = new Promise((resolve) => { window.__resolveDuelActor = resolve; });
     window.duelWsReady = new Promise((resolve) => { window.__resolveDuelWs = resolve; });
   </script>
 </head>
 <body>
-  <!-- duel-game-core's generic chrome: lobby, staging, rematch, busy,
-       debrief, session identity — everything that isn't the 3D race
-       itself. Driven by duel/duel-app.js. Compact in-game HUD styling for
-       this strip lives in style.css (body.in-race). -->
+  <!-- duel-game-core's generic chrome, driven by duel/duel-app.js. -->
   <header id="duel-header">
     <h1>Racing <span class="sub">— Duel</span></h1>
     <div class="session">
@@ -59,33 +50,16 @@
     <button id="bot-add-trigger" class="ghost">Add Bot 🤖 to the open seat</button>
   </div>
 
-  <!-- The 3D race — a full-viewport layer behind #screen, only made
-       visible (see body.in-race/body.race-ready in style.css) once a
-       game starts; driven independently by main.js (this app's own
-       bundle — see main.ts). -->
+  <!-- The 3D race (main.js), shown via body.in-race/body.race-ready. -->
   <div id="game-stage"></div>
-  <!-- In-race HUD (speedometer / minimap / position+time panel), built and
-       populated by app/modules/gameplay/game-viewport/hud/hud.ts. Same
-       visibility gating as #game-stage (see body.in-race.race-ready in
-       style.css). -->
+  <!-- In-race HUD, built by game-viewport/hud/hud.ts. -->
   <div id="hud"></div>
-  <!-- Fills the gap between body.in-race (added the moment the poller
-       notices #inGame) and body.race-ready (added by main.ts once the
-       map and both cars have actually finished loading — see its
-       comment) — without this, that window is just the dark page
-       background with nothing on it while track/car assets download.
-       Shown/hidden purely by CSS (body.in-race:not(.race-ready) in
-       style.css); no script drives it. -->
+  <!-- Shown by CSS between body.in-race and body.race-ready while assets load. -->
   <div id="loading-overlay">
     <div class="loading-spinner"></div>
     <p>Loading track…</p>
   </div>
 
-  <!-- duel-app.js is esbuild's bundle of src/duel/duel-app.js (see
-       build.js) — every dependency it and duel-game-core itself need
-       (@icp-sdk/core, @icp-sdk/auth, cborg) is resolved and inlined at
-       build time, so no import map or bare-specifier resolution is
-       needed here. -->
   <script type="module" src="duel-app.js"></script>
   <script type="module" src="main.js"></script>
 </body>

@@ -1,15 +1,5 @@
-// Checkers rules plugged into the REAL engine (`Table`, not a synthetic
-// call to `validate`/`resolve` directly) — focused on what's specific to
-// an #alternating game: turn-order enforcement through `submit`, and
-// claim-win gated to the waiting seat. The engine's own generic
-// #alternating mechanics (Err.#notYourTurn, immediate single-move
-// resolve, claim-win gating, status's mode/turn reporting) already have
-// their own exhaustive suite in duel-game-core itself
-// (backend/test/Alternating.test.mo, against a trivial fixture) — this
-// suite is not a second copy of that, just confirmation that real
-// checkers moves flow through the same machinery correctly.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/Engine.test.mo
+// Checkers rules plugged into the real `Table`: turn-order enforcement
+// through `submit` and claim-win gated to the waiting seat.
 import TP "mo:duel-game-core";
 import Table "mo:duel-game-core/table";
 import Rules "../src/CheckersRules";
@@ -62,7 +52,7 @@ let BLACK_OPENING : Rules.Action = #move { from = idx(5, 0); to = idx(4, 1) };
 // (3,2) stays clear of black's just-moved piece.
 let RED_REPLY : Rules.Action = #move { from = idx(2, 1); to = idx(3, 2) };
 
-// ── 1. status reports #alternating mode; black (p1) moves first ──────────
+// ── 1. status reports #alternating mode; black (p1) moves first ────────────
 var t = gameOf(T0);
 switch (t.status(spec, T0, "black")) {
   case (#inGame v) {
@@ -75,7 +65,7 @@ switch (t.status(spec, T0, "black")) {
 };
 Debug.print("1. #alternating status, black to move OK");
 
-// ── 2. red may not move before black ─────────────────────────────────────
+// ── 2. red may not move before black ───────────────────────────────────────
 t := gameOf(T0);
 switch (t.submit(spec, T0, "red", genOf(t, T0, "red"), turnOf(t, T0, "red"), RED_REPLY)) {
   case (#err(#notYourTurn)) {};
@@ -83,7 +73,7 @@ switch (t.submit(spec, T0, "red", genOf(t, T0, "red"), turnOf(t, T0, "red"), RED
 };
 Debug.print("2. off-turn submit rejected OK");
 
-// ── 3. a legal opening resolves immediately and passes the turn ─────────
+// ── 3. a legal opening resolves immediately and passes the turn ────────────
 t := gameOf(T0);
 switch (ok(t.submit(spec, T0, "black", genOf(t, T0, "black"), turnOf(t, T0, "black"), BLACK_OPENING), "black's opening")) {
   case (#roundResolved 1) {};
@@ -100,7 +90,7 @@ switch (t.status(spec, T0, "black")) {
 };
 Debug.print("3. opening + reply, turn alternates OK");
 
-// ── 4. claim-win: only the waiting seat may claim, and only once overdue ─
+// ── 4. claim-win: only the waiting seat may claim, and only once overdue ───
 t := gameOf(T0);
 ignore ok(t.submit(spec, T0, "black", genOf(t, T0, "black"), turnOf(t, T0, "black"), BLACK_OPENING), "black's opening");
 let blackGen = genOf(t, T0, "black");

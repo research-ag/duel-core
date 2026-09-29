@@ -1,58 +1,32 @@
-/// ═══════════════════════════════════════════════════════════════════════════
-/// RockPaperScissorsRules — rock-paper-scissors, as a pure module, with two
-/// table-time variants: Classic (the plain 3-symbol game) and Well (a
-/// 4-symbol expansion). Which one a given match plays is picked once, by
-/// the table's creator, at `createTable` time — never mid-match, and never
-/// by the rules module itself.
+/// RockPaperScissorsRules — a pure `#simultaneous` module with two
+/// table-time variants, Classic and Well. #p1/#p2 are unnamed.
 ///
-/// No actor, no shared functions, no storage, no Time — just the rules.
-/// Plugs into the generic `duel-game-core` engine via `spec()`:
-///
-///   TP.Spec<State, Action> = #simultaneous { init; validate; resolve }
-///
-/// Seat mapping: #p1/#p2 (plain "Player 1"/"Player 2" — the rules name
-/// neither side).
-///
-/// ── Rules ──────────────────────────────────────────────────────────────────
+/// Rules:
 ///   Classic: each round both players secretly pick ROCK, PAPER, or
-///   SCISSORS, revealed simultaneously. Scissors beats Paper, Paper beats
-///   Rock, Rock beats Scissors.
+///   SCISSORS. Scissors beats Paper, Paper beats Rock, Rock beats Scissors.
 ///
-///   Well: a fourth symbol, WELL, joins rock/paper/scissors:
+///   Well: a fourth symbol, WELL, joins the three:
 ///     - Scissors beats Paper.
-///     - Paper beats Rock and Well (it covers both).
+///     - Paper beats Rock and Well.
 ///     - Rock beats Scissors.
-///     - Well beats Rock and Scissors (both fall into the well).
-///   Every distinct pair of symbols has exactly one winner (this is a
-///   complete tournament over 4 symbols, not a symmetric one — Paper and
-///   Well each beat two symbols and lose to one, Rock and Scissors each
-///   beat one and lose to two). WELL is illegal in Classic — `validate`
-///   rejects it, the same mechanism that rejects every other illegal move
-///   in this codebase (architecture rule 4).
+///     - Well beats Rock and Scissors.
+///   Every distinct pair has exactly one winner (a complete but
+///   deliberately unbalanced tournament). WELL is illegal in Classic.
 ///
-///   Either way: the same pick from both sides is a tied round — nobody
-///   scores. First to WINS_NEEDED round wins takes the match.
-/// ═══════════════════════════════════════════════════════════════════════════
+///   The same pick from both sides is a tied round. First to WINS_NEEDED
+///   round wins takes the match.
 
 import TP "mo:duel-game-core";
 
 module {
 
-  // ────────────────────────── variants ─────────────────────────────────────
-
   public type Variant = { #classic; #well };
 
-  /// This table's own `variant` `Text` (see lib.mo's `Table.variant` doc),
-  /// parsed into a closed type once, here, so `validate`/`resolve` never
-  /// re-parse or re-inspect the raw text themselves — they just read
-  /// `s.variant`. Unrecognized text (including `""`, what every OTHER
-  /// example in this repo passes) falls back to `#classic`, never traps.
+  /// Unrecognized text (including `""`) falls back to `#classic`.
   public func parseVariant(raw : Text) : Variant = switch (raw) {
     case ("well") #well;
     case (_) #classic;
   };
-
-  // ────────────────────────── moves & state ──────────────────────────────
 
   public type Action = { #rock; #paper; #scissors; #well };
 
@@ -65,16 +39,10 @@ module {
     p1Score : Nat;
     p2Score : Nat;
     lastRound : ?Round;
-    // This match's own variant — set once, at `init`, from the table's
-    // own stored `variant` text; never changes for the life of the match.
     variant : Variant;
   };
 
-  // ────────────────────────── tuning constants ────────────────────────────
-
   let WINS_NEEDED : Nat = 3;
-
-  // ────────────────────────── Spec: init ───────────────────────────────────
 
   public func init(raw : Text) : State = {
     p1Score = 0;
@@ -83,12 +51,6 @@ module {
     variant = parseVariant(raw);
   };
 
-  // ────────────────────────── Spec: validate ───────────────────────────────
-
-  /// Every pick is always legal in Well mode — this game has no resource
-  /// or board state that could make a pick illegal. In Classic mode, the
-  /// well symbol alone is rejected: it isn't part of that variant's rule
-  /// set, so nothing here needs a second `Action` type to keep it out.
   public func validate(s : State, _seat : TP.Seat, a : Action) : ?Text {
     switch (a, s.variant) {
       case (#well, #classic) ?"well is not available in classic mode";
@@ -96,16 +58,9 @@ module {
     };
   };
 
-  // ────────────────────────── Spec: resolve ────────────────────────────────
-
-  /// `?true` = p1's pick beats p2's; `?false` = p2's beats p1's; `null` =
-  /// tie. Always the Well-mode table — a strict superset of Classic's own
-  /// three-way cycle (`#well` simply never appears in a Classic match's
-  /// moves, `validate` above having already rejected it), so there's
-  /// nothing to branch on here by variant. Every one of the six distinct
-  /// pairs has exactly one winner (see this module's own doc header) —
-  /// there is no symmetric "adjacent beats adjacent" shortcut, so each
-  /// pair is spelled out explicitly.
+  /// `?true` = p1 wins, `?false` = p2 wins, `null` = tie. Always the Well
+  /// table — a strict superset of Classic, since `validate` already kept
+  /// `#well` out of a Classic match.
   func p1Beats(a1 : Action, a2 : Action) : ?Bool {
     if (a1 == a2) return null;
     ?(
@@ -121,8 +76,6 @@ module {
     );
   };
 
-  /// Both moves are in (already validated). Pure: State in, new State +
-  /// optional verdict out.
   public func resolve(s : State, a1 : Action, a2 : Action) : {
     state : State;
     verdict : ?TP.Verdict;
@@ -146,11 +99,6 @@ module {
     };
   };
 
-  // ────────────────────────── the plug ─────────────────────────────────────
-
-  /// Hand this to every duel-game-core engine call. Built fresh per call —
-  /// function values are never stored, so upgrades stay trivial.
-  /// `#simultaneous`: both seats pick every round.
   public func spec() : TP.Spec<State, Action> = #simultaneous {
     init;
     validate;

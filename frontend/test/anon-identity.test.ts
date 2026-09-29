@@ -1,7 +1,4 @@
-// Unit checks for anon-identity.ts's persisted-keypair anonymous
-// identity. Real `Ed25519KeyIdentity` generation/serialization (pure
-// crypto, no IndexedDB/DOM involved) — unlike `identity.ts`'s
-// `AuthClient`-backed branch, this is fully exercisable here.
+// Unit checks for anon-identity.ts's persisted-keypair anonymous identity.
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ANON_SID_PREFIX, regenerateAnonymousIdentity, resolveAnonymousIdentity, sidFor } from "../src/anon-identity.js";

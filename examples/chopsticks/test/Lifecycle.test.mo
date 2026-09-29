@@ -1,12 +1,6 @@
-// One short session narrative, driven through the REAL engine end to
-// end: join, a few real opening moves, then (per
-// skills/duel-game-core/references/testing-deep-dive.md's technique) the
-// live position is seeded directly via `Table.phase`'s own public `var`
-// field to one attack from finishing, and that final move is submitted
-// for real — so the engine's own turn/seat/timestamp bookkeeping around
-// the ending is exercised genuinely, only the middle game is skipped.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/Lifecycle.test.mo
+// One short narrative through the real engine on an Instructables table:
+// join, a few real opening moves, then the live position is seeded via
+// `Table.phase` to one attack from finishing.
 import TP "mo:duel-game-core";
 import Table "mo:duel-game-core/table";
 import Rules "../src/ChopsticksRules";
@@ -56,7 +50,7 @@ switch (t.status(spec, now, "b")) {
 Debug.print("2. opening moves through the real position OK");
 
 // ── 3. seed the position one attack from a finish, then play it for real:
-//      b's last live hand holds 4 and a taps a 1 onto it (exactly 5) ───────
+//      b's last live hand holds 4 and a taps a 1 onto it (exactly 5) ────────
 switch (t.phase) {
   case (#active g) {
     t.phase := #active {

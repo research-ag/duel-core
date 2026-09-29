@@ -3,24 +3,12 @@ import Time "mo:core/Time";
 import Store "Store";
 import T "Types";
 
-/// The aggregator backend: Internet Identity-keyed developer profiles
-/// (display name only) plus a public registry of games built with this
-/// repo's tooling. Unlike `../../backend`'s own `Registry`, there is no
-/// real-time race to close here — every method here is a plain, ordinary
-/// Candid method (no `ws.mo`-style single-channel requirement), since a
-/// game registration/edit from one developer never contends with another
-/// developer's own edit the way two seats submitting into the SAME table
-/// do (see `../../CLAUDE.md`'s rule 11, which is about `../../backend`
-/// specifically, not this actor).
-///
-/// All mutating logic and validation lives in `Store.mo`, as plain
-/// functions over an explicit `Store.State` — this actor's own job is
-/// just to own that state, read `msg.caller`/`Time.now()`, and forward.
+/// The aggregator backend: developer profiles and a public game registry.
+/// Plain Candid methods are fine here (no two callers contend on one
+/// record the way two seats do on a table); all logic lives in `Store.mo`.
 persistent actor {
 
   let state : Store.State = Store.empty();
-
-  // ── Profiles ───────────────────────────────────────────────────────────
 
   public shared ({ caller }) func setDisplayName(name : Text) : async Store.Res<()> {
     state.setDisplayName(caller, name);
@@ -30,14 +18,9 @@ persistent actor {
     state.getProfile(who);
   };
 
-  /// The exact PNG width/height/max-byte-size a banner upload must meet
-  /// — see `Store.bannerRequirements`'s own doc for why this is a method
-  /// rather than a value the frontend hardcodes.
   public query func getBannerRequirements() : async Store.BannerRequirements {
     Store.bannerRequirements();
   };
-
-  // ── Games ──────────────────────────────────────────────────────────────
 
   public shared ({ caller }) func registerGame(input : T.GameInput) : async Store.Res<T.GameId> {
     state.registerGame(caller, Time.now(), input);
@@ -63,10 +46,8 @@ persistent actor {
     state.getGame(id);
   };
 
-  /// Kept off `getGame`/`listGames`' own return shape so browsing the
-  /// grid doesn't ship every banner's raw PNG bytes in one Candid
-  /// response — the frontend calls this once per card it actually
-  /// renders instead. See `Types.mo`'s `GameView` doc.
+  /// Separate from `getGame`/`listGames` so browsing the grid doesn't
+  /// ship every banner's bytes in one response.
   public query func getBanner(id : T.GameId) : async ?Blob {
     state.getBanner(id);
   };

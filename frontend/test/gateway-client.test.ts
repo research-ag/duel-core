@@ -1,35 +1,7 @@
-// Regression tests for two real bugs in `GatewayWs`'s reconnect handling,
-// both observed live in a running game (see the commit that added this
-// file for the full incident writeup):
-//
-//   1. A player's tab that had shown the correct #endedByOther screen
-//      clicked "Return to lobby" (`ackEnded`) and nothing happened. The
-//      underlying `ws_message` call failed with the CDK's own "Client
-//      with principal ... doesn't have an open connection" — the
-//      canister had already forgotten this connection (e.g. a keep-alive
-//      eviction), so `ws.mo`'s `onMessage` never ran for this request at
-//      all. `request()` reconnected but never actually RESENT the
-//      `ackEnded` message — it just waited for a reply that could now
-//      never arrive, eventually timing out with a swallowed error toast
-//      and no screen change.
-//   2. A second tab, still showing an in-game view, never learned its
-//      game had ended, and its own move submissions kept failing
-//      silently. `GatewayWs` only ever fires `onopen` ONCE per instance
-//      (guarded by `_opened`) — but this class silently reconnects many
-//      times over its life (any failed poll/send invalidates and redoes
-//      the `ws_open` handshake). `app.js`'s ONLY automatic resync hook is
-//      `ws.onopen = () => refresh()`; once that stopped re-firing after
-//      the very first connection, a reconnect this class self-healed
-//      never told the caller a gap in coverage had occurred, so a state
-//      change synced only server-side (e.g. `Registry.sweep`'s idle takeover —
-//      see `../../backend/src/actor_mixin.mo`'s `sweepFunc`, which has no
-//      WS/push awareness of its own) was never picked up.
-//
-// Both are exercised here against a from-scratch, minimal simulation of
-// the real `ic-websocket-cdk` canister surface (`FakeWsCdkActor`), driving
-// the actual `GatewayWs`/`SelfGatewayTransport`/`GatewayProtocol` code —
-// not a higher-level mock that would bypass the very class these bugs
-// live in.
+// Regression tests for two real bugs in `GatewayWs`'s reconnect handling: a
+// request whose `ws_message` failed was never resent, and `onopen` fired only
+// once, so a self-healed reconnect never resynced the caller. Driven against
+// a minimal fake of the real CDK canister surface (`FakeWsCdkActor`).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -52,13 +24,7 @@ function encodeCandid(type: IDL.Type, value: unknown): Uint8Array {
 }
 
 /// Minimal from-scratch stand-in for the real `ic-websocket-cdk` canister
-/// surface — just enough of `ws_open`/`ws_message`/`ws_get_messages`/
-/// `ws_close`'s real behavior to drive `GatewayWs` through a genuine
-/// open -> app-message -> reconnect cycle, including the exact failure
-/// mode ic-websocket-cdk@0.4.1's own `ws_message` produces
-/// (`get_client_key_from_principal`'s "doesn't have an open connection")
-/// when it rejects a call BEFORE ever invoking the app's `onMessage` —
-/// see `backend/.mops/ic-websocket-cdk@0.4.1/src/lib.mo`.
+/// surface
 class FakeWsCdkActor implements WsActor {
   private _registered: TransportClientKey | null = null;
   private _queue: Uint8Array[] = [];
@@ -81,10 +47,7 @@ class FakeWsCdkActor implements WsActor {
   appMessagesProcessed = 0;
 
   /// Test hook: build the `#view`/`#err` reply content for one decoded
-  /// `#req`. Defaults to a canned `#view{browsing}` echoing the request's
-  /// own `reqId`, which is enough for these tests — they only care
-  /// whether a request eventually gets a MATCHING reply, not what status
-  /// it carries.
+  /// `#req`.
   onReq: (sid: string, req: unknown, reqId: [] | [bigint]) => unknown = (
     _sid,
     _req,

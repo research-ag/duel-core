@@ -1,48 +1,26 @@
-/// ═══════════════════════════════════════════════════════════════════════════
 /// __RULES_MODULE__ — __GAME_TITLE__ game logic, as a pure module.
 ///
-/// No actor, no shared functions, no storage, no Time — just the rules.
-/// Plugs into the generic `duel-game-core` engine via `spec()`:
+/// `#simultaneous`: both seats act every round. For an alternating-turn
+/// game build `#alternating { init; validate; resolve }` instead, where
+/// `resolve : (State, TP.Seat, Action) -> ...` takes the one seat on turn
+/// (see references/alternating-turn-games.md).
 ///
-///   TP.Spec<State, Action> = #simultaneous { init; validate; resolve }
+/// Seats: #p1 = __P1_NAME__, #p2 = __P2_NAME__ (display only).
 ///
-/// This template is for a `#simultaneous` game (both seats act every
-/// round — the common case). For a strictly alternating-turn game
-/// (chess, checkers, tic-tac-toe, ...) build `#alternating { init;
-/// validate; resolve }` instead, where `resolve : (State, TP.Seat,
-/// Action) -> ...` takes just the ONE seat currently on turn — see
-/// `references/alternating-turn-games.md` for the shape and a worked
-/// example.
-///
-/// Seat mapping: #p1 = __P1_NAME__, #p2 = __P2_NAME__ (names only matter
-/// for narration/display, never for legality — the engine treats both
-/// seats identically).
-///
-/// ── Rules ──────────────────────────────────────────────────────────────────
+/// Rules:
 ///   __ONE LINE PER MOVE/RULE, PLAIN ENGLISH — replace this block with the
-///   actual rules text so a future reader never has to reverse-engineer
-///   intent from the code alone.__
-/// ═══════════════════════════════════════════════════════════════════════════
+///   actual rules text.__
 
 import TP "mo:duel-game-core";
 
 module {
 
-  // ────────────────────────── moves & state ──────────────────────────────
-
-  /// One player's choice for a round. Keep this to the RAW decision only
-  /// — never a value the server can derive from State itself (see
-  /// SKILL.md step 2's "Action must be a raw decision" rule).
+  /// The raw decision only — never a value the server can derive from
+  /// State (SKILL.md step 2).
   ///
-  /// If this game's variants genuinely don't share a move shape (not
-  /// just "which moves are legal," but what a move even CONTAINS —
-  /// SKILL.md step 2's variant-shape question), widening one flat
-  /// `Action` stops making sense. Tag it into a union over each
-  /// variant's own payload type instead, and dispatch `validate`/
-  /// `resolve` through a variant-keyed lookup table built once at module
-  /// level (never stored on the actor — same discipline `Spec` itself
-  /// already follows, architecture rule 1) rather than a hand-matched
-  /// `switch` repeated in every function that needs to know:
+  /// If this game's variants don't share a move shape, tag Action into a
+  /// union over each variant's payload and dispatch validate/resolve
+  /// through a variant-keyed lookup built at module level:
   //
   // public type Action = { #variantA : ActionA; #variantB : ActionB };
   //
@@ -57,14 +35,12 @@ module {
   // ).get(key);
   public type Action = { /* #yourMove; #anotherMove; ... */ };
 
-  /// Everything that persists across rounds for one seat. Immutable
-  /// record — `resolve` builds new ones, never mutates in place.
+  /// Per-seat state that persists across rounds. Immutable.
   public type Side = {
     // your per-player fields
   };
 
-  /// Optional: what happened in the last round, for narration/replay in
-  /// the UI. Not required, but both example games keep one.
+  /// Optional narration of the previous round.
   public type Round = {
     p1Action : Action;
     p2Action : Action;
@@ -74,44 +50,30 @@ module {
     p1 : Side;
     p2 : Side;
     lastRound : ?Round;
-    // Uncomment if this game has more than one rules variant, picked by
-    // a table's creator at `createTable` time (see SKILL.md step 2's
-    // "does this game have variants" question and the backend README's
-    // "Table variants" section) — a SAME-SHAPE variant (differs only in
-    // which moves are legal) just needs a field here plus a `validate`
-    // branch, no new Action shape:
+    // For a same-shape rules variant (SKILL.md step 2, question 8):
     // variant : Variant;
   };
 
-  // Uncomment alongside `State.variant` above for a same-shape variant.
   // public type Variant = { #classic; #yourOtherVariant };
   //
   // func parseVariant(raw : Text) : Variant = switch (raw) {
   //   case ("yourOtherVariant") #yourOtherVariant;
-  //   case (_) #classic; // safe default — never trap on garbage or "" input
+  //   case (_) #classic; // safe default — never trap on "" or garbage
   // };
 
-  // ────────────────────────── tuning constants ────────────────────────────
-  // Fixed game numbers go here as `let`s — NOT as fields threaded through
-  // Action/State, unless the rules actually say a player chooses them.
+  // Fixed game numbers go here as `let`s, not as Action/State fields.
 
   public func sideName(seat : TP.Seat) : Text = switch (seat) {
     case (#p1) "__P1_NAME__";
     case (#p2) "__P2_NAME__";
   };
 
-  // ────────────────────────── Spec: init ───────────────────────────────────
-
   func freshSide() : Side = {
     // starting values
   };
 
-  /// `raw` is this table's own rules variant text (`""` for a game with
-  /// no variants of its own — that's the common case). Opaque to the
-  /// engine; falls back safely on anything unrecognized, never traps. If
-  /// you didn't uncomment `State.variant`/`parseVariant` above, rename
-  /// this parameter to `_raw` (or `_ : Text`) to silence the unused-
-  /// identifier warning.
+  /// `raw` is this table's rules variant text ("" without variants).
+  /// Rename to `_raw` if unused.
   public func init(raw : Text) : State = {
     p1 = freshSide();
     p2 = freshSide();
@@ -119,59 +81,40 @@ module {
     // variant = parseVariant(raw);
   };
 
-  // ────────────────────────── Spec: validate ───────────────────────────────
-
-  /// null = legal. The engine calls this for BOTH seats on every
-  /// submission — this is the ONLY legality gate in the whole system
-  /// (CLAUDE.md architecture rule 4). The frontend's disabled buttons are
-  /// cosmetic; never trust a client-supplied value here that this
-  /// function could instead recompute from `s`.
+  /// null = legal. The only legality gate in the system; the frontend's
+  /// disabled buttons are cosmetic.
   public func validate(s : State, seat : TP.Seat, a : Action) : ?Text {
     let me = switch (seat) { case (#p1) s.p1; case (#p2) s.p2 };
     switch (a) {
       // case (#yourMove) if (illegal) ?"reason" else null;
-      //
-      // A same-shape variant restriction is just one more branch here, no
-      // new engine mechanism (architecture rule 4 already makes `validate`
-      // the sole legality gate):
       // case (#yourMove) if (s.variant == #classic) ?"yourMove is not available in classic mode" else null;
       case (_) null;
     };
   };
 
-  // ────────────────────────── Spec: resolve ────────────────────────────────
-
-  /// Both moves are in (already validated for both seats). Pure:
-  /// State in, new State + optional verdict out. Guard every `Nat`
-  /// subtraction with a `>=`/`> 0` check — it traps on underflow and the
-  /// compiler cannot see the surrounding invariant for you.
+  /// Both moves are in and already validated. Guard every Nat
+  /// subtraction against underflow.
   public func resolve(s : State, a1 : Action, a2 : Action)
     : { state : State; verdict : ?TP.Verdict } {
 
-    // let p1 = ...; let p2 = ...;
     // let verdict : ?TP.Verdict =
     //   if (p1Won and p2Won) ?#draw
     //   else if (p1Won) ?#p1Wins
     //   else if (p2Won) ?#p2Wins
-    //   else null; // game continues
+    //   else null;
 
     {
       state = {
         p1 = s.p1;
         p2 = s.p2;
         lastRound = ?{ p1Action = a1; p2Action = a2 };
-        // variant = s.variant; // carry the match's own variant forward unchanged
+        // variant = s.variant;
       };
       verdict = null;
     };
   };
 
-  // ────────────────────────── the plug ─────────────────────────────────────
-
-  /// Hand this to every duel-game-core engine call. Built fresh per call
-  /// — function values are never stored, so upgrades stay trivial
-  /// (CLAUDE.md architecture rule 1). `#simultaneous`: both seats act
-  /// every round.
+  /// Built fresh per call; never stored.
   public func spec() : TP.Spec<State, Action> = #simultaneous {
     init;
     validate;

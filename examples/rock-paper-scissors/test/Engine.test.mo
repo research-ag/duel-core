@@ -1,15 +1,6 @@
-// Rock-paper-scissors rules plugged into the REAL engine (`Table`, not a
-// synthetic call to `validate`/`resolve` directly) — focused on what a
-// #simultaneous game specifically exercises through it: round resolution
-// once both seats submit, and claim-win gated to whichever seat already
-// submitted. The engine's own generic #simultaneous mechanics (join,
-// staging, rematch, idle takeover, sweep, ...) already have their own
-// exhaustive suite in duel-game-core itself (backend/test/Engine.test.mo,
-// against a trivial fixture) — this suite is not a second copy of that,
-// just confirmation that real rock-paper-scissors rounds flow through the
-// same machinery correctly.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/Engine.test.mo
+// Rock-paper-scissors rules plugged into the real `Table`: a hidden pending
+// move, round resolution once both submit, and claim-win gated to the seat
+// that submitted.
 import TP "mo:duel-game-core";
 import Table "mo:duel-game-core/table";
 import Rules "../src/RockPaperScissorsRules";
@@ -53,7 +44,7 @@ func gameOf(at : Int) : Tbl {
   t;
 };
 
-// ── 1. status reports #simultaneous mode; neither seat has moved yet ────────
+// ── 1. status reports #simultaneous mode; neither seat has moved yet ───────
 var t = gameOf(T0);
 switch (t.status(spec, T0, "a")) {
   case (#inGame v) {
@@ -66,8 +57,8 @@ switch (t.status(spec, T0, "a")) {
 };
 Debug.print("1. #simultaneous status, nobody moved yet OK");
 
-// ── 2. one submission is hidden from the opponent, and doesn't resolve
-//        the round on its own ──────────────────────────────────────────────
+// ── 2. one submission is hidden from the opponent, and doesn't resolve the
+//      round on its own ─────────────────────────────────────────────────────
 t := gameOf(T0);
 switch (ok(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), #rock), "a's pick")) {
   case (#waiting) {};
@@ -83,7 +74,7 @@ switch (t.status(spec, T0, "b")) {
 };
 Debug.print("2. pending submission hidden from the opponent OK");
 
-// ── 3. a second submission resolves the round; a double-submit is rejected ──
+// ── 3. a second submission resolves the round; a double-submit is rejected ───
 switch (ok(t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #scissors), "b's pick")) {
   case (#roundResolved 1) {};
   case (_) Runtime.trap("both picks in must resolve round 1 (rock beats scissors)");
@@ -94,8 +85,8 @@ switch (t.submit(spec, T0, "a", genOf(t, T0, "a"), 0, #rock)) {
 };
 Debug.print("3. round resolution + stale resubmit OK");
 
-// ── 4. claim-win: only the seat that already submitted may claim, and
-//        only once overdue ──────────────────────────────────────────────────
+// ── 4. claim-win: only the seat that already submitted may claim, and only
+//      once overdue ─────────────────────────────────────────────────────────
 t := gameOf(T0);
 ignore ok(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), #rock), "a submits");
 let aGen = genOf(t, T0, "a");
@@ -120,7 +111,7 @@ switch (t.status(spec, CLAIMABLE, "b")) {
 };
 Debug.print("4. claim-win gated to the already-submitted seat only OK");
 
-// ── 5. leave mid-game produces a shared #aborted debrief ────────────────────
+// ── 5. leave mid-game produces a shared #aborted debrief ───────────────────
 t := gameOf(T0);
 ignore ok(t.leave(T0, "a", genOf(t, T0, "a")), "a leaves mid-game");
 switch (t.status(spec, T0, "b")) {
@@ -132,7 +123,7 @@ switch (t.status(spec, T0, "b")) {
 };
 Debug.print("5. leave mid-game = shared abort OK");
 
-// ── 6. rematch converges into a fresh game, turn 0 ───────────────────────────
+// ── 6. rematch converges into a fresh game, turn 0 ─────────────────────────
 t := gameOf(T0);
 ignore ok(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), #rock), "a wins round 1");
 ignore ok(t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), #scissors), "b");
@@ -154,7 +145,7 @@ switch (t.status(spec, T0, "b")) {
 };
 Debug.print("6. first-to-3 finish + rematch OK");
 
-// ── 7. ackEnded is per-player and idempotent ─────────────────────────────────
+// ── 7. ackEnded is per-player and idempotent ───────────────────────────────
 t := gameOf(T0);
 ok(t.reset(T0 + TIMEOUT + 1, "zz", 0), "outsider clears the dead game"); // outsider path
 t.ackEnded("a");

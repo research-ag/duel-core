@@ -1,15 +1,4 @@
-/// Shared test-only fixtures for the racing test suites. NOT suffixed
-/// `.test.mo` on purpose — `mops test` only discovers that suffix, and this
-/// module has nothing to run on its own (see ../CLAUDE.md's Conventions).
-///
-/// Actually finishing a lap of the real track from `R.init("")` takes a
-/// long, physics-realistic drive — fine for a human playtester, far too
-/// slow and non-deterministic for a unit test. `seedNearFinish` instead
-/// reaches straight into a live `TP.Table`'s `#active` phase (a public,
-/// `var` field — see `../../../backend/src/lib.mo`) and swaps in a car
-/// that's one small, legal step from crossing the line, so a test can
-/// submit ONE real move and exercise the engine's genuine
-/// resolve → verdict → debrief path without simulating a whole race.
+/// Shared test-only fixtures for the racing test suites.
 import TP "mo:duel-game-core";
 import R "../src/RacingRules";
 import Runtime "mo:core/Runtime";
@@ -18,15 +7,7 @@ module {
 
   public let STILL : R.Action = { l = 0.0; c = 0.0 };
 
-  /// A car one small step from the finish line, on lap 1 — the starting
-  /// grid sits right before this same spot (see RacingRules.mo's
-  /// `resolve` comment), so every real race already has `lap = 1` after
-  /// its very first move (a free crossing, not a real lap); this
-  /// crossing — the second — is the one that completes an actual lap and
-  /// (since LAPS_TO_WIN is 1, checked as `lap > LAPS_TO_WIN`) wins.
-  /// Position/heading sit on Track.roadPath's wrap segment (last point →
-  /// first point); `distanceFromStart` matches that spot, ~99.6% of the
-  /// way around — see Rules.test.mo for how these were derived.
+  /// A car one small step from the finish line, on lap 1
   public func nearFinish() : R.CarState = {
     position = (101.5761, -19.8641);
     rotation = 1.4090;

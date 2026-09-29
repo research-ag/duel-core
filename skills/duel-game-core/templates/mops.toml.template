@@ -4,10 +4,8 @@ version = "0.1.0"
 description = "__GAME_SLUG__ — a duel-game-core game"
 
 [dependencies]
-# Run `mops add duel-game-core` (see SKILL.md step 1) — it fills in the
-# line below automatically. If that fails because the package isn't on
-# the mops.one registry yet, add it by hand instead, pointing at a local
-# clone: duel-game-core = "../duel-core/backend"
+# `mops add duel-game-core` fills in the line below; if the package isn't
+# on mops.one yet: duel-game-core = "../duel-core/backend"
 core = "2.6.1"
 
 [toolchain]

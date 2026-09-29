@@ -1,521 +1,114 @@
 # racing duel — reference game built on duel-game-core
 
-A complete, deployable example game that plugs into the two
-`duel-game-core` packages this repo ships (`../../backend`, the Motoko
-mops package; `../../frontend`, the npm package). Two players race one lap
-of a fixed track, taking turns simultaneously: each round both submit
-the arc they want to drive that step, the engine resolves both at once, and
-first to complete the lap wins.
+Two players race one lap of a fixed track; each round both submit the
+arc they want to drive, the engine resolves both, first across the line
+wins. A `#simultaneous` example with a Three.js frontend. Not part of
+either package.
 
-- **`src/RacingRules.mo`** — the racing game logic as pure functions. No
-  actor, no shared functions, no storage, no Time. Plugs into the engine
-  via `spec() : TP.Spec<State, Action>`, where `TP` is `mo:duel-game-core`
-  (imported from `../../backend` — see `mops.toml`). See the module's own
-  doc header for the physics/collision/lap-progress rules in detail.
-- **`src/Track.mo`** — baked-in geometry for the one map this example
-  ships (`frontend`'s "island" map): the drivable-area boundary polygons
-  and the road centerline, generated once from
-  `frontend/src/assets/maps/island/scene.meta` — see `frontend/CLAUDE.md`
-  for that file's format. Pure data; `RacingRules.mo` is what interprets
-  it.
-- **`src/Host.mo`** — the host actor: forwards every call to a
-  `TP.Registry<Rules.State, Rules.Action>` (built with `Registry.new`
-  from `mo:duel-game-core/registry`; a multi-table lobby — anyone may
-  open a table, open or access-code protected — not a single fixed
-  board; see `mo:duel-game-core`'s own doc header) with
-  `Time.now()` and `Rules.spec()`, wired exactly as
-  `../../backend/README.md`'s example shows. Deploy target. `status` is
-  the only plain Candid method on this actor (a `query`, side-effect-free
-  — see `../../CLAUDE.md`'s architecture rule 8); `createTable`/
-  `joinTable`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded` have NO plain
-  Candid method at all — they're reachable exclusively through
-  `mo:duel-game-core/ws`'s
-  `ws_message`, which is what `duel-app.js` actually talks to
-  (`duel-game-core/ws.js`'s `GatewayWs`, a real `ic-websocket-cdk` client
-  that self-registers this tab as its own Gateway, not client-side
-  polling) — for genuine canister-driven push, real
-  close-detection-driven disappearance handling, AND to close the race a
-  plain update call would otherwise open (two independent update calls
-  have no guaranteed relative processing order once both are in flight —
-  see `../../backend/src/ws.mo`'s doc header). `status` and `Ws.attach`
-  are wired directly in `Host.mo`; the four `ws_*` Candid methods
-  (including `ws_message`) plus the idle-sweep timer come from a single
-  `include ActorMixin<system>(ws, ...)` (`mo:duel-game-core/actor_mixin`)
-  — no per-game `ws_message` declaration needed, since its `msgType`
-  parameter is a plain `Blob`, not a type generic over this game's
-  `State`/`Action`. See
-  `../../backend/README.md`'s "Real-time push" section for the full
-  design. `Host.mo` also wires Prometheus-style metrics onto the
-  registry via `Registry.attachMetrics(pt)` (`pt : mo:promtracker`'s
-  `Tracker`), rendered at a `/metrics` endpoint (`include
-Http(renderer.renderExposition, "/metrics")`, from
-  `mo:promtracker/mixins/http` — the same kind of `mixin` as
-  `mo:duel-game-core/actor_mixin`, so it's subject to this file's own
-  Toolchain note below) alongside `PT.allSystemMetrics` (cycles/RTS
-  metrics, no `Tracker` of its own needed). Unlike `ws.mo`, this is
-  entirely optional instrumentation — see `../../backend/README.md`'s
-  "Metrics" section for the metrics it exposes and the full reasoning.
-  `Host.mo` also wires canister players (`mo:duel-game-core/canister_players`,
-  see `../../CLAUDE.md`'s "Canister players" note): `CanisterPlayers.attach`
-  shares this same `registry` and reuses `attached.afterMutation` (`Ws.attach`'s
-  own push fan-out) so a bot's move reaches a human opponent's browser in
-  real time, same as `ws.mo` itself; the `callBot` closure passed to it
-  recovers which bot canister to call via
-  `CanisterPlayers.principalOfCanisterSession(session)` (`sidForCanister`'s
-  own inverse), then makes the actual `await bot.make_move(req)`
-  inter-canister call (a `try`/`catch` around it, since `Rules.Action` is
-  concrete only here — see `CanisterPlayers.attach`'s own doc for why
-  that can't live inside the module). `create_table_as_canister`/
-  `join_table_as_canister`/`leave_as_canister`/`ack_ended_as_canister`/
-  `claim_win_as_canister`/`reset_as_canister` — plus `register_bot`/
-  `unregister_bot`/`list_bots` (bot DISCOVERY, see below) — all come from
-  one `include CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard)`
-  (`mo:duel-game-core/canister_players_actor_mixin`, the
-  `canister_players.mo` counterpart to `ActorMixin` above; `botDirectory`
-  is a plain, stable `CanisterPlayers.BotDirectory` field this actor owns
-  directly, `CanisterPlayers.newBotDirectory()`) — no
-  hand-declared forwarding methods here; each of the six `*_as_canister`
-  ones derives the caller's
-  `cp:` session from `msg.caller` AND the `tableId` it names (never
-  client-supplied — nothing to spoof), since the same bot canister may
-  hold a live seat at more than one table at once — see
-  `../../CLAUDE.md`'s "Canister players" note on per-board identity;
-  there is no `rematch_as_canister`, since a canister-vs-canister
-  debrief auto-acks both sides unconditionally the moment neither is a
-  live human still deciding, and there is no `submit_as_canister` at
-  all, since a canister
-  player's move only ever arrives as the direct reply to a call this
-  module made, never a separately-arriving request. `Host.mo` also wires
-  `Ws.attach`'s own optional `onSettled` parameter to `cpAttached.settle`
-  through a small mutable indirection (breaking the circular dependency
-  between the two `attach` calls — see `canister_players.mo`'s own doc
-  header for why), so a HUMAN's own move/leave/rematch asks a canister
-  opponent to move (or acks its own finished debrief) the instant that
-  human's own action makes it due. A canister-driven mutation reaches the
-  same `settle` directly, in-line, with no `onSettled` hop needed. The one
-  case neither eager path reaches — a stalled opponent's silence — is
-  covered by `armClaimCheck`, a host closure using `Timer.setTimer`'s own
-  `<system>` capability to schedule exactly one precisely-timed wakeup
-  back into `settle`, claiming the win automatically on behalf of any
-  canister seat that's the WAITING one once it's entitled to (the
-  unattended, canister-vs-canister case included, since it fires the same
-  way regardless of who the opponent is); `claim_win_as_canister`/
-  `reset_as_canister` exist mainly so a canister participant can act the
-  instant it's entitled to instead of waiting on that wakeup.
-  `cpAttached.sweep` — the slow, full-registry safety net for whatever
-  `settle` never gets called for — is folded into the SAME
-  already-mandatory 5-minute idle-sweep timer `ActorMixin` runs, so none of
-  this costs a separate timer of its own.
-  `Host.mo` also wires a best-lap leaderboard: a stable
-  `leaderboard : Leaderboard.Board` field (`mo:duel-game-core/leaderboard`,
-  `Leaderboard.new(50, 0)` — 50 kept, 25 shown; the second argument,
-  `defaultScore`, is inert for this game — a lap time is never "computed
-  FROM" a prior score the way an ELO rating is, so `0` is just a
-  placeholder `Leaderboard.new` requires) — but unlike the two
-  win/lose/draw examples, racing has no `Verdict`-shaped rating to
-  re-compute; it converts its own best-LAP-TIME metric (lower is better)
-  into a higher-is-better score itself before ever storing it:
-  `scoreFromLapMs(ms) = max(0, 3_600_000 - ms)`, one hour of headroom in
-  milliseconds, floored at zero. The lap time itself is computed from
-  game state alone, NOT `Ws.attach`'s `onGameStarted`/real-world
-  wall-clock elapsed time (which would count however long the two humans
-  took to think between clicks — nothing to do with the simulated
-  race): each resolved round is a fixed `STEP_DURATION_MS` (1000, must
-  stay in sync with `frontend/src/app/modules/gameplay/game-shared/services/game-state.service.ts`'s
-  own `stepDuration` constant — the frontend's HUD clock this is meant
-  to match) of in-game time, so `Debrief.turns` rounds is
-  `turns * STEP_DURATION_MS` of raw race time — except the winning car
-  doesn't necessarily need the WHOLE of its final round to cross the
-  line. `RacingRules.CarState.distanceFromStart` is documented as
-  "progress ... THIS LAP PASS," reckoned fresh from zero the instant a
-  round's motion wraps past the track's own loop point — so in the
-  state that just won, it's exactly how far PAST the finish line that
-  final round's own motion carried the car, and `speed` (world units per
-  WHOLE round) how fast; `distanceFromStart / speed` (`lapMsFor`,
-  clamped to `[0, 1)`) is therefore that round's own overshoot, as a
-  fraction of one round, subtracted back out so the reported time lines
-  up with the actual crossing instant, not the round boundary after it.
-  Only a clean `#finished` win records a lap time at all — a draw,
-  `#claimed`, or `#aborted` ending means nobody actually crossed the
-  line, so none of those touches the leaderboard
-  (`Leaderboard.recordIfBetter`, not `setScore` — a personal best should
-  never regress). Read back through
-  `get_leaderboard()`, supplied by
-  `include LeaderboardActorMixin(leaderboard, 25)`
-  (`mo:duel-game-core/leaderboard_actor_mixin`), no hand-declared query
-  needed. The SAME `playerKey` wrapper checkers uses (special-casing a
-  `cp:` canister-player session down to
-  `CanisterPlayers.leaderboardKeyOfSession(sid)`,
-  falling back to `Ws.playerKey` otherwise) applies here too, so each of a
-  bot's complexities keeps its own best lap, accumulated across every
-  table it races on — the SAME `leaderboardKey(p, complexity)` convention
-  `list_bots()` itself joins each complexity's own `elo` with (see the
-  "Canister players" note above), so a bot's leaderboard rows and its
-  own rows in the "🤖 Bots" dialog always agree.
-  See `../../backend/README.md`'s "Leaderboard" section for the full
-  worked example this Host.mo follows.
-- **`src/BotIface.mo`** — the `CanisterPlayer` Candid interface a racing
-  canister player must implement: one method, `make_move : (TP.MoveRequest<Rules.State, Rules.Action>)
--> async Rules.Action`, the exact counterpart to a browser's own
-  `GamePlugin`. Lives in `src/`, not `bot/`, because it's `src/Host.mo`
-  (the GAME canister) that imports it — to type the remote bot actor it
-  calls — not `bot/Bot.mo`/`bot/BotLogic.mo` (the bot canister), which
-  never import it at all.
-- **`bot/BotLogic.mo`** — the racing bot's move-selection logic, as a
-  plain pure module (no actor, no `Time`, matching `RacingRules.mo`'s own
-  style): `SCRIPT`, a fixed array of arcs baked in offline (see the
-  module's own doc comment for how they were derived and why the sequence
-  stays legal forever once it converges to a steady cruising speed), and
-  `chooseMove`, a pure lookup into it by `req.turn` — no lookahead, no
-  awareness of `req.game` at all. Kept separate from `Bot.mo` specifically
-  so `test/Bot.test.mo` can call `chooseMove` directly, with no
-  actor/Candid round-trip.
-- **`bot/Bot.mo`** — the bot canister itself: implements
-  `BotIface.CanisterPlayer`'s `make_move` as a `query` (a thin shell over
-  `BotLogic.chooseMove` — pure and stateless, so there's nothing an
-  update call's replication would buy it), plus
-  `play(host, tableId, seat, code, complexity)`, this
-  bot's own Flow 1 "self-join" entry point (see the canister-players
-  design's "Lobby & opponent selection" section) — hand it a racing
-  `Host.mo`-shaped canister's id, a table id, a seat, and that table's
-  access code (however you like; entirely outside this engine's concern),
-  and it calls that canister's own `join_table_as_canister` on its own
-  account. Deploy target (see `icp.yaml` below) — a deliberately "dumb"
-  bot that proves the wiring end to end, not a competitive racer. This
-  same `play` method is also what the frontend's own "🤖 Bots" challenge
-  dialog calls directly, on whichever bot a player picked (see the
-  `frontend/` bullet below) — a plain Candid call from the browser
-  straight to that canister, not routed through `Host.mo`/`ws.mo` at all.
-  `Bot.mo` also implements `register(host, name)`/`unregister(host)`,
-  mirroring `play`'s own `(host, ...)` shape: each forwards to `host`'s
-  own `register_bot`/`unregister_bot` (see the `src/Host.mo` bullet
-  above's own "Canister players" note) so this bot becomes discoverable
-  in the first place — a one-time call made by hand after both this
-  canister and its host are deployed
-  (`icp canister call bot register '(principal "<backend-canister-id>", "RacerBot")'`),
-  not something the frontend ever triggers.
-- **`test/*.test.mo`** — interpreter-run suites. `Lifecycle.test.mo` and
-  `Rules.test.mo` are scenario walks (one long session / the headline game
-  rules); `Engine.test.mo` and `RulesUnit.test.mo` are per-operation unit
-  suites covering the error variants, takeover gates, and physics/validate
-  edge cases the scenarios never reach. `Engine.test.mo` and
-  `Lifecycle.test.mo` exercise the SAME engine code the `../../backend`
-  package ships (via the mops dependency below) with these rules plugged
-  in — they are not a second copy of the engine's own test suite.
-  `test/RaceTestHelpers.mo` is a shared, deliberately NOT `.test.mo`-suffixed
-  fixture module (see its doc header for why: driving a full, physics-real
-  2-lap race would make the suites slow and non-deterministic, so it seeds
-  a live table with a car one legal step from the finish line instead of
-  simulating a whole race). `test/Bot.test.mo` covers `BotLogic.mo`: it
-  replays `SCRIPT` (plus several rounds of the post-script "hold the last
-  entry" clamp) through the REAL `RacingRules.validate`/`resolve` — a
-  permanent regression guard on the offline-derived numbers actually
-  staying legal against real collision checks, not just the idealized,
-  no-wall formula they were derived from — and separately wires
-  `BotLogic.chooseMove` through a live `mo:duel-game-core/canister_players`
-  as the `callBot` continuation (no real second canister needed for
-  this — see the file's own doc header) to prove a canister-seated bot
-  drives several rounds against a human with no illegal move. The
-  `*.test.mo` suffix is what `mops test`
-  discovers — a file named `FooTest.mo` is silently skipped, so keep the
-  suffix when adding suites.
-- **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as canister
-  `backend`, `bot/Bot.mo` as canister `bot` (this example's own
-  milestone-01 canister player — see that file's own doc header), and
-  `frontend/dist` (esbuild's bundled output — see `frontend/README.md`,
-  NOT `frontend/` itself) as an asset canister.
-- **`frontend/`** — a plain-TypeScript (no framework) Three.js racing
-  client, bundled with esbuild (`npm run build`, see `frontend/README.md`).
-  The 3D engine (physics, rendering, camera, click-to-drive control) is
-  wired by hand in `frontend/src/main.ts` — no DI framework, no NgModules,
-  no decorators.
-  `frontend/src/duel/duel-app.js` + `duel-racing-plugin.js` are the whole
-  `duel-game-core` integration (a `GamePlugin`, exactly like the `examples/007`
-  frontend) — they own the multi-table lobby/staging/rematch/debrief
-  chrome, driven by the real push transport `start()` requires
-  (`duel-game-core/ws.js`'s `connectWs()`, exactly like
-  `examples/007/frontend/app.js` — see `../../frontend/README.md`'s
-  "Real-time push" section; this game's own code never touches
-  `mo:duel-game-core/ws`'s protocol directly — `duel-game-core/ws/
-gateway-*.js` does, registering this tab as its own WS Gateway).
-  There is no polling fallback anywhere in this stack any more — the
-  backend has no plain mutating Candid method to poll in the first place
-  (see `../../CLAUDE.md`), so `duel-game-core` ships no plain-polling
-  transport at all.
-  `duel-app.js` also wires a small "🤖 Bots" control — `index.html`'s
-  `#bot-challenge-toggle` (header, beside `#leaderboard-toggle`) opening
-  `#bot-challenge-panel` (a full-page overlay sibling of `#screen`,
-  styled in the shared `duel-game-core/style.css`, not this game's own) —
-  the human-facing DISCOVERY + challenge entry point for whichever bots
-  have self-registered with this deploy's own `backend` canister (see
-  `../CLAUDE.md`'s "Canister players" note, "Bot discovery"): clicking it
-  calls `actor.list_bots()` (a plain Candid query, no `ws` round-trip) and
-  renders the ranked result via `duel-game-core/render.js`'s
-  `renderBotList(bots, plugin)`; a bot's own row in the leaderboard panel
-  below (`renderLeaderboard`'s own Challenge button) reaches the exact
-  same flow. Picking a bot either fills THIS player's own already-staged
-  table directly (if they're on the "Waiting for an opponent" screen —
-  `render.js`'s `stagingYou`, tracked off a
-  `ws.addEventListener("message", ...)` listener, the same
-  `GatewayWs`-as-`EventTarget` technique `lobby-connection.service.ts`
-  uses below) or, otherwise, shows a seat-choice step
-  (`duel-game-core/render.js`'s `renderSeatChoice(plugin)`) and issues a
-  `createTable` request directly over the shared `ws` (`ws.request`, the
-  same correlatable, scoped-reply call `lobby-connection.service.ts`
-  itself already relies on for move submission — still the one `ws.mo`
-  channel, not a second transport) to create one first. Either way, the
-  final step is the same plain Candid call Flow 1 always used — straight
-  to the CHOSEN bot's own `play(host, tableId, seat, code, complexity)` (built from
-  `duel-game-core/idl.js`'s exported `buildBotPlayIdlFactory`, so `Seat`/
-  `TableId`/`Err` aren't redeclared by hand, and never routed through
-  `ws.mo`'s protocol) — the bot then joins on its own account via
-  `join_table_as_canister`, exactly Flow 1's "self-join" shape, just
-  aimed at whichever canister id a player actually picked rather than a
-  `PUBLIC_CANISTER_ID:bot` env var (this frontend hardcodes no bot
-  canister id anywhere). A Rematch from a bot game re-invites that same
-  bot, at the same complexity, on its own: the engine reserves the
-  rematch's open seat for the bot's own session, and `duel-app.js`
-  (remembering the last bot it invited, per table, in `sessionStorage`)
-  re-issues the identical `play` call the moment that `stagingYou` push
-  lands — the player sees "Inviting <bot>…" straight away, never
-  "Waiting for an opponent" (see `../../frontend/README.md`'s "Bot
-  registry" section, "Rematch against a bot").
-  `duel-app.js` also wires a header 🏆 toggle button (`index.html`'s
-  `#leaderboard-toggle` — icon-only, no "Leaderboard" label, positioned
-  FIRST in `.session`, before the Driver ID — that opens
-  `#leaderboard-panel`, a full-page overlay sibling of
-  `#duel-header`/`#screen`, hidden outright during an active race the
-  same way `#duel-header`/`#bot-challenge-panel` already are — see
-  `style.css`'s `body.in-race` rules) that, on click, calls the SAME
-  `actor` `duel-app.js` already built for `actor.get_leaderboard()` — a
-  plain Candid `query`, no `ws` round-trip — fetched alongside
-  `actor.list_bots()` (same class of query, tolerantly `.catch`'d to an
-  empty array so a `list_bots()` failure never breaks the leaderboard
-  itself) purely so a bot's own row can show its self-reported `name`
-  instead of a bare principal, and renders the result via
-  `duel-game-core/render.js`'s
-  `renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames })`
-  (`botNames` a `Map<string, string>` from bot principal text to name),
-  which badges the caller's own row ("You") if they're on the ranked
-  list; `#leaderboard-back` (inside the overlay) closes it back to
-  `#screen`.
-  `duel-racing-plugin.js` supplies its own `formatScore`, inverting
-  `Host.mo`'s own `scoreFromLapMs` (`3,600,000n - score`, formatted as
-  `m:ss.mmm`) so the panel shows a real lap time instead of the padded
-  number the board actually sorts on — the one place this constant is
-  duplicated on the frontend, so keep it in sync with `Host.mo`'s own
-  `ONE_HOUR_MS` if it ever changes. `score === 0n` (`Host.mo`'s own inert
-  `Leaderboard.new(50, 0)` `defaultScore`, surfaced by `list_bots()` for a
-  bot that hasn't finished a race yet, since no leaderboard ENTRY exists
-  until a `#finished` win records one) renders as `"--:--.--"` instead —
-  no real race plausibly takes a full hour, so this is an unambiguous
-  "no time yet" sentinel rather than a nonsensical `60:00.000` lap.
-  `frontend/src/main.ts`'s own gameplay code (really
-  `lobby-connection.service.ts`, wired in via `gameplay.service.ts`)
-  shares that EXACT connection (`duel-app.js` publishes it on
-  `window.duelWsReady`, read via `duel-actor.ts`'s `getDuelWs()`) and has
-  no polling of its own at all — there is only ever ONE communication
-  channel to the canister, chrome and race alike — `GatewayWs` runs
-  exactly one poll loop shared by both halves of the app, so two
-  independent fetches can never resolve out of order and race each
-  other. It still has one sharp edge worth knowing before touching it:
-  the CDK's outgoing queue is keyed by `gateway_principal` (this tab's
-  own stable identity, unchanged across a reconnect), not by
-  `client_key`, so that queue persists across a reconnect too —
-  `SelfGatewayTransport`'s polling nonce must therefore only ever be
-  set once, in the constructor, and never reset on a later `open()` (see
-  `../../frontend/ws/gateway-transport.js`'s `open()` comment). Resetting
-  it on reconnect would replay the whole persisted queue from the start,
-  re-delivering already-processed `#view` pushes in a fast burst — visible
-  as a car briefly animating backwards before "teleporting" to the
-  correct position — before catching up to the real current one. If that
-  symptom ever appears, the general bug class to suspect is "something
-  reset polling/fetch state across a reconnect that should have
-  persisted," not necessarily this exact nonce again.
-  See `frontend/README.md` and `frontend/CLAUDE.md` for the split in
-  detail (including exactly how `lobby-connection.service.ts` uses the
-  shared poller's `request()`), gameplay controls, and the headless
-  verification workflow.
+- **`src/RacingRules.mo`** — pure rules (physics, collision, lap
+  progress); see its doc header.
+- **`src/Track.mo`** — baked geometry for the one "island" map (boundary
+  polygons and road centerline), generated from
+  `frontend/src/assets/maps/island/scene.meta`.
+- **`src/Host.mo`** — `Registry` (60s/15s), `status`, `Ws.attach` +
+  `ActorMixin`, metrics with a `/metrics` route, canister players (same
+  wiring as `examples/checkers`), bot discovery, and a best-lap
+  leaderboard: `Leaderboard.new(50, 0)` (the default score is inert),
+  `scoreFromLapMs(ms) = max(0, 3_600_000 - ms)`, and `lapMsFor` computing
+  the exact in-game time from `Debrief.turns × STEP_DURATION_MS` (1000,
+  in sync with `game-state.service.ts`'s `stepDuration`) minus the
+  winning car's final-round overshoot (`distanceFromStart / speed`,
+  clamped to `[0, 1)`). Only a clean `#finished` win records
+  (`recordIfBetter`). `playerKey` special-cases `cp:` sessions to
+  `leaderboardKeyOfSession`.
+- **`src/BotIface.mo`** — `make_move`, imported by `Host.mo`.
+- **`bot/BotLogic.mo`** — `SCRIPT_P1`/`SCRIPT_P2`, fixed arcs derived
+  offline (legal forever once at cruising speed), indexed by `req.turn`;
+  past the script, hold `{ l = max(5, speed * 0.75); c = 0 }`.
+- **`bot/Bot.mo`** — `make_move` (`query`), `play(...)`, `register`/
+  `unregister` (registers `[]`):
+  `icp canister call bot register '(principal "<backend-canister-id>", "RacerBot")'`.
+- **`test/*.test.mo`** — `Lifecycle`/`Rules` are scenario walks;
+  `Engine`/`RulesUnit` per-operation suites. `RaceTestHelpers.mo`
+  (not `.test.mo`) seeds a live table one legal step from the finish
+  instead of simulating a race. `Bot.test.mo` replays both scripts (plus
+  the post-script clamp) through the real `validate`/`resolve`, then
+  wires `chooseMove` through `canister_players` against a human seat.
+- **`icp.yaml`** — `backend`, `bot`, `frontend/dist`.
+- **`frontend/`** — plain TypeScript + Three.js, esbuild-bundled (see
+  `frontend/README.md`, `frontend/CLAUDE.md`). `src/duel/duel-app.js` +
+  `duel-racing-plugin.js` are the whole `duel-game-core` integration
+  (lobby chrome, 🏆 leaderboard overlay, 🤖 Bots overlay and Challenge
+  flow, bot rematch re-invite — same shape as `examples/checkers`, see
+  `../../frontend/README.md`). `duel-racing-plugin.js`'s `formatScore`
+  inverts `scoreFromLapMs` (`m:ss.mmm`; `0n` renders `"--:--.--"`). Keep
+  its `3_600_000n` in sync with `Host.mo`'s `ONE_HOUR_MS`. The race
+  itself (`src/main.ts`, `lobby-connection.service.ts`) shares the ONE
+  `GatewayWs` via `window.duelWsReady` and has no polling of its own.
+  Sharp edge: the CDK's outgoing queue is keyed by `gateway_principal`,
+  which persists across a reconnect, so `SelfGatewayTransport`'s poll
+  nonce is set once in its constructor and never reset — resetting it
+  replayed the whole queue (cars animating backwards, then teleporting).
 
 ## Toolchain
 
-- moc **1.14.0** (mops toolchain — newer than `../../backend`'s and
-  `examples/007`'s pinned 1.11.2, though nothing in this example's own
-  source actually requires it: every file here, including `src/Host.mo`'s
-  `mixin<system>(...)` wiring for `mo:duel-game-core/actor_mixin` AND its
-  `include Http(...)` wiring for `mo:promtracker/mixins/http`, also
-  type-checks cleanly under 1.11.2), node/npm for the frontend.
-- Motoko dependencies: `duel-game-core` (path dependency on `../../backend`
-  — see `mops.toml`), `core` (mo:core), `ic-websocket-cdk` (only because
-  `src/Host.mo` opts into `mo:duel-game-core/ws`), and `promtracker`
-  (only because `src/Host.mo` opts into the metrics wiring described
-  above) — see `../../CLAUDE.md`'s toolchain note for both of the
-  latter. Neither is listed under `mops.toml`'s own `[dependencies]`
-  here — both arrive transitively through `duel-game-core`'s own
-  `mops.toml`, same as `ic-websocket-cdk` already did before promtracker
-  existed; `mops sources` resolves the whole tree regardless of which
-  `mops.toml` first declared a package. `src/Host.mo`'s third opt-in,
-  `mo:duel-game-core/canister_players`, needs nothing further: that
-  module depends on nothing but `core` and its sibling engine modules,
-  already pulled in regardless. Never import `mo:base` directly
-  in this game's own code — it's the legacy library; `ic-websocket-cdk`
-  pulling it in transitively is a documented, contained exception, not
-  license to import it yourself. `duel-game-core` re-exports nothing of
-  `core`'s own surface, so `src/Host.mo`'s direct `mo:core/Time` import
-  needs `core` listed here too, same as any real game repo would.
-- `frontend/`'s npm dependencies (`frontend/package.json`) split by which
-  half of the app needs them: `duel-game-core` (`file:../../../frontend`)
-  and `@icp-sdk/core` are what `duel-app.js` itself needs;
-  `@gg-web-engine/core`, `@gg-web-engine/three`, `point-in-polygon`,
-  `rxjs`, and `three` are for the actual 3D race (`main.ts` and
-  everything under `src/app/modules/gameplay/`). `build.js` runs esbuild
-  twice — once bundling `main.ts` into `dist/main.js`, once bundling
-  `src/duel/duel-app.js` (which imports `duel-game-core/ws.js` and
-  `duel-game-core/identity.js` — its `package.json` `exports` map, not an
-  on-disk path — see `../../CLAUDE.md`'s toolchain note: `duel-game-core`
-  is TypeScript now, and ships from its own `dist/`, gitignored, built by
-  `npm run build` THERE, not here) into `dist/duel-app.js`. Both bundles
-  pull in everything they need — `@icp-sdk/core` directly, `@icp-sdk/auth`
-  and `cborg` transitively through `duel-game-core`'s own `package.json`
-  — from `node_modules` at build time (a normal `npm install
---legacy-peer-deps` resolves them there like any other dependency; see
-  `../../frontend/README.md`'s note on why the flag is needed). Neither
-  bundle needs an import map: esbuild inlines every one of those
-  dependencies directly into `dist/main.js`/`dist/duel-app.js`, so the
-  deployed page loads nothing from a CDN.
-- **Gotcha:** `frontend/.npmrc` sets `install-links=true` (same reasoning
-  as `examples/007`'s — see its `CLAUDE.md`), so `duel-game-core` is
-  COPIED into `node_modules/duel-game-core`, not symlinked. A plain `npm
-install` after editing `../../frontend/` reports nothing to do and does
-  NOT refresh that copy. See `../../../CLAUDE.md`'s "After touching
-  anything under `frontend/`" section for the actual refresh procedure —
-  **always `npm run build` inside `../../frontend/` first** (its
-  `prepare` script does NOT reliably do this for you here — this repo's
-  `allow-scripts` gate blocks it, confirmed live), then a fast direct
-  `rsync` copy in the common case, followed by re-running `npm run
-build` HERE too; a full `node_modules`+lockfile reinstall with
-  `--legacy-peer-deps` only if `frontend/package.json`'s own
-  `dependencies` changed. Do this proactively after any change there,
-  not just when asked to deploy.
+moc **1.14.0** (`mops.toml`; nothing here requires more than 1.11.2).
+Motoko dependencies: `duel-game-core` (path to `../../backend`), `core`;
+`ic-websocket-cdk`/`promtracker` transitively. Never import `mo:base`.
+Frontend: `duel-game-core` (`file:../../../frontend`) and `@icp-sdk/core`
+for `duel-app.js`; `@gg-web-engine/core`, `@gg-web-engine/three`,
+`point-in-polygon`, `rxjs`, `three` for the race. `build.js` runs
+esbuild twice (`main.ts` → `dist/main.js`, `src/duel/duel-app.js` →
+`dist/duel-app.js`). `install-links=true` copies `duel-game-core`; see
+`../../CLAUDE.md` for the refresh procedure.
 
 ## Build & test
 
 ```bash
 cd examples/racing
-mops install                       # fetches duel-game-core (../../backend) + core
-
-# Type-check:
+mops install
 moc --check $(mops sources) src/RacingRules.mo
 moc --check $(mops sources) src/Host.mo
+mops test                  # all five; `mops test Rules` matches Rules and RulesUnit
 
-# Run the test suites (interpreter mode; they Debug.print progress and end
-# with "ALL ... CHECKS PASSED"; any trap = a FAIL, exit code 1):
-mops test                  # all five
-mops test Engine           # one suite — the filter is a path substring
-mops test Rules            # ...so this matches Rules AND RulesUnit
-mops test Bot              # BotLogic.mo, offline and wired through canister_players
+(cd ../../frontend && npm run build)
+cd frontend && npm install --legacy-peer-deps && cd ..
+icp deploy                 # local → http://frontend.local.localhost:8000/
+icp deploy --network ic
 ```
 
-Install the frontend's own dependencies, then deploy (icp-cli; `icp
-network start` must be running for the local env). `icp.yaml`'s
-asset-canister recipe declares `npm run build` (inside `frontend/`) as a
-`build` step, so `icp build`/`icp deploy` runs it — and therefore
-esbuild-bundles `frontend/dist/` (icp.yaml deploys THIS, not
-`frontend/` itself) from current source — automatically; there's no
-separate manual build step to run first:
-
-```bash
-(cd ../../frontend && npm run build)  # duel-game-core's own dist/ — see this file's note above
-cd examples/racing/frontend
-npm install --legacy-peer-deps   # see frontend/README.md's peer-dep note; populates node_modules only
-
-cd ..
-icp deploy                 # local  → http://frontend.local.localhost:8000/
-icp deploy --network ic    # mainnet — spends cycles
-```
+`icp.yaml`'s `build` step runs `npm run build` in `frontend/` on every
+deploy.
 
 ## Architecture rules
 
-This game inherits every rule in `../../CLAUDE.md`'s "Architecture rules"
-section (spec passed per call / never stored, the engine owns time, rules
-stay pure, `validate` is the only legality gate, etc.) — read that file
-first. One rule specific to this example:
-
-1. **The engine lives in `../../backend` and is never vendored here.**
-   `src/RacingRules.mo` and `src/Host.mo` import it as `mo:duel-game-core`.
-   If you find yourself copy-pasting engine code into this directory to fix
-   something, fix it in `../../backend/src/lib.mo` instead and re-run
-   `mops install` here.
+Everything in `../../CLAUDE.md`, plus: the engine is never vendored here.
 
 ## Game-rule notes (RacingRules.mo)
 
-- **One round = one step.** Both seats submit an `Action { l; c }` — the
-  arc (distance, curvature) they want to drive this step, in the SAME
-  units the frontend's `StepTrajectoryModel` already computes client-side.
-  The frontend keeps doing its own client-side physics/rendering for feel;
-  the chain is authoritative for what actually happened.
-- **`validate` recomputes the reachable arc itself** from the car's current
-  speed and its (single, baked-in) characteristics — a client can't request
-  a faster car or a tighter turn than physics allows by bypassing its own
-  UI's clamps.
-- **`resolve` walks the requested arc against `Track`'s boundary polygons**
-  exactly as the frontend's `findTrajectoryCollisionWithMap` does, and
-  clamps the car to the edge (speed → 0) if it would leave the track. A
-  forward/neutral collision (`l >= 0`) arms a 2-step recovery penalty
-  (`validate` then forces `{ l = 0; c = 0 }` for 2 rounds) — reversing
-  through a collision never arms it, matching the frontend's rule that
-  backing off a wall isn't a "crash".
-- **Progress is the car's projection onto `Track.roadPath`** (the
-  centerline), each step — the same nearest-point/lap-percent-wrap
-  heuristic the frontend uses, just run once per round instead of once per
-  animation frame (no lineIndex/allowance bookkeeping needed as a result —
-  see the module's doc header).
-- **This example supports exactly one track and one car** — both `Track`'s
-  geometry and the car's characteristics (steering/drag/engine/braking/
-  mass) are baked-in constants, not configuration. A game with more than
-  one of either would thread both through `State`/`Spec` instead.
-- **`LAPS_TO_WIN = 1`, but the win check is `lap > LAPS_TO_WIN`, not `>=`.**
-  `lap` counts wrap-boundary crossings of `Track.roadPath`, not real laps
-  driven, and the starting grid sits right before that same wrap point —
-  so a race's very first move already crosses it once "for free" (lap
-  0 → 1) without anyone having driven anywhere near an actual lap. Every
-  crossing after that first one is a real lap, so finishing `LAPS_TO_WIN`
-  real laps takes `LAPS_TO_WIN + 1` raw crossings (see `resolve`'s own
-  comment on this) — drop the `+ 1` and the game ends after the very
-  first move instead of after a real lap. A simultaneous finish (both
-  cross the line the same round) is broken by total distance travelled,
-  not seat order; an exact tie draws. The frontend carries TWO
-  independent copies of this whole quirk —
-  `gameplay.service.ts`'s `LAPS_TO_WIN`/`FINISH_LAP_COUNT`
-  constants (a client-side "someone finished" check) and
-  `duel-racing-plugin.js`'s own `LAPS_TO_WIN`/`FINISH_LAP_COUNT` (the
-  generic debrief/HUD's lap display) — keep all three (this module plus
-  both frontend copies) in sync.
-
-## Motoko skills (read before editing)
-
-Local copies of the relevant Motoko-authoring SKILL.md playbooks live in
-this repo under `../../.agents/skills/` — the same set `../../CLAUDE.md`
-points to (the duel-game-core-specific playbook instead lives in the
-tracked `../../skills/duel-game-core/`). Consult those before editing
-`src/RacingRules.mo`, `src/Host.mo`, or `bot/Bot.mo`/`bot/BotLogic.mo`.
+- **One round = one step.** Both seats submit `Action { l; c }` (arc
+  distance and curvature) in the frontend's `StepTrajectoryModel` units.
+  The frontend animates client-side for feel; the chain is authoritative.
+- **`validate` recomputes the reachable arc** from the car's speed and the
+  baked-in characteristics.
+- **`resolve` walks the arc against `Track`'s boundary polygons** exactly
+  as `findTrajectoryCollisionWithMap` does and clamps to the edge (speed
+  → 0). A forward/neutral collision (`l >= 0`) arms a 2-step recovery
+  penalty (`validate` forces `{ l = 0; c = 0 }`); reversing never does.
+- **Progress is the projection onto `Track.roadPath`**, once per round.
+- **One track, one car**, both constants.
+- **`LAPS_TO_WIN = 1`, win check is `lap > LAPS_TO_WIN`.** `lap` counts
+  wrap-boundary crossings and the grid sits just before the wrap point,
+  so the first move crosses once for free. A simultaneous finish is
+  broken by total distance; an exact tie draws. `gameplay.service.ts` and
+  `duel-racing-plugin.js` each carry `LAPS_TO_WIN`/`FINISH_LAP_COUNT` —
+  keep all three in sync.
 
 ## Conventions
 
-- Tests are plain interpreter scripts (moc -r), not a test framework:
-  `ok`/`expectErr` helpers + `Runtime.trap` on violation. Extend in kind.
-  (In mo:core, `trap` lives in `Runtime`; `Debug` only has `print`.)
-- `msg`, not `label`, for text parameters (`label` is a reserved word).
-- Update `Lifecycle.test.mo`/`Rules.test.mo`/`Engine.test.mo`/`RulesUnit.test.mo`
-  when touching `RacingRules.mo`'s semantics — and if a change moves where
-  the finish line / wrap segment / grid positions are, re-derive
-  `RaceTestHelpers.mo`'s `nearFinish()` numbers (see `Rules.test.mo`'s
-  comment on it for how they were computed). If the change alters
-  `nextStepArea`, the car's tuning constants, or `Track`'s starting grid,
-  also re-derive `BotLogic.mo`'s `SCRIPT` the same way its own doc
-  comment describes, and confirm `mops test Bot` still passes.
-- This file, `frontend/README.md`, and `frontend/CLAUDE.md` must stay in
-  sync with the code. When a change moves, renames, or removes something
-  one of them describes, update the affected doc in the same change —
-  describe the resulting state plainly (what's there now), not as a diff
-  against what it used to be.
+Plain interpreter tests; `msg`, not `label`. When `RacingRules.mo`
+changes, update all suites; if the finish line, wrap segment, or grid
+moves, re-derive `RaceTestHelpers.mo`'s `nearFinish()`; if
+`nextStepArea`, tuning constants, or the grid change, re-derive
+`BotLogic.mo`'s scripts and confirm `mops test Bot`. Keep this file,
+`frontend/README.md`, and `frontend/CLAUDE.md` in sync with the code.

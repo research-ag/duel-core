@@ -1,15 +1,6 @@
-// One short session narrative, driven through the REAL engine end to
-// end: join, a couple of real opening moves (exercising board routing for
-// real), then (per
-// skills/duel-game-core/references/testing-deep-dive.md's technique) the
-// live board is seeded directly via `Table.phase`'s own public `var`
-// field to a position one legal placement from winning the WHOLE match,
-// and that final move is submitted for real — so the engine's own turn/
-// seat/timestamp bookkeeping around the ending is exercised genuinely,
-// only the long middle game (up to 81 plies in the worst case) is
-// skipped.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/Lifecycle.test.mo
+// One short narrative through the real engine: join, opening moves exercising
+// routing, then the live board is seeded via `Table.phase` to one placement
+// from winning the whole match.
 import TP "mo:duel-game-core";
 import Table "mo:duel-game-core/table";
 import Array "mo:core/Array";
@@ -46,7 +37,7 @@ func withResults(overrides : [(Nat, Rules.BoardResult)]) : [?Rules.BoardResult] 
 
 let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000, #open, "test", "");
 
-// ── 1. join seats X/O, X moves first ────────────────────────────────────────
+// ── 1. join seats X/O, X moves first ───────────────────────────────────────
 ignore ok(t.join(spec, now, "x", #p1), "x joins");
 switch (ok(t.join(spec, now, "o", #p2), "o joins")) {
   case (#started _) {};
@@ -55,7 +46,7 @@ switch (ok(t.join(spec, now, "o", #p2), "o joins")) {
 Debug.print("1. join OK");
 
 // ── 2. a couple of genuine opening moves resolve through the real board,
-//        routing enforced ───────────────────────────────────────────────────
+//      routing enforced ─────────────────────────────────────────────────────
 func genOf(session : Text) : Nat = switch (t.status(spec, now, session)) {
   case (#inGame v) v.gen;
   case (_) Runtime.trap("genOf: " # session # " is not in an active game");
@@ -72,9 +63,9 @@ switch (t.status(spec, now, "x")) {
 };
 Debug.print("2. opening moves through the real board, routing enforced OK");
 
-// ── 3. seed the board one legal placement from winning the WHOLE match:
-//        p1 already owns local boards 0 and 1 outright, and board 2 is
-//        one move from a p1 win too — completing the top meta-row ─────────
+// ── 3. seed the board one legal placement from winning the WHOLE match: p1
+//      already owns local boards 0 and 1 outright, and board 2 is one move
+//      from a p1 win too ────────────────────────────────────────────────────
 switch (t.phase) {
   case (#active g) {
     t.phase := #active {

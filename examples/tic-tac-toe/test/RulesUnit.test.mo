@@ -1,7 +1,5 @@
 // Unit checks for TicTacToeRules' pure functions: init/validate/resolve
 // exercised directly against synthetic boards, no engine, no actor.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/RulesUnit.test.mo
 import R "../src/TicTacToeRules";
 import TP "mo:duel-game-core";
 import Array "mo:core/Array";
@@ -16,7 +14,7 @@ func withMarks(marks : [(Nat, TP.Seat)]) : R.Board {
   b;
 };
 
-// ── 1. init() is a clean, empty board ───────────────────────────────────────
+// ── 1. init() is a clean, empty board ──────────────────────────────────────
 let s0 = R.init("");
 assert s0.board.size() == 9;
 assert s0.board.all<?TP.Seat>(func(cell) = cell == null);
@@ -46,7 +44,7 @@ switch (R.validate({ board = oneMark }, #p2, #place { at = 9 })) {
 };
 Debug.print("3. validate OK");
 
-// ── 4. resolve: a completed row wins ────────────────────────────────────────
+// ── 4. resolve: a completed row wins ───────────────────────────────────────
 do {
   let board = withMarks([(0, #p1), (1, #p1), (3, #p2), (4, #p2)]);
   let r = R.resolve({ board }, #p1, #place { at = 2 });
@@ -58,7 +56,7 @@ do {
 };
 Debug.print("4. row win OK");
 
-// ── 5. resolve: a completed column wins ─────────────────────────────────────
+// ── 5. resolve: a completed column wins ────────────────────────────────────
 do {
   let board = withMarks([(0, #p2), (3, #p2), (1, #p1), (4, #p1)]);
   let r = R.resolve({ board }, #p2, #place { at = 6 });
@@ -69,7 +67,7 @@ do {
 };
 Debug.print("5. column win OK");
 
-// ── 6. resolve: a completed diagonal wins ───────────────────────────────────
+// ── 6. resolve: a completed diagonal wins ──────────────────────────────────
 do {
   let board = withMarks([(0, #p1), (4, #p1), (1, #p2), (2, #p2)]);
   let r = R.resolve({ board }, #p1, #place { at = 8 });
@@ -104,8 +102,8 @@ do {
 };
 Debug.print("7. draw on a full board OK");
 
-// ── 8. resolve: an ordinary placement that neither wins nor fills the
-//        board just continues ───────────────────────────────────────────────
+// ── 8. resolve: an ordinary placement that neither wins nor fills the board
+//      just continues ───────────────────────────────────────────────────────
 do {
   let r = R.resolve(s0, #p1, #place { at = 4 });
   assert r.verdict == null;
@@ -113,8 +111,7 @@ do {
 };
 Debug.print("8. ordinary placement continues OK");
 
-// ── 9. legalActions: every empty cell, nothing else — the same legality
-//        validate enforces ─────────────────────────────────────────────────
+// ── 9. legalActions: every empty cell, nothing else ────────────────────────
 do {
   assert R.legalActions(s0, #p1).size() == 9;
   for (a in R.legalActions(s0, #p1).values()) {

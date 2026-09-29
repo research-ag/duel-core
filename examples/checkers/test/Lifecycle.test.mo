@@ -1,15 +1,6 @@
-// One short session narrative, driven through the REAL engine end to
-// end: join, a couple of real opening moves, then (per
-// skills/duel-game-core/references/testing-deep-dive.md's technique —
-// playing a genuine game to a win from the standard opening would take
-// far more moves than is worth driving through the interpreter) the
-// live board is seeded directly with `Table.phase`'s own public `var`
-// field to a position one legal capture from finishing, and that final
-// move is submitted for real — so the engine's own turn/seat/timestamp
-// bookkeeping around the ending is exercised genuinely, only the long
-// middle game is skipped.
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/Lifecycle.test.mo
+// One short narrative through the real engine: join, a couple of real opening
+// moves, then the live board is seeded via `Table.phase` to one capture from
+// finishing (see references/testing-deep-dive.md).
 import TP "mo:duel-game-core";
 import Table "mo:duel-game-core/table";
 import Array "mo:core/Array";
@@ -40,7 +31,7 @@ func withPieces(pieces : [(Nat, Rules.Piece)]) : Rules.Board {
 
 let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000, #open, "test", "");
 
-// ── 1. join seats black/red, black moves first ────────────────────────────
+// ── 1. join seats black/red, black moves first ─────────────────────────────
 ignore ok(t.join(spec, now, "black", #p1), "black joins");
 switch (ok(t.join(spec, now, "red", #p2), "red joins")) {
   case (#started _) {};
@@ -48,7 +39,7 @@ switch (ok(t.join(spec, now, "red", #p2), "red joins")) {
 };
 Debug.print("1. join OK");
 
-// ── 2. a couple of genuine opening moves resolve through the real board ─
+// ── 2. a couple of genuine opening moves resolve through the real board ────
 func genOf(session : Text) : Nat = switch (t.status(spec, now, session)) {
   case (#inGame v) v.gen;
   case (_) Runtime.trap("genOf: " # session # " is not in an active game");
@@ -66,8 +57,8 @@ switch (t.status(spec, now, "black")) {
 Debug.print("2. opening moves through the real board OK");
 
 // ── 3. seed the board one legal capture from a finish, then play it for
-//      real: black's man at (4,3) jumps red's last remaining piece at
-//      (3,2), landing at (2,1) — red is left with zero pieces ────────
+//      real: black's man at (4,3) jumps red's last remaining piece at (3,2),
+//      landing at (2,1) ─────────────────────────────────────────────────────
 switch (t.phase) {
   case (#active g) {
     t.phase := #active {

@@ -1,35 +1,12 @@
-// GamePlugin for checkers — the only game-specific piece the client
-// needs. Everything else (lobby, staging, rematch, debrief chrome,
-// session identity, real-time push, turn-accurate copy for an
-// #alternating table) comes from the `duel-game-core` npm package's
-// generic `start()`/`renderView()` — see app.js.
+// GamePlugin for checkers. Candid shapes mirror ../src/CheckersRules.mo.
 //
-// The `Action`/`State` Candid shapes below must mirror
-// `../src/CheckersRules.mo` exactly.
-//
-// Interaction model: click-to-select, not a flat button list. Clicking
-// one of your own movable pieces selects it (unhighlighting every other
-// piece and highlighting the squares it can reach); clicking one of
-// those destinations either finishes the move, or — for a capture that
-// can keep going — advances the selection there and highlights the NEXT
-// leg, so a multi-jump chain is built up one click at a time. Clicking
-// the selected piece again cancels the selection; clicking a DIFFERENT
-// movable piece switches to it. All of this lives entirely in a local
-// `path` variable (this module's own "selection" — `[]` = nothing
-// selected, `[from, ...landingSquares]` otherwise); the actual `Action`
-// submitted to the engine at the end is exactly the same
-// `#move`/`#jump` shape as before, built from `path` once it's
-// complete — no backend change, and `CheckersRules.mo`'s `validate` is
-// still the only REAL legality gate (this is a cosmetic mirror of it,
-// same as any other GamePlugin — see CLAUDE.md architecture rule 4).
-// `renderBoard`'s own `yourTurn` parameter (see `GamePlugin`'s doc in
-// duel-game-core/render.js) is what gates this: the board is plain and
-// non-interactive whenever it isn't rendered while `yourTurn`.
-//
-// The board is drawn upside-down (row 7 at the top, row 0 at the
-// bottom) for Black's own view and right-side-up for Red's — see
-// `drawBoard`'s own `flip` — so each player always sees their own side
-// at the bottom, regardless of which seat they hold.
+// Click-to-select: clicking one of your movable pieces selects it and
+// highlights its destinations; clicking a destination finishes the move
+// or, for a capture that continues, advances the selection one leg. The
+// selection lives in a local `path` (`[]` = nothing selected); the
+// finishing click is a real `data-act` button submitted by app.js, and
+// the move generation here is a cosmetic mirror of `validate`. The board
+// is flipped for Red so each player sees their own side at the bottom.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -60,8 +37,7 @@ function squareLabel(i) {
   return `${String.fromCharCode(97 + colOf(i))}${SIZE - rowOf(i)}`;
 }
 
-// A Candid `opt Piece` decodes to `[] | [{ manP1: null }]` etc — never a
-// bare object or `null` directly.
+// A Candid `opt Piece` decodes to `[] | [{ manP1: null }]`.
 function pieceTagAt(board, i) {
   const cell = board[i];
   return cell && cell.length ? Object.keys(cell[0])[0] : null;
@@ -76,9 +52,6 @@ function forwardDelta(seat) {
   return seat === "p1" ? -1 : 1;
 }
 
-// A board with `from` cleared, `capturedSquare` (if any) cleared, and
-// `to` occupied by `tag` — mirrors `CheckersRules.mo`'s own `setAt`
-// chaining, just on the plain JS array/opt shape this file uses.
 function withMove(board, from, to, tag, capturedSquare) {
   const next = board.slice();
   next[from] = [];
@@ -87,7 +60,6 @@ function withMove(board, from, to, tag, capturedSquare) {
   return next;
 }
 
-// Legal one-square, non-capturing destinations for the piece at `i`.
 function stepTargets(board, tag, i) {
   const r = rowOf(i);
   const c = colOf(i);
@@ -105,8 +77,7 @@ function stepTargets(board, tag, i) {
   return out;
 }
 
-// Legal one-leg captures for the piece at `i` — each result is
-// `[capturedSquare, landingSquare]`.
+// Each result is `[capturedSquare, landingSquare]`.
 function jumpTargets(board, tag, i) {
   const r = rowOf(i);
   const c = colOf(i);
@@ -135,20 +106,13 @@ function seatHasCapture(board, seat) {
   return false;
 }
 
-// ── click-to-select state — module-level, since GamePlugin functions
-//    are plain render callbacks with no state of their own to carry it
-//    in ───────────────────────────────────────────────────────────────
-
 let path = []; // [] = nothing selected; [from, ...landingSquares] otherwise
-let lastBoardKey = null; // fingerprint of the last REAL board seen
+let lastBoardKey = null;
 let cachedBoard = null;
 let cachedMySeat = null;
 
-// Applies `path` so far to `board`, returning the board as it should be
-// DISPLAYED mid-selection (the piece visually relocated through however
-// many legs have already been chosen) — mirrors `CheckersRules.mo`'s
-// own `resolve` loop, minus promotion (never shown early; the real
-// board confirms that once the move is actually submitted).
+// The board as displayed mid-selection (piece relocated through the legs
+// chosen so far; no early promotion).
 function simulateBoard(board, path, tag) {
   let b = board;
   for (let k = 0; k + 1 < path.length; k++) {
@@ -161,12 +125,8 @@ function simulateBoard(board, path, tag) {
   return b;
 }
 
-// Everything `drawBoard` needs to render the CURRENT selection state:
-// `board` to draw pieces from (the real one, or a mid-selection
-// simulation), `selectable` (switchable-to pieces), `selected` (the
-// active piece's current square, if any), and `targets` (square ->
-// Action to submit if this leg finishes the move, or `null` if it just
-// continues a capture chain).
+// `targets` maps square -> Action if that leg finishes the move, or null
+// if it only continues a capture chain.
 function computeHighlights(board, mySeat) {
   const hasCapture = seatHasCapture(board, mySeat);
   const movablePieces = new Set();
@@ -250,32 +210,21 @@ function rerenderBoard() {
 function handleSquareClick(i) {
   if (!cachedBoard) return;
   if (path.length === 0) {
-    // Only reachable for a `data-sq` square, which with nothing selected
-    // yet only ever marks a piece that's legal to select.
     path = [i];
   } else {
     const cur = path[path.length - 1];
     if (i === cur) {
-      path = []; // clicking the active piece again cancels the selection
+      path = []; // clicking the active piece again cancels
     } else {
       const { selectable } = computeHighlights(cachedBoard, cachedMySeat);
-      // A different one of our own movable pieces switches the
-      // selection; anything else clickable at this point can only be a
-      // non-terminal capture-chain continuation.
       path = selectable.has(i) ? [i] : [...path, i];
     }
   }
   rerenderBoard();
 }
 
-// One delegated listener, registered once for the page's lifetime —
-// mirrors app.ts's own `screenEl.addEventListener("click", ...)`
-// pattern, just scoped to `[data-sq]` squares specifically (the plain,
-// non-`data-act` ones `drawBoard` renders for select/switch/cancel/
-// continue clicks). A click that lands on a `data-act` BUTTON square
-// (a move- or chain-FINISHING click) is left entirely to app.ts's own
-// listener to submit — this handler only resets local selection state
-// so the next render (once the fresh status arrives) starts clean.
+// Plain `data-sq` squares are local selection state; a `data-act` BUTTON
+// square is left to app.js's own listener to submit.
 document.addEventListener("click", (ev) => {
   const el = ev.target.closest("[data-sq]");
   if (!el || !el.closest(".cb-board")) return;
@@ -306,13 +255,8 @@ export const plugin = {
     return SEAT_NAME[seat];
   },
 
-  // Called both for a live game and for a finished debrief's final
-  // state (`yourTurn` is `undefined` then — see GamePlugin's own doc —
-  // which this treats the same as `false`: a finished board is never
-  // clickable). Resets the local selection whenever a REAL new board
-  // arrives (a move actually landed — an in-progress local selection
-  // from before is stale either way) or whenever it isn't currently
-  // this seat's own turn.
+  // Resets the selection on a new board or when it isn't this seat's turn
+  // (`yourTurn` is undefined for a debrief, treated as false).
   renderBoard(gameState, mySeat, oppSeat, yourTurn) {
     const board = gameState.board;
     const key = JSON.stringify(board);
@@ -322,9 +266,6 @@ export const plugin = {
     }
     cachedBoard = board;
     cachedMySeat = mySeat;
-    // Black (#p1, rows 5-7) already sits at the bottom of the board's
-    // own unflipped row-0-at-top orientation, so only Red (#p2, rows
-    // 0-2) needs the view flipped to see their own side at the bottom.
     const flip = mySeat === "p2";
     if (!yourTurn) {
       path = [];
@@ -333,8 +274,6 @@ export const plugin = {
     return drawBoard(board, computeHighlights(board, mySeat), flip);
   },
 
-  // Everything happens by clicking the board itself (see this file's
-  // own header) — no separate action panel needed.
   renderActions() {
     return "";
   },

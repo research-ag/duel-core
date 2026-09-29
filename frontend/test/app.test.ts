@@ -90,12 +90,7 @@ function click(screen: FakeElement, button: FakeElement): void {
   screen.dispatch("click", { target: button });
 }
 
-// ── `session` (a resolveIdentity()/resolveAnonymousIdentity() result —
-// see identity.ts/anon-identity.ts) — required by `start()`. A minimal
-// stand-in mirroring exactly `app.ts`'s own `SessionIdentity`, not
-// identity.ts's real `ResolvedIdentity` (importing that would pull
-// `@icp-sdk/auth` into this test for no reason; see identity.ts's own
-// header on why app.ts never does that at runtime either).
+// ── `session` (a resolveIdentity()/resolveAnonymousIdentity() result ───────
 interface FakeSession {
   sid: string;
   isLoggedIn: boolean;
@@ -609,14 +604,8 @@ test("the 'Claim the win' button reveals itself locally once the countdown reach
 });
 
 test("the still-deciding player never gets a Claim button of their own — not initially, and not once the claim window has fully elapsed (only the 'atRisk' warning text, covered in render.test.ts, is theirs)", async () => {
-  // The claim-win countdown TEXT itself (`<p class="countdown">`, unlike
-  // the `<button>` this fake DOM parses — see fake-dom.ts's own doc) isn't
-  // observable through this harness; its wording and threshold gating for
-  // both the "waiting" and "atRisk" roles are covered directly against
-  // renderView()'s own HTML output in render.test.ts instead. This test
-  // covers what this harness CAN see: that the still-deciding player's
-  // own view never renders (or locally reveals) a Claim button, since
-  // only the player who actually submitted can claim.
+  // The claim-win countdown TEXT itself (`<p class="countdown">`, unlike the
+  // `<button>` this fake DOM parses
   mock.timers.enable({ apis: ["setInterval", "Date"] });
   try {
     const { start } = await import("../src/app.js");
@@ -758,11 +747,7 @@ test("the new-sid button disables the instant a create-table request is dispatch
   click(els.screen, p1Btn!);
   assert.equal(ws.requests.length, 1);
 
-  // new-sid must already be disabled — waiting for the request's own
-  // response (which only flips SEATED_VIEW_TAGS on) would leave a window
-  // where clicking it could regenerate the identity out from under the
-  // still-in-flight request, stranding the seat on a sid the page no
-  // longer tracks.
+  // new-sid must already be disabled
   assert.equal(els["new-sid"].disabled, true);
   els["new-sid"].dispatch("click", {});
   assert.equal(regenerateCalls, 0, "must not call regenerate() while the request is in flight");
@@ -837,12 +822,7 @@ test("the new-sid button stays disabled through an unrelated push arriving mid-j
   assert.equal(ws.requests.length, 1);
   assert.equal(els["new-sid"].disabled, true, "eagerly disabled the moment B's own request went out");
 
-  // Before B's own call resolves, an UNRELATED push tick lands — a brand
-  // new open table appears. B is still unseated either way. The old bug:
-  // renderIfChanged recomputed new-sid's disabled state off THIS status
-  // alone and re-enabled it, opening the exact window where clicking
-  // "new" strands B's still-in-flight request under a sid B is about to
-  // abandon.
+  // Before B's own call resolves, an UNRELATED push tick lands
   ws.onmessage!({
     data: {
       view: browsing([

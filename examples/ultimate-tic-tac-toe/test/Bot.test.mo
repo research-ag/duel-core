@@ -1,18 +1,6 @@
-// Proves the ultimate tic-tac-toe bot (`../bot/Bot.mo`/`BotLogic.mo`, the
-// rule-following canister player) two ways: (1) `BotLogic.chooseMove`
-// only ever returns a `UltimateTicTacToeRules.legalActions`-listed move
-// for a handful of synthetic positions, including a board routed all the
-// way down to its very last empty cell (where exactly one result
-// exists); and (2) wired live through `mo:duel-game-core/canister_players`,
-// two canister-seated bots play each other through several real
-// `#alternating` plies — the specific proof this shape calls for: `#p1`
-// moving first, then the due seat correctly alternating as the turn
-// passes and board routing carries them along, with no illegal move and
-// no stall. `BotLogic.chooseMove` is used directly as the `callBot`
-// continuation, so no real second canister is needed here, same as
-// `backend/test/CanisterPlayers.test.mo` and
-// `examples/tic-tac-toe/test/Bot.test.mo`.
-// Run: mops test Bot
+// Proves the ultimate tic-tac-toe bot: `chooseMove` stays within
+// `legalActions` (including a board routed to its last empty cell), and two
+// canister-seated bots play real plies through `canister_players`.
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Nat "mo:core/Nat";
@@ -37,9 +25,7 @@ func withCells(marks : [(Nat, Nat, TP.Seat)]) : [?TP.Seat] {
   cells;
 };
 
-// ── 1. chooseMove never strays outside legalActions — including a board
-//        routed down to its very last empty cell, where exactly one
-//        result exists at all ───────────────────────────────────────────────
+// ── 1. chooseMove never strays outside legalActions ────────────────────────
 do {
   let s0 = Rules.init("");
   for (turn in Nat.range(0, 9)) {
@@ -98,8 +84,8 @@ do {
 };
 Debug.print("1. BotLogic.chooseMove always picks a Rules.legalActions-listed move, including a board's last empty cell OK");
 
-// ── 2. wired live through canister_players.mo, two canister seats play
-//        each other through several real #alternating plies ────────────
+// ── 2. wired live through canister_players.mo, two canister seats play each
+//      other through several real #alternating plies ────────────────────────
 let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
@@ -134,11 +120,8 @@ switch (reg.status(spec, T0, sidBot1)) {
   case (other) Runtime.trap("bot1 should be in-game, at least one ply in, got " # debug_show (other));
 };
 
-// A large-enough sweep budget for a board that can run up to 81 plies in
-// the worst case; this loop only asserts no STALL (a due seat's sweep
-// producing no progress at all), not that the match actually finishes —
-// same reasoning `examples/tic-tac-toe/test/Bot.test.mo`'s own loop
-// documents, just scaled up for the much larger board here.
+// A large-enough sweep budget for a board that can run up to 81 plies in the
+// worst case
 var round = 0;
 var lastTurn = switch (reg.status(spec, T0, sidBot1)) {
   case (#atTable { view = #inGame v }) v.turn;
@@ -163,11 +146,8 @@ switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
     assert v1.turn > 0;
   };
   case (_, _) {
-    // Either a real #debrief, or (an all-canister debrief acks both
-    // sides immediately — see canister_players.mo's own "canister vs
-    // canister" debrief-ack note) already settled all the way back to
-    // #browsing within the very same sweep call that ended it; either
-    // way, never a stuck #inGame with an unmet due seat.
+    // Either a real #debrief, or (an all-canister debrief acks both sides
+    // immediately
     switch (reg.status(spec, T0, sidBot1)) {
       case (#atTable { view = #debrief _ }) {};
       case (#browsing _) {};

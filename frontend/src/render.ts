@@ -1,25 +1,7 @@
-// Generic view layer for any TwoPlayer-engine-backed game.
-//
-// `status(sid)` returns a per-caller View variant that already encodes
-// which screen to show, so `renderView` is a straight switch on that tag
-// — never reassemble UI policy from raw flags. Every phase except
-// `inGame`/`debrief` is rendered entirely by this module; those two defer
-// the board and action markup to a game-supplied `GamePlugin`:
-//
-//   {
-//     seatLabel(seatTag) => string,                         // "White" / "Black"
-//     renderBoard(gameState, mySeat, oppSeat, yourTurn?) => htmlString,
-//     renderActions(gameState, mySeat) => htmlString,        // buttons; see actionAttr()
-//   }
-//
-// `yourTurn` (only present in an #inGame render, undefined for a
-// debrief's final-state one) is a convenience for a game that puts its
-// own interaction directly on the board (clickable squares) instead of
-// `renderActions`' own separate panel — see GamePlugin's own doc.
-//
-// Everything in this module is a pure function to an HTML string: no
-// DOM, no network, no globals. That's what makes it testable outside a
-// browser, and pluggable with any move/state shape a game defines.
+// Generic view layer: pure functions from a per-caller `Status`/`View` to
+// an HTML string. No DOM, no network. Every phase except `inGame`/
+// `debrief` is rendered entirely here; those two defer the board and
+// action markup to a `GamePlugin` (see types.ts).
 
 import type {
   AwaitingRematchView,
@@ -60,18 +42,14 @@ export function esc(s: unknown): string {
   );
 }
 
-/// Encodes an arbitrary move value into a `data-act` attribute the
-/// framework's click delegation (see app.ts) knows how to decode back
-/// into the exact value to submit — so a game's `Action` can be any
-/// Candid shape, not just a bare nullary variant.
+/// Encodes any move value into the `data-act` attribute app.ts decodes
+/// back for `submit`, so an `Action` can be any Candid shape.
 export function actionAttr(actionValue: unknown): string {
   return `data-act='${esc(JSON.stringify(actionValue))}'`;
 }
 
-/// Text for every engine-level `Err` variant. Games never need to add
-/// cases here — these describe TwoPlayer's own rejections, never a
-/// game's `illegalMove` reason (which the engine already returns as
-/// free text from the game's own `validate`).
+/// Text for every engine-level `Err`; a game's own `illegalMove` reason
+/// is already free text.
 export function errText(e: EngineErr): string {
   const t = tag(e);
   const v = val(e);
@@ -124,81 +102,40 @@ function renderLobby(v: LobbyView, plugin: GamePlugin): string {
     }`;
 }
 
-// ---------------------------------------------------------------------
-// The lobby-of-tables screen (`Status.browsing` — nobody's created or
-// joined a table yet). Two parts: a "create a table" form (seat +
-// open/protected visibility) and the browsable list of tables — open
-// AND protected alike, a protected row just flagged as such. Clicking an
-// open seat on a protected row prompts for its access code (app.ts's
-// `showCodePrompt`) before dispatching the same `joinTable` request an
-// open row's seat button sends directly. See app.ts's click delegation
-// for how each button's dataset is read back into a `createTable`/
-// `joinTable` request.
-// ---------------------------------------------------------------------
-
-// Pure text formatter for a table row's waiting time — shared between the
-// initial render here and app.ts's `makeTableWaitTicker`, which patches
-// this same text in place once a second so it counts up between pushes
-// instead of sitting frozen at whatever `waitingSecs` last read (see that
-// function's own doc for why a bare push alone isn't enough).
+// Shared with app.ts's `makeTableWaitTicker`, which patches this text in
+// place once a second.
 export function waitingText(waitingSecs: bigint): string {
   return `waiting ${waitingSecs}s`;
 }
 
-/// Max length a player id shows at before this truncates it (with a
-/// trailing ellipsis) — a session id is client-chosen and can be
-/// arbitrarily long (a logged-in player's is a full principal, textually
-/// much longer than an anonymous, hand-rolled one), and a table row has
-/// no room to lay one out in full next to its own seat buttons.
 export const PLAYER_ID_MAX_LEN = 16;
 
-/// Truncates `id` to `PLAYER_ID_MAX_LEN` for inline display — `truncated`
-/// tells the caller whether to also attach the untruncated id as a
-/// tooltip (see `renderTableRow`'s own occupant markup): a short id that
-/// already fits needs no `title` attribute repeating itself on hover.
 export function truncatePlayerId(id: string): { text: string; truncated: boolean } {
   if (id.length <= PLAYER_ID_MAX_LEN) return { text: id, truncated: false };
   return { text: `${id.slice(0, PLAYER_ID_MAX_LEN)}…`, truncated: true };
 }
 
-/// A session id's stable per-PLAYER key — mirrors `Ws.playerKey` on the
-/// backend exactly (`mo:duel-game-core/ws`): strips the reserved `ii:`/
-/// `an:` prefix down to the bare principal text, so a caller's own
-/// `session.sid` can be compared against a `LeaderboardEntry.player`
-/// value (see `renderLeaderboard`'s own `yourSid` option, below). Any
-/// other sid — most notably `cp:`, a canister-player session, never
-/// something a browser tab's OWN session is — is returned unchanged.
+/// Mirrors `Ws.playerKey`: strips `ii:`/`an:` to the bare principal text
+/// so a `session.sid` can be compared against `LeaderboardEntry.player`.
 export function playerKeyOf(sid: string): string {
   if (sid.startsWith("ii:")) return sid.slice(3);
   if (sid.startsWith("an:")) return sid.slice(3);
   return sid;
 }
 
-/// Whether a `LeaderboardEntry.player` names a canister-seated player, not
-/// a human — see `mo:duel-game-core/canister_players`'s own
-/// `sidForCanister`/`CP_SID_PREFIX` doc. A human's own key never carries
-/// any prefix at all (`Ws.playerKey`/`playerKeyOf` above already strip
-/// `ii:`/`an:` before a score is ever stored), so a `cp:` prefix
-/// surviving into a stored entry — added deliberately by whichever
-/// `Host.mo` wires canister players, to key a bot's rating/best-lap by
-/// its own stable principal rather than one of its many per-table sids —
-/// is the only marker a leaderboard row can still carry.
+/// A human's key carries no prefix (stripped server-side before storing);
+/// a `cp:` prefix is added back deliberately by a host wiring canister
+/// players, so it is the one marker a leaderboard row can carry.
 const CANISTER_PLAYER_PREFIX = "cp:";
 export function isCanisterPlayer(player: string): boolean {
   return player.startsWith(CANISTER_PLAYER_PREFIX);
 }
 
-/// What a bot's leaderboard key names when it carries no complexity
-/// segment — mirrors `CanisterPlayers.DEFAULT_COMPLEXITY` exactly.
+/// Mirrors `CanisterPlayers.DEFAULT_COMPLEXITY`.
 export const DEFAULT_BOT_COMPLEXITY = "Default";
 
-/// Splits a canister player's leaderboard key — `cp:<principal>:<complexity>`,
-/// `CanisterPlayers.leaderboardKey`'s own shape: the bot's stable
-/// principal, then the complexity it played that game at (everything
-/// after the second `:`, so a complexity may itself contain one) — into
-/// its two halves. The same bot at two complexities is two separate
-/// leaderboard entries, since "Hard" and "Easy" are genuinely different
-/// opponents. `null` for anyone who isn't a canister player at all.
+/// Splits `cp:<principal>:<complexity>` (`CanisterPlayers.leaderboardKey`);
+/// the complexity is everything after the second `:`. `null` for a human.
 export function parseCanisterPlayer(player: string): { principal: string; complexity: string } | null {
   if (!isCanisterPlayer(player)) return null;
   const rest = player.slice(CANISTER_PLAYER_PREFIX.length);
@@ -208,18 +145,11 @@ export function parseCanisterPlayer(player: string): { principal: string; comple
   return { principal: rest.slice(0, sep), complexity: complexity === "" ? DEFAULT_BOT_COMPLEXITY : complexity };
 }
 
-/// `"<name> (<complexity>)"` — how a bot reads everywhere it's shown
-/// (`renderLeaderboard` and `renderBotList` alike), the complexity
-/// always spelled out, `"Default"` included, so a bot that later grows
-/// more ways to play never leaves an older row ambiguous.
+/// `"<name> (<complexity>)"`, the complexity always spelled out.
 export function botDisplayName(name: string, complexity: string): string {
   return `${name} (${complexity})`;
 }
 
-/// `player` for display: a canister player's `cp:` marker stripped and
-/// its complexity spelled out after its bare principal
-/// (`botDisplayName`), same as a human's own key already has no prefix
-/// to strip. Returns `player` unchanged for anyone else.
 export function displayPlayerId(player: string): string {
   const bot = parseCanisterPlayer(player);
   return bot === null ? player : botDisplayName(bot.principal, bot.complexity);
@@ -234,24 +164,16 @@ function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
       const title = truncated ? ` title="${esc(occupant)}"` : "";
       return `<span class="seat-occupant"${title}>${esc(text)}</span>`;
     })();
-    // `data-protected` (bare — read via `"protected" in dataset`, same
-    // idiom as `data-leave`/`data-reset`/...) marks an OPEN seat on a
-    // protected table so app.ts's click delegation knows to prompt for
-    // the access code before dispatching the same `joinTable` request an
-    // open table's seat sends directly — irrelevant, but harmless, on a
-    // disabled (already-taken) seat.
+    // A bare `data-protected` tells app.ts to prompt for the access code
+    // before dispatching the same `joinTable` an open row sends directly.
     return `
     <button class="seat" data-join-table-id="${r.id}" data-join-table="${seat}"${r.protected ? " data-protected" : ""} ${open ? "" : "disabled"}>
       <span class="seat-label">${esc(plugin.seatLabel(seat))}</span>
       ${occupantHtml}
     </button>`;
   };
-  // Empty for a game with no rules variants of its own — `Table.variant`
-  // is always `""` there (see app.ts's `readCreateVariant`), so this
-  // never renders a badge for one. `plugin.formatVariant`, if supplied,
-  // turns the raw stored key into display text; a plugin that omits it
-  // still shows the raw key rather than nothing, so a variant a table
-  // was created with is never silently hidden from a browsing visitor.
+  // Empty for a game without variants (`variant` is always ""). A plugin
+  // without `formatVariant` still shows the raw key rather than nothing.
   const variantHtml = r.variant
     ? ` <span class="variant-badge">${esc(plugin.formatVariant ? plugin.formatVariant(r.variant) : r.variant)}</span>`
     : "";
@@ -269,12 +191,8 @@ function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
 function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): string {
   const seatBtn = (seat: SeatTag) => `
     <button class="seat" data-create-table="${seat}">${esc(plugin.seatLabel(seat))}</button>`;
-  // Absent for a game that implements neither `variantChoices` nor
-  // `formatVariant` (the common case, and every example but
-  // rock-paper-scissors and chopsticks) — see GamePlugin.variantChoices's
-  // own doc. The
-  // FIRST choice is the default selection (`checked`), read back by
-  // app.ts's `readCreateVariant`.
+  // No picker for a game without `variantChoices`; the first choice is the
+  // default, read back by app.ts's `readCreateVariant`.
   const choices = plugin.variantChoices?.() ?? [];
   const variantPicker =
     choices.length === 0
@@ -320,25 +238,9 @@ function renderBusy(v: BusyView): string {
     <p class="countdown">${v.secondsUntilTakeover}s until it can be taken over</p>`;
 }
 
-// Once a staged (not-yet-started) seat is close to going idle, warn its own
-// occupant — status()'s own #stagingYou branch never checks expiry (see
-// lib.mo's comment on it), so without this a player sees a calm "Waiting
-// for an opponent" right up until another tab's `join` legitimately (and
-// silently, from this player's point of view) reclaims the seat — the
-// engine's documented "no ghost lobbies" idle takeover, working exactly as
-// designed, just with no warning attached. Quiet below the threshold so a
-// normal, short wait doesn't carry a running countdown the whole time.
-//
-// Rendered unconditionally (never omitted, just `hidden`) for the same
-// reason `renderInGame`'s idle-reset warning is: `secondsUntilReclaimable`
-// is only ever as fresh as the last push (no push repeats on a bare tick
-// of the clock — see `ws.mo`'s `sweepAndPush` doc), so `app.ts`'s
-// `makeCountdownTicker` needs a stable element to find by id and patch in
-// place every second between pushes — an element that only exists once
-// the threshold is already crossed could never be found BEFORE that, and
-// the countdown would sit frozen exactly like the 007 defect report's
-// finding 05 found it (byte-identical from 5s through 59s, then straight
-// to "seat gone" with no warning ever having appeared).
+// Warns a staged occupant their seat is about to become reclaimable.
+// Rendered unconditionally (just `hidden`) so app.ts's countdown ticker
+// has a stable element to patch between pushes.
 export const DUEL_RECLAIM_WARNING_ID = "duel-reclaim-warning";
 export const RECLAIM_WARNING_SECS = 15n;
 
@@ -351,16 +253,7 @@ export function reclaimWarningText(secondsUntilReclaimable: bigint): string {
 function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string {
   const seat = tag(v.seat) as SeatTag;
   const reclaimWarningHidden = v.secondsUntilReclaimable > RECLAIM_WARNING_SECS;
-  // `"code" in v.visibility` — the only other arm is `{ open: null }` —
-  // names this table's own access code, echoed back ONLY on the
-  // occupant's own view of their OWN table (see types.ts's own doc on
-  // `StagingYouView.visibility`). A protected table's whole feature is
-  // sharing table # (already shown above by the "Table #N" badge
-  // renderStatus prefixes every atTable screen with) and this code with
-  // a friend — without surfacing it here, that was never possible at
-  // all, and the generic "open this page in another tab" copy below is
-  // actively wrong for a protected table: no OTHER tab can take this
-  // seat without the code too.
+  // A protected table's code, present only on the occupant's own view.
   const code = "code" in v.visibility ? v.visibility.code : null;
   return `
     <h2>Waiting for an opponent</h2>
@@ -395,28 +288,7 @@ function renderAwaitingRematch(v: AwaitingRematchView, plugin: GamePlugin): stri
     <p class="muted">Decline (or ignore it) and the seat opens to anyone.</p>`;
 }
 
-// The Forfeit button carries `data-confirm="..."` — app.ts's click
-// delegation shows a confirmation modal before dispatching any button
-// with that attribute, so a mid-game misclick can't hand the round to
-// the opponent unintentionally. The other `data-leave` buttons — staging
-// (renderStagingYou), debrief (renderDebrief), and the Decline button
-// above (renderAwaitingRematch) — deliberately don't carry it: leaving
-// before a game starts, after it's already over, or declining an invite
-// nobody's forced to accept, isn't destructive the same way.
-// A live game's own idle-reset countdown warns IN PLACE, the same idea as
-// `renderStagingYou`'s reclaim warning above but for a seated,
-// in-progress round instead of an unfilled seat — `#inGame` carries the
-// raw countdown fresh as of this push (`secondsUntilIdleReset`) plus the
-// table's own configured timeout (`idleTimeoutSecs`, constant for the
-// table's life), so the threshold scales with whatever timeout THIS
-// table actually runs instead of a hardcoded guess (the reclaim warning
-// above uses a flat `RECLAIM_WARNING_SECS` instead — nothing forces the
-// two to share a policy, they just happen to warn about the same
-// underlying idle-takeover mechanism from two different phases).
-// `app.ts`'s shared `makeCountdownTicker` re-runs `idleWarningText`/
-// `idleWarningThreshold` itself every second, off its own wall clock, to
-// patch #DUEL_IDLE_WARNING_ID's text/visibility in place between pushes —
-// see its own doc for why a push alone would otherwise leave this frozen.
+// The in-game idle warning. Threshold scales with the table's own timeout.
 export const DUEL_IDLE_WARNING_ID = "duel-idle-warning";
 
 export function idleWarningThreshold(idleTimeoutSecs: bigint): bigint {
@@ -430,30 +302,12 @@ export function idleWarningText(secondsUntilIdleReset: bigint): string {
   return `Still thinking? This game will be interrupted ${when} if nobody moves.`;
 }
 
-// The claim clock — `secondsUntilClaimable`/`claimWinAvailable` describe
-// the SAME table-wide clock (time since whichever move went in first this
-// round) from either seat's own point of view, so which of two roles a
-// player is in decides both the wording and whether a button belongs
-// next to it:
-//   - "waiting": YOUR OWN move is locked in and the opponent's is
-//     overdue — offers to claim the win outright instead of waiting them
-//     out.
-//   - "atRisk": the OPPONENT's move is locked in and yours is overdue —
-//     the mirror image, so the still-deciding player can see they're
-//     about to lose by forfeit if they don't act, not just find out after
-//     the fact. No button here; only the "waiting" opponent can actually
-//     claim.
-// These, and the idle-reset warning above (for a player still deciding
-// with NEITHER move overdue in the claim sense — just running long), are
-// mutually exclusive by construction (`youSubmitted`/`oppSubmitted` can't
-// both true — the round would already have resolved) so at most one of
-// the three ever shows at once.
+// The claim clock, seen from two roles: "waiting" (my move is in, the
+// opponent's is overdue — offers the claim) and "atRisk" (the mirror; no
+// button). At most one of these and the idle warning shows at a time.
 export const DUEL_CLAIM_WARNING_ID = "duel-claim-warning";
 export const DUEL_CLAIM_BUTTON_ID = "duel-claim-button";
 
-// Quiet below the threshold, same idea as `renderStagingYou`'s reclaim
-// warning — a normal short wait for the opponent's move doesn't carry a
-// running countdown the whole time, only once it's actually close.
 export function claimWarningThreshold(claimTimeoutSecs: bigint): bigint {
   const half = claimTimeoutSecs / 2n;
   return half < 15n ? half : 15n;
@@ -464,11 +318,6 @@ export function claimWarningText(secondsUntilClaimable: bigint): string {
   return `Your opponent hasn't moved. You'll be able to claim the win ${when} if they still haven't.`;
 }
 
-// The "atRisk" counterpart to `claimWarningText` above — same clock, the
-// OTHER player's own point of view. Deliberately has no "any moment now"-
-// style button to pair with it: only the WAITING player (the one who
-// actually submitted) can claim; this player's only way out is to submit
-// their own move before that happens.
 export function atRiskWarningText(secondsUntilClaimable: bigint): string {
   const when = secondsUntilClaimable <= 0n ? "now" : `in ${secondsUntilClaimable}s`;
   return `You haven't moved yet. Your opponent can claim the win ${when} if you don't.`;
@@ -478,14 +327,7 @@ function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
   const mySeat = tag(v.seat) as SeatTag;
   const oppSeat: SeatTag = mySeat === "p1" ? "p2" : "p1";
   const alternating = "alternating" in v.mode;
-  // A player who already locked in this round can't do anything more about
-  // the idle clock — "Still thinking?" doesn't even apply to them, and the
-  // one actually holding up the round (the opponent) is the one who needs
-  // the nudge, not them. `app.ts`'s `syncIdleTick` mirrors this same
-  // youSubmitted check so the local per-second tick doesn't un-hide it
-  // between pushes either. In `#alternating` mode this is exactly "it's
-  // not your turn" — see `InGameView.mode`'s own doc for why the same
-  // booleans mean the same thing (who's WAITING) in both modes.
+  // A player who already locked in can't do anything about the idle clock.
   const idleWarningHidden =
     v.youSubmitted || v.secondsUntilIdleReset > idleWarningThreshold(v.idleTimeoutSecs);
   const claimRole: "waiting" | "atRisk" | null = v.youSubmitted
@@ -516,11 +358,7 @@ function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
       claimRole === null
         ? ""
         : (() => {
-            // "waiting": once claimable, the countdown text steps aside
-            // for the button below it — showing both would be redundant.
-            // "atRisk" has no button to step aside for, so the text just
-            // keeps reading "now" for as long as the opponent hasn't
-            // actually clicked it (or the player finally moves).
+            // Once claimable, the "waiting" text steps aside for the button.
             const text =
               claimRole === "waiting"
                 ? claimWarningText(v.secondsUntilClaimable)
@@ -590,11 +428,7 @@ function renderEndedByOther(): string {
     <p><button data-ack class="primary">Return to lobby</button></p>`;
 }
 
-/// View -> HTML. One branch per per-table engine phase; `inGame`/
-/// `debrief` delegate the board/action markup to `plugin`. Always
-/// reached through `renderStatus` below via a `Status.atTable` — never
-/// called directly on a `browsing` status, which has no single table's
-/// `View` to speak of.
+/// One table's `View` -> HTML. Reached via `renderStatus`'s `atTable`.
 export function renderView<S>(view: View<S>, plugin: GamePlugin<S>): string {
   const t = tag(view as object);
   const v = val(view as object);
@@ -618,10 +452,7 @@ export function renderView<S>(view: View<S>, plugin: GamePlugin<S>): string {
   }
 }
 
-/// Status -> HTML, the top-level entry point `app.ts` renders every
-/// screen through. `browsing` is the multi-table lobby (`renderBrowsing`
-/// above); `atTable` prefixes a small "Table #N" badge and delegates the
-/// rest to `renderView`.
+/// `Status` -> HTML, the top-level entry point.
 export function renderStatus<S>(status: Status<S>, plugin: GamePlugin<S>): string {
   const t = tag(status as object);
   const v = val(status as object);
@@ -637,35 +468,12 @@ export function renderStatus<S>(status: Status<S>, plugin: GamePlugin<S>): strin
   }
 }
 
-/// Renders a ranked `LeaderboardEntry[]` (as returned by a host's own
-/// `get_leaderboard` query — see `../../backend/README.md`'s
-/// "Leaderboard" section) into HTML. Entirely game-optional and never
-/// wired into `renderView`/`renderStatus` above: unlike the lobby/
-/// staging/debrief chrome, a leaderboard has no fixed place in every
-/// game's own layout (007/checkers might put it in a persistent tab;
-/// racing might put it beside its own `Add Bot` panel — see
-/// `examples/racing/CLAUDE.md`), so a game calls this directly, wherever
-/// it mounts its own panel. `entries` is assumed already in rank order
-/// (`Leaderboard.top`'s own contract, highest score first); this
-/// function does no sorting of its own. `plugin.formatScore` renders
-/// each entry's own `score` — see that field's own doc for why a plain
-/// integer is the correct default for an ELO-scored game. `opts.yourSid`
-/// — pass the caller's own `session.sid` — picks out that player's own
-/// row (a "You" badge, plus a `.you` class on the row for a game's own
-/// stylesheet to highlight) via `playerKeyOf`, above; omit it (or leave
-/// the caller off the ranked slice entirely) and no row is marked. A
-/// canister-seated player's own row (`isCanisterPlayer`, above) gets a
-/// 🤖 icon and reads as `"<principal> (<complexity>)"` — its `cp:`
-/// marker stripped, the same as a human's own key already shows with no
-/// prefix at all, and the complexity it played at spelled out, since
-/// each of a bot's complexities is its own separately-rated row — or,
-/// when `opts.botNames` names that exact principal, its own
-/// self-reported alias (`BotInfo.name`, from `list_bots()`) in place of
-/// the bare principal text, `"CheckersBot (Hard)"`; the full raw key
-/// always stays in the row's own `title` attribute either way, so the
-/// principal is still one hover away. A bot row's own Challenge button
-/// carries that row's exact complexity (`data-bot-complexity`), so
-/// clicking it challenges the bot at the way of playing that row rates.
+/// Renders a ranked `get_leaderboard()` result. Never wired into
+/// `renderStatus`; a game mounts it itself. `opts.yourSid` badges the
+/// caller's row; a canister player's row shows 🤖, `"<name or principal>
+/// (<complexity>)"` (name from `opts.botNames`, keyed by principal text),
+/// the raw key in `title`, and a Challenge button carrying that row's
+/// complexity. See ../README.md, "Leaderboard".
 export function renderLeaderboard(
   entries: LeaderboardEntry[],
   plugin: GamePlugin,
@@ -678,26 +486,11 @@ export function renderLeaderboard(
   const format = plugin.formatScore ?? ((score: bigint) => score.toString());
   const rows = entries
     .map((e, i) => {
-      // Unlike `renderTableRow`'s own `truncatePlayerId` (a fixed
-      // 16-char cutoff, sized for a cramped table row next to seat
-      // buttons), a leaderboard row has real width to spare — the full
-      // id is rendered here and left to `.leaderboard-player`'s own CSS
-      // (`overflow: hidden; text-overflow: ellipsis`) to clip responsively
-      // against whatever width it actually gets, showing far more of the
-      // principal on a wide screen than a fixed char count ever would.
-      // `title` is unconditional here (unlike `renderTableRow`'s, which
-      // only adds one once ITS OWN fixed-length truncation actually
-      // fired) since there's no way to know in advance whether THIS id
-      // will get CSS-clipped at the viewer's own width.
+      // The full id is rendered and left to CSS to clip; `title` is
+      // unconditional since clipping depends on the viewer's width.
       const isYou = you !== undefined && e.player === you;
       const bot = parseCanisterPlayer(e.player);
       const botIcon = bot !== null ? `<span class="leaderboard-bot-icon" title="Canister player">🤖</span>` : "";
-      // `LeaderboardEntry` itself carries no friendly bot NAME (just
-      // `{player, score, updatedAt}`) — `opts.botNames` (typically built
-      // from a `list_bots()` call fetched alongside this same panel) is
-      // how a caller supplies one; falling back to the bare principal
-      // keeps every OTHER caller (and a bot this host has no directory
-      // entry for any more) working exactly as before.
       const botName = bot !== null ? (opts?.botNames?.get(bot.principal) ?? bot.principal) : "";
       const displayName = bot !== null ? botDisplayName(botName, bot.complexity) : e.player;
       const challengeBtn =
@@ -717,22 +510,9 @@ export function renderLeaderboard(
   return `<div class="leaderboard">${rows}</div>`;
 }
 
-/// Renders the bot list a "Bots" dialog shows — `list_bots()`'s own
-/// ranked result (see `mo:duel-game-core/canister_players`'s `BotEntry`
-/// doc: highest-rated bot first, unrated last), one row per bot AND
-/// complexity, in the bot's own declared order, each reading
-/// `"<name> (<complexity>)"` exactly as that same bot-complexity's row
-/// on the leaderboard does. Picking a way of playing IS picking a row:
-/// each row's `Challenge` button carries the same `data-challenge-bot`/
-/// `data-bot-name`/`data-bot-complexity` attributes `renderLeaderboard`'s
-/// own Challenge button (above) carries, so a game wires ONE click
-/// handler for both entry points and never needs a separate
-/// complexity-choice step — a bot with one way to play is simply one
-/// row, `"<name> (Default)"`. `elo` is shown only when this host actually
-/// wires a leaderboard at all (`BotComplexity.elo` is non-empty for every
-/// row alike, or empty for every row alike — see that field's own doc);
-/// `plugin.formatScore` renders it exactly like `renderLeaderboard`
-/// does, so a rating reads the same wherever it appears.
+/// Renders `list_bots()`: one row per bot AND complexity, in declared
+/// order, each with the same Challenge attributes `renderLeaderboard`'s
+/// bot rows carry, so a game wires one click handler for both.
 export function renderBotList(bots: BotInfo[], plugin: GamePlugin): string {
   if (bots.length === 0) {
     return `<p class="muted">No bots have registered with this game yet.</p>`;
@@ -756,15 +536,8 @@ export function renderBotList(bots: BotInfo[], plugin: GamePlugin): string {
   return `<div class="leaderboard">${rows}</div>`;
 }
 
-/// The seat picker a challenge flow shows once a bot's been chosen and
-/// this player isn't already staging a table (see each game's own
-/// `duel-app.js`/`app.js` for the full flow). Standalone, not part of
-/// `renderBrowsing`'s own "Start a new table" section — a challenge
-/// dialog lives OUTSIDE `#screen`, so it needs its own copy of the same
-/// two-button seat picker rather than reaching into generically-owned
-/// markup. `data-challenge-seat` carries the chosen `SeatTag` — never
-/// `data-create-table`, `renderBrowsing`'s own attribute, wired to a
-/// different handler entirely.
+/// The seat picker a challenge dialog (outside `#screen`) shows before
+/// creating a table for a bot. Buttons carry `data-challenge-seat`.
 export function renderSeatChoice(plugin: GamePlugin): string {
   const seatBtn = (seat: SeatTag) => `
     <button type="button" class="seat" data-challenge-seat="${seat}">${esc(plugin.seatLabel(seat))}</button>`;

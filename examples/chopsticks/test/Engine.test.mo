@@ -1,12 +1,6 @@
-// Chopsticks rules plugged into the REAL engine (`Table`, not a synthetic
-// call to `validate`/`resolve` directly) — focused on what's specific to
-// an #alternating game: turn-order enforcement through `submit`, claim-win
-// gated to the waiting seat, and the table's own `variant` reaching
-// `init`. The engine's own generic #alternating mechanics already have
-// their own exhaustive suite in duel-game-core itself
-// (backend/test/Alternating.test.mo).
-// Run: moc -r --package core <core/src> --package duel-game-core
-//      <duel-game-core-backend/src> test/Engine.test.mo
+// Chopsticks rules plugged into the real `Table`: turn-order enforcement,
+// claim-win gated to the waiting seat, and the table's `variant` reaching
+// `init`.
 import TP "mo:duel-game-core";
 import Table "mo:duel-game-core/table";
 import Rules "../src/ChopsticksRules";
@@ -53,8 +47,7 @@ func liveGame(at : Int, variant : Text) : Tbl {
 
 let ATTACK_LL : Rules.Action = #attack { from = #l; to = #l };
 
-// ── 1. status reports #alternating mode; p1 moves first; the table's own
-//        variant text reached init ─────────────────────────────────────────
+// ── 1. status reports #alternating mode ────────────────────────────────────
 var t = liveGame(T0, "instructables");
 switch (t.status(spec, T0, "a")) {
   case (#inGame v) {
@@ -77,8 +70,7 @@ switch (t.submit(spec, T0, "b", genOf(t, T0, "b"), turnOf(t, T0, "b"), ATTACK_LL
 };
 Debug.print("2. off-turn submit rejected OK");
 
-// ── 3. a legal opening resolves immediately and passes the turn; an
-//        illegal split is refused with #illegalMove ─────────────────────────
+// ── 3. a legal opening resolves immediately and passes the turn ────────────
 t := liveGame(T0, "");
 switch (ok(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), ATTACK_LL), "a's opening")) {
   case (#roundResolved 1) {};
@@ -101,7 +93,7 @@ switch (t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), #split { 
 };
 Debug.print("3. opening + reply, turn alternates, pure swap rejected OK");
 
-// ── 4. claim-win: only the waiting seat may claim, and only once overdue ────
+// ── 4. claim-win: only the waiting seat may claim, and only once overdue ───
 t := liveGame(T0, "");
 ignore ok(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), ATTACK_LL), "a's opening");
 let aGen = genOf(t, T0, "a");

@@ -2,10 +2,7 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 // ic-env.ts reads `document.cookie`/`window.location` at call time (not
-// module-load time), so stubbing these globals before each call is
-// enough — no need for a real DOM. Deleted again in afterEach so a
-// stubbed `document`/`window` never leaks into another test file if
-// node:test ever runs this process without per-file isolation.
+// module-load time), so stubbing these globals before each call is enough
 
 afterEach(() => {
   delete (globalThis as { document?: unknown }).document;
@@ -46,11 +43,8 @@ test("deriveHost: localhost keeps the port, drops any subdomain", async () => {
 
 test("deriveHost: icp0.io / ic0.app strip the canister subdomain, keep the parent", async () => {
   const { deriveHost } = await import("../src/ic-env.js");
-  // The bare parent domain IS the boundary-node API host for these two,
-  // so stripping the canister-id subdomain is what keeps the call
-  // same-site. A hardcoded icp0.io fallback used for a *.icp.net page
-  // instead is exactly the bug the 007 defect report's finding 03
-  // reproduced: every call refused by CORS.
+  // The bare parent domain IS the boundary-node API host for these two, so
+  // stripping the canister-id subdomain is what keeps the call same-site.
   assert.equal(
     withLocation({ protocol: "https:", hostname: "abc123.icp0.io", port: "" }, () => deriveHost()),
     "https://icp0.io",
@@ -63,13 +57,8 @@ test("deriveHost: icp0.io / ic0.app strip the canister subdomain, keep the paren
 
 test("deriveHost: icp.net keeps the page's own origin unchanged, does NOT strip to the parent", async () => {
   const { deriveHost } = await import("../src/ic-env.js");
-  // Unlike icp0.io/ic0.app, the bare parent domain (`icp.net`) is
-  // icp-cli's own marketing/dashboard host, not an API endpoint — it
-  // 307-redirects instead of answering `/api/v2/status`. This page's OWN
-  // `<canister-id>.icp.net` origin is the one confirmed (live, via curl)
-  // to proxy `/api/v2`/`/api/v3` for any target canister id, and it's
-  // already covered by this asset canister's own CSP `'self'` — so the
-  // fix is to leave the subdomain in place, not strip it.
+  // Unlike icp0.io/ic0.app, the bare parent domain (`icp.net`) is icp-cli's
+  // own marketing/dashboard host, not an API endpoint
   assert.equal(
     withLocation({ protocol: "https:", hostname: "abc123.icp.net", port: "" }, () => deriveHost()),
     "https://abc123.icp.net",

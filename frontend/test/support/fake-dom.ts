@@ -1,35 +1,7 @@
-// A hand-rolled, purpose-built DOM stand-in for testing app.ts in Node
-// (no `document` global there) — deliberately NOT a general-purpose DOM
-// implementation. It only implements the exact surface app.ts touches:
-// getElementById/createElement, addEventListener/dispatch,
-// classList.add/remove, dataset, and innerHTML/textContent as plain
-// string properties.
-//
-// Pulling in a real DOM implementation (e.g. jsdom) as a devDependency
-// was considered and rejected: this package's whole ethos (see the root
-// CLAUDE.md's rule 10) is staying dependency-free everywhere it can, and
-// the actual DOM surface app.ts needs is small enough that a real
-// implementation would mostly sit unused.
-//
-// One narrow exception: assigning `innerHTML` DOES parse out `<button
-// ...>` tags, any element carrying a `data-wait-base` attribute, and
-// `<input ...>` tags into real child FakeElements (see
-// `parseTaggedElements` below), just enough that `querySelectorAll
-// ("button")`, `querySelectorAll("[data-wait-base]")`, and the two
-// literal `<input>` selectors app.ts's create-form state capture/restore
-// asks for (see FakeElement.querySelector below) can all answer
-// honestly. This exists specifically so a test can reproduce a
-// re-render REPLACING an element mid-flight (an unrelated push tick
-// redrawing the screen while this tab's own call is still pending, a
-// fresh browsing-list render re-baselining the wait ticker, or the
-// create-table form's own live input surviving that same redraw) and
-// assert on the freshly created node, the way a real browser's own
-// querySelector(All) would hand back a new node too — not just on the
-// exact object a test built by hand with makeButton(). It is still not
-// a general HTML parser: only `<button>`/`<input>` tags and elements
-// with `data-wait-base` are recognized, and only a handful of attributes
-// are read off them (`class`/`disabled`/`data-*` for any tag; `id`/
-// `name`/`value`/`checked`/`hidden` additionally for `<input>`).
+// A hand-rolled DOM stand-in for testing app.ts in Node: only the surface
+// app.ts touches. Assigning `innerHTML` parses `<button>`/`<input>` tags and
+// `data-wait-base` elements into child elements so querySelector(All) can
+// answer for freshly re-rendered nodes.
 
 const TAGGED_EL_RE = /<(button|span|input)\b([^>]*)>/gi;
 const ATTR_RE = /([\w-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'))?/g;
@@ -142,18 +114,7 @@ export class FakeElement {
     return child;
   }
 
-  /// Recognizes the `<input name="table-visibility">` selectors app.ts
-  /// passes — `:checked` (captureCreateFormState) and `[value="..."]`
-  /// (restoreCreateFormState, and the pre-existing readCreateVisibility)
-  /// — answered from the children the last `innerHTML` assignment parsed
-  /// out (see parseTaggedElements() above), same idea as
-  /// querySelectorAll below. Genuinely returns `null` on no match, like
-  /// a real DOM, since app.ts's own null-checks on these two selectors
-  /// are exactly what this file exists to exercise. Any OTHER selector
-  /// falls back to the same always-same-stub element as before these
-  /// existed (enough for `confirmOverlay.querySelector(".duel-confirm-
-  /// msg")`, which this file still never parses `innerHTML` for
-  /// honestly).
+  /// Recognizes the `<input name="table-visibility">` selectors app.ts passes
   querySelector(sel: string): FakeElement | null {
     if (sel === 'input[name="table-visibility"]:checked') {
       return this.children.find((c) => c.tagName === "input" && c.name === "table-visibility" && c.checked) ?? null;
@@ -169,12 +130,9 @@ export class FakeElement {
     return (this._sub ??= new FakeElement());
   }
 
-  /// Only "button" and "[data-wait-base]" are recognized (the two
-  /// selectors app.ts ever passes, to applyLoadingState() and
-  /// makeTableWaitTicker() respectively) — answered from the children the
-  /// last `innerHTML` assignment parsed out (see parseTaggedElements()
-  /// above). Any other selector returns empty, same as before this
-  /// existed.
+  /// Only "button" and "[data-wait-base]" are recognized (the two selectors
+  /// app.ts ever passes, to applyLoadingState() and makeTableWaitTicker()
+  /// respectively)
   querySelectorAll(sel: string): FakeElement[] {
     if (sel === "button") return this.children.filter((c) => c.tagName === "button");
     if (sel === "[data-wait-base]") return this.children.filter((c) => "waitBase" in c.dataset);
@@ -212,11 +170,8 @@ export function makeFakeDocument(elements: Record<string, FakeElement> = {}): Fa
   const body = new FakeElement();
   const listeners: Record<string, Listener[]> = {};
   // `getElementById` falls back to whatever `elements.screen`'s last
-  // `innerHTML` assignment parsed out (see parseTaggedElements() above)
-  // once the pre-seeded map itself has no entry — app.ts's `$()` looks
-  // up form fields (create-code, joinbycode-id, joinbycode-code) that
-  // only ever exist there, rendered dynamically by render.ts, never
-  // pre-seeded like sid/new-sid/error/screen themselves.
+  // `innerHTML` assignment parsed out (see parseTaggedElements() above) once
+  // the pre-seeded map itself has no entry
   const getElementById = (id: string): FakeElement | null =>
     elements[id] ?? elements.screen?.children.find((c) => c.id === id) ?? null;
   return {

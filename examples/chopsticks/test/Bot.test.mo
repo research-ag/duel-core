@@ -1,14 +1,7 @@
-// Proves the chopsticks bot (`../bot/Bot.mo`/`BotLogic.mo`) three ways:
-// (1) every tier only ever returns a `ChopsticksRules.legalActions`-listed
-// move, in both variants; (2) the Bunny/Fox/Bear ladder is real — Fox
-// takes an immediate win and never hands one over, Bear does the same and
-// beats both tiers below it from either seat in either variant; and (3)
-// wired live through `mo:duel-game-core/canister_players`, two
-// canister-seated bots play each other through several real #alternating
-// plies, each ask carrying its seat's own complexity. `BotLogic.chooseMove`
-// is used directly as the `callBot` continuation, so no real second
-// canister is needed here, same as `examples/tic-tac-toe/test/Bot.test.mo`.
-// Run: mops test Bot
+// Proves the chopsticks bot: every tier stays within `legalActions` in both
+// variants, the Bunny/Fox/Bear ladder holds in play-outs, and two canister-
+// seated bots play real plies through `canister_players`, each ask carrying
+// its seat's complexity.
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Nat "mo:core/Nat";
@@ -74,8 +67,7 @@ do {
 };
 Debug.print("1. every tier always picks a Rules.legalActions-listed move; an undeclared complexity plays Bunny OK");
 
-// ── 2. Fox and Bear take an immediate win; Fox and Bear never hand the
-//        opponent one, where Bunny does ─────────────────────────────────────
+// ── 2. Fox and Bear take an immediate win ──────────────────────────────────
 do {
   // p1 (2,0) vs p2 (3,0): tapping 2 onto the 3 puts p2's last hand out.
   let winNow = pos(#classic, (2, 0), (3, 0));
@@ -97,9 +89,8 @@ do {
 };
 Debug.print("2. Fox/Bear win at once when they can and never hand over an immediate win OK");
 
-// ── 3. the ladder holds in full play-outs from the opening: Bear beats
-//        Bunny and Fox from either seat in either variant; Fox beats Bunny
-//        in classic from either seat ─────────────────────────────────────────
+// ── 3. the ladder holds in full play-outs from the opening: Bear beats Bunny
+//      and Fox from either seat in either variant ───────────────────────────
 func playOut(variant : Text, p1Complexity : Text, p2Complexity : Text, maxPlies : Nat) : ?TP.Verdict {
   var s = Rules.init(variant);
   var seat : TP.Seat = #p1;
@@ -130,10 +121,8 @@ assert playOut("", "Fox", "Bunny", 60) == ?#p1Wins;
 assert playOut("", "Bunny", "Fox", 60) == ?#p2Wins;
 Debug.print("3. Bear beats Fox and Bunny from either seat in both variants; Fox beats Bunny in classic OK");
 
-// ── 4. wired live through canister_players.mo, two canister seats play
-//        each other through several real #alternating plies — bot1 seated
-//        as "Bear", bot2 at its default, each ask carrying the seat's own
-//        complexity ───────────────────────────────────────────────────────
+// ── 4. wired live through canister_players.mo, two canister seats play each
+//      other through several real #alternating plies ────────────────────────
 let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;

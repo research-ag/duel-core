@@ -18,8 +18,7 @@ persistent actor {
     await h.join_table_as_canister(tableId, seat, code, complexity);
   };
 
-  // One-time, by hand, after both canisters are deployed — see
-  // `../CLAUDE.md`'s `bot/Bot.mo` bullet.
+  // Called once by hand after both canisters are deployed.
   public shared ({ caller }) func register(host : Principal.Principal, name : Text) : async () {
     assert Principal.isController(caller);
     let h : Host = actor (host.toText());

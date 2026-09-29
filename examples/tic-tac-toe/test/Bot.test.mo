@@ -1,17 +1,7 @@
-// Proves the tic-tac-toe bot (`../bot/Bot.mo`/`BotLogic.mo`, the
-// rule-following canister player) two ways: (1) `BotLogic.chooseMove`
-// only ever returns a `TicTacToeRules.legalActions`-listed move for a
-// handful of synthetic positions, including the board's very last empty
-// cell (where exactly one result exists at all); and (2) wired live
-// through `mo:duel-game-core/canister_players`, two canister-seated bots
-// play each other through several real `#alternating` plies — the
-// specific proof this shape calls for: `#p1` moving first, then the due
-// seat correctly alternating as the turn passes, with no illegal move and
-// no stall. `BotLogic.chooseMove` is used directly as the `callBot`
-// continuation, so no real second canister is needed here, same as
-// `backend/test/CanisterPlayers.test.mo` and
-// `examples/checkers/test/Bot.test.mo`.
-// Run: mops test Bot
+// Proves the tic-tac-toe bot: Easy stays within `legalActions` (including the
+// last empty cell), Hard wins, blocks, draws itself and never loses to Easy,
+// and two canister-seated bots play real plies through `canister_players`,
+// each ask carrying its seat's complexity.
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Nat "mo:core/Nat";
@@ -35,8 +25,7 @@ func withMarks(marks : [(Nat, TP.Seat)]) : Rules.Board {
   b;
 };
 
-// ── 1. chooseMove never strays outside legalActions — including on the
-//        board's very last empty cell, where only ONE result exists ───────
+// ── 1. chooseMove never strays outside legalActions ────────────────────────
 do {
   let s0 = Rules.init("");
   for (turn in Nat.range(0, 9)) {
@@ -92,8 +81,7 @@ do {
 Debug.print("1. BotLogic.chooseMove always picks a Rules.legalActions-listed move, including the last empty cell OK");
 
 // ── 2. "Hard" — full minimax: takes an immediate win, blocks an immediate
-//        threat, draws against itself, and never loses to "Easy"; any
-//        complexity it doesn't declare plays exactly like "Easy" ────────
+//      threat, draws against itself, and never loses to "Easy" ──────────────
 func reqFor(board : Rules.Board, seat : TP.Seat, turn : Nat, complexity : Text) : TP.MoveRequest<Rules.State, Rules.Action> = {
   tableId = 0;
   seat;
@@ -146,10 +134,8 @@ do {
 };
 Debug.print("2. Hard wins/blocks immediately, draws itself, never loses to Easy; an undeclared complexity plays Easy OK");
 
-// ── 3. wired live through canister_players.mo, two canister seats play
-//        each other through several real #alternating plies — bot1
-//        seated as "Hard", bot2 at its default, each ask carrying the
-//        seat's own complexity ──────────────────────────────────────────
+// ── 3. wired live through canister_players.mo, two canister seats play each
+//      other through several real #alternating plies ────────────────────────
 let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
@@ -187,11 +173,8 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
 let id = ok(await* cp.createTable(bot1, #p1, #open, "", "Hard"), "bot1 creates a table, playing Hard");
 let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "Hard");
 let sidBot2 = CanisterPlayers.sidForCanister(bot2, id, "");
-// bot2's own joinTable eagerly triggers the opening plies with no sweep
-// at all — the #alternating counterpart to
-// backend/test/CanisterPlayers.test.mo's own "bot-vs-bot: the SECOND
-// bot's own joinTable eagerly triggers" check, proving #p1 moves first
-// when canister-seated at game start.
+// bot2's own joinTable eagerly triggers the opening plies with no sweep at
+// all
 ignore ok(await* cp.joinTable(bot2, id, #p2, null, ""), "bot2 joins; game starts");
 switch (atTableView(reg, T0, sidBot1)) {
   case (#inGame v) assert v.turn > 0; // #p1's own opening move already resolved
@@ -200,10 +183,7 @@ switch (atTableView(reg, T0, sidBot1)) {
 
 // `maybeNotifyBoth` re-reads status fresh between checking p1 and p2 (see
 // `canister_players.mo`'s own doc), so one `sweep` call typically resolves
-// TWO plies here (whichever seat is due, then — immediately due in
-// turn — the other), not one; this loop doesn't depend on that exact
-// count, only that #inGame never stalls (a sweep call that finds a due
-// seat but makes no progress at all) across several calls.
+// TWO plies here (whichever seat is due, then
 var round = 0;
 var lastTurn = switch (atTableView(reg, T0, sidBot1)) {
   case (#inGame v) v.turn;
@@ -228,13 +208,8 @@ switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
     assert v1.turn > 0; // at least the opening ply, and no sweep call ever stalled
   };
   case (_, _) {
-    // the board is small enough that one seat has very plausibly already
-    // won or drawn by now — either a real #debrief, or (since an
-    // all-canister debrief acks both sides immediately — see
-    // canister_players.mo's own "canister vs canister" debrief-ack note)
-    // already settled all the way back to #browsing within the very same
-    // sweep call that ended it; either way, never a stuck #inGame with an
-    // unmet due seat.
+    // the board is small enough that one seat has very plausibly already won
+    // or drawn by now
     switch (reg.status(spec, T0, sidBot1)) {
       case (#atTable { view = #debrief _ }) {};
       case (#browsing _) {};

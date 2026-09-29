@@ -1,11 +1,4 @@
-// Per-operation unit checks for `Registry` — the multi-table registry
-// layered on top of the single-`Table` engine (see `Engine.test.mo`,
-// which already covers every per-table primitive `Lobby` itself
-// delegates into). This suite drives `createTable`/`listTables`/
-// `joinTable` and the routed `submit`/`rematch`/`leave`/`reset`/
-// `ackEnded`/`status`, with several tables live at once, on a FRESH
-// registry per scenario. Plugged-in rules: FakeGame.mo.
-// Run: moc -r --package core <core/src> test/Lobby.test.mo
+// Per-operation unit checks for `Registry`, with several tables live at once.
 import Rules "FakeGame";
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
@@ -72,12 +65,12 @@ let id2 = ok(reg.createTable(spec, T0, "z", #p1, #open, ""), "z creates a second
 assert id2 == 2;
 Debug.print("1. createTable seats the creator, ids are sequential OK");
 
-// ── 2. a session already at a table can't create or join another ──────────
+// ── 2. a session already at a table can't create or join another ───────────
 expectErr(reg.createTable(spec, T0, "a", #p2, #open, ""), "a tries to create a second table");
 expectErr(reg.joinTable(spec, T0, "a", id2, #p2, null), "a tries to join z's table too");
 Debug.print("2. already-at-a-table guard blocks create/join OK");
 
-// ── 3. listTables: open tables with a free seat, occupant ids included ────
+// ── 3. listTables: open tables with a free seat, occupant ids included ─────
 switch (reg.listTables(T0)) {
   case (rows) {
     assert rows.size() == 2; // id1, id2 — both p1-taken/p2-open
@@ -125,7 +118,7 @@ switch (atTableView(reg, T0, "a")) {
 };
 Debug.print("3. listTables lists open AND protected tables, with occupant ids OK");
 
-// ── 4. joinTable: bad id, bad/missing code, correct code, open needs none ──
+// ── 4. joinTable: bad id, bad/missing code, correct code, open needs none ───
 switch (reg.joinTable(spec, T0, "b", 9999, #p2, null)) {
   case (#err(#noSuchTable)) {};
   case (_) Runtime.trap("a bogus table id should be #noSuchTable");
@@ -148,7 +141,7 @@ switch (ok(reg.joinTable(spec, T0, "z2", id1, #p2, null), "z2 joins the open tab
 };
 Debug.print("4. joinTable: #noSuchTable / #badCode / correct code / open needs none OK");
 
-// ── 5. routing: a move on one table never touches another ─────────────────
+// ── 5. routing: a move on one table never touches another ──────────────────
 // id1 now has a(p1)/z2(p2) live; idProt has q(p1)/b(p2) live.
 ignore ok(
   reg.submit(spec, T0, "a", genOf(reg, T0, "a"), turnOf(reg, T0, "a"), #gather),
@@ -160,7 +153,7 @@ switch (atTableView(reg, T0, "q")) {
 };
 Debug.print("5. submit routes to the acting session's own table only OK");
 
-// ── 6. leave returns the session to browsing and GCs an empty table ───────
+// ── 6. leave returns the session to browsing and GCs an empty table ────────
 ignore ok(reg.leave(T0, "z", genOf(reg, T0, "z")), "z (alone, staging id2) leaves");
 switch (reg.status(spec, T0, "z")) {
   case (#browsing _) {};
@@ -171,7 +164,7 @@ let id3 = ok(reg.createTable(spec, T0, "z", #p1, #open, ""), "z creates a fresh 
 assert id3 != id2; // ids are never reused, even once GC'd
 Debug.print("6. leave returns to browsing and GCs an empty table; ids are never reused OK");
 
-// ── 7. an idle table resurfaces through listTables, in any phase ──────────
+// ── 7. an idle table resurfaces through listTables, in any phase ───────────
 // id1 (a vs z2) sits idle past the timeout without anyone visiting it.
 var idle1Found = false;
 for (r in reg.listTables(LATER).values()) {
@@ -193,15 +186,9 @@ switch (reg.status(spec, LATER, "a")) {
 };
 Debug.print("7. idle takeover resurfaces via listTables; ackEnded returns to browsing OK");
 
-// ── 8. a permanently-unacked notice doesn't pin a ghost table forever ─────
-// Regression for a real bug: a's/b's game goes idle and nobody ever visits
-// to ack the notice sweep records for them (e.g. both closed their tab for
-// good) — that alone used to keep the table in the registry forever, even
-// once c/d play an entirely separate, cleanly-finished game on the very
-// same freed board afterward: it kept resurfacing in `listTables`,
-// reporting itself freshly "open" (`waitingSecs == 0`, since an `#empty`
-// table's "since" is always `now` — see `openness`'s own doc), on every
-// single load, forever.
+// ── 8. a permanently-unacked notice doesn't pin a ghost table forever ──────
+// Regression for a real bug: a's/b's game goes idle and nobody ever visits to
+// ack the notice sweep records for them (e.g. both closed their tab for good)
 let reg8 = fresh();
 let idG = ok(reg8.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
 ignore ok(reg8.joinTable(spec, T0, "b", idG, #p2, null), "b joins; game live");
@@ -237,10 +224,7 @@ switch (reg8.status(spec, LONG_AFTER, "a")) {
 Debug.print("8. a permanently-unacked notice is eventually pruned, unblocking GC OK");
 
 // ── 9. the exact reported bug: a clicks "Return to lobby", THEN b clicks
-//        "Rematch" — b must not be stranded waiting on a reservation for a
-//        partner who already left; a never sees anything because they
-//        genuinely aren't a participant any more (see architecture rule
-//        12) — that's correct, not a missed notification ────────────────
+//      "Rematch" ────────────────────────────────────────────────────────────
 let reg9 = fresh();
 let idR = ok(reg9.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
 ignore ok(reg9.joinTable(spec, T0, "b", idR, #p2, null), "b joins; game live");
@@ -268,7 +252,7 @@ ignore ok(reg9.joinTable(spec, T0, "c", idR, #p1, null), "an unrelated visitor t
 Debug.print("9. rematch after the partner already left doesn't strand the requester OK");
 
 // ── 10. a still-live rematch invite can be DECLINED, not just accepted or
-//         silently waited out ─────────────────────────────────────────────
+//      silently waited out ──────────────────────────────────────────────────
 let reg10 = fresh();
 let idR2 = ok(reg10.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
 ignore ok(reg10.joinTable(spec, T0, "b", idR2, #p2, null), "b joins; game live");
@@ -293,14 +277,8 @@ switch (atTableView(reg10, T0, "a")) {
 ignore ok(reg10.joinTable(spec, T0, "c", idR2, #p2, null), "an unrelated visitor takes the declined seat");
 Debug.print("10. a still-live rematch invite can be declined, not just accepted or ignored OK");
 
-// ── 11. a session a phase transition moved past isn't locked out of the
-//         game FOREVER — regression for a real, critical shipped bug:
-//         nothing ever cleared `bySession` off a transition that happens
-//         without `leave`/`reset`/`ackEnded` running (a staging timeout,
-//         an eviction by someone ELSE's `join`, or a debrief expiring
-//         pre-acked), so `createTable`/`joinTable` refused that session
-//         with `#wrongPhase` forever after — surviving even a fresh
-//         reload, since the session id itself was what was poisoned ────
+// ── 11. a session a phase transition moved past isn't locked out of the game
+//      FOREVER ──────────────────────────────────────────────────────────────
 
 // 11a. nobody ever joins the abandoned seat, and no `sweep` has even run
 //        — time passing alone must be enough; the fix can't depend on a
@@ -333,12 +311,7 @@ ignore ok(reg11c.createTable(spec, LATER, "a", #p1, #open, ""), "a (never left/a
 ignore ok(reg11c.createTable(spec, LATER, "b", #p1, #open, ""), "b (never left/acked their own debrief) can still create again too");
 Debug.print("11c. a debrief expiring pre-acked doesn't lock either participant out either OK");
 
-// ── 12. createTable rejects a `#code("")` table — regression: it used to
-//          be accepted with no validation, producing a table unlisted
-//          (protected) AND unjoinable by anyone (joinTable sends no code
-//          at all whenever its own code field is empty, so an empty
-//          stored code could never be matched) — the creator's own seat
-//          would then just sit there until it expired into N1 ─────────
+// ── 12. createTable rejects a `#code("")` table ────────────────────────────
 let reg12 = fresh();
 expectErr(reg12.createTable(spec, T0, "a", #p1, #code(""), ""), "an empty access code should be rejected");
 switch (reg12.status(spec, T0, "a")) {
@@ -355,8 +328,8 @@ switch (reg12.joinTable(spec, T0, "b", idOk, #p2, null)) {
 ignore ok(reg12.joinTable(spec, T0, "b", idOk, #p2, ?"real-code"), "the real code joins it fine");
 Debug.print("12. createTable rejects an empty access code instead of producing an unjoinable table OK");
 
-// ── 13. claimWin routes to the acting session's own table only, and is
-//          gated by ITS OWN table's `claimTimeoutNs` exactly like `submit` ─
+// ── 13. claimWin routes to the acting session's own table only, and is gated
+//      by ITS OWN table's `claimTimeoutNs` exactly like `submit` ────────────
 let reg13 = fresh();
 let idW1 = ok(reg13.createTable(spec, T0, "a", #p1, #open, ""), "a creates table 1");
 ignore ok(reg13.joinTable(spec, T0, "b", idW1, #p2, null), "b joins table 1; game live");

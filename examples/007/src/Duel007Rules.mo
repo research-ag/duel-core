@@ -1,14 +1,6 @@
-/// ═══════════════════════════════════════════════════════════════════════════
-/// Duel007Rules — the 007 duel game logic, as a pure module.
+/// Duel007Rules — the 007 duel, as a pure module. #p1 = BOND, #p2 = SILVA.
 ///
-/// No actor, no shared functions, no storage, no Time — just the rules.
-/// Plugs into the generic `duel-game-core` engine via `spec()`:
-///
-///   TP.Spec<State, Action> = { init; validate; resolve }
-///
-/// Seat mapping: #p1 = BOND, #p2 = SILVA (names only matter for narration).
-///
-/// ── Rules ──────────────────────────────────────────────────────────────────
+/// Rules:
 ///   LOAD    gain 1 ammo. 5 CONSECUTIVE loads charge the laser; any other
 ///           action resets the charge. (The deployed backend instead treats
 ///           any shot at ammo ≥ 5 as a laser — to reproduce that, replace
@@ -22,17 +14,13 @@
 ///
 ///   Both shoot in the same round → both die → draw. Laser vs laser → draw.
 ///   Laser vs normal shot → both die too (the shot was already in the air).
-/// ═══════════════════════════════════════════════════════════════════════════
 
 import TP "mo:duel-game-core";
 
 module {
 
-  // ────────────────────────── moves & state ──────────────────────────────────
-
   public type Action = { #load; #shoot; #shield; #mirror };
 
-  /// One agent's standing. Immutable record — `resolve` builds new ones.
   public type AgentStats = {
     ammo : Nat;
     shieldHits : Nat; // absorbed hits; 3 = broken
@@ -52,18 +40,14 @@ module {
     lastRound : ?Round;
   };
 
-  // ────────────────────────── tuning constants ───────────────────────────────
-
-  let SHIELD_CAPACITY : Nat = 3; // 3rd absorb breaks it
+  let SHIELD_CAPACITY : Nat = 3;
   let START_MIRRORS : Nat = 3;
-  let LASER_CHARGE : Nat = 5; // consecutive loads for a laser
+  let LASER_CHARGE : Nat = 5;
 
   public func agentName(seat : TP.Seat) : Text = switch (seat) {
     case (#p1) "BOND";
     case (#p2) "SILVA";
   };
-
-  // ────────────────────────── Spec: init ──────────────────────────────────────
 
   func freshAgent() : AgentStats = {
     ammo = 0;
@@ -78,14 +62,10 @@ module {
     lastRound = null;
   };
 
-  // ────────────────────────── Spec: validate ──────────────────────────────────
-
   func shieldBroken(a : AgentStats) : Bool = a.shieldHits >= SHIELD_CAPACITY;
 
   func hasLaser(a : AgentStats) : Bool = a.charge >= LASER_CHARGE;
 
-  /// null = legal. The engine calls this for BOTH seats on every submission,
-  /// so a client bypassing disabled buttons still can't cheat.
   public func validate(s : State, seat : TP.Seat, a : Action) : ?Text {
     let me = switch (seat) { case (#p1) s.p1; case (#p2) s.p2 };
     switch (a) {
@@ -102,10 +82,7 @@ module {
     };
   };
 
-  // ────────────────────────── Spec: resolve ───────────────────────────────────
-
-  /// Immediate, defense-independent effects of one agent's action:
-  /// ammo/charge/mirror bookkeeping + opening narration.
+  /// Immediate, defense-independent effects of one agent's action.
   func applyAction(me : AgentStats, a : Action, laser : Bool, name : Text) : (AgentStats, Text) {
     switch (a) {
       case (#load) (
@@ -125,7 +102,7 @@ module {
       );
       case (#shoot) {
         if (laser) (
-          { me with charge = 0 }, // laser spends the charge, not ammo
+          { me with charge = 0 },
           name # " fires LASER! ",
         ) else (
           { me with ammo = if (me.ammo > 0) me.ammo - 1 else 0; charge = 0 },
@@ -135,28 +112,24 @@ module {
     };
   };
 
-  /// Outcome of one shot travelling from shooter to defender.
   type ShotResult = {
     #defenderDies;
     #shooterDies; // mirrored back
-    #absorbed; // shield held
-    #absorbedAndBroke; // 3rd absorb
+    #absorbed;
+    #absorbedAndBroke;
   };
 
   func resolveShot(defender : AgentStats, defense : Action, laser : Bool) : ShotResult {
-    if (laser) return #defenderDies; // pierces everything
+    if (laser) return #defenderDies;
     switch (defense) {
-      // validate guarantees the defender had a mirror; it reflects.
       case (#mirror) #shooterDies;
       case (#shield) {
-        // validate rejects raising a broken shield, so it absorbs.
         if (defender.shieldHits + 1 >= SHIELD_CAPACITY) #absorbedAndBroke else #absorbed;
       };
       case (_) #defenderDies;
     };
   };
 
-  /// Both moves are in (already validated). Pure: State in, State + verdict out.
   public func resolve(s : State, a1 : Action, a2 : Action) : {
     state : State;
     verdict : ?TP.Verdict;
@@ -175,7 +148,6 @@ module {
     var narration = n1 # n2;
 
     if (a1 == #shoot and a2 == #shoot) {
-      // Simultaneous fire — both projectiles are in the air; nobody defends.
       alive1 := false;
       alive2 := false;
       narration #= if (laser1 and laser2) "Both agents fire LASERS — mutual annihilation." else "Both agents fire simultaneously — standoff. Nobody walks away.";
@@ -218,7 +190,6 @@ module {
         };
       };
     };
-    // No shots → nothing else happens this round.
 
     let verdict : ?TP.Verdict = if (alive1 and alive2) null else if (alive1) ?#p1Wins else if (alive2) ?#p2Wins else ?#draw;
 
@@ -232,11 +203,6 @@ module {
     };
   };
 
-  // ────────────────────────── the plug ────────────────────────────────────────
-
-  /// Hand this to every duel-game-core engine call. Built fresh per call —
-  /// function values are never stored, so upgrades stay trivial.
-  /// `#simultaneous`: both agents act every round.
   public func spec() : TP.Spec<State, Action> = #simultaneous {
     init;
     validate;

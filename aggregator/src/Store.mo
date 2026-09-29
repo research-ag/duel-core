@@ -9,13 +9,8 @@ import Text "mo:core/Text";
 import Png "./Png";
 import T "./Types";
 
-/// Pure logic over the aggregator's own state: profiles (display names)
-/// and the game registry, keyed by developer/backend-canister principal.
-/// No `Time` import — `now` is a parameter everywhere a timestamp is
-/// needed, same discipline `../../backend`'s own engine modules follow,
-/// so this module is exercisable from a plain interpreter test (see
-/// `../test/Store.test.mo`) without an actor at all. `Main.mo` is the
-/// only place that calls `Time.now()` and reads `msg.caller`.
+/// Pure logic over the aggregator's state. `now` is a parameter; only
+/// `Main.mo` calls `Time.now()` and reads `msg.caller`.
 module {
 
   public let BANNER_WIDTH : Nat = 800;
@@ -35,10 +30,7 @@ module {
 
   public type BannerRequirements = { width : Nat; height : Nat; maxBytes : Nat };
 
-  /// Exposed as a query (`Main.mo`'s `getBannerRequirements`) so the
-  /// frontend's own upload form validates against the SAME numbers this
-  /// module actually enforces, rather than a hand-copied constant that
-  /// could silently drift out of sync.
+  /// Exposed as a query so the frontend validates against these numbers.
   public func bannerRequirements() : BannerRequirements = {
     width = BANNER_WIDTH;
     height = BANNER_HEIGHT;
@@ -95,8 +87,6 @@ module {
     };
   };
 
-  /// `null` for an empty string (treated the same as not supplying one),
-  /// otherwise the domain unchanged — callers store the result directly.
   func normalizeCustomDomain(domain : ?Text) : ?Text {
     switch domain {
       case (?d) if (d.size() == 0) null else ?d;
@@ -204,10 +194,6 @@ module {
     out.toArray();
   };
 
-  /// Permanently removes a game from the registry. Only the developer who
-  /// registered it (`existing.developer == caller`) may do this — same
-  /// ownership gate `updateGame` enforces, and the same two error arms
-  /// (`#noSuchGame`/`#notOwner`), so no new `Err` case was needed for it.
   public func deregisterGame(self : State, caller : Principal, id : T.GameId) : Res<()> {
     if (caller.isAnonymous()) return #err(#anonymousCaller);
     let ?existing = self.games.get(id) else return #err(#noSuchGame);

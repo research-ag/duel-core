@@ -1,16 +1,7 @@
-// GamePlugin for chopsticks — the only game-specific piece the client
-// needs; the lobby/staging/rematch/debrief chrome, session identity, and
-// real-time push all come from duel-game-core's generic start()/
-// renderView() (see app.js). The Candid shapes below must mirror
-// ../src/ChopsticksRules.mo exactly, and the split legality mirrored here
-// is cosmetic only — the server's `validate` is the real gate.
-//
-// Interaction: tap one of your own live hands to select it, then tap an
-// opponent's live hand to attack it (a real `<button data-act=...>`,
-// submitted by app.js's own click handling). Splits are buttons under
-// the board — every legal one in Classic, the single even split in
-// Instructables. Selection state lives in this module alone and resets
-// whenever a new position arrives or it isn't this seat's turn.
+// GamePlugin for chopsticks. Candid shapes mirror ../src/ChopsticksRules.mo;
+// `splitsFor` is a cosmetic mirror of `validateSplit`. Tap one of your live
+// hands, then an opponent's hand to attack (a `data-act` button); splits
+// are buttons under the board. Selection state is module-local.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 

@@ -42,10 +42,7 @@
       </p>
     </footer>
 
-    <!-- app.js is esbuild's bundle of src/app.js (see ../build.js) — every
-         dependency it and duel-game-core itself need (@icp-sdk/core,
-         @icp-sdk/auth, cborg) is resolved and inlined at build time, so
-         no import map or bare-specifier resolution is needed here. -->
+    <!-- esbuild's bundle of src/app.js (see ../build.js). -->
     <script type="module" src="/app.js"></script>
   </body>
 </html>

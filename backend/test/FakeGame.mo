@@ -1,14 +1,6 @@
-/// FakeGame — a deliberately trivial `TP.Spec`, used ONLY by the test
-/// suites in this directory to exercise the generic engine. It is not a
-/// real game and ships no rendering, no narration, no theme — just enough
-/// rule shape (a resource you gather, and an attack that spends one and
-/// wins if the opponent didn't also attack) to drive validate-rejection,
-/// round-resolution and verdict paths through the engine.
-///
-///   GATHER  always legal; +1 resource.
-///   ATTACK  illegal at 0 resource; spends 1.
-///           Both attack -> #draw. One attacks, the other doesn't -> the
-///           attacker wins. Neither attacks -> the round just continues.
+/// FakeGame — a trivial `#simultaneous` `TP.Spec` used only by the test suites.
+/// GATHER always legal, +1 resource. ATTACK illegal at 0 resource, spends 1;
+/// both attack -> #draw, one attacks -> the attacker wins, neither -> continue.
 import TP "../src/lib";
 
 module {
