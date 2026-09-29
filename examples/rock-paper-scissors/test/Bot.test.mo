@@ -37,6 +37,7 @@ for (raw in ["", "well"].values()) {
       mode = #simultaneous;
       turn;
       gen = 0;
+      complexity = "";
       retryReason = null;
       opponent = "p2";
       opponentLastMove = null;
@@ -81,8 +82,8 @@ func playFullMatch(variant : Text) : async* () {
     func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
   );
 
-  let id = ok(await* cp.createTable(bot1, #p1, #open, variant), "bot1 creates a table");
-  let sidBot1 = CanisterPlayers.sidForCanister(bot1, id);
+  let id = ok(await* cp.createTable(bot1, #p1, #open, variant, ""), "bot1 creates a table");
+  let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "");
   // bot2's own joinTable eagerly triggers both seats' opening picks with no
   // sweep call needed at all — and, since a #simultaneous round leaves
   // BOTH seats due again for the next round the instant it resolves,
@@ -94,7 +95,7 @@ func playFullMatch(variant : Text) : async* () {
   // debrief auto-acked (canister vs canister, unconditional) — entirely
   // within this single call, with the table already back to #browsing by
   // the time it returns.
-  ignore ok(await* cp.joinTable(bot2, id, #p2, null), "bot2 joins; game starts");
+  ignore ok(await* cp.joinTable(bot2, id, #p2, null, ""), "bot2 joins; game starts");
 
   // Whatever didn't already cascade to conclusion above gets driven the
   // rest of the way here — never more than a handful of sweeps for a

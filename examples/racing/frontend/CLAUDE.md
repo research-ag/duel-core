@@ -61,7 +61,7 @@ choose beyond a table and a seat), plain TypeScript with no framework:
   Discovery (`actor.list_bots()`) and staging a brand-new table
   (`ws.request(session.sid, { createTable: ... })`) both stay on that
   SAME shared connection; only the final step — the CHOSEN bot's own
-  `play(host, tableId, seat, code)` — talks to a second, per-challenge
+  `play(host, tableId, seat, code, complexity)` — talks to a second, per-challenge
   actor (built from `duel-game-core/idl.js`'s `buildBotPlayIdlFactory`,
   targeting whichever principal `list_bots()` returned, never a fixed
   one), never through `ws.mo`'s protocol. See `../CLAUDE.md`'s `frontend/`

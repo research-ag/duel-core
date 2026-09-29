@@ -36,24 +36,39 @@ part of either package itself.
   `make_move : (TP.MoveRequest<Rules.State, Rules.Action>) -> async
 Rules.Action`.
 - **`bot/BotLogic.mo`** — the bot's move-selection logic, as a plain pure
-  module (no actor, no `Time`, matching `TicTacToeRules.mo`'s own style):
-  `chooseMove` reuses `TicTacToeRules.legalActions` directly and picks one
-  result deterministically from `req.turn` and the position — no
-  lookahead, no win/block detection, the same shape
-  `examples/checkers/bot/BotLogic.mo` uses (`moves[req.turn %
-moves.size()]`). Unlike rock-paper-scissors' own bot, no per-seat
-  multiplier is needed here: each placement permanently removes a cell
-  from the legal set, so the position — and therefore each bot's own pick
-  — keeps changing turn to turn even with an identical formula on both
-  seats. Kept separate from `Bot.mo` so `test/Bot.test.mo` can call
-  `chooseMove` directly, with no actor/Candid round-trip.
+  module (no actor, no `Time`, matching `TicTacToeRules.mo`'s own style).
+  This is the repo's worked reference for a bot with more than one way
+  to play (see `../../CLAUDE.md`'s "Canister players" note on
+  `complexity`): `COMPLEXITIES = ["Easy", "Hard"]` is the list `Bot.mo`'s
+  `register` sends to the host, and `chooseMove` switches on
+  `req.complexity` between the two. `Easy` reuses
+  `TicTacToeRules.legalActions` directly and picks one result
+  deterministically from `req.turn` and the position — no lookahead, no
+  win/block detection, the same shape `examples/checkers/bot/BotLogic.mo`
+  uses (`moves[req.turn % moves.size()]`); unlike rock-paper-scissors'
+  own bot, no per-seat multiplier is needed here, since each placement
+  permanently removes a cell from the legal set, so the position — and
+  therefore each bot's own pick — keeps changing turn to turn even with
+  an identical formula on both seats. `Hard` is a full negamax search
+  with alpha-beta pruning over `TicTacToeRules.resolve` itself (no line
+  check re-derived here; `resolve`'s own verdict is the terminal test),
+  which on a 3x3 board never loses. Any `req.complexity` the bot didn't
+  declare plays `Easy`. Kept separate from `Bot.mo` so `test/Bot.test.mo`
+  can call `chooseMove` directly, with no actor/Candid round-trip.
 - **`bot/Bot.mo`** — the bot canister itself: implements
   `BotIface.CanisterPlayer`'s `make_move` as a `query` (a thin shell over
-  `BotLogic.chooseMove`), plus `play(host, tableId, seat, code)` (Flow 1's
-  self-join entry point) and `register(host, name)`/`unregister(host)`
-  for bot discovery. Deploy target (see `icp.yaml`). Because every reply
-  is drawn from `legalActions`, this bot can never submit an illegal
-  move, even without any lookahead of its own.
+  `BotLogic.chooseMove` — `Hard`'s search is still a pure function of
+  the request, so nothing about it needs an update call), plus
+  `play(host, tableId, seat, code, complexity)` (Flow 1's self-join entry
+  point — `complexity` is whichever of `BotLogic.COMPLEXITIES` the
+  challenger picked, forwarded to `join_table_as_canister` and carried
+  back on every `make_move` as `req.complexity`) and
+  `register(host, name)`/`unregister(host)` for bot discovery
+  (`register` sends `BotLogic.COMPLEXITIES` along, so the "🤖 Bots"
+  dialog and the leaderboard list this bot as "TicTacToeBot (Easy)" and
+  "TicTacToeBot (Hard)", each rated on its own). Deploy target (see
+  `icp.yaml`). Because every reply is drawn from `legalActions`, this
+  bot can never submit an illegal move at either complexity.
 - **`test/*.test.mo`** — interpreter-run suites. `RulesUnit.test.mo`
   drives `validate`/`resolve` directly against synthetic boards (no
   engine, no actor): an empty vs. occupied vs. out-of-bounds cell, a row/
@@ -73,14 +88,18 @@ moves.size()]`). Unlike rock-paper-scissors' own bot, no per-seat
   ending itself is still exercised for real (tic-tac-toe's own middle
   game is short enough that this is a convenience, not a necessity, but
   it keeps this suite consistent with the other reference games').
-  `test/Bot.test.mo` covers `BotLogic.mo`: it confirms `chooseMove` only
-  ever returns a `TicTacToeRules.legalActions`-listed move — including on
-  the board's very last empty cell, where exactly one result exists —
-  then separately wires `BotLogic.chooseMove` through a live
-  `mo:duel-game-core/canister_players` as the `callBot` continuation so
-  TWO canister-seated bots play each other through several real
-  `#alternating` plies. The `*.test.mo` suffix is what `mops test`
-  discovers — a file named `FooTest.mo` is silently skipped.
+  `test/Bot.test.mo` covers `BotLogic.mo`: it confirms `Easy` only ever
+  returns a `TicTacToeRules.legalActions`-listed move — including on the
+  board's very last empty cell, where exactly one result exists — and
+  that `Hard` takes an immediate win, blocks an immediate threat, draws
+  against itself, never loses to `Easy` from either seat, and that an
+  undeclared complexity plays exactly like `Easy`; then separately wires
+  `BotLogic.chooseMove` through a live `mo:duel-game-core/canister_players`
+  as the `callBot` continuation so TWO canister-seated bots (one seated
+  as `Hard`, one at its default) play each other through several real
+  `#alternating` plies, asserting each ask's `req.complexity` is the
+  seat's own. The `*.test.mo` suffix is what `mops test` discovers — a
+  file named `FooTest.mo` is silently skipped.
 - **`icp.yaml`** — icp-cli manifest; deploys `src/Host.mo` as canister
   `backend`, `bot/Bot.mo` as canister `bot`, and `frontend/dist`
   (esbuild's bundled output — see this file's "Build & test" section, NOT

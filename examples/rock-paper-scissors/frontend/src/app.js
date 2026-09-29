@@ -128,7 +128,7 @@ leaderboardBack.addEventListener("click", () => {
 //     inside `#screen`).
 //
 // Either way, the actual invite is the same PLAIN Candid call straight to
-// the bot's own `play(host, tableId, seat, code)` (see `../../bot/Bot.mo`)
+// the bot's own `play(host, tableId, seat, code, complexity)` (see `../../bot/Bot.mo`)
 // Flow 1 always used — never routed through `ws.mo`'s protocol — except
 // now the target canister id comes from whichever bot a player picked in
 // `renderBotList`/`renderLeaderboard`, never a hardcoded env var.
@@ -172,8 +172,11 @@ ws.addEventListener("message", (ev) => {
   botAddPanel.hidden = false;
 });
 
-// The bot chosen off either entry point, waiting on a seat pick — `null`
-// whenever the dialog isn't mid-challenge.
+// The bot chosen off either entry point — and which of its own
+// complexities to play it at, since every row in `renderBotList`/
+// `renderLeaderboard` is one bot-complexity pair, so picking a row IS
+// picking both — waiting on a seat pick; `null` whenever the dialog
+// isn't mid-challenge.
 let pendingBot = null;
 
 function openBotPanel(bodyHtml) {
@@ -219,12 +222,12 @@ async function stageFor(seat) {
 }
 
 async function inviteBot(seat) {
-  const { principalText, name } = pendingBot;
-  botBody.innerHTML = `<p class="muted">Inviting ${esc(name)}…</p>`;
+  const { principalText, name, complexity } = pendingBot;
+  botBody.innerHTML = `<p class="muted">Inviting ${esc(name)} (${esc(complexity)})…</p>`;
   try {
     const { tableId, openSeat, code } = await stageFor(seat);
     const botActor = Actor.createActor(buildBotPlayIdlFactory, { agent, canisterId: principalText });
-    const res = await botActor.play(hostPrincipal, tableId, openSeat, code);
+    const res = await botActor.play(hostPrincipal, tableId, openSeat, code, complexity);
     if ("err" in res) throw new Error(errText(res.err));
     // On success the bot's own `join_table_as_canister` call reuses
     // `attached.afterMutation` (Host.mo) to push a fresh status to THIS
@@ -238,8 +241,8 @@ async function inviteBot(seat) {
   }
 }
 
-function onChallengeClick(principalText, name) {
-  pendingBot = { principalText, name };
+function onChallengeClick(principalText, name, complexity) {
+  pendingBot = { principalText, name, complexity };
   leaderboardPanel.hidden = true;
   botPanel.hidden = false;
   if (staging) {
@@ -260,9 +263,9 @@ botBody.addEventListener("click", (ev) => {
     return;
   }
   const botBtn = ev.target.closest("[data-challenge-bot]");
-  if (botBtn) onChallengeClick(botBtn.dataset.challengeBot, botBtn.dataset.botName || botBtn.dataset.challengeBot);
+  if (botBtn) onChallengeClick(botBtn.dataset.challengeBot, botBtn.dataset.botName || botBtn.dataset.challengeBot, botBtn.dataset.botComplexity || "");
 });
 leaderboardBody.addEventListener("click", (ev) => {
   const botBtn = ev.target.closest("[data-challenge-bot]");
-  if (botBtn) onChallengeClick(botBtn.dataset.challengeBot, botBtn.dataset.botName || botBtn.dataset.challengeBot);
+  if (botBtn) onChallengeClick(botBtn.dataset.challengeBot, botBtn.dataset.botName || botBtn.dataset.challengeBot, botBtn.dataset.botComplexity || "");
 });

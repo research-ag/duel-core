@@ -41,8 +41,9 @@
 /// A `Registry` table is still exactly one SESSION's worth of "my one
 /// game" — `bySession`'s own 1:1 map is untouched by anything here. What
 /// this module doesn't assume any more is that a canister PRINCIPAL maps
-/// to only one session: `sidForCanister(p, tableId)` mints a SEPARATE
-/// session per board (`"cp:" # p.toText() # ":" # tableId.toText()`), so
+/// to only one session: `sidForCanister(p, tableId, complexity)` mints a
+/// SEPARATE session per board
+/// (`"cp:" # p.toText() # ":" # tableId.toText() # ":" # complexity`), so
 /// the same bot canister can hold a live seat at any number of tables at
 /// once, each one an ordinary, fully independent session as far as
 /// `Table`/`Registry` are concerned. `tableId` is free everywhere except
@@ -56,10 +57,38 @@
 /// of trying to infer "my one game": with more than one live board per
 /// canister that's ambiguous, so the caller says which board it means,
 /// the same way a human's own frontend already knows which table its own
-/// screen is showing. `principalOfCanisterSession` is `sidForCanister`'s
-/// own inverse — recovers the calling canister's principal from a `cp:`
-/// session, for a host's own `callBot` closure to know which canister to
-/// actually call `make_move` on (see `examples/racing/src/Host.mo`).
+/// screen is showing (the session itself is then looked up on that
+/// board, via `sessionAt` — never re-derived, since the complexity
+/// segment is only ever chosen at seating time, see below).
+/// `principalOfCanisterSession` is `sidForCanister`'s own inverse —
+/// recovers the calling canister's principal from a `cp:` session, for a
+/// host's own `callBot` closure to know which canister to actually call
+/// `make_move` on (see `examples/racing/src/Host.mo`).
+///
+/// ── Complexity: one bot, several ways to play ────────────────────────────
+///
+/// A single bot canister may offer more than one way of playing — an
+/// "Easy"/"Medium"/"Hard" ladder, a "Rabbit"/"Fox"/"Lion" one, or
+/// something that isn't a difficulty at all ("Look-ahead" vs.
+/// "Reactive"). Each is a `complexity : Text`, opaque to this module in
+/// exactly the way a table's own `variant` is opaque to the engine: never
+/// validated or interpreted here, only carried. A bot declares its own
+/// list once, at registration (`registerBot`/`BotInfo.complexities` —
+/// a constant in the bot's own code, re-registered if it ever changes),
+/// and whoever seats the bot at a table picks ONE of them for that
+/// session — a human challenger from the "🤖 Bots" dialog, an
+/// orchestrator naming a `reservedFor` session for a bot-vs-bot match,
+/// or the bot itself on `createTable`/`joinTable`. The pick is the
+/// fourth segment of the seat's own session id (above), so it's stored
+/// on the table's own phase record for the session's whole life with no
+/// separate map to keep stable, and reaches the bot on every ask as
+/// `MoveRequest.complexity` (`complexityOfCanisterSession`, the segment's
+/// own accessor). A bot with just one way to play needs none of this: it
+/// registers with an empty list (normalized to `[DEFAULT_COMPLEXITY]`,
+/// `"Default"`) and ignores `req.complexity`. Every complexity is scored
+/// separately on a leaderboard — `leaderboardKey(p, complexity)` keys a
+/// bot's rating by BOTH — since "CheckersBot (Hard)" and "CheckersBot
+/// (Easy)" are genuinely different opponents.
 ///
 /// None of the "ask a due seat for its move"/"settle a finished board"
 /// machinery below (`notifyAndApply`, `maybeNotify`, `maybeAckDebrief`,
@@ -156,6 +185,7 @@
 
 import Array "mo:core/Array";
 import Int "mo:core/Int";
+import List "mo:core/List";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
 import Order "mo:core/Order";
@@ -176,37 +206,65 @@ module {
   /// every `SessionId` as opaque text.
   public let CP_SID_PREFIX : Text = "cp:";
 
-  /// This board's own player id for canister `p` — pure, so it's "issued"
-  /// for free the first time this exact `(p, tableId)` pair is ever seen,
-  /// same as `Ws.sidFor`/`Ws.sidForPrincipal` (duplicated in miniature
-  /// here, rather than imported, to keep this module's own dependency
-  /// surface to just `core` plus its sibling `registry.mo`/`types.mo` —
-  /// see the root `CLAUDE.md`'s toolchain note on why `ws.mo`'s own
-  /// dependency on `ic-websocket-cdk` stays confined to that one module;
-  /// importing `ws.mo` here for one line would pull that dependency in
-  /// transitively for no real reason, since every actual byte of it is
-  /// unrelated to canister players). `p` alone is NOT enough to name a
-  /// session any more — see this module's own doc header on why
-  /// `tableId` is part of the identity, not just a routing detail.
-  public func sidForCanister(p : Principal.Principal, tableId : T.TableId) : T.SessionId = CP_SID_PREFIX # p.toText() # ":" # tableId.toText();
+  /// The complexity a bot plays at when nobody picked one — what a bot
+  /// registering with no list of its own is listed under, and what an
+  /// empty `complexity` argument anywhere in this module normalizes to
+  /// (`normalizeComplexity`), so a single-complexity bot and a caller
+  /// that doesn't care both land on the same, one, stable session/
+  /// leaderboard key. See this module's own doc header.
+  public let DEFAULT_COMPLEXITY : Text = "Default";
 
-  /// `sidForCanister`'s own inverse — recovers the calling canister's
-  /// principal from one of its `cp:` sessions. A host's own `callBot`
-  /// closure is the one real user (see this module's own doc header and
-  /// `examples/racing/src/Host.mo`): it needs to know which canister to
-  /// actually call `make_move` on, and the session `notifyAndApply` hands
-  /// it is the only place that principal is recorded. Traps on a `session`
-  /// that isn't a well-formed `cp:` session at all — every call site
-  /// reaches this only after `isCanisterSession` (or the `#atTable`
-  /// status this module itself just read) already confirmed it is one, so
-  /// there's no legitimate case left to return `null` for.
-  public func principalOfCanisterSession(session : T.SessionId) : Principal.Principal {
-    let rest = session.trimStart(#text CP_SID_PREFIX);
-    switch (rest.split(#char ':').next()) {
-      case (?p) Principal.fromText(p);
-      case null Runtime.trap("principalOfCanisterSession: malformed cp: session " # session);
+  public func normalizeComplexity(complexity : Text) : Text = if (complexity == "") DEFAULT_COMPLEXITY else complexity;
+
+  /// This board's own player id for canister `p`, playing at
+  /// `complexity` — pure, so it's "issued" for free the first time this
+  /// exact triple is ever seen, same as `Ws.sidFor`/`Ws.sidForPrincipal`
+  /// (duplicated in miniature here, rather than imported, to keep this
+  /// module's own dependency surface to just `core` plus its sibling
+  /// `registry.mo`/`types.mo` — see the root `CLAUDE.md`'s toolchain note
+  /// on why `ws.mo`'s own dependency on `ic-websocket-cdk` stays confined
+  /// to that one module; importing `ws.mo` here for one line would pull
+  /// that dependency in transitively for no real reason, since every
+  /// actual byte of it is unrelated to canister players). `p` alone is
+  /// NOT enough to name a session — see this module's own doc header on
+  /// why `tableId` is part of the identity, not just a routing detail,
+  /// and why `complexity` rides along as the last segment (free to
+  /// contain `:` itself, since nothing after it ever needs splitting
+  /// off). `""` normalizes to `DEFAULT_COMPLEXITY`.
+  public func sidForCanister(p : Principal.Principal, tableId : T.TableId, complexity : Text) : T.SessionId {
+    CP_SID_PREFIX # p.toText() # ":" # tableId.toText() # ":" # normalizeComplexity(complexity);
+  };
+
+  // `(principal, complexity)` text segments of a `cp:` session. The
+  // complexity is everything after the third `:` (rejoined, so it may
+  // itself contain `:`); a session with no such segment reads as
+  // `DEFAULT_COMPLEXITY`. Traps on anything that isn't a `cp:` session
+  // at all — every call site reaches this only after `isCanisterSession`
+  // (or the `#atTable` status this module itself just read) already
+  // confirmed it is one, so there's no legitimate case left to return
+  // `null` for.
+  func parseSession(session : T.SessionId) : (Text, Text) {
+    let parts = session.trimStart(#text CP_SID_PREFIX).split(#char ':');
+    switch (parts.next(), parts.next()) {
+      case (?p, ?_) (p, normalizeComplexity(Text.join(parts, ":")));
+      case (_, _) Runtime.trap("malformed cp: session " # session);
     };
   };
+
+  /// `sidForCanister`'s own inverse for its principal segment — recovers
+  /// the calling canister's principal from one of its `cp:` sessions. A
+  /// host's own `callBot` closure is the one real user (see this module's
+  /// own doc header and `examples/racing/src/Host.mo`): it needs to know
+  /// which canister to actually call `make_move` on, and the session
+  /// `notifyAndApply` hands it is the only place that principal is
+  /// recorded.
+  public func principalOfCanisterSession(session : T.SessionId) : Principal.Principal = Principal.fromText(parseSession(session).0);
+
+  /// `sidForCanister`'s own inverse for its complexity segment — the
+  /// complexity this seat was seated at. What `dueRequest` fills
+  /// `MoveRequest.complexity` from, and what `leaderboardKeyOfSession`
+  /// scores a bot's own game under.
+  public func complexityOfCanisterSession(session : T.SessionId) : Text = parseSession(session).1;
 
   /// Whether `session` names a canister-seated player under this module's
   /// namespace — a purely cosmetic check for a lobby frontend wanting to
@@ -215,17 +273,26 @@ module {
   /// which seats are their own responsibility.
   public func isCanisterSession(session : T.SessionId) : Bool = session.startsWith(#text CP_SID_PREFIX);
 
-  /// `"cp:" # p.toText()` — the per-PLAYER (not per-TABLE) key a host uses
-  /// to record a canister player's own score on a `mo:duel-game-core/leaderboard`
-  /// `Board`, since `sidForCanister`'s own session is per-table (see this
-  /// module's own doc header) and a leaderboard needs one stable key per
-  /// bot instead. Every Host.mo that wires both modules together already
-  /// hand-derives exactly this string in its own `playerKey` helper (and
-  /// `frontend/src/render.ts`'s `CANISTER_PLAYER_PREFIX` mirrors it on the
-  /// client side, for the same "cp:"-prefix convention) — centralized here
-  /// so `rankedBots` below and every Host.mo share one definition instead
-  /// of three independent copies.
-  public func leaderboardKey(p : Principal.Principal) : Text = CP_SID_PREFIX # p.toText();
+  /// `"cp:" # p.toText() # ":" # complexity` — the per-PLAYER (not
+  /// per-TABLE) key a host uses to record a canister player's own score on
+  /// a `mo:duel-game-core/leaderboard` `Board`, since `sidForCanister`'s
+  /// own session is per-table (see this module's own doc header) and a
+  /// leaderboard needs one stable key per bot instead — per bot AND
+  /// complexity, precisely: the same canister playing "Hard" is a
+  /// different opponent from it playing "Easy", so each accumulates its
+  /// own rating (`frontend/src/render.ts`'s `parseCanisterPlayer` mirrors
+  /// this exact shape on the client side, rendering it as
+  /// "CheckersBot (Hard)"). Centralized here so `rankedBots` below and
+  /// every Host.mo share one definition instead of independent copies.
+  public func leaderboardKey(p : Principal.Principal, complexity : Text) : Text = CP_SID_PREFIX # p.toText() # ":" # normalizeComplexity(complexity);
+
+  /// `leaderboardKey` for a live `cp:` session — the one-liner every
+  /// Host.mo's own `playerKey` helper special-cases a canister session
+  /// through before falling back to `Ws.playerKey` for a human's.
+  public func leaderboardKeyOfSession(session : T.SessionId) : Text {
+    let (p, complexity) = parseSession(session);
+    CP_SID_PREFIX # p # ":" # complexity;
+  };
 
   // ── Bot discovery ────────────────────────────────────────────────────────
   //
@@ -244,24 +311,38 @@ module {
 
   /// One bot's own self-reported identity — `principal` is always
   /// `msg.caller` at registration time (see `registerBot`), never
-  /// client-supplied, so there's nothing to spoof.
+  /// client-supplied, so there's nothing to spoof. `complexities` is the
+  /// bot's own declared list, in the order it declared them (a ladder's
+  /// order is meaningful — "Easy, Medium, Hard" shouldn't come back
+  /// sorted alphabetically), never empty: a bot that declares none is
+  /// listed under `[DEFAULT_COMPLEXITY]`. See this module's own doc
+  /// header's "Complexity" section.
   public type BotInfo = {
     principal : Principal.Principal;
     name : Text;
+    complexities : [Text];
     registeredAt : Int;
   };
 
-  /// `BotInfo` joined with the bot's current rating (`rankedBots`, below)
-  /// — what `list_bots` actually returns to a frontend's challenge dialog.
+  /// One of a bot's complexities joined with its own current rating —
   /// `elo` is `null` only when the host wires no leaderboard at all; a
-  /// leaderboard-backed host with a never-played bot still returns
+  /// leaderboard-backed host with a never-played complexity still returns
   /// `?defaultScore` (`Leaderboard.scoreOf`'s own documented fallback),
   /// not `null` — a challenge dialog shows the same starting rating a
   /// human's own first game would.
+  public type BotComplexityEntry = {
+    complexity : Text;
+    elo : ?Int;
+  };
+
+  /// `BotInfo` joined with each complexity's current rating
+  /// (`rankedBots`, below) — what `list_bots` actually returns to a
+  /// frontend's challenge dialog, one entry per BOT (its complexities
+  /// nested, still in declared order), so a dialog can group them.
   public type BotEntry = {
     principal : Principal.Principal;
     name : Text;
-    elo : ?Int;
+    complexities : [BotComplexityEntry];
   };
 
   public type BotDirectory = {
@@ -273,10 +354,21 @@ module {
   /// Self-registration: `caller` is always `msg.caller` on the host's own
   /// `register_bot` method (never accepted as a parameter), so a bot can
   /// only ever register itself, under its own principal. Idempotent
-  /// upsert — a bot re-registering (a rename, or simply re-run after a
-  /// redeploy) just overwrites its own prior entry rather than erroring.
-  public func registerBot(d : BotDirectory, caller : Principal.Principal, name : Text, now : Int) {
-    d.bots.add(caller, { principal = caller; name; registeredAt = now });
+  /// upsert — a bot re-registering (a rename, a changed complexity list,
+  /// or simply re-run after a redeploy) just overwrites its own prior
+  /// entry rather than erroring. `complexities` is kept in the order
+  /// given, each `""` normalized to `DEFAULT_COMPLEXITY`, duplicates
+  /// dropped, and an empty list replaced by `[DEFAULT_COMPLEXITY]` — so a
+  /// bot with one way to play declares nothing and is listed under
+  /// `"Default"`.
+  public func registerBot(d : BotDirectory, caller : Principal.Principal, name : Text, complexities : [Text], now : Int) {
+    let seen = List.empty<Text>();
+    for (c in complexities.values()) {
+      let n = normalizeComplexity(c);
+      if (seen.find(func(x : Text) : Bool = x == n) == null) seen.add(n);
+    };
+    if (seen.isEmpty()) seen.add(DEFAULT_COMPLEXITY);
+    d.bots.add(caller, { principal = caller; name; complexities = seen.toArray(); registeredAt = now });
   };
 
   /// Self-unregistration — same `caller`-is-`msg.caller` discipline as
@@ -292,21 +384,38 @@ module {
     d.bots.toArray().map<(Principal.Principal, BotInfo), BotInfo>(func((_, v)) = v);
   };
 
-  /// Joins `bots` with each one's current rating via a caller-supplied
-  /// `scoreOf` (typically `Leaderboard.scoreOf` on some `Board`, partially
-  /// applied by `canister_players_actor_mixin.mo`'s own `list_bots`) and
-  /// sorts highest-rated first, unrated (`scoreOf` returning `null` —
-  /// meaning no leaderboard is wired at all, see `BotEntry`'s own doc)
-  /// last, alphabetical by name as the final tiebreak either way. Takes a
-  /// plain function rather than importing `leaderboard.mo` directly, so
-  /// this module's own dependency surface (see its doc header: `core`
-  /// plus sibling `registry.mo`/`types.mo` only) stays untouched, and so
-  /// this sort is unit-testable with a trivial stub `scoreOf`.
-  public func rankedBots(bots : [BotInfo], scoreOf : (Principal.Principal) -> ?Int) : [BotEntry] {
-    let entries = bots.map(func(b : BotInfo) : BotEntry = { principal = b.principal; name = b.name; elo = scoreOf(b.principal) });
+  /// Joins every complexity of every bot with its current rating via a
+  /// caller-supplied `scoreOf` (typically `Leaderboard.scoreOf` on some
+  /// `Board` under `leaderboardKey(p, complexity)`, partially applied by
+  /// `canister_players_actor_mixin.mo`'s own `list_bots`) and sorts the
+  /// BOTS highest-rated first — by each one's best-rated complexity —
+  /// unrated (`scoreOf` returning `null`, meaning no leaderboard is wired
+  /// at all, see `BotComplexityEntry`'s own doc) last, alphabetical by
+  /// name as the final tiebreak either way; the complexities WITHIN a bot
+  /// keep their declared order. Takes a plain function rather than
+  /// importing `leaderboard.mo` directly, so this module's own dependency
+  /// surface (see its doc header: `core` plus sibling `registry.mo`/
+  /// `types.mo` only) stays untouched, and so this sort is unit-testable
+  /// with a trivial stub `scoreOf`.
+  public func rankedBots(bots : [BotInfo], scoreOf : (Principal.Principal, Text) -> ?Int) : [BotEntry] {
+    let entries = bots.map(
+      func(b : BotInfo) : BotEntry = {
+        principal = b.principal;
+        name = b.name;
+        complexities = b.complexities.map(func(c : Text) : BotComplexityEntry = { complexity = c; elo = scoreOf(b.principal, c) });
+      }
+    );
+    func best(e : BotEntry) : ?Int = e.complexities.foldLeft<BotComplexityEntry, ?Int>(
+      null,
+      func(acc, c) = switch (acc, c.elo) {
+        case (?a, ?x) ?Int.max(a, x);
+        case (null, x) x;
+        case (a, null) a;
+      },
+    );
     entries.sort(
       func(a : BotEntry, b : BotEntry) : Order.Order {
-        switch (a.elo, b.elo) {
+        switch (best(a), best(b)) {
           case (?x, ?y) {
             if (x == y) Text.compare(a.name, b.name) else Int.compare(y, x);
           };
@@ -330,9 +439,12 @@ module {
   /// `claimWin`/`reset` each take `tableId` explicitly — with a canister
   /// potentially seated at several boards at once (see this module's own
   /// doc header), "my one game" is no longer enough to say which one.
+  /// `createTable`/`joinTable`'s trailing `Text` is the complexity this
+  /// seat plays at (see the doc header's "Complexity" section) — chosen
+  /// here, at seating time, and fixed for the session's life.
   public type Attached = {
-    createTable : (Principal.Principal, T.Seat, T.TableVisibility, Text) -> async* T.Res<T.TableId>;
-    joinTable : (Principal.Principal, T.TableId, T.Seat, ?Text) -> async* T.Res<T.JoinOk>;
+    createTable : (Principal.Principal, T.Seat, T.TableVisibility, Text, Text) -> async* T.Res<T.TableId>;
+    joinTable : (Principal.Principal, T.TableId, T.Seat, ?Text, Text) -> async* T.Res<T.JoinOk>;
     leave : (Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
     ackEnded : (Principal.Principal, T.TableId) -> async* ();
     claimWin : (Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
@@ -401,6 +513,7 @@ module {
                     mode = ig.mode;
                     turn = ig.turn;
                     gen = ig.gen;
+                    complexity = complexityOfCanisterSession(session);
                     retryReason = null; // a fresh ask, not (yet) a retry — see notifyAndApply
                     opponent;
                     opponentLastMove;
@@ -538,14 +651,41 @@ module {
       };
     };
 
+    /// The session canister `caller` holds at board `id`, if any — read
+    /// off the table's own phase record (and its `lastEnded` notices, for
+    /// `ackEnded`), where every seated session is already stored in full,
+    /// complexity segment included. Only the principal/tableId prefix is
+    /// matched, since the complexity was chosen at seating time and a
+    /// later `leave`/`claimWin`/`reset`/`ackEnded` has no reason to
+    /// repeat it. The first match wins: a canister holding BOTH seats of
+    /// one board (possible only by seating itself twice under two
+    /// different complexities — no flow in this repo does) resolves to
+    /// whichever seat the phase record lists first.
+    func sessionAt(caller : Principal.Principal, id : T.TableId) : ?T.SessionId {
+      let prefix = CP_SID_PREFIX # caller.toText() # ":" # id.toText() # ":";
+      switch (registry.tables.get(id)) {
+        case null null;
+        case (?t) {
+          let seated : [T.SessionId] = switch (t.phase) {
+            case (#empty) [];
+            case (#staging s) [s.session];
+            case (#active g) [g.p1, g.p2];
+            case (#debrief d) [d.p1, d.p2];
+          };
+          let ended = t.lastEnded.flatMap<T.Ended, T.SessionId>(func(e) = [e.p1, e.p2].values());
+          seated.concat(ended).find(func(s : T.SessionId) : Bool = s.startsWith(#text prefix));
+        };
+      };
+    };
+
     {
       // No `await*` between `peekNextTableId` and `createTable` below —
       // see `Registry.peekNextTableId`'s own doc on why that's exactly
       // what keeps this pairing safe.
-      createTable = func(caller : Principal.Principal, seat : T.Seat, visibility : T.TableVisibility, variant : Text) : async* T.Res<T.TableId> {
+      createTable = func(caller : Principal.Principal, seat : T.Seat, visibility : T.TableVisibility, variant : Text, complexity : Text) : async* T.Res<T.TableId> {
         let now = Time.now();
         let id = registry.peekNextTableId();
-        let session = sidForCanister(caller, id);
+        let session = sidForCanister(caller, id, complexity);
         switch (registry.createTable(spec, now, session, seat, visibility, variant)) {
           case (#ok gotId) {
             await* afterMutation(now, session, null, ?gotId, true);
@@ -555,8 +695,8 @@ module {
         };
       };
 
-      joinTable = func(caller : Principal.Principal, id : T.TableId, seat : T.Seat, code : ?Text) : async* T.Res<T.JoinOk> {
-        let session = sidForCanister(caller, id);
+      joinTable = func(caller : Principal.Principal, id : T.TableId, seat : T.Seat, code : ?Text, complexity : Text) : async* T.Res<T.JoinOk> {
+        let session = sidForCanister(caller, id, complexity);
         let now = Time.now();
         switch (registry.joinTable(spec, now, session, id, seat, code)) {
           case (#ok j) {
@@ -571,52 +711,67 @@ module {
 
       // `tableId` says which of this canister's (possibly several) live
       // boards this call means — see this module's own doc header. A
-      // `tableId` the caller was never actually seated at just derives a
-      // `session` that isn't in `registry.bySession` either, so
-      // `registry.leave` below rejects it with `#notSeated` on its own;
-      // there's nothing to pre-check here.
+      // `tableId` the caller was never actually seated at has no session
+      // of theirs to find (`sessionAt`), so it's `#notSeated` — the same
+      // rejection `registry.leave` itself would give.
       leave = func(caller : Principal.Principal, tableId : T.TableId, gen : Nat) : async* T.Res<()> {
-        let session = sidForCanister(caller, tableId);
-        let now = Time.now();
-        switch (registry.leave(now, session, gen)) {
-          case (#ok _) {
-            await* afterMutation(now, session, null, ?tableId, true);
-            #ok(());
+        switch (sessionAt(caller, tableId)) {
+          case null #err(#notSeated);
+          case (?session) {
+            let now = Time.now();
+            switch (registry.leave(now, session, gen)) {
+              case (#ok _) {
+                await* afterMutation(now, session, null, ?tableId, true);
+                #ok(());
+              };
+              case (#err e) #err(e);
+            };
           };
-          case (#err e) #err(e);
         };
       };
 
       ackEnded = func(caller : Principal.Principal, tableId : T.TableId) : async* () {
-        let session = sidForCanister(caller, tableId);
-        let now = Time.now();
-        registry.ackEnded(session);
-        await* afterMutation(now, session, null, ?tableId, true);
+        switch (sessionAt(caller, tableId)) {
+          case null {};
+          case (?session) {
+            let now = Time.now();
+            registry.ackEnded(session);
+            await* afterMutation(now, session, null, ?tableId, true);
+          };
+        };
       };
 
       // Lets a canister participant act immediately instead of waiting on
       // `armClaimCheck`'s wakeup.
       claimWin = func(caller : Principal.Principal, tableId : T.TableId, gen : Nat) : async* T.Res<()> {
-        let session = sidForCanister(caller, tableId);
-        let now = Time.now();
-        switch (registry.claimWin(spec, now, session, gen)) {
-          case (#ok _) {
-            await* afterMutation(now, session, null, ?tableId, true);
-            #ok(());
+        switch (sessionAt(caller, tableId)) {
+          case null #err(#notSeated);
+          case (?session) {
+            let now = Time.now();
+            switch (registry.claimWin(spec, now, session, gen)) {
+              case (#ok _) {
+                await* afterMutation(now, session, null, ?tableId, true);
+                #ok(());
+              };
+              case (#err e) #err(e);
+            };
           };
-          case (#err e) #err(e);
         };
       };
 
       reset = func(caller : Principal.Principal, tableId : T.TableId, gen : Nat) : async* T.Res<()> {
-        let session = sidForCanister(caller, tableId);
-        let now = Time.now();
-        switch (registry.reset(now, session, gen)) {
-          case (#ok _) {
-            await* afterMutation(now, session, null, ?tableId, true);
-            #ok(());
+        switch (sessionAt(caller, tableId)) {
+          case null #err(#notSeated);
+          case (?session) {
+            let now = Time.now();
+            switch (registry.reset(now, session, gen)) {
+              case (#ok _) {
+                await* afterMutation(now, session, null, ?tableId, true);
+                #ok(());
+              };
+              case (#err e) #err(e);
+            };
           };
-          case (#err e) #err(e);
         };
       };
 

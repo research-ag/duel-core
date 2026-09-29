@@ -7,12 +7,16 @@ import {
   DUEL_CLAIM_WARNING_ID,
   DUEL_CLAIM_BUTTON_ID,
   claimWarningThreshold,
+  botDisplayName,
+  DEFAULT_BOT_COMPLEXITY,
   displayPlayerId,
   errText,
   esc,
   isCanisterPlayer,
+  parseCanisterPlayer,
   PLAYER_ID_MAX_LEN,
   playerKeyOf,
+  renderBotList,
   renderLeaderboard,
   renderStatus,
   renderView,
@@ -20,7 +24,8 @@ import {
   truncatePlayerId,
   val,
 } from "../src/render.js";
-import type { GamePlugin, LeaderboardEntry, Status, TableSummary, View } from "../src/types.js";
+import type { BotInfo, GamePlugin, LeaderboardEntry, Status, TableSummary, View } from "../src/types.js";
+import { Principal } from "@icp-sdk/core/principal";
 
 const plugin: GamePlugin<{ turn: string }> = {
   idlTypes: () => {
@@ -790,23 +795,95 @@ test("renderLeaderboard: no yourSid, or a caller not on the ranked slice, marks 
   assert.doesNotMatch(notRanked, /leaderboard-you-badge/);
 });
 
-test("isCanisterPlayer/displayPlayerId: cp: is a canister player, stripped for display; anyone else is untouched", () => {
-  assert.ok(isCanisterPlayer("cp:ietgl-ziaaa-aaaac-qhfga-cai"));
-  assert.equal(displayPlayerId("cp:ietgl-ziaaa-aaaac-qhfga-cai"), "ietgl-ziaaa-aaaac-qhfga-cai");
+test("isCanisterPlayer/parseCanisterPlayer/displayPlayerId: cp:<principal>:<complexity> is a canister player, shown as principal (complexity); anyone else is untouched", () => {
+  assert.ok(isCanisterPlayer("cp:ietgl-ziaaa-aaaac-qhfga-cai:Hard"));
+  assert.deepEqual(parseCanisterPlayer("cp:ietgl-ziaaa-aaaac-qhfga-cai:Hard"), {
+    principal: "ietgl-ziaaa-aaaac-qhfga-cai",
+    complexity: "Hard",
+  });
+  assert.equal(displayPlayerId("cp:ietgl-ziaaa-aaaac-qhfga-cai:Hard"), "ietgl-ziaaa-aaaac-qhfga-cai (Hard)");
+  // The complexity is everything after the principal — it may itself
+  // contain the separator.
+  assert.equal(parseCanisterPlayer("cp:ietgl-ziaaa-aaaac-qhfga-cai:Look-ahead: 3 plies")?.complexity, "Look-ahead: 3 plies");
+  // A key with no complexity segment at all reads as the default one.
+  assert.deepEqual(parseCanisterPlayer("cp:ietgl-ziaaa-aaaac-qhfga-cai"), {
+    principal: "ietgl-ziaaa-aaaac-qhfga-cai",
+    complexity: DEFAULT_BOT_COMPLEXITY,
+  });
+  assert.equal(displayPlayerId("cp:ietgl-ziaaa-aaaac-qhfga-cai"), "ietgl-ziaaa-aaaac-qhfga-cai (Default)");
+  assert.equal(botDisplayName("CheckersBot", "Easy"), "CheckersBot (Easy)");
   assert.ok(!isCanisterPlayer("ietgl-ziaaa-aaaac-qhfga-cai"));
+  assert.equal(parseCanisterPlayer("ietgl-ziaaa-aaaac-qhfga-cai"), null);
   assert.equal(displayPlayerId("ietgl-ziaaa-aaaac-qhfga-cai"), "ietgl-ziaaa-aaaac-qhfga-cai");
 });
 
-test("renderLeaderboard: a canister-seated player's cp: marker is stripped from the visible text and a bot icon is shown", () => {
-  const entries: LeaderboardEntry[] = [{ player: "cp:ietgl-ziaaa-aaaac-qhfga-cai", score: 1200n, updatedAt: 0n }];
+test("renderLeaderboard: a canister-seated player's cp: marker is stripped from the visible text, its complexity spelled out, and a bot icon is shown", () => {
+  const entries: LeaderboardEntry[] = [{ player: "cp:ietgl-ziaaa-aaaac-qhfga-cai:Default", score: 1200n, updatedAt: 0n }];
   const html = renderLeaderboard(entries, plugin);
   assert.match(html, /leaderboard-bot-icon/);
-  assert.match(html, /ietgl-ziaaa-aaaac-qhfga-cai/); // the bare principal is visible somewhere
+  assert.match(html, />.*ietgl-ziaaa-aaaac-qhfga-cai \(Default\)</); // the bare principal plus its complexity is the visible text
   // "cp:" survives only inside a title="..." tooltip attribute — the
   // full raw key is still one hover away — never as visible text.
-  assert.match(html, /title="cp:ietgl-ziaaa-aaaac-qhfga-cai"/);
+  assert.match(html, /title="cp:ietgl-ziaaa-aaaac-qhfga-cai:Default"/);
   const withoutTitles = html.replace(/title="[^"]*"/g, "");
   assert.doesNotMatch(withoutTitles, /cp:/);
+  // The row's Challenge button carries the bare principal and this
+  // row's own complexity — never the raw key.
+  assert.match(html, /data-challenge-bot="ietgl-ziaaa-aaaac-qhfga-cai"/);
+  assert.match(html, /data-bot-complexity="Default"/);
+});
+
+test("renderLeaderboard: one bot at two complexities is two rows, each named by botNames plus its own complexity, each Challenge button carrying its row's complexity", () => {
+  const entries: LeaderboardEntry[] = [
+    { player: "cp:ietgl-ziaaa-aaaac-qhfga-cai:Hard", score: 1500n, updatedAt: 0n },
+    { player: "cp:ietgl-ziaaa-aaaac-qhfga-cai:Easy", score: 1100n, updatedAt: 0n },
+  ];
+  const botNames = new Map([["ietgl-ziaaa-aaaac-qhfga-cai", "TicTacToeBot"]]);
+  const html = renderLeaderboard(entries, plugin, { botNames });
+  assert.equal((html.match(/class="leaderboard-row"/g) ?? []).length, 2);
+  assert.match(html, /TicTacToeBot \(Hard\)/);
+  assert.match(html, /TicTacToeBot \(Easy\)/);
+  assert.match(html, /data-bot-name="TicTacToeBot" data-bot-complexity="Hard"/);
+  assert.match(html, /data-bot-name="TicTacToeBot" data-bot-complexity="Easy"/);
+  const withoutAttrs = html.replace(/="[^"]*"/g, '=""');
+  assert.doesNotMatch(withoutAttrs, /ietgl-ziaaa/); // the alias replaces the principal in visible text (attributes still carry it)
+});
+
+test("renderBotList: one row per bot AND complexity, in declared order, each Challenge button carrying that row's complexity; a single-complexity bot is one row", () => {
+  const ladder: BotInfo = {
+    principal: Principal.fromText("ietgl-ziaaa-aaaac-qhfga-cai"),
+    name: "TicTacToeBot",
+    complexities: [
+      { complexity: "Easy", elo: [1100n] },
+      { complexity: "Hard", elo: [1500n] },
+    ],
+  };
+  const single: BotInfo = {
+    principal: Principal.fromText("aaaaa-aa"),
+    name: "RacerBot",
+    complexities: [{ complexity: "Default", elo: [1200n] }],
+  };
+  const html = renderBotList([ladder, single], plugin);
+  assert.equal((html.match(/class="leaderboard-row"/g) ?? []).length, 3);
+  const easy = html.indexOf("TicTacToeBot (Easy)");
+  const hard = html.indexOf("TicTacToeBot (Hard)");
+  assert.ok(easy >= 0 && hard > easy, "declared order (Easy before Hard), never re-sorted by rating");
+  assert.match(html, /1100/);
+  assert.match(html, /1500/);
+  assert.match(html, /data-challenge-bot="ietgl-ziaaa-aaaac-qhfga-cai" data-bot-name="TicTacToeBot" data-bot-complexity="Easy"/);
+  assert.match(html, /data-challenge-bot="ietgl-ziaaa-aaaac-qhfga-cai" data-bot-name="TicTacToeBot" data-bot-complexity="Hard"/);
+  assert.match(html, /RacerBot \(Default\)/);
+  assert.match(html, /data-challenge-bot="aaaaa-aa" data-bot-name="RacerBot" data-bot-complexity="Default"/);
+});
+
+test("renderBotList: no rating shown when the host wires no leaderboard (elo empty), empty-state when nobody has registered", () => {
+  const bot: BotInfo = {
+    principal: Principal.fromText("aaaaa-aa"),
+    name: "RacerBot",
+    complexities: [{ complexity: "Default", elo: [] }],
+  };
+  assert.doesNotMatch(renderBotList([bot], plugin), /leaderboard-score/);
+  assert.match(renderBotList([], plugin), /No bots have registered/);
 });
 
 test("renderLeaderboard: a human player (no cp: prefix) gets no bot icon", () => {

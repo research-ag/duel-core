@@ -486,24 +486,39 @@ after both canisters are deployed:
 // on the BOT canister itself, alongside its existing `play`/`make_move`:
 public shared ({ caller }) func register(host : Principal.Principal, name : Text) : async () {
   assert Principal.isController(caller);
-  let h : actor { register_bot : (Text) -> async () } = actor (host.toText());
-  await h.register_bot(name);
+  let h : actor { register_bot : (Text, [Text]) -> async () } = actor (host.toText());
+  await h.register_bot(name, BotLogic.COMPLEXITIES);
 };
 
 ```
+
+`BotLogic.COMPLEXITIES` is the bot's own list of ways to play — opaque
+strings it alone defines and interprets, an "Easy"/"Medium"/"Hard"
+ladder, "Rabbit"/"Fox"/"Lion", "Look-ahead"/"Reactive", whatever fits
+the game — declared once as a constant in the bot's own code (if it
+ever changes, the bot just re-registers). A bot with ONE way to play
+passes `[]` and is listed under `"Default"`; nothing else about it
+changes. A challenger picks one entry per game, and every `make_move`
+ask then carries it as `req.complexity` (see below) — a bot with several
+ways to play switches on that field (treating a value it doesn't
+recognize as its own default, never trapping), and each one is rated
+separately on the leaderboard, "Bot (Hard)" apart from "Bot (Easy)".
+`examples/tic-tac-toe/bot/BotLogic.mo` is the worked two-way shape
+(`["Easy", "Hard"]`, a deterministic pick vs. a full minimax).
 
 There's no deploy-time mechanism for one canister to learn a sibling's
 principal automatically, so trigger this by hand once both are live:
 `icp canister call bot register '(principal "<host-canister-id>", "RacerBot")'`.
 Once it succeeds, the bot shows up in every player's own challenge dialog
-and leaderboard Challenge button, with no hardcoded canister id anywhere
-on the frontend — see `mo:duel-game-core`'s own `backend/README.md`
-"Canister players" section, "Bot discovery" subsection, for the full
-`BotDirectory`/`list_bots` design, and `frontend/README.md`'s "Bot
-registry" section for `renderBotList`/`renderSeatChoice`/
-`renderLeaderboard`'s own Challenge button and the unified challenge
-flow a game's own `duel-app.js`/`app.js` wires (`examples/racing`/
-`examples/checkers` in `research-ag/duel-core`, both wired end to end).
+and leaderboard Challenge button (one row per complexity), with no
+hardcoded canister id anywhere on the frontend — see
+`mo:duel-game-core`'s own `backend/README.md` "Canister players"
+section, "Bot discovery" subsection, for the full `BotDirectory`/
+`list_bots` design, and `frontend/README.md`'s "Bot registry" section
+for `renderBotList`/`renderSeatChoice`/`renderLeaderboard`'s own
+Challenge button and the unified challenge flow a game's own
+`duel-app.js`/`app.js` wires (`examples/racing`/`examples/checkers` in
+`research-ag/duel-core`, both wired end to end).
 
 **Leaderboard (optional).** Also not part of the six required pieces —
 skip it unless the user asks for rankings, ratings, or a "top players"
@@ -609,13 +624,15 @@ func onGameEnded(id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.D
 
 If your game also wires canister players (above), a bot's session id is
 PER-TABLE (`sidForCanister`), not per-player — special-case
-`CanisterPlayers.leaderboardKey(CanisterPlayers.principalOfCanisterSession(sid))`
-before falling back to `Ws.playerKey`, so one bot's score accumulates
-across every table it plays instead of resetting per board (`leaderboardKey`
-is the same `"cp:" # p.toText()` convention `list_bots` itself joins a
-bot's rating with — see "Canister players" above's own "Bot discovery"
-part — so a bot's leaderboard row and its own row in a challenge dialog
-always agree). On the frontend, `get_leaderboard`
+`CanisterPlayers.leaderboardKeyOfSession(sid)` before falling back to
+`Ws.playerKey`, so one bot's score accumulates across every table it
+plays instead of resetting per board. That key is per bot AND per
+complexity (`"cp:" # p.toText() # ":" # complexity`, the same
+`leaderboardKey(p, complexity)` convention `list_bots` itself joins each
+of a bot's ratings with — see "Canister players" above's own "Bot
+discovery" part), so "Bot (Hard)" and "Bot (Easy)" are separate rows
+and a bot's leaderboard rows and its own rows in a challenge dialog
+always agree. On the frontend, `get_leaderboard`
 is already declared on every actor `idl.js` builds and needs no wiring
 of your own; call `actor.get_leaderboard()` and render the result with
 `duel-game-core/render.js`'s
@@ -629,7 +646,7 @@ key itself. If your game also wires bot discovery, fetch
 it — a bot list is a nice-to-have here, never a reason to fail the whole
 panel) and pass `botNames: new Map(bots.map((b) => [b.principal.toString(), b.name]))`
 too, so a bot's row shows its own registered name instead of a bare
-principal. All three reference examples use the same panel shape, worth
+principal — as "Name (Complexity)", the complexity always spelled out. All three reference examples use the same panel shape, worth
 copying rather than inventing your own: an icon-only 🏆 toggle button —
 NOT a "Leaderboard"-labeled one — positioned FIRST in `.session`, before
 the player id, that opens a dedicated full-page overlay

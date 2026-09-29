@@ -231,16 +231,29 @@ export interface LeaderboardEntry {
   updatedAt: bigint;
 }
 
+/// One of a bot's declared complexities — a way of playing (`"Easy"`/
+/// `"Hard"`, `"Rabbit"`/`"Lion"`, `"Look-ahead"`/`"Reactive"`, or just
+/// `"Default"` for a bot with one way to play — opaque text the bot
+/// itself defines, see `mo:duel-game-core/canister_players`'s own
+/// "Complexity" doc) joined with that complexity's own current rating.
+/// `elo` is `opt int` (`[]` only when this host wires no leaderboard at
+/// all — see that type's own doc); a leaderboard-backed host with a
+/// never-played complexity still returns `[score]` (the leaderboard's
+/// own default rating), never `[]`.
+export interface BotComplexity {
+  complexity: string;
+  elo: [] | [bigint];
+}
+
 /// One self-registered bot, as returned by `list_bots()` — mirrors
-/// `mo:duel-game-core/canister_players`'s own `BotEntry` exactly. `elo` is
-/// `opt int` (`[]` only when this host wires no leaderboard at all — see
-/// that type's own doc); a leaderboard-backed host with a never-played
-/// bot still returns `[score]` (the leaderboard's own default rating),
-/// never `[]`.
+/// `mo:duel-game-core/canister_players`'s own `BotEntry` exactly.
+/// `complexities` is never empty and keeps the bot's own declared order
+/// (a ladder's order is meaningful); a challenger picks exactly one per
+/// game and hands it to the bot's own `play(..., complexity)`.
 export interface BotInfo {
   principal: Principal;
   name: string;
-  elo: [] | [bigint];
+  complexities: BotComplexity[];
 }
 
 /// A game's plugin contract — see ../README.md's "The GamePlugin

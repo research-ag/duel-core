@@ -220,16 +220,21 @@ export function buildEngineTypes({
     updatedAt: IDL.Int,
   });
 
-  // One bot's own self-reported identity plus its current rating —
-  // mirrors `mo:duel-game-core/canister_players`'s own `BotEntry` exactly
-  // (`elo` is `opt int`: `null` only when this host wires no leaderboard
-  // at all — see that type's own doc). Always declared, same as
-  // `LeaderboardEntry` above, whether or not a given host actually wires
-  // bot discovery.
+  // One bot's own self-reported identity plus, per complexity it
+  // declared (in its own declared order), that complexity's current
+  // rating — mirrors `mo:duel-game-core/canister_players`'s own
+  // `BotEntry`/`BotComplexityEntry` exactly (`elo` is `opt int`: `null`
+  // only when this host wires no leaderboard at all — see that type's
+  // own doc). Always declared, same as `LeaderboardEntry` above, whether
+  // or not a given host actually wires bot discovery.
+  const BotComplexity = IDL.Record({
+    complexity: IDL.Text,
+    elo: IDL.Opt(IDL.Int),
+  });
   const BotInfo = IDL.Record({
     principal: IDL.Principal,
     name: IDL.Text,
-    elo: IDL.Opt(IDL.Int),
+    complexities: IDL.Vec(BotComplexity),
   });
 
   // ── The WebSocket push transport (mo:duel-game-core/ws) ────────────────
@@ -367,7 +372,7 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
       // `unregister_bot`/`list_bots`, see `../backend/README.md`'s
       // "Canister players" section) — a game whose frontend never calls
       // these pays nothing for the declaration.
-      register_bot: IDL.Func([IDL.Text], [], []),
+      register_bot: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [], []),
       unregister_bot: IDL.Func([], [], []),
       list_bots: IDL.Func([], [IDL.Vec(t.BotInfo)], ["query"]),
       ws_open: IDL.Func([t.CanisterWsOpenArguments], [t.WsResult], []),
@@ -403,8 +408,10 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
 /// method — the one Candid surface a frontend calls DIRECTLY on a
 /// discovered bot's own canister (never routed through `ws.mo`/the
 /// shared `ws`; see `../backend/README.md`'s "Canister players" section
-/// for the full `play(host, tableId, seat, code) -> async Res<JoinOk>`
-/// self-join contract every challengeable bot implements). Reuses
+/// for the full `play(host, tableId, seat, code, complexity) -> async
+/// Res<JoinOk>` self-join contract every challengeable bot implements —
+/// `complexity` being whichever of the bot's own `BotInfo.complexities`
+/// the player picked for this game). Reuses
 /// `buildEngineTypes` for `Seat`/`TableId`/`Err` so this doesn't carry a
 /// second, divergent copy of those shapes; `Action`/`State` are passed as
 /// `IDL.Null` purely to satisfy that function's own signature — `play`'s
@@ -417,6 +424,6 @@ export function buildBotPlayIdlFactory({ IDL }: { IDL: typeof IDLNS }) {
   const JoinOk = IDL.Variant({ staged: t.Seat, started: t.Seat });
   const Res = IDL.Variant({ ok: JoinOk, err: t.Err });
   return IDL.Service({
-    play: IDL.Func([IDL.Principal, t.TableId, t.Seat, IDL.Opt(IDL.Text)], [Res], []),
+    play: IDL.Func([IDL.Principal, t.TableId, t.Seat, IDL.Opt(IDL.Text), IDL.Text], [Res], []),
   });
 }

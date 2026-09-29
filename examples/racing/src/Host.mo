@@ -87,12 +87,13 @@ persistent actor {
   // already handles `ii:`/`an:`; a `cp:` canister-player session is
   // deliberately PER-TABLE (`CanisterPlayers.sidForCanister`), so it's
   // special-cased here — the one place this actor already has both
-  // `Ws`/`CanisterPlayers` wired — down to the bot's own underlying,
-  // stable principal, so one bot's best lap accumulates across every
+  // `Ws`/`CanisterPlayers` wired — down to the bot's own stable principal
+  // plus the complexity it raced at, so each of one bot's complexities
+  // keeps its own best lap and that lap accumulates across every
   // table it races on instead of resetting per board.
   func playerKey(sid : TP.SessionId) : Text {
     if (CanisterPlayers.isCanisterSession(sid)) {
-      CanisterPlayers.leaderboardKey(CanisterPlayers.principalOfCanisterSession(sid));
+      CanisterPlayers.leaderboardKeyOfSession(sid);
     } else {
       Ws.playerKey(sid);
     };

@@ -35,6 +35,14 @@ grouped by what each field is for:
 - `game`, `seat`, `mode`, `turn` — exactly what a human's own screen
   would show right now: the board, which seat you are, whether the game
   is `#simultaneous`/`#alternating`, and the round number.
+- `complexity` — which of YOUR OWN declared ways of playing this seat
+  was seated at (the challenger picked it from the list your `register`
+  sent — see `SKILL.md`'s "Canister players (optional)" step), fixed for
+  the whole session, so a `query` bot with no memory can still be "Hard"
+  on one board and "Easy" on another. `"Default"` if you declared no
+  list at all. Switch on it if you have more than one way to play,
+  treating anything you don't recognize as your own default — never
+  trap on it; ignore it entirely if you have just one.
 - `gen` — this specific MATCH's own identity. It bumps on every fresh
   `stage()` — a join, a takeover, a REMATCH included — so a board
   replayed on the exact same `tableId` still hands you a `gen` you've

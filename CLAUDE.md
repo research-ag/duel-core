@@ -91,13 +91,26 @@ ActorMixin<system>(ws, sweepFunc)`: it supplies the four `ws_*` Candid
   players): it lets a CANISTER take a seat and play, using
   a third reserved `sid` namespace (`cp:`, `sidForCanister`, mirroring
   `ws.mo`'s `ii:`/`an:`) derived from `msg.caller` AND the `TableId` of
-  the specific board it names — never a client-supplied `sid`, so
-  there's nothing to spoof, and never just `msg.caller` alone, so the
-  SAME canister principal can hold a live seat at any number of tables
-  at once, each one an ordinary, fully independent session as far as
-  the engine is concerned (`Registry.peekNextTableId`, a pure read of
-  the registry's own id nonce, is what lets `createTable` derive this
-  session before the id it needs would otherwise exist). The whole protocol
+  the specific board it names AND the `complexity` it plays that board
+  at — never a client-supplied `sid`, so there's nothing to spoof, and
+  never just `msg.caller` alone, so the SAME canister principal can hold
+  a live seat at any number of tables at once, each one an ordinary,
+  fully independent session as far as the engine is concerned
+  (`Registry.peekNextTableId`, a pure read of the registry's own id
+  nonce, is what lets `createTable` derive this session before the id
+  it needs would otherwise exist). `complexity` is a bot's own way of
+  playing — one of the opaque strings it declared at registration
+  (`register_bot(name, complexities)`, below: an "Easy"/"Hard" ladder,
+  "Rabbit"/"Fox"/"Lion", "Look-ahead"/"Reactive", whatever the bot
+  likes; `[]` for a bot with one way to play, listed under
+  `CanisterPlayers.DEFAULT_COMPLEXITY`, `"Default"`), picked ONCE by
+  whoever seats it (a human challenger, an orchestrator, or the bot
+  itself) and never validated or interpreted by this package, exactly
+  like a table's own `variant`. Carried as the session id's last segment
+  (`complexityOfCanisterSession`), it survives an upgrade with the
+  table's own phase record and reaches the bot as
+  `MoveRequest.complexity` on every ask, so a stateless `query` bot can
+  be "Hard" on one board and "Easy" on another. The whole protocol
   is one call: the game canister calls the player canister's own
   `make_move` and treats the reply AS the move (`registry.submit`,
   applied by the caller, never a second inbound entry point a move could
@@ -192,27 +205,34 @@ leaderboard)` — no host hand-declares any of them. (There is
   every future game that opts into canister players) from re-typing the
   identical methods verbatim.
   This same mixin also supplies three further, independent Candid
-  methods — `register_bot(name)`/`unregister_bot()`/`list_bots()` — bot
-  DISCOVERY, letting a bot canister self-register with this host
+  methods — `register_bot(name, complexities)`/`unregister_bot()`/
+  `list_bots()` — bot DISCOVERY, letting a bot canister self-register
+  with this host, its own complexity list included
   (`msg.caller` on `register_bot`/`unregister_bot` is always the calling
   bot's own principal, never a parameter — nothing to spoof, same
   discipline every other entry point in `canister_players.mo` already
-  holds to) so a human player can find and challenge it from a
-  frontend's own "🤖 Bots" dialog with no hardcoded bot canister id
-  anywhere — see `backend/README.md`'s "Canister players" section, "Bot
-  discovery" subsection, for the full design (`CanisterPlayers.BotInfo`/
-  `BotEntry`/`BotDirectory`/`newBotDirectory`/`registerBot`/
-  `unregisterBot`/`listBots`/`rankedBots`, all in `canister_players.mo`
-  itself — no new module — plus `CanisterPlayers.leaderboardKey`, the
-  centralized `"cp:" # p.toText()` convention `list_bots` joins a bot's
-  own `elo` with, and which every `Host.mo`'s own `playerKey` also calls
-  instead of hand-deriving the same string independently). `botDirectory`
+  holds to) so a human player can find and challenge it — at a
+  complexity of their choosing — from a frontend's own "🤖 Bots" dialog
+  with no hardcoded bot canister id anywhere — see `backend/README.md`'s
+  "Canister players" section, "Bot discovery" subsection, for the full
+  design (`CanisterPlayers.BotInfo`/`BotComplexityEntry`/`BotEntry`/
+  `BotDirectory`/`newBotDirectory`/`registerBot`/`unregisterBot`/
+  `listBots`/`rankedBots`, all in `canister_players.mo` itself — no new
+  module — plus `CanisterPlayers.leaderboardKey(p, complexity)`, the
+  centralized `"cp:" # p.toText() # ":" # complexity` convention
+  `list_bots` joins each of a bot's complexities' own `elo` with, and
+  `leaderboardKeyOfSession(sid)`, the same key read off a live `cp:`
+  session, which every `Host.mo`'s own `playerKey` calls instead of
+  hand-deriving the string independently — so each of one bot's
+  complexities is its own separately-rated leaderboard row, "Bot (Hard)"
+  apart from "Bot (Easy)", always with the complexity spelled out even
+  for "Default"). `botDirectory`
   (`CanisterPlayers.newBotDirectory()`) is a plain, stable field a host
   owns directly (no class, no closures, survives an upgrade like any
   other plain data); `leaderboard` is a genuinely optional `?Leaderboard.Board`
-  (`null` if this host wires no leaderboard at all — every bot's own
-  `elo` then comes back `null` too, rather than this mixin depending on
-  `leaderboard.mo` unconditionally). Unlike `ActorMixin`, this mixin
+  (`null` if this host wires no leaderboard at all — every complexity's
+  own `elo` then comes back `null` too, rather than this mixin depending
+  on `leaderboard.mo` unconditionally). Unlike `ActorMixin`, this mixin
   needs no `<system>` capability of its own (none of its nine methods
   touches a timer — `register_bot`/`unregister_bot` call `Time.now()`
   directly instead, the same documented "plays the host's own role"
@@ -221,18 +241,24 @@ leaderboard)` — no host hand-declares any of them. (There is
 (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDirectory,
 leaderboard : ?Leaderboard.Board)`, not `mixin <system>(...)`.
   A bot that wants to BE discoverable implements one further method
-  beyond `make_move`/its own Flow-1 `play(host, tableId, seat, code)` —
-  a `register(host, name)` call mirroring `play`'s own shape, forwarding
-  to `host`'s `register_bot` — triggered once, by hand, after both
-  canisters are deployed (there's no deploy-time mechanism in this repo
-  for one canister to learn a sibling's principal automatically); see
-  `examples/racing/bot/Bot.mo`/`examples/checkers/bot/Bot.mo` for the
-  worked shape (`unregister` included) and `frontend/README.md`'s "Bot
-  registry" section for the matching frontend half — `list_bots()`,
-  `render.js`'s `renderBotList`/`renderSeatChoice`, `renderLeaderboard`'s
-  own per-bot Challenge button, and `idl.js`'s `buildBotPlayIdlFactory`
-  (a shared `idlFactory` for calling a DISCOVERED bot's own `play`
-  directly, targeting whichever principal a player actually picked
+  beyond `make_move`/its own Flow-1 `play(host, tableId, seat, code,
+complexity)` — a `register(host, name)` call mirroring `play`'s own
+  shape, forwarding to `host`'s `register_bot` along with the bot's own
+  complexity list (a constant in the bot's own code — `[]` for one way
+  to play; `examples/tic-tac-toe/bot/BotLogic.mo`'s `COMPLEXITIES`,
+  `["Easy", "Hard"]`, is the worked two-way one, switching between its
+  deterministic pick and a full minimax on `req.complexity`) —
+  triggered once, by hand, after both canisters are deployed (there's no
+  deploy-time mechanism in this repo for one canister to learn a
+  sibling's principal automatically; a bot whose list changes simply
+  re-registers); see `examples/racing/bot/Bot.mo`/
+  `examples/checkers/bot/Bot.mo` for the worked shape (`unregister`
+  included) and `frontend/README.md`'s "Bot registry" section for the
+  matching frontend half — `list_bots()`, `render.js`'s
+  `renderBotList`/`renderSeatChoice`, `renderLeaderboard`'s own per-row
+  Challenge button, and `idl.js`'s `buildBotPlayIdlFactory` (a shared
+  `idlFactory` for calling a DISCOVERED bot's own `play` directly,
+  targeting whichever principal and complexity a player actually picked
   rather than one hardcoded, env-var-supplied bot canister id).
   `backend/src/leaderboard.mo` (`mo:duel-game-core/leaderboard`),
   `backend/src/elo.mo` (`mo:duel-game-core/elo`), and
@@ -301,8 +327,9 @@ defaultScore)` (`keep` is a buffer, typically 2x however many entries a
   player-identity note (`Ws.playerKey` normalizes `ii:`/`an:` sids to a
   stable per-player key; a `cp:` canister-player session is deliberately
   per-TABLE, so a host wiring `canister_players.mo` alongside a
-  leaderboard special-cases `CanisterPlayers.principalOfCanisterSession`
-  itself so one bot's score accumulates across every table it plays).
+  leaderboard special-cases `CanisterPlayers.leaderboardKeyOfSession`
+  itself so one bot's score accumulates across every table it plays —
+  per complexity, never merged across them).
 - **`frontend/`** — the npm package (`duel-game-core`): the matching
   client plumbing (session identity, real-time push, the generic
   multi-table lobby/staging/rematch/busy/debrief screens, Candid IDL
@@ -349,23 +376,27 @@ defaultScore)` (`keep` is a buffer, typically 2x however many entries a
   `ii:`/`an:` prefix down to the bare principal text so it can be
   compared against a `LeaderboardEntry.player` value), so a player can
   find themselves in a long ranked list at a glance. `renderLeaderboard`
-  also renders a canister-seated player's own row with a 🤖 icon and its
-  `cp:` marker stripped, via two further small exports —
-  `isCanisterPlayer(player)`/`displayPlayerId(player)` — same idea as a
-  human's own key already carrying no prefix at all (that one's already
-  stripped server-side, by `Ws.playerKey`, before a score is ever
-  stored; a bot's `cp:` prefix is added back deliberately, by whichever
-  `Host.mo` wires canister players, to key it by its own stable
-  principal rather than one of its many per-table sids — see
-  `backend/README.md`'s "Leaderboard" section's own player-identity
-  note). A third, optional `opts.botNames` (a `Map<string, string>` keyed
-  by that same stripped principal text, typically built from a
-  `list_bots()` call fetched alongside the leaderboard itself) lets that
-  row show the bot's own self-reported name instead of its bare
-  principal — the row's own `title` attribute keeps the full, raw
-  `player` text regardless, so the principal is still one hover away;
-  omitting `opts.botNames` (or a principal it doesn't name) falls back to
-  the bare principal exactly as before bot discovery existed. Unlike the
+  also renders a canister-seated player's own row with a 🤖 icon, its
+  `cp:` marker stripped, and the complexity it played at spelled out
+  after the principal — `"<principal> (<complexity>)"` — via a few
+  further small exports: `isCanisterPlayer(player)`,
+  `parseCanisterPlayer(player)` (splits the `cp:<principal>:<complexity>`
+  key `CanisterPlayers.leaderboardKey` stores), `botDisplayName(name,
+complexity)`, `displayPlayerId(player)`, and `DEFAULT_BOT_COMPLEXITY`
+  — same idea as a human's own key already carrying no prefix at all
+  (that one's already stripped server-side, by `Ws.playerKey`, before a
+  score is ever stored; a bot's `cp:` prefix is added back deliberately,
+  by whichever `Host.mo` wires canister players, to key it by its own
+  stable principal plus complexity rather than one of its many
+  per-table sids — see `backend/README.md`'s "Leaderboard" section's own
+  player-identity note). A third, optional `opts.botNames` (a
+  `Map<string, string>` keyed by that same stripped principal text,
+  typically built from a `list_bots()` call fetched alongside the
+  leaderboard itself) lets that row show the bot's own self-reported
+  name instead of its bare principal, "CheckersBot (Hard)" — the row's
+  own `title` attribute keeps the full, raw `player` text regardless, so
+  the principal is still one hover away; omitting `opts.botNames` (or a
+  principal it doesn't name) falls back to the bare principal. Unlike the
   lobby/staging/debrief chrome, `renderLeaderboard` is never wired into
   `renderStatus`/`renderView` automatically — a leaderboard has no fixed
   place in every game's own layout, so each game calls it wherever its
@@ -383,19 +414,25 @@ defaultScore)` (`keep` is a buffer, typically 2x however many entries a
   `backend/` bullet's own `canister_players_actor_mixin.mo` paragraph
   above); `idl.js` also exports `buildBotPlayIdlFactory({IDL})`, a
   ready-to-use `idlFactory` for calling a DISCOVERED bot's own
-  `play(host, tableId, seat, code)` directly (Flow 1's own shape,
-  untouched) — reusing `buildEngineTypes` for `Seat`/`TableId`/`Err` so
-  it carries no second, divergent copy of those shapes, and targeting
-  whichever principal a player actually picked rather than one
-  hardcoded, env-var-supplied bot canister id. `frontend/render.js`'s
+  `play(host, tableId, seat, code, complexity)` directly (Flow 1's own
+  shape, untouched) — reusing `buildEngineTypes` for `Seat`/`TableId`/
+  `Err` so it carries no second, divergent copy of those shapes, and
+  targeting whichever principal a player actually picked rather than
+  one hardcoded, env-var-supplied bot canister id. `frontend/render.js`'s
   `renderBotList(bots, plugin)` renders `list_bots()`'s own ranked
-  result (highest-rated first, unrated last) the same way
-  `renderLeaderboard` renders a score board — same `plugin.formatScore`
-  call, so a bot's rating reads identically wherever it appears — each
-  row's own `Challenge` button carrying `data-challenge-bot`/
-  `data-bot-name`; `renderLeaderboard` itself grows the SAME Challenge
-  button on a bot's own row (gated on the existing `isCanisterPlayer`
-  check), so a game wires ONE click handler for both entry points.
+  result (highest-rated bot first, unrated last) the same way
+  `renderLeaderboard` renders a score board — one row per bot AND
+  complexity, in the bot's own declared order, each reading
+  `"<name> (<complexity>)"` exactly as its leaderboard row does, same
+  `plugin.formatScore` call, so a rating reads identically wherever it
+  appears — each row's own `Challenge` button carrying
+  `data-challenge-bot`/`data-bot-name`/`data-bot-complexity`, so picking
+  a way of playing IS picking a row and no separate complexity-choice
+  step exists (a bot with one way to play is simply one row);
+  `renderLeaderboard` itself grows the SAME Challenge button, with the
+  same three attributes, on a bot's own row (gated on the existing
+  `isCanisterPlayer` check), so a game wires ONE click handler for both
+  entry points.
   `renderSeatChoice(plugin)` is the seat-choice step a challenge shows
   before creating a brand-new table for a bot it isn't already staging
   one for — the same two-button `p1`/`p2` picker `renderBrowsing`'s own
@@ -537,7 +574,11 @@ five also ship a `bot/` canister player — a rule-following,
 lookahead-free opponent (see each one's own `CLAUDE.md`) — proving
 `mo:duel-game-core/canister_players` end to end in
 both engine modes, not just `#simultaneous` (`007` is the one exception
-with no bot, predating that feature). A real game normally lives in its
+with no bot, predating that feature). `tic-tac-toe`'s bot is also the
+worked reference for a bot with more than one COMPLEXITY (see the
+`backend/` bullet above): it registers `["Easy", "Hard"]`, the latter a
+full minimax, and switches on `req.complexity` — the other four
+register no list and play one way, under `"Default"`. A real game normally lives in its
 own repo, structured the same way.
 Building one — whether from scratch or by adapting an existing client —
 is a whole workflow with its own hard-won lessons: see the
