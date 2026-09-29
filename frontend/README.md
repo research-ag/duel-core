@@ -663,6 +663,28 @@ each example wires its own trigger to fit where it sits:
   an open seat already exists — that's the one path that reaches
   `renderSeatChoice` first.
 
+**Rematch against a bot.** The engine's own `rematch` treats a bot like
+any other partner: the human's Rematch click from the debrief stages the
+SAME table with the open seat reserved for the bot's own `cp:` session
+(`StagingYouView.reservedForPartner`). A bot has no "Accept rematch"
+click of its own, though, and nothing on the host ever asks one to
+accept — so the frontend does it. Remember the bot, complexity, and
+table id of every successful `play` call, and when a `stagingYou` push
+for THAT table arrives carrying `reservedForPartner`, re-issue the
+identical `play` call (the same `seat === undefined` path as the "Add
+Bot" case — the staging's own open seat and code) instead of showing the
+"Waiting for an opponent" screen at all; the player sees "Inviting
+<bot>…" straight away. This works because `join_table_as_canister`
+derives the bot's session from its principal, the table id, and the
+complexity — all three unchanged on a rematch (a `Registry` rematch
+reuses the same `TableId`) — so the bot lands on exactly the session the
+reservation names, pattern-matching it the same way a human partner's own
+accept does. Clear the remembered bot the moment the session's status is
+anywhere but that table (browsing, another table): "Return to lobby" is
+the player saying they're done with that opponent, whereas Rematch is
+them asking for the same one again. The examples keep it in
+`sessionStorage` so a mid-game reload doesn't lose it.
+
 See `examples/racing/frontend/src/duel/duel-app.js`/
 `examples/checkers/frontend/src/app.js` for the full worked flow —
 `#bot-add-panel`'s own trigger button (a sibling of `#screen`, exactly

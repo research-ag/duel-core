@@ -268,7 +268,14 @@ Http(renderer.renderExposition, "/metrics")`, from
   `join_table_as_canister`, exactly Flow 1's "self-join" shape, just
   aimed at whichever canister id a player actually picked rather than a
   `PUBLIC_CANISTER_ID:bot` env var (this frontend hardcodes no bot
-  canister id anywhere). The generic chrome (`duel-game-core/render.js`) already shows
+  canister id anywhere). A Rematch from a bot game re-invites that same
+  bot, at the same complexity, on its own: the engine reserves the
+  rematch's open seat for the bot's own session, and `app.js`
+  (remembering the last bot it invited, per table, in `sessionStorage`)
+  re-issues the identical `play` call the moment that `stagingYou` push
+  lands — the player sees "Inviting <bot>…" straight away, never
+  "Waiting for an opponent" (see `../../frontend/README.md`'s "Bot
+  registry" section, "Rematch against a bot"). The generic chrome (`duel-game-core/render.js`) already shows
   turn-accurate copy ("Your turn"/"Opponent's turn") for an
   `#alternating` table with zero plugin-side work. `app.js` calls
   `duel-game-core/identity.js`'s `resolveIdentity()` for this tab's own

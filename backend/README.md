@@ -1156,7 +1156,14 @@ dialog and leaderboard Challenge button, one row per complexity — see
 and the unified challenge flow that follows: a browser still only ever
 calls a bot's own `play` DIRECTLY, exactly Flow 1's shape, just with the
 target canister id and complexity now coming from a player's own choice
-rather than a hardcoded env var.
+rather than a hardcoded env var. A human's Rematch against a bot is that
+same `play` call re-issued by their own frontend: `rematch` reserves the
+rematch staging's open seat for the bot's `cp:` session, and
+`join_table_as_canister` with the same principal, `TableId` (a rematch
+reuses it), and complexity derives exactly that session, so the bot
+matches the reservation the way a human partner's own accept would —
+nothing on the host needs to ask a bot to "accept" (see that same
+"Bot registry" section, "Rematch against a bot").
 
 ### Leaderboard
 

@@ -272,7 +272,14 @@ gateway-*.js` does, registering this tab as its own WS Gateway).
   `join_table_as_canister`, exactly Flow 1's "self-join" shape, just
   aimed at whichever canister id a player actually picked rather than a
   `PUBLIC_CANISTER_ID:bot` env var (this frontend hardcodes no bot
-  canister id anywhere).
+  canister id anywhere). A Rematch from a bot game re-invites that same
+  bot, at the same complexity, on its own: the engine reserves the
+  rematch's open seat for the bot's own session, and `duel-app.js`
+  (remembering the last bot it invited, per table, in `sessionStorage`)
+  re-issues the identical `play` call the moment that `stagingYou` push
+  lands — the player sees "Inviting <bot>…" straight away, never
+  "Waiting for an opponent" (see `../../frontend/README.md`'s "Bot
+  registry" section, "Rematch against a bot").
   `duel-app.js` also wires a header 🏆 toggle button (`index.html`'s
   `#leaderboard-toggle` — icon-only, no "Leaderboard" label, positioned
   FIRST in `.session`, before the Driver ID — that opens

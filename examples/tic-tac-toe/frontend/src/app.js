@@ -151,6 +151,29 @@ const botAddTrigger = document.getElementById("bot-add-trigger");
 // (GatewayWs) extends EventTarget specifically so more than one consumer
 // can listen without stealing app.js's own `ws.onmessage` — see the
 // duel-game-core skill's rich-UI pattern.
+//
+// `lastBot` is the bot (principal, name, complexity) this player last
+// got into a game with, and at which table — so a Rematch from THAT
+// game's debrief re-invites the same bot straight away instead of
+// leaving the player on "Waiting for an opponent" for a partner that
+// has no "Accept rematch" click of its own (see
+// ../../../frontend/README.md's "Bot registry" section, "Rematch
+// against a bot"). Kept in sessionStorage so a page reload mid-game
+// doesn't forget it; cleared the moment this session is anywhere but
+// that table.
+const LAST_BOT_KEY = "duel-last-bot";
+let lastBot = null;
+try {
+  const saved = JSON.parse(sessionStorage.getItem(LAST_BOT_KEY));
+  if (saved) lastBot = { ...saved, tableId: BigInt(saved.tableId) };
+} catch (_) {}
+function setLastBot(bot) {
+  lastBot = bot;
+  try {
+    if (bot) sessionStorage.setItem(LAST_BOT_KEY, JSON.stringify({ ...bot, tableId: bot.tableId.toString() }));
+    else sessionStorage.removeItem(LAST_BOT_KEY);
+  } catch (_) {}
+}
 let staging = null;
 ws.addEventListener("message", (ev) => {
   const payload = ev.data;
@@ -160,18 +183,26 @@ ws.addEventListener("message", (ev) => {
     return;
   }
   const status = payload.view;
-  if (!("atTable" in status) || tag(status.atTable.view) !== "stagingYou") {
+  const atTable = "atTable" in status ? status.atTable : null;
+  if (lastBot && !(atTable && atTable.id === lastBot.tableId)) setLastBot(null);
+  if (!atTable || tag(atTable.view) !== "stagingYou") {
     staging = null;
     botAddPanel.hidden = true;
     return;
   }
-  const v = status.atTable.view.stagingYou;
+  const v = atTable.view.stagingYou;
   staging = {
-    tableId: status.atTable.id,
+    tableId: atTable.id,
     openSeat: tag(v.seat) === "p1" ? { p2: null } : { p1: null },
     code: "code" in v.visibility ? [v.visibility.code] : [],
   };
   botAddPanel.hidden = false;
+  // A rematch staging at the bot's own table: the open seat is reserved
+  // for the bot's session, which `play` below fills the same way it did
+  // the first time (same principal + table + complexity = same session).
+  if (lastBot && v.reservedForPartner && !pendingBot) {
+    onChallengeClick(lastBot.principalText, lastBot.name, lastBot.complexity);
+  }
 });
 
 // The bot chosen off either entry point — and which of its own
@@ -236,6 +267,7 @@ async function inviteBot(seat) {
     // human's own connection in real time — app.js's own `ws.onmessage`
     // picks it up and re-renders #screen to the fresh #active game on
     // its own; nothing further to do here.
+    setLastBot({ principalText, name, complexity, tableId });
     botPanel.hidden = true;
     pendingBot = null;
   } catch (e) {

@@ -789,4 +789,43 @@ switch (atTableView(reg25, T0, sidHard25)) {
 };
 Debug.print("25. MoveRequest.complexity carries each seat's own pick; leave/claimWin resolve a complexity-seated session from principal + tableId OK");
 
+// ── 26. a human's Rematch against a bot: the rematch staging reserves the
+//          open seat for the bot's OWN session, and the bot's ordinary
+//          joinTable at the SAME complexity (what a frontend re-issues on
+//          that staging — see frontend/README.md's "Bot registry" section,
+//          "Rematch against a bot") derives exactly that session and
+//          starts the game; a different complexity is a different session
+//          and is refused as reserved ───────────────────────────────────
+let reg26 = fresh();
+let counter26 = newAfterMutationCounter();
+let cp26 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg26, stubAfterMutation(counter26), constantBot(#gather), noopArm);
+let id26 = ok(reg26.createTable(spec, T0, "human", #p1, #open, ""), "human creates a table");
+ignore ok(await* cp26.joinTable(bot1, id26, #p2, null, "Hard"), "bot1 joins at Hard; game starts");
+let sidHard26 = CanisterPlayers.sidForCanister(bot1, id26, "Hard");
+let genFirst26 = switch (atTableView(reg26, T0, "human")) {
+  case (#inGame v) v.gen;
+  case (_) Runtime.trap("human should be in-game");
+};
+ok(reg26.leave(T0, "human", genFirst26), "human forfeits — shared #aborted debrief");
+await* cp26.settle(T0, id26);
+switch (atTableView(reg26, T0, sidHard26)) {
+  case (#debrief _) {};
+  case (other) Runtime.trap("bot1 should still hold its side of the debrief while the human decides, got " # debug_show (other));
+};
+ignore ok(reg26.rematch(spec, T0, "human"), "human clicks Rematch");
+switch (atTableView(reg26, T0, "human")) {
+  case (#stagingYou v) assert v.reservedForPartner;
+  case (other) Runtime.trap("human's rematch should stage the same table reserved for the bot, got " # debug_show (other));
+};
+expectErr(await* cp26.joinTable(bot1, id26, #p2, null, "Easy"), "bot1 re-joining at a DIFFERENT complexity is a different session — reserved seat refused");
+switch (ok(await* cp26.joinTable(bot1, id26, #p2, null, "Hard"), "bot1 re-joins at the same complexity — matches the reservation")) {
+  case (#started _) {};
+  case (other) Runtime.trap("the rematch should start outright, got " # debug_show (other));
+};
+switch (atTableView(reg26, T0, "human")) {
+  case (#inGame v) assert v.gen != genFirst26 and v.oppSubmitted; // a fresh match, and the bot's eager join-trigger already asked it
+  case (other) Runtime.trap("human should be in the rematch, got " # debug_show (other));
+};
+Debug.print("26. a bot re-joining a human's rematch staging at the same complexity matches the reservation and starts the game OK");
+
 Debug.print("ALL CANISTER-PLAYERS CHECKS PASSED");

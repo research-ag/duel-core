@@ -435,7 +435,14 @@ module {
   /// debrief auto-acks both sides unconditionally the moment neither is a
   /// live human waiting to decide (see `maybeAckDebrief` below), so
   /// nothing is ever left waiting on a canister's own rematch click the
-  /// way a human's own "Rematch" button is. `leave`/`ackEnded`/
+  /// way a human's own "Rematch" button is. A HUMAN-vs-canister rematch
+  /// needs no entry point here either: the human's own `rematch`
+  /// reserves the open seat for this canister's session, and their
+  /// frontend re-issues the same `play`/`joinTable` that seated it the
+  /// first time — same principal, table id, and complexity derive the
+  /// same session, so it matches the reservation exactly like a
+  /// partner's accept (see `frontend/README.md`'s "Bot registry"
+  /// section, "Rematch against a bot"). `leave`/`ackEnded`/
   /// `claimWin`/`reset` each take `tableId` explicitly — with a canister
   /// potentially seated at several boards at once (see this module's own
   /// doc header), "my one game" is no longer enough to say which one.

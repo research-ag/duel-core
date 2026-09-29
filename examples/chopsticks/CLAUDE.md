@@ -89,9 +89,9 @@ Rules.Action`.
     never terminate without cycle handling — the depth limit is that
     handling. Deterministic: among equal-valued moves the first in
     `legalActions` order wins, so `make_move` stays a `query`.
-  Any `req.complexity` the bot didn't declare plays `Bunny`. Kept
-  separate from `Bot.mo` so `test/Bot.test.mo` can call `chooseMove`
-  directly, with no actor/Candid round-trip.
+    Any `req.complexity` the bot didn't declare plays `Bunny`. Kept
+    separate from `Bot.mo` so `test/Bot.test.mo` can call `chooseMove`
+    directly, with no actor/Candid round-trip.
 - **`bot/Bot.mo`** — the bot canister itself: implements
   `BotIface.CanisterPlayer`'s `make_move` as a `query` (a thin shell over
   `BotLogic.chooseMove` — every tier is a pure function of the request),
@@ -307,7 +307,7 @@ first. Rules specific to this example:
     rejects it outright instead).
   - **Instructables** (`"instructables"`): only **exactly 5** puts a
     hand out; above 5 the sum **wraps** — `sum mod 5`, so `4 + 2 = 6 →
-    1`, and 0 means out. SPLIT is gated: legal only once one hand is out
+1`, and 0 means out. SPLIT is gated: legal only once one hand is out
     AND the other is even, and the result is forced — exactly half to
     each hand (this is the move that revives a dead hand).
 - WIN: the first seat to put both of the opponent's hands out. A split

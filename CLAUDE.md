@@ -196,7 +196,11 @@ leaderboard)` — no host hand-declares any of them. (There is
   auto-acks both sides unconditionally the moment neither is a live
   human still deciding, so a canister seat never needs to request a
   rematch itself — see `backend/src/canister_players.mo`'s own
-  `Attached` doc.) It's optional in exactly the sense `canister_players.mo`
+  `Attached` doc; a HUMAN-vs-canister rematch is the human's own
+  frontend re-issuing the same `play` call that seated the bot the first
+  time, onto the rematch staging the engine reserved for the bot's own
+  session — see the `frontend/` bullet below.) It's optional in exactly
+  the sense `canister_players.mo`
   itself is (a host that never wires `CanisterPlayers.attach` never
   `include`s this either, and pays no cost for skipping it), narrower
   still than that: a host free to hand-roll those six forwarding methods
@@ -446,8 +450,15 @@ complexity)`, `displayPlayerId(player)`, and `DEFAULT_BOT_COMPLEXITY`
   full unified challenge flow (issuing `createTable` directly over the
   shared `ws` via `ws.request`, the same correlatable call
   `lobby-connection.service.ts`-shaped bridging code already relies on,
-  rather than through `app.ts`'s own internal click handling) and each
-  example's own `CLAUDE.md` for where it put the toggle.
+  rather than through `app.ts`'s own internal click handling) and the
+  rematch re-invite (a Rematch from a bot game re-issues the same `play`
+  call, same bot and complexity, the moment the reserved rematch staging
+  lands — the bot's `cp:` session is derived from principal + table id +
+  complexity, all unchanged on a rematch, so it matches the reservation
+  like a partner's accept — and the player sees "Inviting <bot>…"
+  straight away, never "Waiting for an opponent" for a partner that can't
+  click accept), and each example's own `CLAUDE.md` for where it put the
+  toggle.
 - **`backend/test/*.test.mo`** — interpreter-run suites for the engine.
   `Lifecycle.test.mo` walks one long session narrative; `Engine.test.mo`
   drives each entry point in isolation, covering the error variants,
@@ -503,7 +514,12 @@ complexity)`, `displayPlayerId(player)`, and `DEFAULT_BOT_COMPLEXITY`
   `secondsUntilClaimable` the moment a canister seat becomes the WAITING
   side but isn't yet overdue, verified with a stubbed spy in place of a
   real `Timer.setTimer` (this module needs no `<system>` capability of
-  its own to make that possible — see `attach`'s own doc) — against
+  its own to make that possible — see `attach`'s own doc) — and a
+  human's Rematch against a bot: the rematch staging reserves the open
+  seat for the bot's own session, so the bot's ordinary `joinTable` at
+  the SAME complexity (what a frontend re-issues on that staging)
+  matches the reservation and starts the game, while a different
+  complexity is a different session and is refused — against
   `FakeGame.mo` again, with `afterMutation`
   stubbed (a plain call counter) rather than a real `Ws.attach`, same
   caveat `Hub.test.mo` documents for why the full `IcWebSocketCdk` actor

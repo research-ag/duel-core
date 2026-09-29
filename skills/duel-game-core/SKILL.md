@@ -522,7 +522,12 @@ section, "Bot discovery" subsection, for the full `BotDirectory`/
 for `renderBotList`/`renderSeatChoice`/`renderLeaderboard`'s own
 Challenge button and the unified challenge flow a game's own
 `duel-app.js`/`app.js` wires (`examples/racing`/`examples/checkers` in
-`research-ag/duel-core`, both wired end to end).
+`research-ag/duel-core`, both wired end to end) — including a Rematch
+from a bot game re-inviting the same bot at the same complexity
+automatically: the engine reserves the rematch seat for the bot's own
+session, and the frontend re-issues the same `play` call the moment
+that staging lands, rather than leaving the player on "Waiting for an
+opponent" for an accept a bot can never click.
 
 **Leaderboard (optional).** Also not part of the six required pieces —
 skip it unless the user asks for rankings, ratings, or a "top players"
