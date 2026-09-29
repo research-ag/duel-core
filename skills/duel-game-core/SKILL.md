@@ -213,7 +213,11 @@ Action) -> ...` takes both. This is what
      smaller variant's own match. `examples/rock-paper-scissors`'s own
      `RockPaperScissorsRules.mo` is the worked reference (Classic vs
      Well — a fourth WELL symbol, illegal outside Well mode, nothing
-     else different).
+     else different). When a variant also changes what a move DOES,
+     `resolve` reads `s.variant` the same way — `examples/chopsticks`'s
+     own `ChopsticksRules.mo` (Classic's "5 or more is out" vs
+     Instructables' "exactly 5 is out, more wraps") is the worked
+     reference for that shape.
    - **Different fields entirely** (a variant's data genuinely doesn't
      overlap another's) → tag `Action` into a union over each variant's
      own payload type, dispatched through a variant-keyed lookup table

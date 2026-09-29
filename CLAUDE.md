@@ -549,36 +549,49 @@ complexity)`, `displayPlayerId(player)`, and `DEFAULT_BOT_COMPLEXITY`
 
 This repo is the framework the two packages are built from, not a game
 itself — `examples/007/`, `examples/racing/`, `examples/checkers/`,
-`examples/rock-paper-scissors/`, `examples/tic-tac-toe/`, and
-`examples/ultimate-tic-tac-toe/` are reference games built on top of it
+`examples/rock-paper-scissors/`, `examples/tic-tac-toe/`,
+`examples/ultimate-tic-tac-toe/`, and `examples/chopsticks/` are
+reference games built on top of it
 (a pure rules module implementing `TP.Spec<S, M>` plus a thin host actor
 for the backend; a `GamePlugin` plus `index.html` and deploy config for
 the frontend), kept here to prove the packages are usable end to end and
 to give a new game something concrete to copy — `007`, `racing`, and
-`rock-paper-scissors` are `#simultaneous`; `checkers`, `tic-tac-toe`, and
-`ultimate-tic-tac-toe` are `#alternating` (standard English draughts,
-standard tic-tac-toe, and Wikipedia's ultimate tic-tac-toe respectively;
+`rock-paper-scissors` are `#simultaneous`; `checkers`, `tic-tac-toe`,
+`ultimate-tic-tac-toe`, and `chopsticks` are `#alternating` (standard
+English draughts, standard tic-tac-toe, Wikipedia's ultimate tic-tac-toe,
+and the two-hands finger game chopsticks respectively;
 see each one's own `CLAUDE.md`) — so between them every engine mode has
 several worked references, from `007`'s health-and-resource duel down to
 `rock-paper-scissors`'/`tic-tac-toe`'s much smaller rule sets, with
 `ultimate-tic-tac-toe` a step up again in state shape (nine linked
 sub-boards) without adding any lookahead to its own bot.
-`rock-paper-scissors` is also this repo's worked reference for a
+`rock-paper-scissors` is this repo's worked reference for a
 table-time rules VARIANT (see `Spec<S, M>`'s own bullet below and
 `backend/README.md`'s "Table variants" section): its table creator picks
 Classic (rock/paper/scissors) or Well (a fourth WELL symbol, illegal
 outside Well mode) at `createTable` time, shown as plain text to anyone
 browsing open tables before they join — one `Action`/`State` shape,
-widened, with the restriction gated entirely in `validate`. The other
-five also ship a `bot/` canister player — a rule-following,
-lookahead-free opponent (see each one's own `CLAUDE.md`) — proving
+widened, with the restriction gated entirely in `validate`. `chopsticks`
+is the second variant reference, for the shape where a variant changes
+not just legality but RESOLUTION too: Classic (a hand at 5 or more is
+out; free splits) vs Instructables (only exactly 5 is out, more wraps
+`mod 5`; splits only from one dead hand and an even live one, always
+half and half) branch in both `validate` AND `resolve`, still over one
+`Action`/`State` shape. The other
+six also ship a `bot/` canister player — a rule-following opponent
+(see each one's own `CLAUDE.md`) — proving
 `mo:duel-game-core/canister_players` end to end in
 both engine modes, not just `#simultaneous` (`007` is the one exception
-with no bot, predating that feature). `tic-tac-toe`'s bot is also the
-worked reference for a bot with more than one COMPLEXITY (see the
-`backend/` bullet above): it registers `["Easy", "Hard"]`, the latter a
-full minimax, and switches on `req.complexity` — the other four
-register no list and play one way, under `"Default"`. A real game normally lives in its
+with no bot, predating that feature). A bot's simplest tier is always
+lookahead-free; `tic-tac-toe`'s and `chopsticks`' bots are the two
+worked references for a bot with more than one COMPLEXITY (see the
+`backend/` bullet above): `tic-tac-toe` registers `["Easy", "Hard"]`,
+the latter a full minimax; `chopsticks` registers `["Bunny", "Fox",
+"Bear"]` — no lookahead, one ply (take a win, never hand one over), and
+a depth-limited alpha-beta search respectively, a strictly ordered
+ladder its own `Bot.test.mo` proves — and both switch on
+`req.complexity`; the other four register no list and play one way,
+under `"Default"`. A real game normally lives in its
 own repo, structured the same way.
 Building one — whether from scratch or by adapting an existing client —
 is a whole workflow with its own hard-won lessons: see the

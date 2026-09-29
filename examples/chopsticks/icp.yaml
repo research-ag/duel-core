@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://github.com/dfinity/icp-cli/raw/refs/tags/v0.1.0-beta.2/docs/schemas/icp-yaml-schema.json
+
+canisters:
+  - name: backend
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: src/Host.mo
+  - name: bot
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: bot/Bot.mo
+  - name: frontend
+    recipe:
+      # v2.1.0 (used elsewhere) syncs via the `assets` step, which icp-cli
+      # 1.x removed; v2.3.0 is the first plugin-based release.
+      type: "@dfinity/asset-canister@v2.3.0"
+      configuration:
+        dir: frontend/dist
+        build:
+          - cd frontend && npm run build

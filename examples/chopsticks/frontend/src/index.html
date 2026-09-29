@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chopsticks — Duel</title>
+    <link rel="stylesheet" href="/duel-game-core.css" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Chopsticks <span class="sub">— Duel</span></h1>
+      <div class="session">
+        <button id="leaderboard-toggle" title="Leaderboard" aria-label="Leaderboard">🏆</button>
+        <span class="label">Player ID</span>
+        <code id="sid">…</code>
+        <button id="new-sid" title="Play as a different player">new</button>
+        <button id="duel-auth-btn"></button>
+      </div>
+    </header>
+
+    <div id="leaderboard-panel" hidden>
+      <div class="leaderboard-header">
+        <button id="leaderboard-back" class="ghost">← Back</button>
+        <h2>🏆 Top players</h2>
+      </div>
+      <div id="leaderboard-body" class="leaderboard-list"><p class="muted">Loading…</p></div>
+    </div>
+
+    <div id="bot-challenge-panel" hidden>
+      <div class="bot-challenge-header">
+        <button id="bot-challenge-back" class="ghost">← Back</button>
+        <h2>🤖 Bots</h2>
+      </div>
+      <div id="bot-challenge-body" class="bot-challenge-body"><p class="muted">Loading…</p></div>
+    </div>
+
+    <p id="error" class="error" hidden></p>
+
+    <main id="screen">
+      <p class="muted">Connecting to the board…</p>
+    </main>
+
+    <div id="bot-add-panel" hidden>
+      <button id="bot-add-trigger" class="ghost">Add Bot 🤖 to the open seat</button>
+    </div>
+
+    <footer>
+      <p class="muted">
+        Chopsticks — each player starts with one finger on each hand and
+        Player 1 moves first. Tap one of your hands onto an opponent's to
+        add your count to theirs, or split your own total between your
+        hands. Classic: a hand at 5 or more is out and any split but a
+        pure swap is allowed. Instructables: only exactly 5 puts a hand
+        out (6 wraps to 1, 7 to 2, …), and you may split only when one
+        hand is out and the other is even, always half and half. Put both
+        of the opponent's hands out to win. Your Player ID is per browser
+        tab — open a second tab to play the other seat — unless you log in
+        with Internet Identity, which gives you the same Player ID
+        everywhere, permanently. An idle board can be taken over after
+        60&nbsp;seconds.
+      </p>
+    </footer>
+
+    <!-- app.js is esbuild's bundle of src/app.js (see ../build.js) — every
+         dependency it and duel-game-core itself need (@icp-sdk/core,
+         @icp-sdk/auth, cborg) is resolved and inlined at build time, so
+         no import map or bare-specifier resolution is needed here. -->
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

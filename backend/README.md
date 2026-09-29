@@ -278,8 +278,9 @@ public func init(raw : Text) : State = {
 
 A game with no modes of its own simply ignores the argument
 (`init = func(_ : Text) : S = { ... }`) — every existing example but
-`rock-paper-scissors` does exactly this; nothing about `createTable`
-changes shape for them, they just never read the text they're handed.
+`rock-paper-scissors` and `chopsticks` does exactly this; nothing about
+`createTable` changes shape for them, they just never read the text
+they're handed.
 
 **Same fields, different legality.** When a variant only changes which
 moves are allowed, not what a move even contains, keep `M`/`S` flat and
@@ -301,7 +302,11 @@ public func validate(s : State, _seat : Seat, a : Action) : ?Text {
 against the variant with the MOST legal moves (a strict superset), since
 `validate` has already kept anything else out of a narrower variant's own
 match — `examples/rock-paper-scissors`'s own `RockPaperScissorsRules.mo`
-(Classic vs Well) is the worked reference.
+(Classic vs Well) is the worked reference. When a variant changes what a
+move DOES, not only whether it's allowed, `resolve` reads `s.variant`
+too, the same way — `examples/chopsticks`'s own `ChopsticksRules.mo`
+(Classic's "5 or more is out" vs Instructables' "exactly 5 is out, more
+wraps `mod 5`") is the worked reference for that.
 
 **Different fields entirely.** When a variant's data genuinely doesn't
 overlap, widening one flat type stops making sense — turn `M` into a

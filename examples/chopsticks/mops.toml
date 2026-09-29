@@ -1,0 +1,11 @@
+[package]
+name = "duel-chopsticks"
+version = "0.1.0"
+description = "chopsticks — reference #alternating game with two rules variants and a three-tier bot, built on duel-game-core"
+
+[dependencies]
+duel-game-core = "../../backend"
+core = "2.6.1"
+
+[toolchain]
+moc = "1.11.2"

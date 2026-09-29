@@ -271,7 +271,8 @@ function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): stri
     <button class="seat" data-create-table="${seat}">${esc(plugin.seatLabel(seat))}</button>`;
   // Absent for a game that implements neither `variantChoices` nor
   // `formatVariant` (the common case, and every example but
-  // rock-paper-scissors) — see GamePlugin.variantChoices's own doc. The
+  // rock-paper-scissors and chopsticks) — see GamePlugin.variantChoices's
+  // own doc. The
   // FIRST choice is the default selection (`checked`), read back by
   // app.ts's `readCreateVariant`.
   const choices = plugin.variantChoices?.() ?? [];

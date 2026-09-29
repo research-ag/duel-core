@@ -1,0 +1,143 @@
+/* Chopsticks-specific visuals only — page chrome (header, buttons, the
+   generic lobby/staging/debrief screens) comes from duel-game-core.css,
+   loaded first in index.html. */
+
+/* #bot-add-panel (index.html) — see app.js's own comment there for what
+ * it does. A sibling of #screen, styled to read as a continuation of
+ * that same card (same max-width/centering as `main` in the shared
+ * frontend/style.css) rather than a separate floating element. */
+#bot-add-panel {
+  max-width: 860px;
+  margin: 0.75rem auto 0;
+}
+
+#bot-add-trigger {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--accent, #d4af37);
+  border-color: var(--accent, #d4af37);
+}
+
+.cs-board {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem auto;
+  max-width: 420px;
+}
+
+.cs-row {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  width: 100%;
+}
+
+.cs-vs {
+  font-size: 0.8rem;
+  color: var(--muted, #888);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.cs-hand,
+button.cs-hand {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  width: min(160px, 42vw);
+  padding: 0.9rem 0.5rem;
+  border: 2px solid var(--line, #333);
+  border-radius: 12px;
+  background: var(--panel, #1c1c1c);
+  font: inherit;
+  user-select: none;
+}
+
+.cs-fingers {
+  font-size: 1.9rem;
+  line-height: 1;
+  letter-spacing: 0.15em;
+  font-family: monospace;
+}
+
+.cs-count {
+  font-size: 1.4rem;
+  font-weight: bold;
+}
+
+.cs-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted, #888);
+}
+
+.cs-p1 {
+  border-color: var(--blue, #3498db);
+}
+
+.cs-p2 {
+  border-color: var(--red, #e74c3c);
+}
+
+.cs-out {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+button.cs-hand {
+  cursor: pointer;
+}
+
+button.cs-mine:hover,
+button.cs-target:hover {
+  background: var(--panel-2, #2a2a2a);
+}
+
+button.cs-hand:focus-visible {
+  outline: 3px solid var(--accent, #2ecc71);
+  outline-offset: 2px;
+}
+
+.cs-selected {
+  box-shadow: 0 0 0 3px var(--accent, #2ecc71);
+}
+
+.cs-target {
+  box-shadow: 0 0 0 3px var(--accent, #d4af37);
+}
+
+.cs-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted, #888);
+  text-align: center;
+}
+
+.cs-splits {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.cs-split-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted, #888);
+  margin-right: 0.25rem;
+}
+
+.cs-split-hint {
+  text-align: center;
+  font-size: 0.85rem;
+}
