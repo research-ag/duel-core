@@ -6,7 +6,7 @@ reference for a bot with two complexities. Not part of either package.
 - **`src/TicTacToeRules.mo`** — `#alternating`, X/`#p1` first.
   `legalActions(s, seat)` is every empty cell (seat-independent).
 - **`src/Host.mo`** — same shape as `examples/checkers/src/Host.mo`
-  (metrics, canister players, bot discovery, ELO; 60s/15s, `STARTING_ELO
+  (metrics, canister players, bot discovery, ELO; 90s/60s, `STARTING_ELO
 = 1200`).
 - **`src/BotIface.mo`** — `make_move`.
 - **`bot/BotLogic.mo`** — `COMPLEXITIES = ["Easy", "Hard"]`. Easy:

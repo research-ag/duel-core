@@ -102,7 +102,7 @@ import Rules "YourGameRules"; // implements TP.Spec<S, M>
 import Time "mo:core/Time";
 
 persistent actor {
-  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(60_000_000_000, 15_000_000_000); // 60s idle, 15s claim window
+  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Rules.spec(), Time.now(), sid);
@@ -226,7 +226,7 @@ import ActorMixin "mo:duel-game-core/actor_mixin";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
 persistent actor {
-  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(60_000_000_000, 15_000_000_000);
+  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(90_000_000_000, 60_000_000_000);
   // ...status...
 
   // Not stable (live connections/closures) — rebuilt on every upgrade;
@@ -586,7 +586,7 @@ persistent actor {
   renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
-  let registry = Registry.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000);
+  let registry = Registry.new<Rules.State, Rules.Action>(90_000_000_000, 60_000_000_000);
   registry.attachMetrics(pt);
   // ...
   include Http(renderer.renderExposition, "/metrics");

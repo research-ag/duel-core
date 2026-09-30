@@ -5,7 +5,7 @@ A deployable `#simultaneous` example on `../../backend` and
 
 - **`src/Duel007Rules.mo`** — the rules as pure functions (no actor, no
   storage, no `Time`), plugged in via `spec() : TP.Spec<State, Action>`.
-- **`src/Host.mo`** — the host actor: a `Registry` (60s idle timeout, 15s
+- **`src/Host.mo`** — the host actor: a `Registry` (90s idle timeout, 60s
   claim window), `status` as the only plain query, `Ws.attach` +
   `include ActorMixin`, Prometheus metrics (`attachMetrics` + a
   `/metrics` route via `mo:promtracker/mixins/http`), and an ELO

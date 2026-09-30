@@ -9,7 +9,7 @@ to end. Not part of either package.
   (only maximal `#jump` chains when a capture is mandatory) and is what
   `BotLogic.mo` consumes. The doc header lists the deliberate
   simplifications against tournament draughts.
-- **`src/Host.mo`** — `Registry` (60s/15s), `status`, `Ws.attach` +
+- **`src/Host.mo`** — `Registry` (90s/60s), `status`, `Ws.attach` +
   `ActorMixin`, metrics, canister players (`CanisterPlayers.attach`
   reusing `attached.afterMutation`; `callBot` recovers the bot principal
   via `principalOfCanisterSession` and `await`s `make_move` in a

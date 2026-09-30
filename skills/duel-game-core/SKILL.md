@@ -156,11 +156,13 @@ From `templates/Rules.mo.template`, write `src/<YourGame>Rules.mo`:
 ## Step 4 — Write the host actor
 
 From `templates/Host.mo.template`, write `src/Host.mo`, filling in only
-`__RULES_MODULE__`, `__IDLE_TIMEOUT_NS__` (`60_000_000_000` = 60s: how
+`__RULES_MODULE__`, `__IDLE_TIMEOUT_NS__` (`90_000_000_000` = 90s: how
 long an abandoned table sits before a third party may reclaim it), and
-`__CLAIM_TIMEOUT_NS__` (`15_000_000_000` = 15s: how long your submitted
+`__CLAIM_TIMEOUT_NS__` (`60_000_000_000` = 60s: how long your submitted
 move may sit against the opponent's silence before you may claim the
-win). Change nothing else. Do not add plain Candid methods for
+win). Keep `idleTimeoutNs` comfortably above `claimTimeoutNs` (at least
+15s of margin) — an idle table can otherwise be reclaimed by a third
+party before its own claim window even opens. Change nothing else. Do not add plain Candid methods for
 `createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
 `ackEnded` — `mo:duel-game-core/ws` (`Ws.attach` + `ActorMixin`) is the
 only mutation path; a direct update call reopens the ordering race it

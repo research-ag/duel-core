@@ -18,7 +18,7 @@
 ///
 ///   persistent actor {
 ///     let registry : TP.Registry<Rules.State, Rules.Action> =
-///       Registry.new(60_000_000_000, 15_000_000_000);
+///       Registry.new(90_000_000_000, 60_000_000_000);
 ///
 ///     public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
 ///       registry.status(Rules.spec(), Time.now(), sid);
