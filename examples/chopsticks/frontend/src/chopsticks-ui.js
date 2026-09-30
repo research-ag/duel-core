@@ -283,6 +283,10 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
   let leaderboard = null; // { entries, botNames } | { error } | { loading } while open
   let pendingBotInvite = null; // { bot, stage: "creating" | "inviting" }
   let reinvited = null;
+  // The last string written to `overlay.innerHTML`, so an unrelated push
+  // (an opponent's move, a clock tick) doesn't tear down and recreate an
+  // already-open modal — which would replay its CSS open animation.
+  let lastOverlayHtml = null;
   let history = { key: null, game: null, turn: null, moves: [] };
   let lastBot = storageGet(LAST_BOT_KEY);
   if (lastBot) lastBot = { ...lastBot, tableId: BigInt(lastBot.tableId) };
@@ -673,6 +677,21 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     );
   }
 
+  // Shown the instant a bot invite starts, before the staged table (which
+  // would otherwise carry the same message) has come back from the host.
+  function botInviteModal() {
+    const ch = characterOf(pendingBotInvite.bot.complexity);
+    return modal(
+      `<div class="modal-head">
+        <span class="text-4xl" role="img" aria-label="${esc(ch.name)}">${ch.emoji}</span>
+        <h2>Inviting ${esc(ch.name)}…</h2>
+        <p class="faint mono">Setting up your table</p>
+      </div>
+      ${loadingCards()}`,
+      { cls: "glow-primary" },
+    );
+  }
+
   function tutorialModal() {
     const step = tutorial.step;
     const s = TUTORIAL_STEPS[step];
@@ -752,6 +771,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     const parts = [];
     const { status } = state;
     if (start !== null) parts.push(start.step === "ai-picker" ? aiPicker() : ruleSelect());
+    else if (pendingBotInvite !== null && stagingOf(status) === null) parts.push(botInviteModal());
     const live = viewOf(status, "inGame");
     if (split !== null && live !== null) parts.push(splitModal(live.game, tag(live.seat)));
     const done = viewOf(status, "debrief");
@@ -1240,7 +1260,11 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     const coded = overlay.querySelector('input[name="op-visibility"][value="code"]')?.checked ?? false;
     const code = overlay.querySelector("#op-code")?.value ?? "";
     screen.innerHTML = renderScreen(state);
-    overlay.innerHTML = renderOverlay(state);
+    const nextOverlayHtml = renderOverlay(state);
+    if (nextOverlayHtml !== lastOverlayHtml) {
+      overlay.innerHTML = nextOverlayHtml;
+      lastOverlayHtml = nextOverlayHtml;
+    }
     const seatRadio = seat && overlay.querySelector(`input[name="op-seat"][value="${seat}"]`);
     if (seatRadio) seatRadio.checked = true;
     const codeRadio = overlay.querySelector('input[name="op-visibility"][value="code"]');
