@@ -6,6 +6,8 @@
 
 import { useState } from "react";
 
+import { Check, Copy } from "./Icons";
+
 export function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -21,7 +23,12 @@ export function CodeBlock({ code }: { code: string }) {
 
   return (
     <div className="code-block">
-      <button type="button" className="copy" onClick={() => void copy()}>
+      <button
+        type="button"
+        className={`copy${copied ? " done" : ""}`}
+        onClick={() => void copy()}
+      >
+        {copied ? <Check /> : <Copy />}
         {copied ? "Copied" : "Copy"}
       </button>
       <pre>{code}</pre>

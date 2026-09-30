@@ -1,10 +1,17 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Principal } from "@icp-sdk/core/principal";
 
-import { useBanner } from "../hooks/useBanner";
-import type { AggregatorActor, BannerRequirements, Err, GameView } from "../types";
+import { invalidateBanner, useBanner } from "../hooks/useBanner";
+import type {
+  AggregatorActor,
+  BannerRequirements,
+  Err,
+  GameView,
+} from "../types";
 import { errMessage, maybeToOpt, optToMaybe } from "../types";
+import { Image } from "./Icons";
 import { ImageCropper } from "./ImageCropper";
+import { Modal } from "./Modal";
 
 export function GameFormModal({
   actor,
@@ -23,15 +30,26 @@ export function GameFormModal({
 
   const [title, setTitle] = useState(existing?.title ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
-  const [backendCanisterId, setBackendCanisterId] = useState(existing?.backendCanisterId.toText() ?? "");
-  const [frontendCanisterId, setFrontendCanisterId] = useState(existing?.frontendCanisterId.toText() ?? "");
-  const [customDomain, setCustomDomain] = useState(existing ? (optToMaybe(existing.customDomain) ?? "") : "");
+  const [backendCanisterId, setBackendCanisterId] = useState(
+    existing?.backendCanisterId.toText() ?? ""
+  );
+  const [frontendCanisterId, setFrontendCanisterId] = useState(
+    existing?.frontendCanisterId.toText() ?? ""
+  );
+  const [customDomain, setCustomDomain] = useState(
+    existing ? (optToMaybe(existing.customDomain) ?? "") : ""
+  );
   const [bannerFile, setBannerFile] = useState<File | undefined>(undefined);
-  const [bannerPreview, setBannerPreview] = useState<string | undefined>(undefined);
+  const [bannerPreview, setBannerPreview] = useState<string | undefined>(
+    undefined
+  );
   const [cropSrc, setCropSrc] = useState<string | undefined>(undefined);
-  const [requirements, setRequirements] = useState<BannerRequirements | undefined>(undefined);
+  const [requirements, setRequirements] = useState<
+    BannerRequirements | undefined
+  >(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
+  const [over, setOver] = useState(false);
   const existingBannerUrl = useBanner(actor, existing?.backendCanisterId);
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,6 +118,7 @@ export function GameFormModal({
           banner: maybeToOpt(bannerBytes),
         });
         if ("err" in res) throw res.err;
+        if (bannerBytes) invalidateBanner(existing.backendCanisterId);
       } else {
         const res = await actor.registerGame({
           title,
@@ -120,82 +139,48 @@ export function GameFormModal({
     }
   }
 
+  const preview = bannerPreview ?? existingBannerUrl;
+
   return (
     <Fragment>
-      <div className="modal-backdrop">
-        <div className="modal">
-          <h2>{isEdit ? "Edit game" : "Register a game"}</h2>
-          <form onSubmit={(e) => void handleSubmit(e)}>
-            <div className="field">
-              <label htmlFor="title">Title</label>
-              <input
-                id="title"
-                type="text"
-                maxLength={60}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="description">Description</label>
-              <textarea
-                id="description"
-                rows={3}
-                maxLength={500}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="backend">Backend canister id</label>
-              <input
-                id="backend"
-                type="text"
-                value={backendCanisterId}
-                onChange={(e) => setBackendCanisterId(e.target.value)}
-                disabled={isEdit}
-                required
-                placeholder="e.g. ryjl3-tyaaa-aaaaa-aaaba-cai"
-              />
-              {isEdit && <span className="hint">The backend canister id can't be changed after registration.</span>}
-            </div>
-
-            <div className="field">
-              <label htmlFor="frontend">Frontend canister id</label>
-              <input
-                id="frontend"
-                type="text"
-                value={frontendCanisterId}
-                onChange={(e) => setFrontendCanisterId(e.target.value)}
-                required
-                placeholder="e.g. rno2w-sqaaa-aaaaa-aaacq-cai"
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="domain">Custom domain (optional)</label>
-              <input
-                id="domain"
-                type="url"
-                value={customDomain}
-                onChange={(e) => setCustomDomain(e.target.value)}
-                placeholder="https://mygame.example.com"
-              />
-              <span className="hint">
-                Leave blank to use https://&lt;frontend-canister-id&gt;.icp.net
-              </span>
-            </div>
-
-            <div className="field">
-              <label htmlFor="banner">
-                Banner{" "}
-                {requirements
-                  ? `(PNG, exactly ${requirements.width}x${requirements.height}px, max ${Math.round(Number(requirements.maxBytes) / 1024)} KB)`
-                  : "(PNG)"}
-              </label>
+      <Modal onClose={onClose} closable={!saving} className="form-modal">
+        <div className="modal-kicker">
+          {isEdit ? "Edit listing" : "New listing"}
+        </div>
+        <h2 className="modal-title">
+          {isEdit ? existing.title : "Register a game"}
+        </h2>
+        <p className="modal-intro">
+          {isEdit
+            ? "Update how this game appears in the registry."
+            : "List a deployed duel-game-core game so players can find it here."}
+        </p>
+        <form onSubmit={(e) => void handleSubmit(e)}>
+          <div className="field">
+            <label htmlFor="banner">
+              Banner
+              {requirements && (
+                <span className="opt">
+                  {`${requirements.width}×${requirements.height}, PNG, up to ${Math.round(Number(requirements.maxBytes) / 1024)} KB — any image is cropped to fit`}
+                </span>
+              )}
+            </label>
+            <div
+              className={`dropzone${preview ? " filled" : ""}${over ? " over" : ""}`}
+              style={
+                preview ? { backgroundImage: `url(${preview})` } : undefined
+              }
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOver(true);
+              }}
+              onDragLeave={() => setOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setOver(false);
+                pickFile(e.dataTransfer.files?.[0]);
+              }}
+            >
               <input
                 ref={bannerInputRef}
                 id="banner"
@@ -203,29 +188,111 @@ export function GameFormModal({
                 accept="image/png,image/jpeg,image/webp"
                 onChange={(e) => pickFile(e.target.files?.[0])}
                 disabled={!requirements}
+                aria-label="Choose banner image"
               />
-              {(bannerPreview ?? existingBannerUrl) && (
-                <span
-                  className="banner-preview"
-                  style={{ backgroundImage: `url(${bannerPreview ?? existingBannerUrl})` }}
-                />
+              <span className="prompt">
+                {!preview && <Image />}
+                <b>
+                  {preview
+                    ? "Choose a different image"
+                    : "Drop an image or click to choose"}
+                </b>
+                {!preview && <span>You'll crop it to a 2:1 banner next.</span>}
+              </span>
+            </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="title">Title</label>
+            <input
+              id="title"
+              type="text"
+              maxLength={60}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              placeholder="What players will see"
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="description">
+              Description<span className="opt">optional</span>
+            </label>
+            <textarea
+              id="description"
+              rows={3}
+              maxLength={500}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="A sentence or two about the game."
+            />
+          </div>
+
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="backend">Backend canister</label>
+              <input
+                id="backend"
+                type="text"
+                value={backendCanisterId}
+                onChange={(e) => setBackendCanisterId(e.target.value)}
+                disabled={isEdit}
+                required
+                placeholder="ryjl3-tyaaa-aaaaa-aaaba-cai"
+              />
+              {isEdit && (
+                <span className="hint">Fixed after registration.</span>
               )}
-              {isEdit && <span className="hint">Leave empty to keep the current banner.</span>}
             </div>
 
-            {error && <p className="error">{error}</p>}
-
-            <div className="modal-actions">
-              <button type="button" onClick={onClose} disabled={saving}>
-                Cancel
-              </button>
-              <button type="submit" className="primary" disabled={saving}>
-                {saving ? "Saving…" : isEdit ? "Save changes" : "Register"}
-              </button>
+            <div className="field">
+              <label htmlFor="frontend">Frontend canister</label>
+              <input
+                id="frontend"
+                type="text"
+                value={frontendCanisterId}
+                onChange={(e) => setFrontendCanisterId(e.target.value)}
+                required
+                placeholder="rno2w-sqaaa-aaaaa-aaacq-cai"
+              />
             </div>
-          </form>
-        </div>
-      </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="domain">
+              Custom domain<span className="opt">optional</span>
+            </label>
+            <input
+              id="domain"
+              type="url"
+              value={customDomain}
+              onChange={(e) => setCustomDomain(e.target.value)}
+              placeholder="https://mygame.example.com"
+            />
+            <span className="hint">
+              Leave blank to link to
+              https://&lt;frontend-canister-id&gt;.icp.net
+            </span>
+          </div>
+
+          {error && <p className="error">{error}</p>}
+
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="btn primary" disabled={saving}>
+              {saving ? "Saving…" : isEdit ? "Save changes" : "Register game"}
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {cropSrc && requirements && (
         <ImageCropper

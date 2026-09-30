@@ -33,6 +33,7 @@ if (watch) {
 for (const [from, to] of [
   ['src/index.html', `${outdir}/index.html`],
   ['src/style.css', `${outdir}/style.css`],
+  ['src/fonts', `${outdir}/fonts`],
   ['src/.ic-assets.json5', `${outdir}/.ic-assets.json5`],
 ]) {
   cpSync(from, to, { recursive: true });

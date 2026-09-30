@@ -4,14 +4,19 @@ import type { Principal } from "@icp-sdk/core/principal";
 import { useBanner } from "../hooks/useBanner";
 import type { AggregatorActor, Err, GameView } from "../types";
 import { errMessage, gameUrl, optToMaybe } from "../types";
+import { avatarStyle } from "./DisplayNameEditor";
+import { ArrowRight, Pencil, Trash } from "./Icons";
+import { Modal } from "./Modal";
 
 export function GameCard({
+  index,
   game,
   actor,
   isOwner,
   onEdit,
   onDeleted,
 }: {
+  index: number;
   game: GameView;
   actor: AggregatorActor | undefined;
   isOwner: boolean;
@@ -19,7 +24,8 @@ export function GameCard({
   onDeleted: () => void;
 }) {
   const banner = useBanner(actor, game.backendCanisterId);
-  const developerName = optToMaybe(game.developerDisplayName) ?? shortPrincipal(game.developer);
+  const developerName =
+    optToMaybe(game.developerDisplayName) ?? shortPrincipal(game.developer);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -40,59 +46,99 @@ export function GameCard({
     }
   }
 
+  const bannerVar = banner
+    ? ({ "--banner": `url(${banner})` } as React.CSSProperties)
+    : undefined;
+
   return (
     <Fragment>
-      <a className="card" href={gameUrl(game)} target="_blank" rel="noreferrer">
+      <article
+        className="card"
+        style={{ "--i": index, ...bannerVar } as React.CSSProperties}
+      >
+        <span className="card-glow" aria-hidden="true" />
+        <a
+          className="card-link"
+          href={gameUrl(game)}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <span className="card-media">
+            <span className={`img${banner ? "" : " skeleton"}`} />
+            <span className="card-index">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <span className="card-play">
+              Play <ArrowRight />
+            </span>
+          </span>
+          <span className="card-body">
+            <span className="card-title">{game.title}</span>
+            <span className="card-meta">
+              <span
+                className="avatar small"
+                style={avatarStyle(game.developer)}
+              />
+              <span className="name">{developerName}</span>
+            </span>
+            <span className="card-desc">{game.description}</span>
+          </span>
+        </a>
         {isOwner && (
-          <span className="card-actions">
+          <span className="card-tools">
             <button
-              className="edit-btn"
-              onClick={(e) => {
-                e.preventDefault();
-                onEdit();
-              }}
+              type="button"
+              className="icon-btn"
+              onClick={onEdit}
+              aria-label="Edit"
+              title="Edit"
             >
-              Edit
+              <Pencil />
             </button>
             <button
-              className="delete-btn"
-              onClick={(e) => {
-                e.preventDefault();
+              type="button"
+              className="icon-btn danger"
+              onClick={() => {
                 setError(undefined);
                 setConfirming(true);
               }}
+              aria-label="Deregister"
+              title="Deregister"
             >
-              Delete
+              <Trash />
             </button>
           </span>
         )}
-        <span className="banner" style={banner ? { backgroundImage: `url(${banner})` } : undefined} />
-        <span className="body">
-          <span className="title">{game.title}</span>
-          <span className="developer">by {developerName}</span>
-        </span>
-        <span className="overlay">{game.description}</span>
-      </a>
+      </article>
 
       {confirming && (
-        <div className="modal-backdrop">
-          <div className="modal">
-            <h2>Deregister "{game.title}"?</h2>
-            <p>
-              This permanently removes it from the registry. This does not affect the game's own canisters — only
-              its listing here.
-            </p>
-            {error && <p className="error">{error}</p>}
-            <div className="modal-actions">
-              <button type="button" onClick={() => setConfirming(false)} disabled={deleting}>
-                Cancel
-              </button>
-              <button type="button" className="danger" onClick={() => void confirmDelete()} disabled={deleting}>
-                {deleting ? "Deregistering…" : "Deregister"}
-              </button>
-            </div>
+        <Modal onClose={() => setConfirming(false)} closable={!deleting}>
+          <div className="modal-kicker">Deregister</div>
+          <h2 className="modal-title">Remove “{game.title}”?</h2>
+          <p className="modal-intro">
+            This permanently removes the listing from this registry. The game's
+            own canisters are untouched.
+          </p>
+          {error && <p className="error">{error}</p>}
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => setConfirming(false)}
+              disabled={deleting}
+            >
+              Keep it
+            </button>
+            <button
+              type="button"
+              className="btn danger"
+              onClick={() => void confirmDelete()}
+              disabled={deleting}
+            >
+              {deleting ? "Removing…" : "Deregister"}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </Fragment>
   );

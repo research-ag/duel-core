@@ -34,16 +34,31 @@ backend, bundled static frontend), its own Candid interface, no `ws.mo`.
   (`ic-env.ts` is a local copy of `duel-game-core/ic-env.ts`'s logic).
   `hooks/useAuth.ts` wraps `AuthClient` (login required for writes;
   browsing is anonymous). `hooks/useBanner.ts` fetches `getBanner` into
-  a cached object URL. `components/GameCard.tsx` shows an owner Edit and
-  Delete (inline confirm, then `deregisterGame`). `TutorialWizard.tsx`
-  ("Build a new game", 5 copy-pasteable steps ending in the register
-  flow) and `BotTutorialWizard.tsx` ("Build a bot", 5 steps for a
-  canister player against an existing game, no login-gated final step)
-  share `CodeBlock.tsx`. `GameFormModal.tsx` is the register/edit form;
-  picking a banner opens `ImageCropper.tsx` (`react-easy-crop`), which
+  a cached object URL (`invalidateBanner` after a banner edit).
+  `App.tsx` lays out the page: `Header.tsx` (sticky topbar; the
+  logged-in developer's chip is `DisplayNameEditor.tsx`, a popover to
+  rename or log out, with a principal-derived `avatarStyle`), `Hero.tsx`
+  (headline over a slow crossfade of the registered banners, paused
+  under `prefers-reduced-motion`), `GameGrid.tsx` (search with a `/`
+  shortcut, developer chips, skeleton cards while loading) and a footer.
+  `GameCard.tsx` is a banner-led card whose body glows with a blurred
+  copy of its own banner; owners get Edit/Deregister icon buttons (the
+  deregister confirm is a `Modal`). `Modal.tsx` is the one dialog shell
+  (blurred backdrop, Escape/backdrop close, scroll lock) and `Wizard.tsx`
+  the two-pane stepper `TutorialWizard.tsx` ("Build a new game", 5
+  copy-pasteable steps ending in the register flow) and
+  `BotTutorialWizard.tsx` ("Build a bot", 5 steps for a canister player
+  against an existing game, no login-gated final step) are built on;
+  both share `CodeBlock.tsx`. `Icons.tsx` holds the inline SVG icons and
+  the brand mark. `GameFormModal.tsx` is the register/edit form; dropping
+  or picking a banner opens `ImageCropper.tsx` (`react-easy-crop`), which
   rasterizes to the exact `getBannerRequirements()` size and checks
   `maxBytes` before calling the backend (`Store.mo` remains the real
-  gate).
+  gate). `style.css` is the whole design system (tokens at `:root`,
+  dark only); the display serif (Instrument Serif) and text face
+  (Manrope) are vendored as woff2 in `src/fonts/` and copied by
+  `build.js`, because `.ic-assets.json5`'s CSP allows only same-origin
+  fonts.
 
 ## Toolchain
 

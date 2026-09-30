@@ -10,6 +10,8 @@ import { useCallback, useState } from "react";
 import Cropper from "react-easy-crop";
 import type { Area, Point } from "react-easy-crop";
 
+import { Modal } from "./Modal";
+
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -19,15 +21,32 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-async function cropToFile(imageSrc: string, area: Area, targetWidth: number, targetHeight: number): Promise<File> {
+async function cropToFile(
+  imageSrc: string,
+  area: Area,
+  targetWidth: number,
+  targetHeight: number
+): Promise<File> {
   const img = await loadImage(imageSrc);
   const canvas = document.createElement("canvas");
   canvas.width = targetWidth;
   canvas.height = targetHeight;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("This browser can't render a canvas.");
-  ctx.drawImage(img, area.x, area.y, area.width, area.height, 0, 0, targetWidth, targetHeight);
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  ctx.drawImage(
+    img,
+    area.x,
+    area.y,
+    area.width,
+    area.height,
+    0,
+    0,
+    targetWidth,
+    targetHeight
+  );
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/png")
+  );
   if (!blob) throw new Error("Could not export the cropped image.");
   return new File([blob], "banner.png", { type: "image/png" });
 }
@@ -51,7 +70,10 @@ export function ImageCropper({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
 
-  const onCropComplete = useCallback((_percentArea: Area, pixelArea: Area) => setArea(pixelArea), []);
+  const onCropComplete = useCallback(
+    (_percentArea: Area, pixelArea: Area) => setArea(pixelArea),
+    []
+  );
 
   async function apply() {
     if (!area) return;
@@ -60,48 +82,63 @@ export function ImageCropper({
     try {
       onCropped(await cropToFile(imageSrc, area, targetWidth, targetHeight));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not crop that image.");
+      setError(
+        err instanceof Error ? err.message : "Could not crop that image."
+      );
       setBusy(false);
     }
   }
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal cropper-modal">
-        <h2>Crop banner</h2>
-        <div className="cropper-area">
-          <Cropper
-            image={imageSrc}
-            crop={crop}
-            zoom={zoom}
-            aspect={targetWidth / targetHeight}
-            onCropChange={setCrop}
-            onZoomChange={setZoom}
-            onCropComplete={onCropComplete}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="crop-zoom">Zoom</label>
-          <input
-            id="crop-zoom"
-            type="range"
-            min={1}
-            max={3}
-            step={0.01}
-            value={zoom}
-            onChange={(e) => setZoom(Number(e.target.value))}
-          />
-        </div>
-        {error && <p className="error">{error}</p>}
-        <div className="modal-actions">
-          <button type="button" onClick={onCancel} disabled={busy}>
-            Cancel
-          </button>
-          <button type="button" className="primary" onClick={() => void apply()} disabled={busy || !area}>
-            {busy ? "Cropping…" : `Use crop (${targetWidth}×${targetHeight})`}
-          </button>
-        </div>
+    <Modal onClose={onCancel} closable={!busy} className="cropper-modal">
+      <div className="modal-kicker">Banner</div>
+      <h2 className="modal-title">Crop to fit</h2>
+      <p className="modal-intro">
+        Drag to position, zoom to frame. The result is exported at exactly{" "}
+        {targetWidth}×{targetHeight}.
+      </p>
+      <div className="cropper-area">
+        <Cropper
+          image={imageSrc}
+          crop={crop}
+          zoom={zoom}
+          aspect={targetWidth / targetHeight}
+          onCropChange={setCrop}
+          onZoomChange={setZoom}
+          onCropComplete={onCropComplete}
+        />
       </div>
-    </div>
+      <div className="field" style={{ marginTop: "1rem" }}>
+        <label htmlFor="crop-zoom">Zoom</label>
+        <input
+          id="crop-zoom"
+          type="range"
+          min={1}
+          max={3}
+          step={0.01}
+          value={zoom}
+          onChange={(e) => setZoom(Number(e.target.value))}
+        />
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div className="modal-actions">
+        <button
+          type="button"
+          className="btn ghost"
+          onClick={onCancel}
+          disabled={busy}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() => void apply()}
+          disabled={busy || !area}
+        >
+          {busy ? "Cropping…" : "Use this crop"}
+        </button>
+      </div>
+    </Modal>
   );
 }
