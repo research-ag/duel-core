@@ -66,6 +66,17 @@ HTML you place wherever you like; a click on a `data-act` button becomes
 worked example: ~300 lines covering every screen, the header, the alert
 bar, two native `<dialog>`s, and clock patching, over `client.js` and
 `esc` alone, with its own stylesheet.
+`examples/chopsticks/frontend/src/chopsticks-ui.js` is the second, and
+the one to read when porting an existing app's design (there, a React/
+Tailwind app) onto the engine: a bot flow that turns `list_bots()`
+complexities into pickable characters and calls the bot's `play` after
+`client.createTable(...)` resolves, modal dialogs rendered from local
+state alongside the screen, an opponent-move replay that keeps drawing
+the previous `view.game` while animating the move inferred by diffing it
+against the new one (`turn` advanced by one ply; the mover is the seat
+on turn), and a move-history sidebar built from the same diffs. A
+design that needs the last move should carry it in `State` when it can
+change the backend; the diff is the fallback when it cannot.
 
 ## Persistent DOM alongside the default shell
 

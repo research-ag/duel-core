@@ -1,66 +1,69 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Chopsticks — Duel</title>
-    <link rel="stylesheet" href="/duel-game-core.css" />
+    <title>Chopsticks</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <header>
-      <h1>Chopsticks <span class="sub">— Duel</span></h1>
-      <div class="session">
-        <button id="leaderboard-toggle" title="Leaderboard" aria-label="Leaderboard">🏆</button>
-        <span class="label">Player ID</span>
-        <code id="sid">…</code>
-        <button id="new-sid" title="Play as a different player">new</button>
-        <button id="duel-auth-btn"></button>
+    <header class="app-header">
+      <div class="brand">
+        <span class="text-2xl" role="img" aria-label="hand">✋</span>
+        <h1>Chopsticks</h1>
+      </div>
+      <div class="header-controls">
+        <div class="playing-as">
+          <span class="lbl">Playing as</span>
+          <code id="sid" class="who">…</code>
+          <button type="button" id="new-sid" class="switch" aria-label="Switch player">switch</button>
+          <button type="button" id="duel-auth-btn" class="switch" hidden></button>
+        </div>
+        <button type="button" id="leaderboard-toggle" class="header-pill primary" aria-label="Leaderboard">
+          <span aria-hidden="true">🏆</span><span class="wide-only">Leaderboard</span>
+        </button>
+        <button type="button" id="tutorial-toggle" class="header-pill accent" aria-label="How to play">
+          <span aria-hidden="true">?</span><span class="wide-only">How to Play</span>
+        </button>
       </div>
     </header>
 
-    <div id="leaderboard-panel" hidden>
-      <div class="leaderboard-header">
-        <button id="leaderboard-back" class="ghost">← Back</button>
-        <h2>🏆 Top players</h2>
-      </div>
-      <div id="leaderboard-body" class="leaderboard-list"><p class="muted">Loading…</p></div>
-    </div>
-
-    <div id="bot-challenge-panel" hidden>
-      <div class="bot-challenge-header">
-        <button id="bot-challenge-back" class="ghost">← Back</button>
-        <h2>🤖 Bots</h2>
-      </div>
-      <div id="bot-challenge-body" class="bot-challenge-body"><p class="muted">Loading…</p></div>
-    </div>
-
-    <p id="error" class="error" hidden></p>
-
     <main id="screen">
-      <p class="muted">Connecting to the board…</p>
+      <div class="panel center"><h2 class="faint">Loading game…</h2></div>
     </main>
 
-    <div id="bot-add-panel" hidden>
-      <button id="bot-add-trigger" class="ghost">Add Bot 🤖 to the open seat</button>
-    </div>
+    <div id="overlay"></div>
 
-    <footer>
-      <p class="muted">
-        Chopsticks — each player starts with one finger on each hand and
-        Player 1 moves first. Tap one of your hands onto an opponent's to
-        add your count to theirs, or split your own total between your
-        hands. Classic: a hand at 5 or more is out and any split but a
-        pure swap is allowed. Instructables: only exactly 5 puts a hand
-        out (6 wraps to 1, 7 to 2, …), and you may split only when one
-        hand is out and the other is even, always half and half. Put both
-        of the opponent's hands out to win. Your Player ID is per browser
-        tab — open a second tab to play the other seat — unless you log in
-        with Internet Identity, which gives you the same Player ID
-        everywhere, permanently. An idle board can be taken over after
-        60&nbsp;seconds.
+    <p id="alert" class="alert" hidden></p>
+
+    <footer class="app-footer">
+      <p>
+        © 2026. Built with love using
+        <a href="https://github.com/research-ag/duel-core" target="_blank" rel="noopener noreferrer">duel-game-core</a>.
+        Your Player ID is per browser tab unless you log in. An idle board can be taken over after 90&nbsp;seconds.
       </p>
     </footer>
+
+    <dialog id="confirm-forfeit">
+      <form method="dialog">
+        <p>Forfeit this game? Your opponent takes the win.</p>
+        <div class="row">
+          <button class="btn-action outline" value="no">Stay</button>
+          <button class="btn-action secondary" value="yes">Forfeit</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="enter-code">
+      <form method="dialog">
+        <p>This table is protected. Enter its access code.</p>
+        <input type="text" placeholder="access code" autocomplete="off" />
+        <div class="row">
+          <button class="btn-action outline" value="cancel">Cancel</button>
+          <button class="btn-action primary" value="join">Join</button>
+        </div>
+      </form>
+    </dialog>
 
     <!-- esbuild's bundle of src/app.js (see ../build.js). -->
     <script type="module" src="/app.js"></script>

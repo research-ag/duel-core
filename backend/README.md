@@ -82,8 +82,9 @@ variant)` plus `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
   `#atTable { id; view }`.
 
 `Registry<S, M>` and `Table<S, M>` are stable types whenever `S`/`M`
-are; the `Spec` is passed on every call and never stored, so upgrades
-need no migration.
+are; the `Spec` is passed on every call and never stored. The timeouts
+are stored, so a host re-applies them right after the declaration (see
+"Timeouts and upgrades").
 
 ## Usage
 
@@ -103,6 +104,7 @@ import Time "mo:core/Time";
 
 persistent actor {
   let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
+  registry.setTimeouts(90_000_000_000, 60_000_000_000); // re-applied on every upgrade
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Rules.spec(), Time.now(), sid);
@@ -113,6 +115,15 @@ persistent actor {
 };
 
 ```
+
+### Timeouts and upgrades
+
+`registry` is a stable variable of a `persistent actor`, so `Registry.new`
+runs on the first install only: an upgrade keeps the stored record and
+skips the initializer, numbers included. `registry.setTimeouts(idle,
+claim)` on the line after the declaration re-applies them on every
+upgrade, to the registry and to every table already in it. Keep the two
+lines in sync.
 
 ### Table variants
 
@@ -231,6 +242,7 @@ import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
 persistent actor {
   let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(90_000_000_000, 60_000_000_000);
+  registry.setTimeouts(90_000_000_000, 60_000_000_000);
   // ...status...
 
   // Not stable (live connections/closures) — rebuilt on every upgrade;

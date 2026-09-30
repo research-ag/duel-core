@@ -250,7 +250,10 @@ warning thresholds and texts) are pure too and free to reuse or ignore.
 
 `examples/007` is the worked example: every screen, the header, the
 alert bar, two native `<dialog>`s, and its own stylesheet, over nothing
-but `client.js`, the plugin, and `renderLeaderboard`.
+but `client.js`, the plugin, and `renderLeaderboard`. `examples/chopsticks`
+is the second: an existing app's design (opponent and rules pickers,
+modal dialogs, an opponent-move replay driven by diffing consecutive
+`view.game`s, a move-history sidebar) over the same client.
 
 ## Real-time push
 

@@ -12,8 +12,8 @@ module {
   public type Table<S, M> = T.Table<S, M>;
 
   public func new<S, M>(idleTimeoutNs : Int, claimTimeoutNs : Int, visibility : T.TableVisibility, createdBy : T.SessionId, variant : Text) : Table<S, M> = {
-    idleTimeoutNs;
-    claimTimeoutNs;
+    var idleTimeoutNs = idleTimeoutNs;
+    var claimTimeoutNs = claimTimeoutNs;
     visibility;
     createdBy;
     variant;
@@ -21,6 +21,11 @@ module {
     var gen = 0;
     var lastEnded = [];
     var debriefAcked = [];
+  };
+
+  public func setTimeouts<S, M>(self : Table<S, M>, idleTimeoutNs : Int, claimTimeoutNs : Int) {
+    self.idleTimeoutNs := idleTimeoutNs;
+    self.claimTimeoutNs := claimTimeoutNs;
   };
 
   public func isExpired<S, M>(self : Table<S, M>, since : Int, now : Int) : Bool = now - since >= self.idleTimeoutNs;

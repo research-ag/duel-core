@@ -1,110 +1,199 @@
-// GamePlugin for chopsticks. Candid shapes mirror ../src/ChopsticksRules.mo;
-// `splitsFor` is a cosmetic mirror of `validateSplit`. Tap one of your live
-// hands, then an opponent's hand to attack (a `data-act` button); splits
-// are buttons under the board. Selection state is module-local.
+// GamePlugin for chopsticks, plus what chopsticks-ui.js shares with it: the
+// hand-card renderer and the cosmetic rules mirrors (`hit`, `splitValid`,
+// `canSplit`, `splitReason`) of ../src/ChopsticksRules.mo. Candid shapes
+// mirror that module too.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
-const SEAT_NAME = { p1: "Player 1", p2: "Player 2" };
-const HAND_NAME = { l: "Left", r: "Right" };
+export const SEAT_NAME = { p1: "Player 1", p2: "Player 2" };
+export const HAND_NAME = { l: "Left", r: "Right" };
+export const SIDES = ["l", "r"];
 const MAX_HAND = 4;
+const OUT_AT = 5;
 
-const VARIANT_LABEL = {
-  classic: "Classic — 5 or more is out, split freely",
-  instructables:
-    "Instructables — exactly 5 is out, wraps past it, even splits only",
-};
+export const RULE_SETS = [
+  {
+    key: "classic",
+    title: "Classic Rules",
+    emoji: "☝️",
+    tagline: "Standard Chopsticks — easy to learn",
+    rules: [
+      "Any hand reaching 5 or more is eliminated",
+      "Freely redistribute total fingers between your hands",
+      "Pure swaps (e.g. 1+3 → 3+1) are not allowed",
+    ],
+    splitNote: "Split freely — any valid redistribution works",
+    tone: "tap",
+  },
+  {
+    key: "instructables",
+    title: "Instructables Rules",
+    emoji: "🖐️",
+    tagline: "Harder wrap-around variant",
+    rules: [
+      "Only EXACTLY 5 kills a hand — going above wraps: 6→1, 7→2…",
+      "Split only when one hand is dead AND the other is even",
+      "Splits are always even — no free redistribution",
+    ],
+    splitNote: "Split only: one dead hand + even live hand → split evenly",
+    tone: "secondary",
+  },
+];
 
-let selected = null;
-let lastKey = null;
-let cached = null;
+export function ruleSetOf(variant) {
+  return RULE_SETS.find((r) => r.key === variant) ?? RULE_SETS[0];
+}
 
-function variantOf(gameState) {
+export const FINGER_ICONS = ["✊", "☝️", "✌️", "🤟", "🖖", "🖐️"];
+
+export function variantOf(gameState) {
   return Object.keys(gameState.variant)[0];
 }
 
-function handsOf(gameState, seat) {
+export function handsOf(gameState, seat) {
   const h = gameState[seat];
   return { l: Number(h.l), r: Number(h.r) };
 }
 
-function fingers(n) {
-  return n === 0 ? "✊" : "│".repeat(n);
+export function hit(variant, target, attacker) {
+  const sum = target + attacker;
+  if (variant === "instructables") return sum % OUT_AT;
+  return sum >= OUT_AT ? 0 : sum;
 }
 
-function splitsFor(variant, cur) {
+// A reason the split is illegal, or null. Texts match `validateSplit`.
+export function splitValid(variant, cur, l, r) {
   const total = cur.l + cur.r;
-  if (total === 0) return [];
+  if (total === 0) return "No fingers left to split.";
+  if (l + r !== total) return "A split must keep the same total.";
   if (variant === "instructables") {
-    const oneOut = cur.l === 0 || cur.r === 0;
-    return oneOut && total % 2 === 0 ? [{ l: total / 2, r: total / 2 }] : [];
+    if (cur.l > 0 && cur.r > 0) return "Split only when one hand is out.";
+    if (total % 2 !== 0) return "Split only when the live hand is even.";
+    if (l !== r) return "Splits are always even.";
+    return null;
   }
+  if (l > MAX_HAND || r > MAX_HAND) return "A hand can't hold five or more fingers.";
+  if ((l === cur.l && r === cur.r) || (l === cur.r && r === cur.l)) {
+    return "Must differ from current and not be a pure swap.";
+  }
+  return null;
+}
+
+export function legalSplits(variant, cur) {
+  const total = cur.l + cur.r;
   const out = [];
   for (let l = 0; l <= total; l++) {
-    const r = total - l;
-    if (l > MAX_HAND || r > MAX_HAND) continue;
-    if ((l === cur.l && r === cur.r) || (l === cur.r && r === cur.l)) continue;
-    out.push({ l, r });
+    if (splitValid(variant, cur, l, total - l) === null) out.push({ l, r: total - l });
   }
   return out;
 }
 
-function handCard(seat, id, count, { mine, interactive }) {
-  const classes = ["cs-hand", `cs-${seat}`, mine ? "cs-mine" : "cs-theirs"];
-  if (count === 0) classes.push("cs-out");
-  const body = `<span class="cs-fingers">${fingers(count)}</span><span class="cs-count">${count === 0 ? "OUT" : count}</span><span class="cs-label">${HAND_NAME[id]}</span>`;
-  const title = `${HAND_NAME[id]} hand: ${count === 0 ? "out" : `${count} finger${count === 1 ? "" : "s"}`}`;
-  if (!interactive || count === 0) {
-    return `<div class="${classes.join(" ")}" title="${esc(title)}">${body}</div>`;
-  }
-  if (mine) {
-    if (selected === id) classes.push("cs-selected");
-    return `<button type="button" class="${classes.join(" ")}" data-hand="${id}" title="${esc(title)}">${body}</button>`;
-  }
-  const act = { attack: { from: { [selected]: null }, to: { [id]: null } } };
-  classes.push("cs-target");
-  return `<button type="button" class="${classes.join(" ")}" ${actionAttr(act)} title="${esc(`Attack the ${HAND_NAME[id].toLowerCase()} hand`)}">${body}</button>`;
+export function canSplit(variant, cur) {
+  return legalSplits(variant, cur).length > 0;
 }
 
-function drawBoard(gameState, mySeat, oppSeat, yourTurn) {
-  const mine = handsOf(gameState, mySeat);
-  const theirs = handsOf(gameState, oppSeat);
-  const row = (seat, hands, opts) =>
-    `<div class="cs-row">${handCard(seat, "l", hands.l, opts)}${handCard(seat, "r", hands.r, opts)}</div>`;
-  const hint = !yourTurn
-    ? ""
-    : selected
-      ? `<p class="cs-hint">Now tap an opponent's hand to attack.</p>`
-      : `<p class="cs-hint">Tap one of your hands to attack, or split below.</p>`;
-  return `<div class="cs-board">
-    ${row(oppSeat, theirs, { mine: false, interactive: yourTurn && selected !== null })}
-    <div class="cs-vs">vs</div>
-    ${row(mySeat, mine, { mine: true, interactive: yourTurn })}
-    ${hint}
+export function splitReason(variant, cur) {
+  if (canSplit(variant, cur)) return null;
+  if (cur.l === 0 && cur.r === 0) return "Both hands are eliminated.";
+  if (variant === "instructables") {
+    if (cur.l > 0 && cur.r > 0) return "Instructables: need one dead hand to split.";
+    const live = cur.l > 0 ? cur.l : cur.r;
+    if (live % 2 !== 0) return `Instructables: live hand (${live}) must be even to split.`;
+    if (live < 2) return "Not enough fingers to split.";
+  }
+  return "No valid split available";
+}
+
+// ── Hand cards ──────────────────────────────────────────────────────────
+
+function fingerDisplay(count, owner) {
+  if (count === 0) {
+    return `<div class="finger-display"><span class="finger-icon out">✊</span><span class="finger-out">Out</span></div>`;
+  }
+  return `<div class="finger-display">
+    <span class="finger-icon" role="img" aria-label="${count} finger${count === 1 ? "" : "s"}">${FINGER_ICONS[count] ?? "🖐️"}</span>
+    <span class="finger-count ${owner}">${count}</span>
   </div>`;
 }
 
-function rerender() {
-  const boardEl = document.querySelector(".cs-board");
-  if (!boardEl || !cached) return;
-  boardEl.outerHTML = drawBoard(
-    cached.gameState,
-    cached.mySeat,
-    cached.oppSeat,
-    true
-  );
+// `owner` is "you" or "opp"; `interactive` is `{ hand }` (select this hand
+// of yours), `{ act }` (a submit-able attack on this opponent hand) or
+// null; `anim` is "source", "target", "split" or null.
+export function handCard({ owner, side, fingers, selected = false, lastMoved = false, targetable = false, interactive = null, anim = null }) {
+  const out = fingers === 0;
+  const live = interactive !== null && !out;
+  const classes = ["hand-card", owner];
+  if (anim === "source") classes.push("hc-ai-source");
+  else if (anim === "target") classes.push("hc-ai-target");
+  else if (selected) classes.push("hc-selected");
+  else if (lastMoved) classes.push("hc-last-moved");
+  else if (targetable && !out) classes.push("hc-targetable");
+  if (anim === "split") classes.push("hc-ai-split");
+  if (out) classes.push("hc-out");
+  if (live) classes.push("hc-live");
+  const attr = !live
+    ? "disabled"
+    : "hand" in interactive
+      ? `data-hand="${interactive.hand}"`
+      : actionAttr(interactive.act);
+  const label = `${owner === "you" ? "your" : "opponent's"} ${HAND_NAME[side].toLowerCase()} hand: ${out ? "eliminated" : `${fingers} fingers`}`;
+  return `<button type="button" class="${classes.join(" ")}" ${attr} aria-label="${esc(label)}">
+    <span class="hand-label">${side.toUpperCase()}</span>
+    ${fingerDisplay(fingers, owner)}
+    ${selected ? `<span class="hand-badge selected">✓</span>` : ""}
+    ${anim === "source" ? `<span class="hand-badge source">⚡</span>` : ""}
+    ${anim === "target" ? `<span class="hand-badge target">💥</span>` : ""}
+  </button>`;
 }
 
-document.addEventListener("click", (ev) => {
-  const el = ev.target.closest("[data-hand], [data-act]");
-  if (!el || !el.closest(".cs-board")) return;
-  if (el.dataset.act !== undefined) {
-    selected = null;
-    return;
-  }
-  selected = selected === el.dataset.hand ? null : el.dataset.hand;
-  rerender();
-});
+// Both rows of hands from `mySeat`'s side of the table. `opts` (all
+// optional): `oppLabel`/`youLabel`, `yourTurn`, `selected` (my attacking
+// hand while picking a target), `lastMove` ({ mover, to } of the last
+// attack) and `anim` ({ phase, move } replaying the opponent's last move).
+export function renderHands(gameState, mySeat, oppSeat, opts = {}) {
+  const mine = handsOf(gameState, mySeat);
+  const theirs = handsOf(gameState, oppSeat);
+  const { yourTurn = false, selected = null, lastMove = null, anim = null } = opts;
+  const animRole = (owner, side) => {
+    if (!anim) return null;
+    const m = anim.move;
+    if (m.kind === "split") return owner === "opp" ? "split" : null;
+    if (owner === "opp" && m.from === side) return "source";
+    if (owner === "you" && m.to === side && anim.phase === "target") return "target";
+    return null;
+  };
+  const oppCard = (side) =>
+    handCard({
+      owner: "opp",
+      side,
+      fingers: theirs[side],
+      lastMoved: !anim && lastMove !== null && lastMove.mover === mySeat && lastMove.to === side,
+      targetable: yourTurn && selected !== null,
+      interactive: yourTurn && selected !== null ? { act: { attack: { from: { [selected]: null }, to: { [side]: null } } } } : null,
+      anim: animRole("opp", side),
+    });
+  const myCard = (side) =>
+    handCard({
+      owner: "you",
+      side,
+      fingers: mine[side],
+      selected: selected === side,
+      lastMoved: !anim && lastMove !== null && lastMove.mover === oppSeat && lastMove.to === side,
+      targetable: yourTurn && selected === null,
+      interactive: yourTurn ? { hand: side } : null,
+      anim: animRole("you", side),
+    });
+  return `
+    <div class="hands-group">
+      <span class="hands-label">${esc(opts.oppLabel ?? SEAT_NAME[oppSeat])}</span>
+      <div class="hands">${oppCard("l")}${oppCard("r")}</div>
+    </div>
+    <div class="vs-divider"><span></span><span class="vs">VS</span><span></span></div>
+    <div class="hands-group">
+      <div class="hands">${myCard("l")}${myCard("r")}</div>
+      <span class="hands-label">${esc(opts.youLabel ?? "Player")}</span>
+    </div>`;
+}
 
 export const plugin = {
   idlTypes({ IDL }) {
@@ -124,43 +213,21 @@ export const plugin = {
   },
 
   variantChoices() {
-    return [
-      { key: "classic", label: VARIANT_LABEL.classic },
-      { key: "instructables", label: VARIANT_LABEL.instructables },
-    ];
+    return RULE_SETS.map((r) => ({ key: r.key, label: r.title }));
   },
 
   formatVariant(variant) {
-    return VARIANT_LABEL[variant] ?? VARIANT_LABEL.classic;
+    return ruleSetOf(variant).title;
   },
 
-  renderBoard(gameState, mySeat, oppSeat, yourTurn) {
-    const key = JSON.stringify([gameState.p1, gameState.p2], (_k, v) =>
-      typeof v === "bigint" ? Number(v) : v
-    );
-    if (key !== lastKey) {
-      lastKey = key;
-      selected = null;
-    }
-    if (!yourTurn) selected = null;
-    cached = { gameState, mySeat, oppSeat };
-    return drawBoard(gameState, mySeat, oppSeat, !!yourTurn);
+  renderBoard(gameState, mySeat, oppSeat) {
+    return `<div class="board">${renderHands(gameState, mySeat, oppSeat)}</div>`;
   },
 
   renderActions(gameState, mySeat) {
     const variant = variantOf(gameState);
-    const splits = splitsFor(variant, handsOf(gameState, mySeat));
-    if (splits.length === 0) {
-      return variant === "instructables"
-        ? `<p class="muted cs-split-hint">Split only when one hand is out and the other is even.</p>`
-        : "";
-    }
-    const buttons = splits
-      .map(
-        (s) =>
-          `<button ${actionAttr({ split: { l: s.l, r: s.r } })} title="${esc(`Split into ${s.l} and ${s.r}`)}">${s.l} · ${s.r}</button>`
-      )
+    return legalSplits(variant, handsOf(gameState, mySeat))
+      .map((s) => `<button ${actionAttr({ split: { l: s.l, r: s.r } })}>${s.l} · ${s.r}</button>`)
       .join("");
-    return `<div class="cs-splits"><span class="cs-split-label">${variant === "instructables" ? "Split evenly" : "Split"}</span>${buttons}</div>`;
   },
 };

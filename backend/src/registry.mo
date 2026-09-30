@@ -20,8 +20,8 @@ module {
   public type Registry<S, M> = T.Registry<S, M>;
 
   public func new<S, M>(idleTimeoutNs : Int, claimTimeoutNs : Int) : Registry<S, M> = {
-    idleTimeoutNs;
-    claimTimeoutNs;
+    var idleTimeoutNs = idleTimeoutNs;
+    var claimTimeoutNs = claimTimeoutNs;
     var tables = Map.empty<T.TableId, T.Table<S, M>>();
     var bySession = Map.empty<T.SessionId, T.TableId>();
     var tableIdNonce = 1;
@@ -29,6 +29,18 @@ module {
     var activeGames = null;
     var roundsPerGame = null;
     var matchmakingWaitSecs = null;
+  };
+
+  /// Re-applies the timeouts to the registry and every existing table.
+  /// A host calls it right after declaring its stable `registry` so the
+  /// numbers in the source win on every upgrade, not only on first
+  /// install. See `../README.md`, "Timeouts survive upgrades".
+  public func setTimeouts<S, M>(self : Registry<S, M>, idleTimeoutNs : Int, claimTimeoutNs : Int) {
+    self.idleTimeoutNs := idleTimeoutNs;
+    self.claimTimeoutNs := claimTimeoutNs;
+    for (t in self.tables.values()) {
+      Table.setTimeouts(t, idleTimeoutNs, claimTimeoutNs);
+    };
   };
 
   public func attachMetrics<S, M>(self : Registry<S, M>, pt : PT.Tracker) {

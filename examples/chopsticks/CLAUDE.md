@@ -44,29 +44,63 @@ depth`, live-hands heuristic — depth-limited because the position graph
   bots at different complexities through real plies asserting
   `req.complexity`/`req.game.variant`).
 - **`icp.yaml`** — `backend`, `bot`, `frontend/dist`.
-- **`frontend/`** — `chopsticks-plugin.js` implements the plugin plus
-  `variantChoices()` (Classic first) and `formatVariant()`. `renderBoard`
-  draws the opponent's hands above yours; attacks are tap-a-hand then
-  tap-a-target (local selection, the target a real `data-act` button);
-  splits are `renderActions` buttons (every legal Classic split, or
-  "Split evenly" in Instructables) read off `gameState.variant`. `app.js`
-  matches `examples/tic-tac-toe`. The Challenge flow creates Classic
-  tables; for Instructables against the bot, start an Instructables
-  table and use "Add Bot" on the staging screen.
+- **`frontend/`** — the game's own UI, a plain-JS/CSS port of the
+  Chopsticks web app's design (dark arcade look, Fraunces/GeneralSans/
+  JetBrainsMono in `src/assets/fonts/`), over `duel-game-core/client.js`
+  alone: nothing from `duel-game-core/app.js` or its stylesheet runs
+  here. `chopsticks-plugin.js` is the `GamePlugin` (Candid types,
+  `variantChoices()` Classic first, `formatVariant()`, `renderBoard`/
+  `renderActions`) plus what the UI shares with it: `renderHands`/
+  `handCard` (the finger-emoji hand cards with selection, last-moved,
+  targetable and replay states) and the cosmetic rules mirrors `hit`,
+  `splitValid`, `canSplit`, `splitReason`. `chopsticks-ui.js` is every
+  screen and overlay bound to `createDuelClient()`'s state: the hero
+  lobby ("Play vs AI" → opponent picker from `list_bots()`, each
+  complexity a character — 🐰 Bunny/🦊 Fox/🐻 Bear, anything else 🤖 —
+  → rules picker → create as Player 1 and call the bot's `play`; "Play
+  vs a Friend" → rules picker with seat and open/code options; the open
+  tables list), staging (with "Add a Bot"), the board (record strip,
+  rules and opponent badges, status badge, move banner, hands, split
+  button with the exact "why not" texts, forfeit, idle/claim clocks),
+  the split dialog (Classic slider, Instructables before → after), the
+  game-over overlay ("Play Again" = rematch, which re-invites the same
+  bot when the reserved staging lands), the tutorial (auto-shown once
+  per browser), and the leaderboard modal (ELO, bot rows with
+  Challenge). The opponent's last move is REPLAYED on the previous
+  board before the new one shows (source pulse 900 ms, target flash
+  700 ms, banner texts as in the original), and the move-history
+  sidebar (2×2 grids with arrows and after-value badges) is derived
+  client-side by diffing consecutive positions — `State` carries no
+  history, so it starts empty on reload, and an attacker hand that
+  equals its sibling is named left. The W/L/D record strip is per
+  identity in `localStorage` (the backend keeps ELO only). `app.js`
+  builds the actor, `connectWs()`, the client, and a `services` object
+  (`get_leaderboard`, `list_bots`, the bot's `play`) the UI reads
+  through.
 
 ## Toolchain / Build & test
 
 Same as `examples/tic-tac-toe` (moc 1.11.2; `mops test`; build
 `../../frontend` first, then `npm install --legacy-peer-deps && npm run
 build` in `frontend/`; `icp deploy`; then
-`icp canister call bot register ...`). Play both seats in two tabs,
-trying both variants.
+`icp canister call bot register ...`). `build.js` also copies
+`src/assets/` (the fonts) into `dist/`. Play a bot from "Play vs AI",
+and both seats of a friend table in two tabs, trying both variants.
 
 ## Architecture rules
 
-Everything in `../../CLAUDE.md`, plus: the engine and generic screens
-are never vendored here, and `chopsticks-plugin.js`'s `splitsFor` mirrors
-`ChopsticksRules.mo`'s `validateSplit` cosmetically — keep them in sync.
+Everything in `../../CLAUDE.md`, plus:
+
+1. **The engine and the default shell are never vendored here.**
+   `chopsticks-ui.js` draws from `ClientState` and calls the client; it
+   never reimplements what `client.js` does. If a screen needs something
+   the state lacks, add it to `client.js`.
+2. **`chopsticks-ui.js` imports only `client.js`, `render.js`'s pure
+   text helpers, and `chopsticks-plugin.js`.**
+3. **`chopsticks-plugin.js`'s `splitValid`/`hit` mirror
+   `ChopsticksRules.mo`'s `validateSplit`/`hit` cosmetically** (the split
+   dialog's validity, the replay's attacker inference) — keep them in
+   sync.
 
 ## Game-rule notes (src/ChopsticksRules.mo)
 
@@ -86,4 +120,4 @@ are never vendored here, and `chopsticks-plugin.js`'s `splitsFor` mirrors
 
 Plain interpreter tests; `msg`, not `label`; update all four suites when
 the rules change (`legalActions` must keep matching `validate`) and keep
-the plugin's `splitsFor` in sync.
+the plugin's `splitValid`/`hit` in sync.

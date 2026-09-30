@@ -374,4 +374,22 @@ ignore ok(reg14b.createTable(spec, T0, "x", #p1, #open, ""), "x is already elsew
 expectErr(reg14b.createTableReserving(spec, T0, "y", #p1, #open, "x", ""), "can't reserve x — x is already staged at its own table");
 Debug.print("14. createTableReserving atomically seats both sides, rejecting self-reservation and a busy reservee OK");
 
+// ── 15. setTimeouts: re-applied to the registry AND every existing table ──
+let reg15 = fresh();
+let id15 = ok(reg15.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table before the timeouts change");
+reg15.setTimeouts(TIMEOUT * 2, CLAIM_TIMEOUT * 2);
+assert reg15.idleTimeoutNs == TIMEOUT * 2;
+assert reg15.claimTimeoutNs == CLAIM_TIMEOUT * 2;
+switch (atTableView(reg15, T0, "a")) {
+  case (#stagingYou v) assert v.secondsUntilReclaimable == 120;
+  case (_) Runtime.trap("a should still be staging its own table");
+};
+let id15b = ok(reg15.createTable(spec, T0, "b", #p1, #open, ""), "b creates a table after the timeouts change");
+assert id15b != id15;
+switch (atTableView(reg15, T0, "b")) {
+  case (#stagingYou v) assert v.secondsUntilReclaimable == 120;
+  case (_) Runtime.trap("b should be staging its own table");
+};
+Debug.print("15. setTimeouts rewrites the registry defaults and every live table OK");
+
 Debug.print("ALL LOBBY CHECKS PASSED");

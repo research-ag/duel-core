@@ -19,6 +19,7 @@
 ///   persistent actor {
 ///     let registry : TP.Registry<Rules.State, Rules.Action> =
 ///       Registry.new(90_000_000_000, 60_000_000_000);
+///     registry.setTimeouts(90_000_000_000, 60_000_000_000);
 ///
 ///     public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
 ///       registry.status(Rules.spec(), Time.now(), sid);
@@ -28,7 +29,9 @@
 ///   };
 ///
 /// `Registry<S, M>`/`Table<S, M>` are stable whenever `S`/`M` are; the
-/// `Spec` is passed on every call and never stored.
+/// `Spec` is passed on every call and never stored. A stable `registry`
+/// skips `Registry.new` on upgrade, so the host re-applies its timeouts
+/// with `registry.setTimeouts` on the very next line.
 ///
 /// Design guarantees (see `../README.md`, "Design"): race-free rematch
 /// (create-then-join with a reserved seat), no ghost lobbies (every phase
