@@ -155,10 +155,6 @@ function moveBanner(opp, anim) {
   return `<div class="move-banner ${cls}"><span class="icon" role="img">${icon}</span><span>${esc(text)}</span></div>`;
 }
 
-function loadingCards(pulse = true) {
-  return `<div class="loading-cards">${`<div class="loading-card${pulse ? " pulse" : ""}"></div>`.repeat(2)}</div>`;
-}
-
 function modal(inner, { z = "z40", cls = "", closeOp = null } = {}) {
   return `<div class="overlay-layer ${z}">
     ${closeOp ? `<button type="button" class="backdrop" data-op="${closeOp}" aria-label="Close"></button>` : `<div class="backdrop"></div>`}
@@ -382,7 +378,6 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
       <p class="faint mono">Table #${id} · ${esc(rs.title)} · You are ${esc(SEAT_NAME[seat])}</p>
       <p class="faint">${brief}</p>
       ${code !== null ? `<p class="code-line"><span class="lbl">Code</span><code class="code">${esc(code)}</code></p>` : ""}
-      ${loadingCards()}
       <p class="clock warn" data-clock="reclaim" data-base="${v.secondsUntilReclaimable}" ${v.secondsUntilReclaimable > RECLAIM_WARNING_SECS ? "hidden" : ""}></p>
       <div class="row">
         ${inviting ? "" : `<button type="button" class="btn-action accent" data-op="add-bot">🤖 Add a Bot</button>`}
@@ -486,7 +481,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
 
   function renderScreen(state) {
     const { status } = state;
-    if (status === null) return `<div class="panel center"><h2 class="faint">Loading game…</h2>${loadingCards()}</div>`;
+    if (status === null) return `<div class="panel center"><h2 class="faint">Loading game…</h2></div>`;
     if ("browsing" in status) return browsingScreen(status.browsing);
     const { id, view } = status.atTable;
     const t = tag(view);
@@ -686,8 +681,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
         <span class="text-4xl" role="img" aria-label="${esc(ch.name)}">${ch.emoji}</span>
         <h2>Inviting ${esc(ch.name)}…</h2>
         <p class="faint mono">Setting up your table</p>
-      </div>
-      ${loadingCards()}`,
+      </div>`,
       { cls: "glow-primary" },
     );
   }

@@ -397,23 +397,6 @@ code.code {
   animation: wave 1.4s ease-in-out 0.3s;
 }
 
-.loading-cards {
-  display: flex;
-  gap: 1.5rem;
-}
-
-.loading-card {
-  width: 9rem;
-  height: 11rem;
-  border-radius: 0.75rem;
-  background: oklch(var(--card));
-  border: 1px solid oklch(var(--border));
-}
-
-.loading-card.pulse {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
 .seat-cards {
   display: flex;
   gap: 1rem;
