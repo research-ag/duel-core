@@ -161,7 +161,8 @@ export function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin
     choices.length === 0
       ? ""
       : `
-      <div class="table-variant-choices">
+      <div class="option-group">
+        <span class="option-group-label">Rules</span>
         ${choices
           .map(
             (c, i) => `
@@ -174,10 +175,13 @@ export function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin
 
     <section class="create-table">
       <h3>Start a new table</h3>
-      <label><input type="radio" name="table-visibility" value="open" checked /> Open — anyone can join</label>
-      <label><input type="radio" name="table-visibility" value="code" /> Protected — share a code with a friend</label>
-      <input type="text" id="create-code" class="table-code-input" placeholder="access code" hidden />
       ${variantPicker}
+      <div class="option-group">
+        <span class="option-group-label">Visibility</span>
+        <label><input type="radio" name="table-visibility" value="open" checked /> Open — anyone can join</label>
+        <label><input type="radio" name="table-visibility" value="code" /> Protected — share a code with a friend</label>
+        <input type="text" id="create-code" class="table-code-input" placeholder="access code" hidden />
+      </div>
       <div class="seats">
         ${seatBtn("p1")}
         ${seatBtn("p2")}
