@@ -4,43 +4,79 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>007 — Duel</title>
-    <link rel="stylesheet" href="/duel-game-core.css" />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <header>
-      <h1>007 <span class="sub">— Duel</span></h1>
-      <div class="session">
-        <button id="leaderboard-toggle" title="Leaderboard" aria-label="Leaderboard">🏆</button>
-        <span class="label">Agent ID</span>
-        <code id="sid">…</code>
-        <button id="new-sid" title="Play as a different agent">new</button>
-        <button id="duel-auth-btn"></button>
+    <aside id="dossier">
+      <div class="brand">
+        <span class="tw big">FILE 007</span>
+        <span class="faint">a duel-game-core operation</span>
       </div>
-    </header>
+
+      <section class="block">
+        <p class="lbl">Agent</p>
+        <code id="sid">…</code>
+        <p class="row-left">
+          <button id="new-sid" class="plain small" title="Play as a different agent">new identity</button>
+          <button id="auth" class="plain small" hidden></button>
+        </p>
+      </section>
+
+      <section class="block">
+        <p class="lbl">Channel</p>
+        <p id="channel" class="light" data-mode="connecting">Connecting…</p>
+      </section>
+
+      <section class="block">
+        <p class="lbl">This game, so far</p>
+        <ol id="log" class="log"><li class="faint">No rounds yet.</li></ol>
+      </section>
+
+      <section class="block">
+        <button id="leaderboard-toggle" class="plain small">🏆 Top agents</button>
+      </section>
+
+      <p class="faint fine">
+        Your Agent ID is per browser tab — open a second tab to play the
+        other cover — unless you log in with Internet Identity. An idle
+        board can be commandeered after 60&nbsp;seconds.
+      </p>
+    </aside>
+
+    <main id="mission">
+      <p class="faint">Establishing a secure channel…</p>
+    </main>
+
+    <p id="alert" class="alert" hidden></p>
 
     <div id="leaderboard-panel" hidden>
       <div class="leaderboard-header">
-        <button id="leaderboard-back" class="ghost">← Back</button>
-        <h2>🏆 Top agents</h2>
+        <button id="leaderboard-back" class="plain">← Back</button>
+        <h2 class="tw">Top agents</h2>
       </div>
-      <div id="leaderboard-body" class="leaderboard-list"><p class="muted">Loading…</p></div>
+      <div id="leaderboard-body" class="leaderboard-list"><p class="faint">Loading…</p></div>
     </div>
 
-    <p id="error" class="error" hidden></p>
+    <dialog id="confirm-forfeit">
+      <form method="dialog">
+        <p>Forfeit this operation? The other side takes the win.</p>
+        <div class="row">
+          <button class="plain" value="no">Stay</button>
+          <button class="stamp" value="yes">Forfeit</button>
+        </div>
+      </form>
+    </dialog>
 
-    <main id="screen">
-      <p class="muted">Connecting to the board…</p>
-    </main>
-
-    <footer>
-      <p class="muted">
-        Your Agent ID is per browser tab — open a second tab to play the
-        other seat — unless you log in with Internet Identity, which gives
-        you the same Agent ID everywhere, permanently. An idle board can be
-        taken over after 60&nbsp;seconds.
-      </p>
-    </footer>
+    <dialog id="enter-code">
+      <form method="dialog">
+        <p>This is a coded channel. Enter its access code.</p>
+        <input type="text" placeholder="access code" autocomplete="off" />
+        <div class="row reverse">
+          <button class="stamp" value="join">Join</button>
+          <button class="plain" value="cancel">Cancel</button>
+        </div>
+      </form>
+    </dialog>
 
     <!-- esbuild's bundle of src/app.js (see ../build.js). -->
     <script type="module" src="/app.js"></script>

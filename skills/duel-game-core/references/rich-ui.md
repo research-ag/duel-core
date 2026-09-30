@@ -1,53 +1,96 @@
-# A rich UI alongside the generic chrome
+# A rich UI: your own screens over the headless client
 
 Read this when the game's UI genuinely doesn't fit buttons and text — a
-canvas, a 3D scene, drag-and-drop, anything with persistent DOM state. If
-`renderBoard`/`renderActions` returning markup covers your game, skip
-this file.
+canvas, a 3D scene, drag-and-drop, a framework app, a lobby of its own
+design. If `renderBoard`/`renderActions` returning markup covers your
+game, skip this file; if only one or two screens need the game's own
+voice, `start({ screens })` (SKILL.md, Step 6) is enough.
 
-## The one fact that makes or breaks this
+## The split that makes this easy
 
-`app.js` replaces `screenEl.innerHTML` with `renderStatus(...)` on every
-status the `ws` delivers that differs from the last one. Anything with
-real state placed inside `#screen` — a mounted framework app, a `<canvas>`
-with a WebGL context — is destroyed and reparsed. `render.js` is a pure
-`Status -> HTML string` renderer by design; there is no opt-out.
+`duel-game-core/client.js` is everything the browser side does except
+drawing: `createDuelClient({ ws, session })` owns the connection, the
+current `Status`, the one call in flight, error lifetime, the identity
+lock, and the stale-view resync, and hands subscribers an immutable
+`ClientState` after every change. `duel-game-core/app.js`'s `start()` is
+one UI over it. Yours is another; nothing in `start()` is needed.
 
-## The pattern that works
+```js
+import {
+  createDuelClient,
+  viewOf,
+  localSecondsLeft,
+} from "duel-game-core/client.js";
 
-1. Run `start({ plugin, ws, session })` unmodified for the chrome.
+const client = createDuelClient({ ws, session });
+client.subscribe((state, prev) => {
+  if (state.status !== prev.status) drawScreen(state);
+  toolbar.disabled = state.pending !== null;
+  alertBar.hidden = state.error === null;
+  alertBar.textContent = state.error ?? "";
+});
+```
+
+Every screen is a function of `state.status` (`null` before the first
+push, `{ browsing }`, or `{ atTable: { id, view } }` with `view` one of
+`lobby`/`busy`/`stagingYou`/`awaitingRematch`/`inGame`/`debrief`/
+`endedByOther` — the shapes are in `types.js`). Every control calls one
+client method: `createTable(seat, visibility?, variant?)`,
+`joinTable(id, seat, code?)`, `submit(move)`, `rematch()`, `leave()`,
+`reset()`, `claimWin()`, `ackEnded()`. Each resolves with `{ ok: true,
+view }` or `{ ok: false, reason }` (`inFlight`, `closed`, `stale`,
+`rejected`, `failed`); rejections are already in `state.error`, so a UI
+only has to show that field.
+
+What to bind, and where the default shell's equivalent lives, so nothing
+is forgotten:
+
+| Concern                                                  | Source of truth                                                                           |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| which screen                                             | `state.status`                                                                            |
+| a call in flight (disable, spin)                         | `state.pending` (`key` names the control: `create:p1`, `act:{"pass":null}`, `rematch`, …) |
+| errors, and the terminal disconnect                      | `state.error`, `state.connection === "closed"`                                            |
+| "new sid" / login / logout enabled                       | `!state.identityLocked`; call `client.regenerateSid()`/`login()`/`logout()`               |
+| countdowns between pushes                                | `localSecondsLeft(view.secondsUntilX, state.statusAt)` on a local 1 s timer               |
+| who may claim                                            | `claimRoleOf(inGame)`: `"waiting"` may, `"atRisk"` is the mirror                          |
+| submit's `gen`/`turn`                                    | stamped by the client; never send them yourself                                           |
+| a stale view (`#wrongPhase` on join, `#stale` on a move) | handled: the client refreshes silently, `reason: "stale"`                                 |
+
+The plugin still draws the board: `plugin.renderBoard(view.game, mySeat,
+oppSeat, yourTurn)` and `plugin.renderActions(view.game, mySeat)` return
+HTML you place wherever you like; a click on a `data-act` button becomes
+`client.submit(JSON.parse(btn.dataset.act))`. A canvas or 3D board reads
+`view.game` directly instead.
+
+`examples/007/frontend/src/mission-ui.js` in the framework repo is the
+worked example: ~300 lines covering every screen, the header, the alert
+bar, two native `<dialog>`s, and clock patching, over `client.js` and
+`esc` alone, with its own stylesheet.
+
+## Persistent DOM alongside the default shell
+
+The middle road: keep `start()` for the chrome and give a canvas or
+framework component its own region. `start()` replaces
+`screenEl.innerHTML` on every status that differs from the last, so
+anything with real state placed inside `#screen` — a mounted framework
+app, a `<canvas>` with a WebGL context — is destroyed and reparsed.
+
+1. Run `const client = start({ plugin, ws, session })` for the chrome.
 2. Give your UI its own persistent DOM region, a **sibling** of `#screen`.
-3. **Share the same `ws`, actor, and session** — never open a second
-   connection (two pollers can deliver views out of order, showing a
-   stale position before the fresh one). `GatewayWs` extends
-   `EventTarget`, so `ws.addEventListener("message", ...)` coexists with
-   the chrome's own `ws.onmessage`. Publish the shared objects via
-   Promises created synchronously in an inline `<script>` in `<head>`,
-   before either module script runs:
-   ```html
-   <script>
-     window.duelActorReady = new Promise((r) => {
-       window.__resolveDuelActor = r;
-     });
-     window.duelWsReady = new Promise((r) => {
-       window.__resolveDuelWs = r;
-     });
-   </script>
-   ```
-   Read the session id from the `sessionStorage` key `app.js` writes
-   (`"sid"`). To submit moves from your UI, use `ws.request(sid, req)`,
-   which resolves with that call's own `{ view } | { err }`.
+3. Drive it from `client.subscribe(...)`. Never open a second connection
+   (two pollers can deliver views out of order); `client.submit(move)` is
+   the one way to move, and its `gen`/`turn` stamping and the chrome's
+   spinner come for free.
 4. `renderBoard`/`renderActions` can be near-stubs. The turn counter,
    "opponent is deciding"/"locked in", verdict banner, and claim-win
    warnings around them stay correct, since they are driven by the
    engine's own view fields.
-5. Detect round boundaries from the shared `ws`'s `message` events (a
-   monotonic counter in `State`), not from `renderBoard` being called.
+5. Detect round boundaries from `state.status` changes (a monotonic
+   counter in `State`), not from `renderBoard` being called.
 
 `examples/racing` in the framework repo is the worked example (a Three.js
-scene sharing one `ws` with the chrome); its `frontend/CLAUDE.md` and
-`lobby-connection.service.ts`'s `emitNextStep()` show a full `request()`
-use.
+scene beside the chrome, sharing one `ws`); its `frontend/CLAUDE.md` and
+`lobby-connection.service.ts` show the shared-connection pattern.
 
 ## Adapting an existing framework-based client
 

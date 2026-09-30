@@ -62,3 +62,25 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+
+/* The game's own debrief screen (app.js's `renderRpsDebrief`, passed to
+ * `start({ screens })`): the final scoreline. */
+.rps-final {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 1rem;
+  margin: 0.5rem 0 1rem;
+  font-size: 2.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rps-final .vs {
+  color: var(--muted);
+  font-size: 1.4rem;
+}
+
+.rps-final-you {
+  color: var(--accent);
+}

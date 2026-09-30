@@ -1,15 +1,17 @@
 // Bootstrap for the 007 duel client: build the actor and push transport,
-// hand off to duel-game-core's generic wiring, then wire the leaderboard
-// overlay. Bundled by esbuild (../build.js).
+// create duel-game-core's headless client, and mount 007's own UI over
+// it (mission-ui.js). Nothing from `duel-game-core/app.js` runs here.
+// Bundled by esbuild (../build.js).
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { makeIdlFactory } from "duel-game-core/idl.js";
-import { start } from "duel-game-core/app.js";
+import { createDuelClient } from "duel-game-core/client.js";
 import { connectWs } from "duel-game-core/ws.js";
 import { resolveIdentity } from "duel-game-core/identity.js";
 import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
 import { renderLeaderboard } from "duel-game-core/render.js";
 import { plugin } from "./duel007-plugin.js";
+import { mountMissionUi } from "./mission-ui.js";
 
 const env = readIcEnv();
 const canisterId = env["PUBLIC_CANISTER_ID:backend"];
@@ -37,24 +39,39 @@ const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
 const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
 
-start({ plugin, ws, session });
+const client = createDuelClient({ ws, session });
+
+const $ = (id) => document.getElementById(id);
+mountMissionUi({
+  client,
+  plugin,
+  els: {
+    screen: $("mission"),
+    alert: $("alert"),
+    sid: $("sid"),
+    newSid: $("new-sid"),
+    auth: $("auth"),
+    channel: $("channel"),
+    log: $("log"),
+    confirmDialog: $("confirm-forfeit"),
+    codeDialog: $("enter-code"),
+  },
+});
 
 // Leaderboard: a full-page overlay fetched via a plain query on open.
-const leaderboardToggle = document.getElementById("leaderboard-toggle");
-const leaderboardBack = document.getElementById("leaderboard-back");
-const leaderboardPanel = document.getElementById("leaderboard-panel");
-const leaderboardBody = document.getElementById("leaderboard-body");
-leaderboardToggle.addEventListener("click", async () => {
+const leaderboardPanel = $("leaderboard-panel");
+const leaderboardBody = $("leaderboard-body");
+$("leaderboard-toggle").addEventListener("click", async () => {
   leaderboardPanel.hidden = false;
-  leaderboardBody.innerHTML = `<p class="muted">Loading…</p>`;
+  leaderboardBody.innerHTML = `<p class="faint">Loading…</p>`;
   try {
     const entries = await actor.get_leaderboard();
     leaderboardBody.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid });
   } catch (err) {
-    leaderboardBody.innerHTML = `<p class="error">Could not load the leaderboard.</p>`;
+    leaderboardBody.innerHTML = `<p class="alert">Could not load the leaderboard.</p>`;
     console.error(err);
   }
 });
-leaderboardBack.addEventListener("click", () => {
+$("leaderboard-back").addEventListener("click", () => {
   leaderboardPanel.hidden = true;
 });

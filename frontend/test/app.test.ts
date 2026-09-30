@@ -1187,3 +1187,96 @@ test("a login attempt still in flight is not re-enabled by an unrelated seated/u
 
   resolveLogin();
 });
+
+// ── UI overrides: `screens`, `confirm`, `promptCode`, and the returned client ─
+
+test("start({ screens }) replaces one screen and keeps the rest, with the default click handling intact", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({
+    plugin,
+    ws,
+    session: defaultSession,
+    screens: {
+      debrief: (v, p) => `<h1 class="mine">${p.seatLabel("p1")} says GG</h1><button data-rematch>Again</button>`,
+    },
+  });
+  assert.match(els.screen.innerHTML, /Connecting/);
+  ws.onmessage!({
+    data: {
+      view: atTable({
+        debrief: { seat: { p1: null }, end: { finished: { draw: null } }, turns: 2n, finalGame: { n: 1 }, gen: 3n },
+      }),
+    },
+  });
+  assert.match(els.screen.innerHTML, /White says GG/);
+  assert.match(els.screen.innerHTML, /Table #1/, "the default table badge still frames the custom screen");
+  assert.doesNotMatch(els.screen.innerHTML, /Return to lobby/);
+  click(els.screen, makeButton({ rematch: "" }));
+  assert.deepEqual(ws.requests[0]!.req, { rematch: null });
+
+  ws.onmessage!({ data: { view: browsing() } });
+  assert.match(els.screen.innerHTML, /Duel lobby/, "screens left out keep their defaults");
+});
+
+test("start({ confirm }) replaces the confirmation overlay; a resolved false dispatches nothing, true dispatches", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, doc, ws } = setup();
+  const asked: string[] = [];
+  let answer = false;
+  start({
+    plugin,
+    ws,
+    session: defaultSession,
+    confirm: async (msg) => {
+      asked.push(msg);
+      return answer;
+    },
+  });
+  assert.equal(doc.body.children.find((c) => c.className === "duel-confirm-overlay"), undefined, "no default overlay built");
+
+  const btn = makeButton({ leave: "" });
+  btn.dataset.confirm = "Forfeit?";
+  click(els.screen, btn);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(asked, ["Forfeit?"]);
+  assert.equal(ws.requests.length, 0);
+
+  answer = true;
+  click(els.screen, btn);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ws.requests.length, 1);
+  assert.deepEqual(ws.requests[0]!.req, { leave: { gen: 0n } });
+});
+
+test("start({ promptCode }) replaces the access-code prompt; null cancels, a string joins with it", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, doc, ws } = setup();
+  let code: string | null = null;
+  start({ plugin, ws, session: defaultSession, promptCode: async () => code });
+  assert.equal(doc.body.children.find((c) => c.className === "duel-code-overlay"), undefined);
+
+  const btn = makeButton({ joinTable: "p2", joinTableId: "5", protected: "" });
+  click(els.screen, btn);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(ws.requests.length, 0);
+
+  code = "hush";
+  click(els.screen, btn);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(ws.requests[0]!.req, { joinTable: { id: 5n, seat: { p2: null }, code: ["hush"] } });
+});
+
+test("start() returns the headless client driving the screen, usable alongside it", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  const client = start({ plugin, ws, session: defaultSession });
+  assert.equal(client.sid, defaultSession.sid);
+  const p = client.createTable("p1");
+  assert.equal(client.getState().pending!.key, "create:p1");
+  assert.equal(els["new-sid"].disabled, true, "the shell reflects a call made through the client directly");
+  ws.requests[0]!.resolve({ view: browsing() });
+  await p;
+  assert.equal(els["new-sid"].disabled, false);
+  assert.match(els.screen.innerHTML, /Duel lobby/);
+});

@@ -1,108 +1,751 @@
-/* 007-duel-specific visuals, layered on top of
- * duel-game-core.css (loaded first — see index.html),
- * which already supplies the page chrome (header, buttons, lobby seats,
- * turnbar, verdict banner, ...) and the CSS custom properties used below.
- */
+/* 007's own stylesheet: a paper dossier. Self-contained; nothing from
+ * duel-game-core's style.css is loaded, so every class mission-ui.js
+ * and duel007-plugin.js use is defined here. */
 
-h1 {
-  color: var(--accent);
+:root {
+  color-scheme: light;
+  --paper: #efe7d3;
+  --paper-2: #e6dcc3;
+  --sheet: #f8f3e6;
+  --rule: #c9bc9c;
+  --ink: #1f1b16;
+  --faint: #6f6555;
+  --red: #b3261e;
+  --green: #2f6b3a;
+  --blue: #2c5aa0;
+  --violet: #6f4aa0;
+  --tw: "Courier New", "Courier Prime", Courier, monospace;
 }
 
-.seat-label {
-  color: var(--accent);
+* {
+  box-sizing: border-box;
 }
 
-.countdown {
-  color: var(--accent);
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    repeating-linear-gradient(0deg, transparent 0 27px, rgba(0, 0, 0, 0.035) 27px 28px),
+    var(--paper);
+  font:
+    15px/1.55 Georgia,
+    "Times New Roman",
+    serif;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-areas: "dossier mission" "dossier alert";
 }
 
-/* ── narration + agent panels (duel007-plugin.js's renderBoard) ────────── */
+@media (max-width: 760px) {
+  body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "dossier" "mission" "alert";
+  }
+}
+
+body.working {
+  cursor: progress;
+}
+
+/* ── type ────────────────────────────────────────────────────────────── */
+
+.tw {
+  font-family: var(--tw);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+h1.tw {
+  margin: 0 0 1rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 0.3rem;
+}
+
+h2.tw {
+  margin: 2rem 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.tw.big {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.lbl {
+  margin: 0 0 0.35rem;
+  font-family: var(--tw);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.faint {
+  color: var(--faint);
+}
+
+.fine {
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.center {
+  text-align: center;
+}
+
+.ok {
+  color: var(--green);
+}
+
+.clock {
+  font-family: var(--tw);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.clock.warn {
+  margin: 1rem 0 0;
+  padding: 0.55rem 0.8rem;
+  color: var(--red);
+  border: 1px dashed var(--red);
+}
+
+/* ── sidebar ─────────────────────────────────────────────────────────── */
+
+#dossier {
+  grid-area: dossier;
+  padding: 1.5rem 1.25rem 2rem;
+  background: var(--paper-2);
+  border-right: 3px double var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+
+@media (min-width: 761px) {
+  #dossier {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--ink);
+}
+
+.brand .faint {
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+#sid {
+  display: block;
+  font-family: var(--tw);
+  font-size: 0.78rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-left {
+  margin: 0;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* The channel light: a dot whose colour is the connection state. */
+.light {
+  margin: 0;
+  font-family: var(--tw);
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.light::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.light[data-mode="open"]::before {
+  background: var(--green);
+}
+
+.light[data-mode="pending"]::before {
+  background: var(--blue);
+  animation: blink 0.8s steps(2) infinite;
+}
+
+.light[data-mode="closed"]::before {
+  background: var(--red);
+}
+
+@keyframes blink {
+  to {
+    opacity: 0.2;
+  }
+}
+
+.log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.log li {
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--rule);
+}
+
+.log .tw {
+  font-size: 0.7rem;
+  color: var(--faint);
+  margin-right: 0.3rem;
+}
+
+/* ── main ────────────────────────────────────────────────────────────── */
+
+#mission {
+  grid-area: mission;
+  max-width: 880px;
+  width: 100%;
+  padding: 2rem 2rem 3rem;
+}
+
+@media (max-width: 760px) {
+  #mission {
+    padding: 1.25rem 1rem 2rem;
+  }
+}
+
+.alert {
+  grid-area: alert;
+  margin: 0 2rem 2rem;
+  padding: 0.6rem 0.9rem;
+  font-family: var(--tw);
+  font-size: 0.85rem;
+  color: var(--red);
+  border: 2px solid var(--red);
+  background: var(--sheet);
+}
+
+/* ── controls ────────────────────────────────────────────────────────── */
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The main action: a rubber stamp. */
+button.stamp {
+  font-family: var(--tw);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--red);
+  background: transparent;
+  border: 2px solid var(--red);
+  border-radius: 3px;
+  padding: 0.4rem 0.9rem;
+  transform: rotate(-1.5deg);
+  transition:
+    background 0.1s,
+    transform 0.1s;
+}
+
+button.stamp:hover:not(:disabled) {
+  background: rgba(179, 38, 30, 0.08);
+  transform: rotate(0deg);
+}
+
+button.stamp.big {
+  font-size: 0.95rem;
+  padding: 0.6rem 1.4rem;
+}
+
+button.plain {
+  font-family: var(--tw);
+  font-size: 0.82rem;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--ink);
+  padding: 0.15rem 0.1rem;
+}
+
+button.plain.small {
+  font-size: 0.74rem;
+}
+
+button.plain:hover:not(:disabled) {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+/* The control whose call is in flight. */
+button.spinning {
+  position: relative;
+  opacity: 1;
+  color: transparent;
+}
+
+button.spinning > * {
+  visibility: hidden;
+}
+
+button.spinning::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1em;
+  height: 1em;
+  margin: -0.5em 0 0 -0.5em;
+  border: 2px solid rgba(31, 27, 22, 0.2);
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+input[type="text"] {
+  font: inherit;
+  font-family: var(--tw);
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 0;
+  border-bottom: 2px solid var(--ink);
+  padding: 0.35rem 0.4rem;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--red);
+}
+
+input[type="radio"] {
+  accent-color: var(--red);
+}
+
+label {
+  cursor: pointer;
+  margin-right: 0.9rem;
+}
+
+.row {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* First in the DOM (so Enter picks it), last on screen. */
+.row.reverse {
+  flex-direction: row-reverse;
+}
+
+/* ── the new-operation form ──────────────────────────────────────────── */
+
+.file-new {
+  padding: 1rem 1.2rem 1.2rem;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  box-shadow: 3px 3px 0 var(--rule);
+}
+
+.fields {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0;
+}
+
+legend {
+  font-family: var(--tw);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 0;
+  margin-bottom: 0.3rem;
+}
+
+#op-code {
+  width: 100%;
+  margin-top: 0.4rem;
+}
+
+/* ── the index table ─────────────────────────────────────────────────── */
+
+table.index {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  font-size: 0.9rem;
+}
+
+table.index th,
+table.index td {
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: middle;
+}
+
+table.index thead th {
+  font-family: var(--tw);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border-bottom: 2px solid var(--ink);
+}
+
+table.index tbody th {
+  font-family: var(--tw);
+  font-weight: 700;
+}
+
+table.index td.taken {
+  color: var(--faint);
+  font-size: 0.82rem;
+}
+
+.tag {
+  font-family: var(--tw);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  color: var(--red);
+  border: 1px solid var(--red);
+  padding: 0.05rem 0.35rem;
+}
+
+.tag.open {
+  color: var(--green);
+  border-color: var(--green);
+}
+
+/* ── notices, strips, dialogs ────────────────────────────────────────── */
+
+.notice {
+  padding: 1rem 1.2rem;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  box-shadow: 3px 3px 0 var(--rule);
+}
+
+.notice p {
+  margin: 0 0 0.75rem;
+}
+
+.notice.ok {
+  margin: 0;
+  color: var(--green);
+  border-color: var(--green);
+  box-shadow: none;
+}
+
+.code {
+  font-family: var(--tw);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 0.1rem 0.4rem;
+  background: var(--paper-2);
+}
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  margin-bottom: 1rem;
+  border-top: 2px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  font-size: 0.9rem;
+}
+
+.strip .tw {
+  font-weight: 700;
+}
+
+.strip button {
+  margin-left: auto;
+}
+
+/* The debrief verdict: a stamp across the page. */
+.stamp-box {
+  margin: 1.5rem auto 0.5rem;
+  width: fit-content;
+  padding: 0.5rem 1.4rem;
+  font-family: var(--tw);
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  border: 4px double currentColor;
+  transform: rotate(-3deg);
+  color: var(--red);
+}
+
+.stamp-box.win {
+  color: var(--green);
+}
+
+.stamp-box.draw {
+  color: var(--faint);
+}
+
+dialog {
+  max-width: 360px;
+  padding: 1.25rem 1.4rem;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 2px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--rule);
+}
+
+dialog::backdrop {
+  background: rgba(31, 27, 22, 0.45);
+}
+
+dialog p {
+  margin: 0 0 1rem;
+}
+
+dialog input {
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+/* ── leaderboard overlay (rows from duel-game-core/render.js) ────────── */
+
+#leaderboard-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  background: var(--paper);
+  padding: 2rem;
+}
+
+#leaderboard-panel[hidden] {
+  display: none;
+}
+
+.leaderboard-header {
+  max-width: 720px;
+  margin: 0 auto 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.leaderboard-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.leaderboard-list {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.8rem;
+  background: var(--sheet);
+  border-bottom: 1px solid var(--rule);
+}
+
+.leaderboard-row.you {
+  border-left: 4px solid var(--red);
+}
+
+.leaderboard-rank {
+  min-width: 1.8rem;
+  font-family: var(--tw);
+  text-align: right;
+  color: var(--faint);
+}
+
+.leaderboard-player {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--tw);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.leaderboard-you-badge {
+  font-family: var(--tw);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  color: var(--red);
+  border: 1px solid var(--red);
+  padding: 0.05rem 0.35rem;
+}
+
+.leaderboard-score {
+  font-family: var(--tw);
+  font-weight: 700;
+}
+
+.muted {
+  color: var(--faint);
+}
+
+/* ── the board (duel007-plugin.js's renderBoard) ─────────────────────── */
 
 .narration {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
-  border-radius: 4px;
-  padding: 0.8rem 1rem;
-  margin: 0 0 1.25rem;
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.9rem;
   font-style: italic;
+  background: var(--sheet);
+  border-left: 3px solid var(--ink);
 }
 
 .agents {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 1rem;
 }
 
 .agent {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 1rem 1.1rem;
+  padding: 0.9rem 1rem;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
 }
 
 .agent.self {
-  border-color: #3a4756;
+  border: 2px solid var(--ink);
 }
 
 .agent header {
   display: flex;
   align-items: baseline;
   gap: 0.6rem;
-  padding: 0;
-  margin-bottom: 0.75rem;
-  border: 0;
+  margin-bottom: 0.6rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--rule);
 }
 
 .agent .who {
-  font-size: 0.7rem;
+  font-family: var(--tw);
+  font-size: 0.68rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--faint);
+}
+
+.agent .seat-label {
+  font-family: var(--tw);
+  font-weight: 700;
+  letter-spacing: 0.14em;
 }
 
 .agent dl {
   margin: 0;
   display: grid;
-  gap: 0.45rem;
+  gap: 0.4rem;
 }
 
 .agent dl > div {
   display: grid;
-  grid-template-columns: 5.5rem 1fr;
+  grid-template-columns: 5rem 1fr;
   align-items: center;
   gap: 0.5rem;
 }
 
 .agent dt {
-  font-size: 0.78rem;
-  color: var(--muted);
+  font-family: var(--tw);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
 }
 
 .agent dd {
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  font-size: 0.82rem;
+  gap: 0.4rem;
+  font-size: 0.85rem;
 }
 
 .agent dd.num {
+  font-family: var(--tw);
   font-size: 1.05rem;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 .pip {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
+  width: 10px;
+  height: 10px;
   display: inline-block;
-  background: #2b323b;
+  border: 1px solid var(--ink);
+  background: transparent;
 }
 
 .pip.charge {
-  background: var(--accent);
+  background: var(--red);
 }
 
 .pip.shield {
@@ -110,24 +753,56 @@ h1 {
 }
 
 .pip.mirror {
-  background: #b98ce0;
+  background: var(--violet);
 }
 
 .ready {
-  color: var(--accent);
+  font-family: var(--tw);
+  color: var(--red);
   font-weight: 700;
-  letter-spacing: 0.08em;
 }
 
 .broken {
+  font-family: var(--tw);
   color: var(--red);
-  font-weight: 600;
+  font-weight: 700;
 }
 
-.waiting {
-  color: var(--accent);
+/* ── orders (duel007-plugin.js's renderActions) ──────────────────────── */
+
+.orders {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
 }
 
-.verdict.draw {
-  color: var(--accent);
+.orders button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.7rem 0.9rem;
+  text-align: left;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--rule);
+  transition: transform 0.05s;
+}
+
+.orders button:hover:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--rule);
+}
+
+.orders .act {
+  font-family: var(--tw);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.orders .hint {
+  font-size: 0.74rem;
+  color: var(--faint);
+  line-height: 1.35;
 }

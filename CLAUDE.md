@@ -61,16 +61,25 @@ n)` supplying `get_leaderboard`. Filled from `Ws.attach`'s
     converted to higher-is-better by the game before storing.
     See `backend/README.md` for the `Spec<S, M>` contract and full wiring.
 - **`frontend/`** — the npm package (TypeScript in `src/`, ships
-  compiled `dist/`). Session identity, the `GatewayWs` push client
-  (`ws.js` + `ws/gateway-*.js`, speaking `ws.mo`'s CDK protocol with
-  each tab self-registered as its own Gateway), the generic
-  lobby/staging/rematch/busy/debrief screens (`render.js`, `app.js`),
-  Candid IDL scaffolding (`idl.js`, which also declares
+  compiled `dist/`), in three layers. `client.js` is the headless
+  client: `createDuelClient({ ws, session })` owns the transport, the
+  current `Status`, the one call in flight, error lifetime, the identity
+  lock, and the stale-view resync, and publishes immutable `ClientState`
+  snapshots; no DOM, no HTML. `render.js` is the default UI: one pure
+  `view -> HTML` function per generic screen (lobby/staging/rematch/
+  busy/debrief/...), collected in `defaultScreens`, plus
+  `renderLeaderboard`/`renderBotList`/`renderSeatChoice`, which a game
+  mounts itself. `app.js` is the default shell: `start({ plugin, ws,
+session, screens?, confirm?, promptCode? })` binds client to screens in
+  `#screen` (delegated clicks, spinner, countdowns, header controls,
+  error banner, overlays) and returns the client. Also session identity,
+  the `GatewayWs` push client (`ws.js` + `ws/gateway-*.js`, speaking
+  `ws.mo`'s CDK protocol with each tab self-registered as its own
+  Gateway), and Candid IDL scaffolding (`idl.js`, which also declares
   `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots`
   unconditionally, and `buildBotPlayIdlFactory` for calling a discovered
-  bot's `play`), plus `renderLeaderboard`/`renderBotList`/
-  `renderSeatChoice`, which a game mounts itself. See
-  `frontend/README.md` for the `GamePlugin` contract.
+  bot's `play`). See `frontend/README.md` for the `GamePlugin` contract,
+  "Replacing screens", and "The headless client".
 - **`backend/test/*.test.mo`** — interpreter suites (`mops test`
   discovers the `.test.mo` suffix only). `Engine`/`Lifecycle` cover
   `table.mo`; `Lobby`/`LobbyLifecycle` cover `registry.mo` (including
@@ -90,8 +99,10 @@ actor + `GamePlugin` frontend + deploy config, with its own `CLAUDE.md`:
 `tic-tac-toe`, `ultimate-tic-tac-toe`, `chopsticks` (`#alternating`).
 `rock-paper-scissors` (Classic/Well, gated in `validate`) and
 `chopsticks` (Classic/Instructables, branching in `validate` and
-`resolve`) are the table-variant references. All but `007` ship a
-`bot/` canister player; `tic-tac-toe` (`["Easy", "Hard"]`) and
+`resolve`) are the table-variant references. `007` is the custom-UI
+reference (every screen its own, over `client.js` alone);
+`rock-paper-scissors` replaces one screen through `start({ screens })`.
+All but `007` ship a `bot/` canister player; `tic-tac-toe` (`["Easy", "Hard"]`) and
 `chopsticks` (`["Bunny", "Fox", "Bear"]`) are the multi-complexity
 references. A real game lives in its own repo with the same layout —
 start from `skills/duel-game-core/SKILL.md`.
@@ -201,9 +212,9 @@ deploys all of them to the IC.
 9. **Pending moves are hidden by construction**: `status` exposes only
    Booleans about the opponent's pending move.
 10. **The frontend never assumes an agent-loading strategy.** `start()`
-    takes a built `actor`, a required WebSocket-shaped `ws`, and a
-    required `session`; it imports no agent, no CDN, and has no polling
-    fallback.
+    and `createDuelClient()` take a required WebSocket-shaped `ws` and a
+    required `session` built by the game; they import no agent, no CDN,
+    and have no polling fallback.
 11. **`ws.mo` is the sole mutation entry point and reimplements no game
     logic.** Every request dispatches to `Registry`'s operations; none
     is also a plain Candid method. The `*_as_canister` methods are the
@@ -214,6 +225,11 @@ deploys all of them to the IC.
     `activeDebriefSeat` so a session that acked its debrief stops being
     a participant even while the phase lingers for the partner; `leave`
     itself stays idempotent via plain `seatInDebrief`.
+13. **`client.js` is headless and `render.js` is pure.** Neither touches
+    `document`, storage, or timers other than the error TTL; every DOM
+    concern lives in `app.js` or the game. Anything a game might want
+    to redraw goes through `ClientState` or a `Screens` entry, never a
+    private hook in `start()`.
 
 ## Skills (read before editing)
 
