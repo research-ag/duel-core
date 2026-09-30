@@ -420,10 +420,14 @@ export function createDuelClient<S = unknown, A = unknown>({
 
   function settleCall(req: WsRequest, payload: WsPayload<S>): CallOutcome<S> {
     const outcome = outcomeOf(req, payload);
-    setState({ pending: null });
+    const isCurrent = state.pending !== null && state.pending.req === req;
+    if (isCurrent) setState({ pending: null });
     if (outcome.ok) setStatus(outcome.view);
-    else if (outcome.reason === "stale") refresh();
-    else if (outcome.reason === "rejected") showError(outcome.message);
+    else if (outcome.reason === "stale") {
+      if (isCurrent) refresh();
+    } else if (outcome.reason === "rejected") {
+      if (isCurrent) showError(outcome.message);
+    }
     return outcome;
   }
 
@@ -435,8 +439,12 @@ export function createDuelClient<S = unknown, A = unknown>({
     if (canCorrelate) {
       const onRejected = (e: Error): CallOutcome<S> => {
         const message = `Call failed: ${e?.message ?? e}`;
-        setState({ pending: null });
-        showError(message);
+        // Same guard as `settleCall`: a rejection for a superseded request
+        // must not clear a newer call's pending state.
+        if (state.pending !== null && state.pending.req === req) {
+          setState({ pending: null });
+          showError(message);
+        }
         return { ok: false, reason: "failed", message };
       };
       // `request()` is caller-supplied, so guard a synchronous throw too.
@@ -490,8 +498,12 @@ export function createDuelClient<S = unknown, A = unknown>({
     if (stale) {
       // A correlating transport isn't guaranteed to deliver this to its
       // own `request()`; clear the spinner and resync here too. Two
-      // refreshes are harmless.
-      setState({ pending: null });
+      // refreshes are harmless — but only for the call `lastReq` still
+      // names: a late reply to an already-superseded request must not
+      // clear a newer call's `pending`.
+      if (state.pending !== null && state.pending.req === lastReq) {
+        setState({ pending: null });
+      }
       refresh();
       return;
     }
