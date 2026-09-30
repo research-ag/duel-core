@@ -1,14 +1,18 @@
-// Generic view layer: pure functions from a per-caller `Status`/`View` to
-// an HTML string. No DOM, no network. Every phase except `inGame`/
-// `debrief` is rendered entirely here; those two defer the board and
-// action markup to a `GamePlugin` (see types.ts).
+// The default UI components: pure functions from a per-caller `Status`/
+// `View` to an HTML string. No DOM, no network. Every screen is exported
+// on its own and collected in `defaultScreens`; `renderStatus` composes
+// them, and a game replaces any subset through `start({ screens })` or
+// draws them itself over `client.ts`. `inGame`/`debrief` defer the board
+// and action markup to a `GamePlugin` (see types.ts).
 
+import { claimRoleOf, errText, oppSeatOf, tag, val } from "./client.js";
 import type {
+  BrowsingStatus,
   AwaitingRematchView,
   BotInfo,
   BusyView,
   DebriefView,
-  EngineErr,
+  End,
   GamePlugin,
   InGameView,
   LeaderboardEntry,
@@ -20,13 +24,7 @@ import type {
   View,
 } from "./types.js";
 
-export function tag(v: object): string {
-  return Object.keys(v)[0];
-}
-
-export function val(v: object): unknown {
-  return Object.values(v as Record<string, unknown>)[0];
-}
+export { errText, tag, val };
 
 export function esc(s: unknown): string {
   return String(s).replace(
@@ -48,42 +46,7 @@ export function actionAttr(actionValue: unknown): string {
   return `data-act='${esc(JSON.stringify(actionValue))}'`;
 }
 
-/// Text for every engine-level `Err`; a game's own `illegalMove` reason
-/// is already free text.
-export function errText(e: EngineErr): string {
-  const t = tag(e);
-  const v = val(e);
-  switch (t) {
-    case "seatTaken":
-      return "That seat is already taken.";
-    case "notSeated":
-      return "You are not seated in this game.";
-    case "alreadySubmitted":
-      return "You have already moved this round.";
-    case "notYourTurn":
-      return "It's not your turn.";
-    case "illegalMove":
-      return v as string;
-    case "wrongPhase":
-      return v as string;
-    case "reserved":
-      return `That seat is held for a rematch — ${(v as { secondsLeft: bigint }).secondsLeft}s left.`;
-    case "notIdle":
-      return `The board is in use — ${(v as { secondsLeft: bigint }).secondsLeft}s until it can be taken over.`;
-    case "notOverdue":
-      return `Your opponent hasn't gone quiet long enough yet — ${(v as { secondsLeft: bigint }).secondsLeft}s left before you can claim the win.`;
-    case "noSuchTable":
-      return "That table doesn't exist any more.";
-    case "badCode":
-      return "Wrong (or missing) access code for that table.";
-    case "unauthorized":
-      return "This session belongs to a different signed-in identity.";
-    default:
-      return t;
-  }
-}
-
-function renderLobby(v: LobbyView, plugin: GamePlugin): string {
+export function renderLobby(v: LobbyView, plugin: GamePlugin): string {
   const seatBtn = (seat: SeatTag, open: boolean) => `
     <button class="seat" data-join-table="${seat}" ${open ? "" : "disabled"}>
       <span class="seat-label">${esc(plugin.seatLabel(seat))}</span>
@@ -155,7 +118,7 @@ export function displayPlayerId(player: string): string {
   return bot === null ? player : botDisplayName(bot.principal, bot.complexity);
 }
 
-function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
+export function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
   const seatBtn = (seat: SeatTag, open: boolean, occupantOpt: [] | [string]) => {
     const occupantHtml = (() => {
       if (open || occupantOpt.length === 0) return "";
@@ -188,7 +151,7 @@ function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
     </div>`;
 }
 
-function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): string {
+export function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): string {
   const seatBtn = (seat: SeatTag) => `
     <button class="seat" data-create-table="${seat}">${esc(plugin.seatLabel(seat))}</button>`;
   // No picker for a game without `variantChoices`; the first choice is the
@@ -231,7 +194,7 @@ function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): stri
     </section>`;
 }
 
-function renderBusy(v: BusyView): string {
+export function renderBusy(v: BusyView): string {
   return `
     <h2>Board in use</h2>
     <p>Another game is under way.</p>
@@ -250,7 +213,7 @@ export function reclaimWarningText(secondsUntilReclaimable: bigint): string {
   return `Still there? This seat may be given to someone else ${when} if the page stays idle.`;
 }
 
-function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string {
+export function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string {
   const seat = tag(v.seat) as SeatTag;
   const reclaimWarningHidden = v.secondsUntilReclaimable > RECLAIM_WARNING_SECS;
   // A protected table's code, present only on the occupant's own view.
@@ -273,7 +236,7 @@ function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string {
     <p><button data-leave class="ghost">Leave</button></p>`;
 }
 
-function renderAwaitingRematch(v: AwaitingRematchView, plugin: GamePlugin): string {
+export function renderAwaitingRematch(v: AwaitingRematchView, plugin: GamePlugin): string {
   const seat = tag(v.openSeat) as SeatTag;
   return `
     <h2>Rematch offered</h2>
@@ -323,29 +286,25 @@ export function atRiskWarningText(secondsUntilClaimable: bigint): string {
   return `You haven't moved yet. Your opponent can claim the win ${when} if you don't.`;
 }
 
-function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
+/// The turn bar's opponent line, for either `Mode`.
+export function opponentStatusText(v: InGameView): string {
+  if ("alternating" in v.mode) return v.oppSubmitted ? "◉ Your turn" : "○ Opponent's turn";
+  return v.oppSubmitted ? "◉ Opponent has locked in" : "○ Opponent is deciding";
+}
+
+export function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
   const mySeat = tag(v.seat) as SeatTag;
-  const oppSeat: SeatTag = mySeat === "p1" ? "p2" : "p1";
+  const oppSeat = oppSeatOf(mySeat);
   const alternating = "alternating" in v.mode;
   // A player who already locked in can't do anything about the idle clock.
   const idleWarningHidden =
     v.youSubmitted || v.secondsUntilIdleReset > idleWarningThreshold(v.idleTimeoutSecs);
-  const claimRole: "waiting" | "atRisk" | null = v.youSubmitted
-    ? (v.oppSubmitted ? null : "waiting")
-    : (v.oppSubmitted ? "atRisk" : null);
+  const claimRole = claimRoleOf(v);
 
   return `
     <div class="turnbar">
       <span>${alternating ? "Move" : "Round"} <strong>${v.turn + 1n}</strong></span>
-      <span class="${v.oppSubmitted ? "locked" : "muted"}">${
-        alternating
-          ? v.oppSubmitted
-            ? "◉ Your turn"
-            : "○ Opponent's turn"
-          : v.oppSubmitted
-            ? "◉ Opponent has locked in"
-            : "○ Opponent is deciding"
-      }</span>
+      <span class="${v.oppSubmitted ? "locked" : "muted"}">${opponentStatusText(v)}</span>
     </div>
     <div class="board">${plugin.renderBoard(v.game, mySeat, oppSeat, !v.youSubmitted)}</div>
     ${
@@ -376,43 +335,35 @@ function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
     <p><button data-leave data-confirm="Forfeit this game? Your opponent will win." class="ghost">Forfeit</button></p>`;
 }
 
-function renderDebrief<S>(v: DebriefView<S>, plugin: GamePlugin<S>): string {
-  const mySeat = tag(v.seat) as SeatTag;
-  const oppSeat: SeatTag = mySeat === "p1" ? "p2" : "p1";
-  let title: string;
-  let cls: string;
-  const endTag = tag(v.end);
+/// How a game ended, from `mySeat`'s side: the verdict banner's text and
+/// its `win`/`lose`/`draw` class.
+export function debriefVerdict(end: End, mySeat: SeatTag): { title: string; outcome: "win" | "lose" | "draw" } {
+  const endTag = tag(end);
   if (endTag === "finished") {
-    const verdict = tag(val(v.end) as object);
-    if (verdict === "draw") {
-      title = "It's a draw";
-      cls = "draw";
-    } else if (verdict === `${mySeat}Wins`) {
-      title = "You win";
-      cls = "win";
-    } else {
-      title = "You lose";
-      cls = "lose";
-    }
-  } else if (endTag === "claimed") {
-    const claimant = tag(val(v.end) as object);
-    if (claimant === mySeat) {
-      title = "You win — your opponent didn't move in time";
-      cls = "win";
-    } else {
-      title = "You lose — you didn't move in time";
-      cls = "lose";
-    }
-  } else {
-    title =
-      tag(val(v.end) as object) === mySeat
-        ? "You walked away"
-        : "Your opponent walked away";
-    cls = "draw";
+    const verdict = tag(val(end) as object);
+    if (verdict === "draw") return { title: "It's a draw", outcome: "draw" };
+    if (verdict === `${mySeat}Wins`) return { title: "You win", outcome: "win" };
+    return { title: "You lose", outcome: "lose" };
   }
+  if (endTag === "claimed") {
+    if (tag(val(end) as object) === mySeat) {
+      return { title: "You win — your opponent didn't move in time", outcome: "win" };
+    }
+    return { title: "You lose — you didn't move in time", outcome: "lose" };
+  }
+  return {
+    title: tag(val(end) as object) === mySeat ? "You walked away" : "Your opponent walked away",
+    outcome: "draw",
+  };
+}
+
+export function renderDebrief<S>(v: DebriefView<S>, plugin: GamePlugin<S>): string {
+  const mySeat = tag(v.seat) as SeatTag;
+  const oppSeat = oppSeatOf(mySeat);
+  const { title, outcome } = debriefVerdict(v.end, mySeat);
 
   return `
-    <h2 class="verdict ${cls}">${title}</h2>
+    <h2 class="verdict ${outcome}">${title}</h2>
     <p class="muted">Game lasted ${v.turns} round${v.turns === 1n ? "" : "s"}.</p>
     <div class="board">${plugin.renderBoard(v.finalGame, mySeat, oppSeat)}</div>
     <p>
@@ -421,47 +372,94 @@ function renderDebrief<S>(v: DebriefView<S>, plugin: GamePlugin<S>): string {
     </p>`;
 }
 
-function renderEndedByOther(): string {
+export function renderEndedByOther(): string {
   return `
     <h2>Your game was ended</h2>
     <p>The board sat idle too long and was reclaimed. Your game is gone.</p>
     <p><button data-ack class="primary">Return to lobby</button></p>`;
 }
 
+export function renderConnecting(): string {
+  return `<p class="duel-connecting">Connecting…</p>`;
+}
+
+export function renderTableBadge(id: bigint): string {
+  return `<div class="table-badge">Table #${id}</div>`;
+}
+
+/// Every screen `renderStatus` composes, each a pure `view -> HTML`
+/// function. `start({ screens })` takes a partial map merged over
+/// `defaultScreens`; a custom screen keeps working with the default click
+/// handling as long as it uses the same `data-*` attributes (see
+/// ../README.md, "Replacing screens").
+export interface Screens<S = unknown> {
+  /// Before the first status arrives.
+  connecting(): string;
+  browsing(v: BrowsingStatus, plugin: GamePlugin<S>): string;
+  /// Prefixed to every per-table screen.
+  tableBadge(id: bigint): string;
+  lobby(v: LobbyView, plugin: GamePlugin<S>): string;
+  busy(v: BusyView, plugin: GamePlugin<S>): string;
+  stagingYou(v: StagingYouView, plugin: GamePlugin<S>): string;
+  awaitingRematch(v: AwaitingRematchView, plugin: GamePlugin<S>): string;
+  inGame(v: InGameView<S>, plugin: GamePlugin<S>): string;
+  debrief(v: DebriefView<S>, plugin: GamePlugin<S>): string;
+  endedByOther(plugin: GamePlugin<S>): string;
+}
+
+export const defaultScreens: Screens = {
+  connecting: renderConnecting,
+  browsing: renderBrowsing,
+  tableBadge: renderTableBadge,
+  lobby: renderLobby,
+  busy: renderBusy,
+  stagingYou: renderStagingYou,
+  awaitingRematch: renderAwaitingRematch,
+  inGame: renderInGame,
+  debrief: renderDebrief,
+  endedByOther: renderEndedByOther,
+};
+
+export function resolveScreens<S>(overrides?: Partial<Screens<S>>): Screens<S> {
+  return { ...(defaultScreens as Screens<S>), ...overrides };
+}
+
 /// One table's `View` -> HTML. Reached via `renderStatus`'s `atTable`.
-export function renderView<S>(view: View<S>, plugin: GamePlugin<S>): string {
+export function renderView<S>(view: View<S>, plugin: GamePlugin<S>, screens?: Partial<Screens<S>>): string {
+  const sc = resolveScreens(screens);
   const t = tag(view as object);
   const v = val(view as object);
   switch (t) {
     case "lobby":
-      return renderLobby(v as LobbyView, plugin);
+      return sc.lobby(v as LobbyView, plugin);
     case "busy":
-      return renderBusy(v as BusyView);
+      return sc.busy(v as BusyView, plugin);
     case "stagingYou":
-      return renderStagingYou(v as StagingYouView, plugin);
+      return sc.stagingYou(v as StagingYouView, plugin);
     case "awaitingRematch":
-      return renderAwaitingRematch(v as AwaitingRematchView, plugin);
+      return sc.awaitingRematch(v as AwaitingRematchView, plugin);
     case "inGame":
-      return renderInGame(v as InGameView<S>, plugin);
+      return sc.inGame(v as InGameView<S>, plugin);
     case "debrief":
-      return renderDebrief(v as DebriefView<S>, plugin);
+      return sc.debrief(v as DebriefView<S>, plugin);
     case "endedByOther":
-      return renderEndedByOther();
+      return sc.endedByOther(plugin);
     default:
       return `<p class="error">Unknown view: ${esc(t)}</p>`;
   }
 }
 
 /// `Status` -> HTML, the top-level entry point.
-export function renderStatus<S>(status: Status<S>, plugin: GamePlugin<S>): string {
+export function renderStatus<S>(status: Status<S>, plugin: GamePlugin<S>, screens?: Partial<Screens<S>>): string {
+  const sc = resolveScreens(screens);
   const t = tag(status as object);
   const v = val(status as object);
   switch (t) {
     case "browsing":
-      return renderBrowsing(v as { tables: TableSummary[] }, plugin);
+      return sc.browsing(v as BrowsingStatus, plugin);
     case "atTable": {
       const { id, view } = v as { id: bigint; view: View<S> };
-      return `<div class="table-badge">Table #${id}</div>${renderView(view, plugin)}`;
+      return `${sc.tableBadge(id)}${renderView(view, plugin, sc)}`;
     }
     default:
       return `<p class="error">Unknown status: ${esc(t)}</p>`;

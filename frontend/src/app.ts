@@ -1,17 +1,17 @@
-// Generic bootstrap for any duel-game-core game client: session identity,
-// real-time push over a caller-built `ws`, the generic screens (render.ts),
-// and click dispatch back to the canister. There is exactly one
-// transport and no polling fallback; `start()` never calls a plain actor
-// method. `ws` must expose `onopen`/`onmessage`/`onclose`/`onerror` and
-// `send(msg)`; if it also exposes `request(sid, req)` (`GatewayWs` does),
-// each button's spinner settles off that call's own reply instead of the
-// shared push stream. See ../README.md, "Wiring it up".
+// The default UI shell: `start()` creates a headless client (client.ts),
+// draws its state with the default screens (render.ts) into `#screen`,
+// and dispatches delegated clicks back to the client. It owns nothing but
+// DOM: the header controls, the error banner, the per-button spinner, the
+// local countdown tickers, the confirm and access-code overlays. A game
+// swaps any screen (`screens`), either overlay (`confirm`/`promptCode`),
+// or skips this file entirely and binds `createDuelClient` to its own UI.
+// See ../README.md, "Wiring it up".
 
+import { createDuelClient, claimRoleOf, viewOf } from "./client.js";
+import type { ClientState, DuelClient, SessionIdentity } from "./client.js";
 import {
   renderStatus,
-  errText,
-  tag,
-  val,
+  resolveScreens,
   DUEL_IDLE_WARNING_ID,
   idleWarningThreshold,
   idleWarningText,
@@ -25,25 +25,12 @@ import {
   claimWarningThreshold,
   waitingText,
 } from "./render.js";
-import type { DuelWs, EngineErr, GamePlugin, InGameView, Seat, SeatTag, StagingYouView, Visibility, WsPayload, WsRequest } from "./types.js";
+import type { Screens } from "./render.js";
+import type { DuelWs, GamePlugin, InGameView, SeatTag, StagingYouView, Status, Visibility } from "./types.js";
+
+export type { SessionIdentity } from "./client.js";
 
 const $ = (id: string): HTMLElement | null => document.getElementById(id);
-
-/// Structural equality for decoded Candid values. Not `JSON.stringify`:
-/// `bigint` fields would throw.
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== "object" || typeof b !== "object") return false;
-  if (a === null || b === null) return false;
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every(
-    (k) =>
-      Object.hasOwn(b, k) &&
-      deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
-  );
-}
 
 /// A once-per-second local countdown for a warning element. `secondsUntilX`
 /// fields are only as fresh as the last push (nothing pushes on a bare
@@ -51,12 +38,14 @@ function deepEqual(a: unknown, b: unknown): boolean {
 /// `screenEl.innerHTML` (which would reintroduce hover flicker).
 function makeCountdownTicker(elId: string) {
   let timer: ReturnType<typeof setInterval> | undefined;
-  let baseline: {
-    secs: bigint;
-    atMs: number;
-    hidden: (secondsLeft: bigint) => boolean;
-    text: (secondsLeft: bigint) => string;
-  } | undefined;
+  let baseline:
+    | {
+        secs: bigint;
+        atMs: number;
+        hidden: (secondsLeft: bigint) => boolean;
+        text: (secondsLeft: bigint) => string;
+      }
+    | undefined;
 
   function stop(): void {
     if (timer !== undefined) {
@@ -96,7 +85,7 @@ function makeCountdownTicker(elId: string) {
   return { sync };
 }
 
-/// Like `makeCountdownTicker`, but only toggles `hidden` — safe for an
+/// Like `makeCountdownTicker`, but only toggles `hidden`: safe for an
 /// element with child markup (the "Claim the win" button). Revealing it a
 /// moment early off the local clock is harmless: the engine re-validates.
 function makeVisibilityTicker(elId: string) {
@@ -174,369 +163,18 @@ function makeTableWaitTicker(root: HTMLElement) {
   return { sync };
 }
 
-/// The minimal identity `start()` needs — `identity.js`'s `ResolvedIdentity`
-/// and `anon-identity.js`'s lighter result both satisfy it.
-export interface SessionIdentity {
-  sid: string;
-  isLoggedIn?: boolean;
-  /// The "new sid" button is hidden entirely when this is missing.
-  regenerate?(): Promise<void>;
-  /// Wired to `authBtnId` only when BOTH are present.
-  login?(): Promise<void>;
-  logout?(): Promise<void>;
-}
+// The two overlays, each appended to `<body>` (not `screenEl`) so it
+// survives redraws and a game's click-through overlay CSS, and each
+// replaceable through `start()`'s `confirm`/`promptCode`.
 
-export interface StartOptions<S = unknown> {
-  plugin: GamePlugin<S>;
-  ws: DuelWs<S>;
-  sidElId?: string;
-  newSidBtnId?: string;
-  screenElId?: string;
-  errorElId?: string;
-  /// Required: every legal `sid` is principal-bound.
-  session: SessionIdentity;
-  authBtnId?: string;
-}
+type Confirm = (msg: string, then: (yes: boolean) => void) => void;
+type PromptCode = (then: (code: string | null) => void) => void;
 
-/// Boots the generic wiring. Defaults: `sid`, `new-sid`, `screen`, `error`,
-/// `duel-auth-btn`.
-export function start<S>({
-  plugin,
-  ws,
-  sidElId = "sid",
-  newSidBtnId = "new-sid",
-  screenElId = "screen",
-  errorElId = "error",
-  session,
-  authBtnId = "duel-auth-btn",
-}: StartOptions<S>): void {
-  if (!plugin) throw new Error("start(): `plugin` is required");
-  if (!ws) throw new Error("start(): `ws` is required");
-  if (!session) throw new Error("start(): `session` is required");
-
-  // Declared up front so every closure below sees it as non-null (TS
-  // can't carry a narrowing into a hoisted function declaration).
-  const screenEl = $(screenElId);
-  if (!screenEl) throw new Error(`start(): no element with id "${screenElId}"`);
-
-  // Session identity. `sessionStorage["sid"]` is where game code outside
-  // `start()` (a second bundle sharing the connection) reads the sid.
-  sessionStorage.setItem("sid", session.sid);
-  const sid = session.sid;
-  const sidEl = $(sidElId);
-  if (sidEl) sidEl.textContent = sid;
-  const newSidBtn = $(newSidBtnId) as HTMLButtonElement | null;
-  if (newSidBtn) {
-    if (!session.regenerate || session.isLoggedIn) {
-      newSidBtn.disabled = true;
-      newSidBtn.hidden = true;
-    } else {
-      const regenerate = session.regenerate;
-      newSidBtn.addEventListener("click", () => {
-        if (newSidBtn.disabled) return;
-        newSidBtn.disabled = true;
-        regenerate().catch((e: Error) => {
-          newSidBtn.disabled = false;
-          showError(`New sid failed: ${e?.message ?? e}`);
-        });
-      });
-    }
-  }
-
-  // Login/logout. Static for the page's life: both always reload.
-  const authBtn = $(authBtnId) as HTMLButtonElement | null;
-  // Keeps an unrelated re-sync from re-enabling the button mid-action.
-  let authActionPending = false;
-  if (authBtn && session.login && session.logout) {
-    const login = session.login;
-    const logout = session.logout;
-    authBtn.textContent = session.isLoggedIn ? "Log out" : "Log in with Internet Identity";
-    authBtn.disabled = false;
-    authBtn.addEventListener("click", () => {
-      if (authBtn.disabled) return;
-      authActionPending = true;
-      authBtn.disabled = true;
-      const verb = session.isLoggedIn ? "Log out" : "Log in";
-      (session.isLoggedIn ? logout() : login()).catch((e: Error) => {
-        authActionPending = false;
-        authBtn.disabled = newSidBtn?.disabled ?? false;
-        showError(`${verb} failed: ${e?.message ?? e}`);
-      });
-    });
-  }
-
-  // Swapping identity mid-seat/mid-join is as unsafe for login/logout as
-  // for regenerating the sid, so both buttons follow the same state.
-  function setNewSidDisabled(disabled: boolean): void {
-    if (newSidBtn) newSidBtn.disabled = disabled;
-    if (authBtn && session.login && session.logout && !authActionPending) authBtn.disabled = disabled;
-  }
-
-  // Swapping sid while holding one of these seats would abandon it.
-  const SEATED_VIEW_TAGS = new Set(["stagingYou", "inGame", "debrief"]);
-
-  function atTable(status: unknown): { id: bigint; view: unknown } | null {
-    if (status == null) return null;
-    if (tag(status as object) !== "atTable") return null;
-    return val(status as object) as { id: bigint; view: unknown };
-  }
-
-  function isSeated(status: unknown): boolean {
-    const at = atTable(status);
-    return at !== null && SEATED_VIEW_TAGS.has(tag(at.view as object));
-  }
-
-  function inGameView(status: unknown): InGameView | null {
-    const at = atTable(status);
-    if (at === null || tag(at.view as object) !== "inGame") return null;
-    return val(at.view as object) as InGameView;
-  }
-
-  function stagingYouView(status: unknown): StagingYouView | null {
-    const at = atTable(status);
-    if (at === null || tag(at.view as object) !== "stagingYou") return null;
-    return val(at.view as object) as StagingYouView;
-  }
-
-  // An unrelated push landing mid-flight (a rival's join) still shows
-  // `browsing` to this sid; that must not re-enable new-sid while this
-  // sid's own create/join is outstanding.
-  const joinPending = (): boolean =>
-    pendingButtonKey !== null &&
-    (pendingButtonKey.startsWith("create:") || pendingButtonKey.startsWith("jointable"));
-
-  const syncNewSidBtn = (): void => {
-    if (!newSidBtn) return;
-    if (joinPending()) {
-      setNewSidDisabled(true);
-      return;
-    }
-    if (lastStatus === undefined) return;
-    setNewSidDisabled(isSeated(lastStatus));
-  };
-
-  // Errors.
-
-  let errorTimer: ReturnType<typeof setTimeout>;
-
-  // Set for good once `ws.onclose` fires: the transport never revives, so
-  // the persistent banner wins and every button stays disabled.
-  let disconnected = false;
-
-  function showError(msg: string): void {
-    if (disconnected) return;
-    const el = $(errorElId);
-    if (!el) return;
-    el.textContent = msg;
-    el.hidden = false;
-    clearTimeout(errorTimer);
-    errorTimer = setTimeout(() => (el.hidden = true), 5000);
-  }
-
-  function showDisconnected(): void {
-    if (disconnected) return;
-    disconnected = true;
-    clearTimeout(errorTimer);
-    const el = $(errorElId);
-    if (el) {
-      el.innerHTML = `Connection closed. <button type="button" class="ghost" id="duel-reload">Reload to reconnect</button>`;
-      el.hidden = false;
-      $("duel-reload")?.addEventListener("click", () => location.reload());
-    }
-    setNewSidDisabled(true);
-    applyLoadingState();
-  }
-
-  // Calls. `inFlight` stops a double submit. With `request()` available,
-  // the spinner settles off THIS call's reply; otherwise off the next
-  // `onmessage`, the best a plain socket allows.
-
-  let inFlight = false;
-  const canCorrelate = typeof ws.request === "function";
-
-  // The last dispatched request, so the fallback `onmessage` error branch
-  // can tell which request a pushed error answers.
-  let lastReq: WsRequest | null = null;
-
-  // A `#wrongPhase` on create/join means this tab's view is stale (it
-  // rendered `browsing` before learning the sid is seated elsewhere); a
-  // silent refresh resolves it.
-  function isStaleJoin(req: WsRequest | null, err: EngineErr): boolean {
-    return req !== null && ("createTable" in req || "joinTable" in req) && "wrongPhase" in err;
-  }
-
-  // `#stale` on submit/leave/reset/claimWin: the stamped gen/turn moved on
-  // (typically a resend whose original landed). Same treatment.
-  function isStaleMutation(req: WsRequest | null, err: EngineErr): boolean {
-    return (
-      req !== null &&
-      ("submit" in req || "leave" in req || "reset" in req || "claimWin" in req) &&
-      "stale" in err
-    );
-  }
-
-  // `0n` outside a live phase; the engine rejects it as `#stale`.
-  function genOf(status: unknown): bigint {
-    const at = atTable(status);
-    if (!at) return 0n;
-    const t = tag(at.view as object);
-    if (t === "stagingYou" || t === "inGame" || t === "debrief" || t === "awaitingRematch") {
-      return (val(at.view as object) as { gen: bigint }).gen;
-    }
-    return 0n;
-  }
-  function turnOf(status: unknown): bigint {
-    const at = atTable(status);
-    if (at && tag(at.view as object) === "inGame") {
-      return (val(at.view as object) as { turn: bigint }).turn;
-    }
-    return 0n;
-  }
-
-  function sendWs(req: WsRequest): void {
-    lastReq = req;
-    try {
-      ws.send({ req: { sid, req } });
-    } catch (e) {
-      inFlight = false;
-      document.body.classList.remove("working");
-      endButtonLoading();
-      showError(`Send failed: ${(e as Error).message ?? e}`);
-    }
-  }
-
-  function settleCall(req: WsRequest, payload: WsPayload<S>): void {
-    inFlight = false;
-    document.body.classList.remove("working");
-    endButtonLoading();
-    if ("err" in payload) {
-      if (isStaleJoin(req, payload.err) || isStaleMutation(req, payload.err)) {
-        // `ws.onmessage` runs the same check; a transport implementing
-        // `request()` isn't guaranteed to also deliver this there. Two
-        // refreshes are harmless.
-        refresh();
-        return;
-      }
-      showError(errText(payload.err));
-      // Undo the eager disable a create/join applied speculatively.
-      syncNewSidBtn();
-    } else {
-      renderIfChanged(payload.view);
-    }
-  }
-
-  function call(req: WsRequest): void {
-    if (inFlight) return;
-    inFlight = true;
-    lastReq = req;
-    document.body.classList.add("working");
-    if (canCorrelate) {
-      // `request()` is caller-supplied, so guard a synchronous throw too.
-      const onRejected = (e: Error) => {
-        inFlight = false;
-        document.body.classList.remove("working");
-        endButtonLoading();
-        showError(`Call failed: ${e.message ?? e}`);
-      };
-      try {
-        ws.request!(sid, req).then((payload) => settleCall(req, payload), onRejected);
-      } catch (e) {
-        onRejected(e as Error);
-      }
-    } else {
-      sendWs(req);
-    }
-  }
-
-  const doCreateTable = (seat: SeatTag, visibility: Visibility, variant: string) =>
-    call({ createTable: { seat: { [seat]: null } as Seat, visibility, variant } });
-  const doJoinTable = (id: bigint, seat: SeatTag, code: [] | [string]) =>
-    call({ joinTable: { id, seat: { [seat]: null } as Seat, code } });
-  const doSubmit = (action: unknown) =>
-    call({ submit: { gen: genOf(lastStatus), turn: turnOf(lastStatus), move: action } });
-  const doRematch = () => call({ rematch: null });
-  const doLeave = () => call({ leave: { gen: genOf(lastStatus) } });
-  const doReset = () => call({ reset: { gen: genOf(lastStatus) } });
-  const doClaimWin = () => call({ claimWin: { gen: genOf(lastStatus) } });
-  const doAck = () => call({ ackEnded: null });
-
-  // Per-button loading spinner (`button.duel-loading`). The pending action
-  // is tracked by a content key (what the button does), not the node, and
-  // reapplied after EVERY render — an unrelated push mid-flight replaces
-  // `screenEl.innerHTML` and would otherwise lose the spinner while the
-  // call is still outstanding.
-
-  function buttonKey(b: HTMLButtonElement): string {
-    if (b.dataset.createTable) return `create:${b.dataset.createTable}`;
-    if (b.dataset.joinTable && b.dataset.joinTableId) {
-      return `jointable:${b.dataset.joinTableId}:${b.dataset.joinTable}`;
-    }
-    if (b.dataset.act) return `act:${b.dataset.act}`;
-    if ("rematch" in b.dataset) return "rematch";
-    if ("leave" in b.dataset) return "leave";
-    if ("reset" in b.dataset) return "reset";
-    if ("claimWin" in b.dataset) return "claim-win";
-    if ("ack" in b.dataset) return "ack";
-    return "";
-  }
-
-  let pendingButtonKey: string | null = null;
-
-  // Each button's server-driven disabled state is stashed in
-  // `dataset.naturalDisabled` on first sight so it can be restored.
-  const applyLoadingState = (): void => {
-    for (const btn of screenEl.querySelectorAll("button")) {
-      const el = btn as HTMLButtonElement;
-      if (el.dataset.naturalDisabled === undefined) {
-        el.dataset.naturalDisabled = el.disabled ? "1" : "0";
-      }
-      if (disconnected) {
-        el.disabled = true;
-        el.classList.remove("duel-loading");
-      } else if (pendingButtonKey) {
-        el.disabled = true;
-        el.classList.toggle("duel-loading", buttonKey(el) === pendingButtonKey);
-      } else {
-        el.disabled = el.dataset.naturalDisabled === "1";
-        el.classList.remove("duel-loading");
-      }
-    }
-  };
-
-  // Arrow consts, not function declarations, so `screenEl`'s narrowing
-  // carries in. `directBtn` is marked directly as well as via
-  // `applyLoadingState()`: a minimal test DOM has no querySelectorAll.
-  let directBtn: HTMLButtonElement | null = null;
-
-  const beginButtonLoading = (activeBtn: HTMLButtonElement): void => {
-    pendingButtonKey = buttonKey(activeBtn);
-    directBtn = activeBtn;
-    if (activeBtn.dataset.naturalDisabled === undefined) {
-      activeBtn.dataset.naturalDisabled = activeBtn.disabled ? "1" : "0";
-    }
-    activeBtn.disabled = true;
-    activeBtn.classList.add("duel-loading");
-    applyLoadingState();
-  };
-
-  const endButtonLoading = (): void => {
-    pendingButtonKey = null;
-    if (directBtn?.isConnected) {
-      directBtn.disabled = directBtn.dataset.naturalDisabled === "1";
-      directBtn.classList.remove("duel-loading");
-    }
-    directBtn = null;
-    applyLoadingState();
-  };
-
-  // Confirmation modal for `data-confirm="..."` buttons. Appended to
-  // `<body>`, not `screenEl`, so it survives redraws and a game's
-  // click-through overlay CSS.
-
-  const confirmOverlay = document.createElement("div");
-  confirmOverlay.className = "duel-confirm-overlay";
-  confirmOverlay.hidden = true;
-  confirmOverlay.innerHTML = `
+function makeConfirmOverlay(): Confirm {
+  const overlay = document.createElement("div");
+  overlay.className = "duel-confirm-overlay";
+  overlay.hidden = true;
+  overlay.innerHTML = `
     <div class="duel-confirm-box">
       <p class="duel-confirm-msg"></p>
       <div class="duel-confirm-actions">
@@ -544,40 +182,30 @@ export function start<S>({
         <button type="button" class="primary" data-confirm-yes>Confirm</button>
       </div>
     </div>`;
-  document.body.appendChild(confirmOverlay);
-  const confirmMsgEl = confirmOverlay.querySelector(".duel-confirm-msg") as HTMLElement;
-
-  let pendingConfirmed: (() => void) | null = null;
-
-  function showConfirm(msg: string, onConfirmed: () => void): void {
-    confirmMsgEl.textContent = msg;
-    pendingConfirmed = onConfirmed;
-    confirmOverlay.hidden = false;
-  }
-
-  function hideConfirm(): void {
-    confirmOverlay.hidden = true;
-    pendingConfirmed = null;
-  }
-
-  confirmOverlay.addEventListener("click", (ev) => {
+  document.body.appendChild(overlay);
+  const msgEl = overlay.querySelector(".duel-confirm-msg") as HTMLElement;
+  let pending: ((yes: boolean) => void) | null = null;
+  overlay.addEventListener("click", (ev) => {
     const target = ev.target as HTMLElement;
-    if (target === confirmOverlay || "confirmNo" in target.dataset) {
-      hideConfirm();
-    } else if ("confirmYes" in target.dataset) {
-      const fn = pendingConfirmed;
-      hideConfirm();
-      if (fn) fn();
-    }
+    const yes = "confirmYes" in target.dataset;
+    if (!yes && target !== overlay && !("confirmNo" in target.dataset)) return;
+    const fn = pending;
+    pending = null;
+    overlay.hidden = true;
+    if (fn) fn(yes);
   });
+  return (msg, then) => {
+    msgEl.textContent = msg;
+    pending = then;
+    overlay.hidden = false;
+  };
+}
 
-  // Access-code prompt for an open seat on a protected table row
-  // (`data-protected`). Same build-once-append-to-body shape.
-
-  const codeOverlay = document.createElement("div");
-  codeOverlay.className = "duel-code-overlay";
-  codeOverlay.hidden = true;
-  codeOverlay.innerHTML = `
+function makeCodePrompt(): PromptCode {
+  const overlay = document.createElement("div");
+  overlay.className = "duel-code-overlay";
+  overlay.hidden = true;
+  overlay.innerHTML = `
     <div class="duel-code-box">
       <p class="duel-code-msg">This table is protected — enter its access code to join.</p>
       <input type="text" class="duel-code-input" placeholder="access code" />
@@ -586,34 +214,191 @@ export function start<S>({
         <button type="button" class="primary" data-code-join>Join</button>
       </div>
     </div>`;
-  document.body.appendChild(codeOverlay);
-  const codeInputEl = codeOverlay.querySelector(".duel-code-input") as HTMLInputElement;
-
-  let pendingCodeSubmit: ((code: string) => void) | null = null;
-
-  function showCodePrompt(onSubmit: (code: string) => void): void {
-    codeInputEl.value = "";
-    pendingCodeSubmit = onSubmit;
-    codeOverlay.hidden = false;
-    codeInputEl.focus?.();
-  }
-
-  function hideCodePrompt(): void {
-    codeOverlay.hidden = true;
-    pendingCodeSubmit = null;
-  }
-
-  codeOverlay.addEventListener("click", (ev) => {
+  document.body.appendChild(overlay);
+  const inputEl = overlay.querySelector(".duel-code-input") as HTMLInputElement;
+  let pending: ((code: string | null) => void) | null = null;
+  overlay.addEventListener("click", (ev) => {
     const target = ev.target as HTMLElement;
-    if (target === codeOverlay || "codeCancel" in target.dataset) {
-      hideCodePrompt();
-    } else if ("codeJoin" in target.dataset) {
-      const fn = pendingCodeSubmit;
-      const code = codeInputEl.value;
-      hideCodePrompt();
-      if (fn) fn(code);
-    }
+    const join = "codeJoin" in target.dataset;
+    if (!join && target !== overlay && !("codeCancel" in target.dataset)) return;
+    const fn = pending;
+    pending = null;
+    overlay.hidden = true;
+    if (fn) fn(join ? inputEl.value : null);
   });
+  return (then) => {
+    inputEl.value = "";
+    pending = then;
+    overlay.hidden = false;
+    inputEl.focus?.();
+  };
+}
+
+export interface StartOptions<S = unknown> {
+  plugin: GamePlugin<S>;
+  ws: DuelWs<S>;
+  /// Required: every legal `sid` is principal-bound.
+  session: SessionIdentity;
+  /// Any subset of the default screens, replaced.
+  screens?: Partial<Screens<S>>;
+  /// Replaces the confirmation modal (`data-confirm` buttons).
+  confirm?: (msg: string) => Promise<boolean>;
+  /// Replaces the access-code prompt (`data-protected` seat buttons);
+  /// resolves `null` to cancel.
+  promptCode?: () => Promise<string | null>;
+  errorTtlMs?: number;
+  sidElId?: string;
+  newSidBtnId?: string;
+  screenElId?: string;
+  errorElId?: string;
+  authBtnId?: string;
+}
+
+/// The click-content key of a button, matching `PendingCall.key` for the
+/// request that button dispatches.
+export function buttonKey(b: HTMLButtonElement): string {
+  if (b.dataset.createTable) return `create:${b.dataset.createTable}`;
+  if (b.dataset.joinTable && b.dataset.joinTableId) {
+    return `jointable:${b.dataset.joinTableId}:${b.dataset.joinTable}`;
+  }
+  if (b.dataset.act) return `act:${b.dataset.act}`;
+  if ("rematch" in b.dataset) return "rematch";
+  if ("leave" in b.dataset) return "leave";
+  if ("reset" in b.dataset) return "reset";
+  if ("claimWin" in b.dataset) return "claim-win";
+  if ("ack" in b.dataset) return "ack";
+  return "";
+}
+
+export function start<S>({
+  plugin,
+  ws,
+  session,
+  screens,
+  confirm,
+  promptCode,
+  errorTtlMs,
+  sidElId = "sid",
+  newSidBtnId = "new-sid",
+  screenElId = "screen",
+  errorElId = "error",
+  authBtnId = "duel-auth-btn",
+}: StartOptions<S>): DuelClient<S> {
+  if (!plugin) throw new Error("start(): `plugin` is required");
+  if (!ws) throw new Error("start(): `ws` is required");
+  if (!session) throw new Error("start(): `session` is required");
+
+  const screenEl = $(screenElId);
+  if (!screenEl) throw new Error(`start(): no element with id "${screenElId}"`);
+
+  // `sessionStorage["sid"]` is where game code outside `start()` (a second
+  // bundle sharing the connection) reads the sid.
+  sessionStorage.setItem("sid", session.sid);
+  const sidEl = $(sidElId);
+  if (sidEl) sidEl.textContent = session.sid;
+
+  const client = createDuelClient<S>({ ws, session, errorTtlMs });
+  const sc = resolveScreens(screens);
+  const askConfirm: Confirm = confirm ? (msg, then) => void confirm(msg).then(then) : makeConfirmOverlay();
+  const askCode: PromptCode = promptCode ? (then) => void promptCode().then(then) : makeCodePrompt();
+
+  // Header controls.
+
+  const newSidBtn = $(newSidBtnId) as HTMLButtonElement | null;
+  if (newSidBtn) {
+    if (!session.regenerate || session.isLoggedIn) {
+      newSidBtn.disabled = true;
+      newSidBtn.hidden = true;
+    } else {
+      newSidBtn.addEventListener("click", () => {
+        if (newSidBtn.disabled) return;
+        void client.regenerateSid();
+      });
+    }
+  }
+
+  const authBtn = $(authBtnId) as HTMLButtonElement | null;
+  const authWired = !!(authBtn && session.login && session.logout);
+  if (authBtn && authWired) {
+    authBtn.textContent = session.isLoggedIn ? "Log out" : "Log in with Internet Identity";
+    authBtn.disabled = false;
+    authBtn.addEventListener("click", () => {
+      if (authBtn.disabled) return;
+      void (session.isLoggedIn ? client.logout() : client.login());
+    });
+  }
+
+  const syncIdentityControls = (state: ClientState<S>): void => {
+    const locked = state.identityLocked;
+    if (newSidBtn) newSidBtn.disabled = locked;
+    if (authBtn && authWired) authBtn.disabled = locked;
+  };
+
+  // Error banner.
+
+  const errorEl = $(errorElId);
+  const syncError = (state: ClientState<S>): void => {
+    if (!errorEl) return;
+    if (state.connection === "closed") {
+      errorEl.innerHTML = `Connection closed. <button type="button" class="ghost" id="duel-reload">Reload to reconnect</button>`;
+      errorEl.hidden = false;
+      $("duel-reload")?.addEventListener("click", () => location.reload());
+      return;
+    }
+    if (state.error === null) {
+      errorEl.hidden = true;
+      return;
+    }
+    errorEl.textContent = state.error;
+    errorEl.hidden = false;
+  };
+
+  // Per-button loading spinner (`button.duel-loading`). Keyed by what the
+  // button does, not the node, and reapplied after EVERY render: an
+  // unrelated push mid-flight replaces `screenEl.innerHTML` and would
+  // otherwise lose the spinner while the call is still outstanding.
+  // Each button's server-driven disabled state is stashed in
+  // `dataset.naturalDisabled` on first sight so it can be restored.
+
+  const applyLoadingState = (state: ClientState<S>): void => {
+    const pendingKey = state.pending?.key ?? null;
+    const disconnected = state.connection === "closed";
+    for (const btn of screenEl.querySelectorAll("button")) {
+      const el = btn as HTMLButtonElement;
+      if (el.dataset.naturalDisabled === undefined) {
+        el.dataset.naturalDisabled = el.disabled ? "1" : "0";
+      }
+      if (disconnected) {
+        el.disabled = true;
+        el.classList.remove("duel-loading");
+      } else if (pendingKey !== null) {
+        el.disabled = true;
+        el.classList.toggle("duel-loading", buttonKey(el) === pendingKey);
+      } else {
+        el.disabled = el.dataset.naturalDisabled === "1";
+        el.classList.remove("duel-loading");
+      }
+    }
+  };
+
+  // The clicked button is marked directly as well: a minimal test DOM has
+  // no querySelectorAll, and the real one may not list it either.
+  let directBtn: HTMLButtonElement | null = null;
+
+  const markDirect = (b: HTMLButtonElement): void => {
+    directBtn = b;
+    if (b.dataset.naturalDisabled === undefined) b.dataset.naturalDisabled = b.disabled ? "1" : "0";
+    b.disabled = true;
+    b.classList.add("duel-loading");
+  };
+
+  const unmarkDirect = (): void => {
+    if (directBtn?.isConnected) {
+      directBtn.disabled = directBtn.dataset.naturalDisabled === "1";
+      directBtn.classList.remove("duel-loading");
+    }
+    directBtn = null;
+  };
 
   // Create-table form: the visibility radio toggles the code input.
   screenEl.addEventListener("change", (ev) => {
@@ -637,59 +422,45 @@ export function start<S>({
   const readCreateVariant = (): string =>
     (screenEl.querySelector('input[name="table-variant"]:checked') as HTMLInputElement | null)?.value ?? "";
 
-  // Set right before `dispatch()` for a protected row's seat; read once by
-  // the `joinTable` branch and cleared.
-  let pendingJoinCode: string | null = null;
-
   // One delegated listener, so re-rendering never leaks handlers.
   screenEl.addEventListener("click", (ev) => {
     const target = ev.target as HTMLElement;
     const b = target.closest("button") as HTMLButtonElement | null;
     if (!b || b.disabled) return;
-    const dispatch = () => {
-      beginButtonLoading(b);
+    if (client.getState().pending !== null) return;
+    const dispatch = (code: string | null = null): void => {
+      let p: Promise<unknown> | null = null;
       if (b.dataset.createTable) {
         // An empty code would be unreachable by construction; catch it
         // here with a message that names the problem.
         const visibility = readCreateVisibility();
         if ("code" in visibility && visibility.code.length === 0) {
-          endButtonLoading();
-          showError("Enter an access code, or choose Open.");
+          client.showError("Enter an access code, or choose Open.");
           return;
         }
-        // Disable new-sid the moment the request goes out.
-        setNewSidDisabled(true);
-        doCreateTable(b.dataset.createTable as SeatTag, visibility, readCreateVariant());
+        p = client.createTable(b.dataset.createTable as SeatTag, visibility, readCreateVariant());
       } else if (b.dataset.joinTable && b.dataset.joinTableId) {
-        const code = pendingJoinCode;
-        pendingJoinCode = null;
-        setNewSidDisabled(true);
-        doJoinTable(BigInt(b.dataset.joinTableId), b.dataset.joinTable as SeatTag, code ? [code] : []);
-      } else if (b.dataset.act) doSubmit(JSON.parse(b.dataset.act));
-      else if ("rematch" in b.dataset) doRematch();
-      else if ("leave" in b.dataset) doLeave();
-      else if ("reset" in b.dataset) doReset();
-      else if ("claimWin" in b.dataset) doClaimWin();
-      else if ("ack" in b.dataset) doAck();
+        p = client.joinTable(BigInt(b.dataset.joinTableId), b.dataset.joinTable as SeatTag, code);
+      } else if (b.dataset.act) p = client.submit(JSON.parse(b.dataset.act));
+      else if ("rematch" in b.dataset) p = client.rematch();
+      else if ("leave" in b.dataset) p = client.leave();
+      else if ("reset" in b.dataset) p = client.reset();
+      else if ("claimWin" in b.dataset) p = client.claimWin();
+      else if ("ack" in b.dataset) p = client.ackEnded();
+      if (p !== null && client.getState().pending?.key === buttonKey(b)) markDirect(b);
     };
-    if (b.dataset.confirm) showConfirm(b.dataset.confirm, dispatch);
-    else if ("protected" in b.dataset) {
-      showCodePrompt((code) => {
-        pendingJoinCode = code;
-        dispatch();
+    if (b.dataset.confirm) {
+      askConfirm(b.dataset.confirm, (yes) => {
+        if (yes) dispatch();
+      });
+    } else if ("protected" in b.dataset) {
+      askCode((code) => {
+        if (code !== null) dispatch(code);
       });
     } else dispatch();
   });
 
-  // A sync ping, not a mutation: no `inFlight`/spinner.
-  function refresh(): void {
-    if (inFlight) return;
-    sendWs({ status: null });
-  }
-
-  // Last status drawn: a push delivering the same status skips the redraw
-  // (replacing innerHTML recreates every button and blinks hover states).
-  let lastStatus: unknown;
+  // Local countdowns, re-baselined off every fresh push.
 
   const idleTicker = makeCountdownTicker(DUEL_IDLE_WARNING_ID);
   const reclaimTicker = makeCountdownTicker(DUEL_RECLAIM_WARNING_ID);
@@ -697,10 +468,10 @@ export function start<S>({
   const claimButtonTicker = makeVisibilityTicker(DUEL_CLAIM_BUTTON_ID);
   const waitTicker = makeTableWaitTicker(screenEl);
 
-  // Re-baselines off a fresh `#inGame` push; stops for any other phase and
-  // for a player who already locked in (the warning stays hidden for them).
-  function syncIdleTick(status: unknown): void {
-    const inGame = inGameView(status);
+  // Stops for any other phase and for a player who already locked in (the
+  // warning stays hidden for them).
+  function syncIdleTick(status: Status<S> | null): void {
+    const inGame = viewOf<InGameView<S>>(status, "inGame");
     if (!inGame || inGame.youSubmitted) {
       idleTicker.sync(null);
       return;
@@ -712,8 +483,8 @@ export function start<S>({
     });
   }
 
-  function syncReclaimTick(status: unknown): void {
-    const staging = stagingYouView(status);
+  function syncReclaimTick(status: Status<S> | null): void {
+    const staging = viewOf<StagingYouView>(status, "stagingYou");
     if (!staging) {
       reclaimTicker.sync(null);
       return;
@@ -728,13 +499,9 @@ export function start<S>({
   // Both roles read the same clock: "waiting" (I submitted, they haven't)
   // gets the countdown and, once elapsed, the button; "atRisk" (the
   // mirror) gets the warning only.
-  function syncClaimTick(status: unknown): void {
-    const inGame = inGameView(status);
-    const role: "waiting" | "atRisk" | null = !inGame
-      ? null
-      : inGame.youSubmitted
-        ? (inGame.oppSubmitted ? null : "waiting")
-        : (inGame.oppSubmitted ? "atRisk" : null);
+  function syncClaimTick(status: Status<S> | null): void {
+    const inGame = viewOf<InGameView<S>>(status, "inGame");
+    const role = inGame ? claimRoleOf(inGame) : null;
     if (!inGame || role === null) {
       claimTicker.sync(null);
       claimButtonTicker.sync(null);
@@ -743,8 +510,7 @@ export function start<S>({
     const threshold = claimWarningThreshold(inGame.claimTimeoutSecs);
     claimTicker.sync({
       secs: inGame.secondsUntilClaimable,
-      hidden: (secondsLeft) =>
-        (role === "waiting" && secondsLeft <= 0n) || secondsLeft > threshold,
+      hidden: (secondsLeft) => (role === "waiting" && secondsLeft <= 0n) || secondsLeft > threshold,
       text: role === "waiting" ? claimWarningText : atRiskWarningText,
     });
     if (role === "waiting") {
@@ -755,7 +521,7 @@ export function start<S>({
   }
 
   // The create-table form is live user input a redraw would reset to its
-  // defaults — an unrelated push mid-fill must not silently revert
+  // defaults: an unrelated push mid-fill must not silently revert
   // "Protected" to "Open" or a variant pick. Captured before the redraw,
   // restored after.
   interface CreateFormState {
@@ -765,16 +531,13 @@ export function start<S>({
   }
 
   const captureCreateFormState = (): CreateFormState | null => {
-    const radio = screenEl.querySelector(
-      'input[name="table-visibility"]:checked',
-    ) as HTMLInputElement | null;
+    const radio = screenEl.querySelector('input[name="table-visibility"]:checked') as HTMLInputElement | null;
     if (!radio) return null;
     return {
       visibility: radio.value,
       code: ($("create-code") as HTMLInputElement | null)?.value ?? "",
-      variant: (
-        screenEl.querySelector('input[name="table-variant"]:checked') as HTMLInputElement | null
-      )?.value ?? null,
+      variant:
+        (screenEl.querySelector('input[name="table-variant"]:checked') as HTMLInputElement | null)?.value ?? null,
     };
   };
 
@@ -802,47 +565,30 @@ export function start<S>({
     }
   };
 
-  const renderIfChanged = (status: unknown): void => {
-    setNewSidDisabled(joinPending() || isSeated(status));
-    if (deepEqual(status, lastStatus)) return;
-    lastStatus = status;
+  const redraw = (status: Status<S>): void => {
     const savedForm = captureCreateFormState();
-    screenEl.innerHTML = renderStatus(status as Parameters<typeof renderStatus<S>>[0], plugin);
+    screenEl.innerHTML = renderStatus(status, plugin, sc);
     if (savedForm) restoreCreateFormState(savedForm);
     syncIdleTick(status);
     syncReclaimTick(status);
     syncClaimTick(status);
     waitTicker.sync();
-    applyLoadingState();
   };
 
-  screenEl.innerHTML = `<p class="duel-connecting">Connecting…</p>`;
-  ws.onopen = () => refresh();
-  ws.onmessage = (ev) => {
-    const msg = ev.data;
-    const staleJoin = "err" in msg && isStaleJoin(lastReq, msg.err);
-    const staleMutation = "err" in msg && isStaleMutation(lastReq, msg.err);
+  screenEl.innerHTML = sc.connecting();
 
-    // A correlating transport already settled the spinner off its own
-    // reply; the fallback has only this signal — except a stale join/
-    // mutation, which must clear the spinner before `refresh()` (a no-op
-    // while `inFlight`).
-    if (!canCorrelate || staleJoin || staleMutation) {
-      inFlight = false;
-      document.body.classList.remove("working");
-      endButtonLoading();
+  client.subscribe((state, prev) => {
+    if (state.status !== prev.status && state.status !== null) redraw(state.status);
+    if (state.pending !== prev.pending) {
+      document.body.classList.toggle("working", state.pending !== null);
+      if (state.pending === null) unmarkDirect();
     }
-    if ("err" in msg) {
-      if (staleJoin || staleMutation) {
-        refresh();
-        return;
-      }
-      showError(errText(msg.err));
-      syncNewSidBtn();
-    } else {
-      renderIfChanged(msg.view);
+    if (state.status !== prev.status || state.pending !== prev.pending || state.connection !== prev.connection) {
+      applyLoadingState(state);
     }
-  };
-  ws.onerror = (ev) => showError(`WebSocket error: ${ev?.error?.message ?? ev}`);
-  ws.onclose = () => showDisconnected();
+    if (state.identityLocked !== prev.identityLocked) syncIdentityControls(state);
+    if (state.error !== prev.error || state.connection !== prev.connection) syncError(state);
+  });
+
+  return client;
 }

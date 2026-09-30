@@ -1,12 +1,29 @@
 # duel-game-core
 
 Rules-agnostic browser client for any canister built on the
-[`duel-game-core`](../backend/README.md) Motoko engine. It implements every
-screen that is the same for every game — the multi-table lobby, staging,
-rematch offer, busy countdown, debrief chrome, the `#endedByOther`
-notice — plus session identity and real-time push. A game supplies a
-small **GamePlugin**: two Candid types, seat labels, and how to draw the
-board and action buttons.
+[`duel-game-core`](../backend/README.md) Motoko engine, in three layers a
+game takes as much or as little of as it wants:
+
+- **`client.js`, the headless client.** `createDuelClient({ ws, session })`
+  owns the transport, the current `Status`, the one call in flight, error
+  lifetime, the session-identity lock, and the stale-view resync, and
+  publishes an immutable state snapshot to subscribers. No DOM, no HTML.
+  A game with its own UI (any framework, any look) binds this and nothing
+  else.
+- **`render.js`, the default UI components.** Pure `view -> HTML` functions
+  for every screen that is the same for every game — the multi-table
+  lobby, staging, rematch offer, busy countdown, debrief chrome, the
+  `#endedByOther` notice — each exported on its own, plus the leaderboard,
+  bot list, and seat picker a game mounts itself.
+- **`app.js`, the default shell.** `start({ plugin, ws, session })` wires
+  the two together into `#screen`: delegated clicks, the per-button
+  spinner, the local countdowns, the header controls, the error banner,
+  and the confirm and access-code overlays. Any screen or overlay is
+  replaceable in place (`screens`, `confirm`, `promptCode`), and `start()`
+  returns the client it built.
+
+In every layer a game supplies the same small **GamePlugin**: two Candid
+types, seat labels, and how to draw the board and action buttons.
 
 TypeScript, published pre-compiled: `npm run build` produces `dist/`,
 which every import (`duel-game-core/app.js`, ...) resolves to. Consumers
@@ -73,8 +90,9 @@ const plugin = {
 Only `renderBoard`/`renderActions` return game markup. Everything else
 (turn counter, "opponent is deciding"/"locked in" or "Your turn"/
 "Opponent's turn" for an `#alternating` table, verdict banner,
-rematch/leave/forfeit buttons, claim-win controls) is generic chrome
-driven by `InGameView`.
+rematch/leave/forfeit buttons, claim-win controls) is the default chrome
+driven by `InGameView`, replaceable per screen (below) or wholesale
+("The headless client").
 
 ## Wiring it up
 
@@ -102,8 +120,14 @@ const ws = connectWs({
   gameIdlTypes: plugin.idlTypes,
 });
 
-start({ plugin, ws, session });
+const client = start({ plugin, ws, session });
 ```
+
+`start()` returns the `DuelClient` it drives the screen with, so game code
+outside the shell (a bot-challenge dialog, a stats panel) reads
+`client.getState()`, subscribes, and calls `client.createTable(...)` and
+friends instead of hand-building `ws.request` calls; the shell's spinner
+and identity lock follow either way.
 
 Element ids `start()` uses (all overridable, `start({ ..., sidElId })`):
 
@@ -124,9 +148,109 @@ Element ids `start()` uses (all overridable, `start({ ..., sidElId })`):
   both.
 - `screen` — where `renderStatus` output goes; clicks are delegated from
   here so re-rendering never leaks listeners.
-- `error` — transient rejections, auto-hidden after 5s. A closed
-  transport is terminal: the banner stays with a "Reload to reconnect"
-  button and every button is disabled.
+- `error` — transient rejections, auto-hidden after 5s (`errorTtlMs`). A
+  closed transport is terminal: the banner stays with a "Reload to
+  reconnect" button and every button is disabled.
+
+## Replacing screens
+
+`start({ screens })` takes any subset of the `Screens` map and merges it
+over `defaultScreens`:
+
+```js
+import { debriefVerdict } from "duel-game-core/render.js";
+
+start({
+  plugin,
+  ws,
+  session,
+  screens: {
+    debrief(v, plugin) {
+      const me = Object.keys(v.seat)[0];
+      const { title, outcome } = debriefVerdict(v.end, me);
+      return `<h2 class="verdict ${outcome}">${title}</h2>
+        <div class="board">${plugin.renderBoard(v.finalGame, me, me === "p1" ? "p2" : "p1")}</div>
+        <button data-rematch class="primary">Again</button>
+        <button data-leave class="ghost">Lobby</button>`;
+    },
+  },
+});
+```
+
+The keys are `connecting`, `browsing`, `tableBadge`, `lobby`, `busy`,
+`stagingYou`, `awaitingRematch`, `inGame`, `debrief`, `endedByOther`,
+each with the same signature as the `render*` function it replaces. A
+custom screen keeps the shell's click handling, spinner, and countdowns
+by using the same hooks the defaults do:
+
+| Hook                                                                                                                              | Dispatches                      |
+| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `data-create-table="p1"` + the `table-visibility` radios, `#create-code`, `table-variant` radios                                  | `createTable`                   |
+| `data-join-table-id="3" data-join-table="p2"` (+ bare `data-protected` to prompt for a code)                                      | `joinTable`                     |
+| `data-act='<json>'` (via `actionAttr`)                                                                                            | `submit`                        |
+| `data-rematch`, `data-leave`, `data-reset`, `data-claim-win`, `data-ack`                                                          | the matching call               |
+| `data-confirm="Sure?"` on any of the above                                                                                        | asks first                      |
+| `id="duel-idle-warning"`, `id="duel-reclaim-warning"`, `id="duel-claim-warning"`, `id="duel-claim-button"`, `data-wait-base="12"` | patched by the local countdowns |
+
+`confirm` (`(msg) => Promise<boolean>`) and `promptCode` (`() =>
+Promise<string>`, resolving `null` to cancel) replace the two overlays the
+same way. `examples/rock-paper-scissors` replaces its debrief this way.
+
+## The headless client
+
+For a UI that is not "our screens plus CSS" — a framework app, a canvas
+game with its own lobby, a different interaction model — skip `app.js`
+and bind `client.js` yourself:
+
+```js
+import {
+  createDuelClient,
+  localSecondsLeft,
+  viewOf,
+} from "duel-game-core/client.js";
+
+const client = createDuelClient({ ws, session });
+client.subscribe((state, prev) => {
+  // `state` is a fresh immutable snapshot after every change.
+  render(state);
+});
+```
+
+`ClientState`:
+
+| Field            | Meaning                                                                                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `connection`     | `"connecting"` / `"open"` / `"closed"`; closed is terminal (reload)                                                                                     |
+| `status`         | the last `Status` received, `null` before the first; structurally equal pushes never re-notify                                                          |
+| `statusAt`       | `Date.now()` when `status` last changed — every `secondsUntilX` is only as fresh as that; `localSecondsLeft(secs, statusAt)` counts down from it        |
+| `pending`        | `{ key, req }` while one call is out (`create:p1`, `jointable:3:p2`, `act:{"pass":null}`, `rematch`, `leave`, `reset`, `claim-win`, `ack`); at most one |
+| `error`          | a transient message (cleared after `errorTtlMs`), or the permanent "Connection closed."                                                                 |
+| `authPending`    | a login/logout/regenerate is under way                                                                                                                  |
+| `identityLocked` | disable "new sid" and login/logout: seated, a join in flight, an identity change in flight, or closed                                                   |
+
+Actions: `createTable(seat, visibility?, variant?)`, `joinTable(id, seat,
+code?)`, `submit(move)`, `rematch()`, `leave()`, `reset()`, `claimWin()`,
+`ackEnded()`. Each stamps `gen`/`turn` from the last status and resolves
+with a `CallOutcome`: `{ ok: true, view }`, or `{ ok: false, reason }`
+where `reason` is `"inFlight"` (one is already out), `"closed"`,
+`"stale"` (a `#wrongPhase` create/join or `#stale` mutation: the view was
+behind, a silent `refresh()` is on its way), `"rejected"` (`err` and its
+`message`, also shown in `state.error`), or `"failed"` (transport,
+`message`). `refresh()` is a sync ping. `showError`/`clearError` put a
+UI's own messages on the same lifetime. `login()`, `logout()`,
+`regenerateSid()` wrap the session's own functions and drive
+`authPending`. `dispose()` detaches from `ws`.
+
+Selectors, all pure: `viewTagOf(status)`, `viewOf(status, "inGame")`,
+`isSeated`, `genOf`, `turnOf`, `claimRoleOf(inGame)` (`"waiting"` may
+claim, `"atRisk"` is the mirror), `oppSeatOf`, `localSecondsLeft`,
+`localSecondsElapsed`, `pendingKeyOf(req)`, plus `tag`/`val`/`errText`.
+`render.js`'s text helpers (`debriefVerdict`, `opponentStatusText`, the
+warning thresholds and texts) are pure too and free to reuse or ignore.
+
+`examples/007` is the worked example: every screen, the header, the
+alert bar, two native `<dialog>`s, and its own stylesheet, over nothing
+but `client.js`, the plugin, and `renderLeaderboard`.
 
 ## Real-time push
 
@@ -155,7 +279,7 @@ deliberately skipped: the "gateway" is the player's own tab, so the
 property buys nothing and would cost a BLS dependency.
 
 **No polling fallback.** A host built on this framework has no plain
-mutating method to poll. `start()` only needs the four handlers and
+mutating method to poll. The client only needs the four handlers and
 `send(msg)`, so a hand-rolled WebSocket-shaped object (a test mock, a
 real external-Gateway transport) can replace `GatewayWs`.
 
@@ -294,19 +418,20 @@ on icp.net, `icp-api.io` as a last resort). `start()` never calls them.
 
 ## Modules
 
-| Module                    | Exports                                                                                                                                                                                                                                                                               |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})`, `buildBotPlayIdlFactory({IDL})`                                                                                                                                                                           |
-| `render.js`               | `renderStatus`, `renderView`, `renderLeaderboard(entries, plugin, opts?)`, `renderBotList`, `renderSeatChoice`, `playerKeyOf`, `isCanisterPlayer`, `parseCanisterPlayer`, `botDisplayName`, `displayPlayerId`, `DEFAULT_BOT_COMPLEXITY`, `errText`, `actionAttr`, `tag`, `val`, `esc` |
-| `app.js`                  | `start({ plugin, ws, session, ...elIds })`                                                                                                                                                                                                                                            |
-| `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)`; depends on `@icp-sdk/auth`                                                                                                                                                                                                     |
-| `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX`; depends only on `@icp-sdk/core/identity`                                                                                                                           |
-| `ic-env.js`               | `readIcEnv()`, `deriveHost()`                                                                                                                                                                                                                                                         |
-| `ws.js`                   | `connectWs({ actor, principal, gameIdlTypes, intervalMs?, requestTimeoutMs? })`, `GatewayWs`                                                                                                                                                                                          |
-| `ws/gateway-client.js`    | `GatewayWs` — poll loop, reconnect policy, request correlation                                                                                                                                                                                                                        |
-| `ws/gateway-transport.js` | `SelfGatewayTransport` — moves bytes; swap for a real external-Gateway transport without touching the other two                                                                                                                                                                       |
-| `ws/gateway-protocol.js`  | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, envelope interpretation                                                                                                                                                                                               |
-| `style.css`               | generic layout primitives                                                                                                                                                                                                                                                             |
+| Module                    | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})`, `buildBotPlayIdlFactory({IDL})`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `render.js`               | `renderStatus(status, plugin, screens?)`, `renderView`, `defaultScreens`, `resolveScreens`, one `render*` per screen (`renderBrowsing`, `renderTableRow`, `renderLobby`, `renderBusy`, `renderStagingYou`, `renderAwaitingRematch`, `renderInGame`, `renderDebrief`, `renderEndedByOther`, `renderConnecting`, `renderTableBadge`), `debriefVerdict`, `opponentStatusText`, `renderLeaderboard(entries, plugin, opts?)`, `renderBotList`, `renderSeatChoice`, `playerKeyOf`, `isCanisterPlayer`, `parseCanisterPlayer`, `botDisplayName`, `displayPlayerId`, `DEFAULT_BOT_COMPLEXITY`, `errText`, `actionAttr`, `tag`, `val`, `esc` |
+| `client.js`               | `createDuelClient({ ws, session, errorTtlMs? })` -> `DuelClient`; `viewTagOf`, `viewOf`, `isSeated`, `genOf`, `turnOf`, `claimRoleOf`, `oppSeatOf`, `localSecondsLeft`, `localSecondsElapsed`, `pendingKeyOf`, `deepEqual`, `tag`, `val`, `errText`                                                                                                                                                                                                                                                                                                                                                                                 |
+| `app.js`                  | `start({ plugin, ws, session, screens?, confirm?, promptCode?, errorTtlMs?, ...elIds })` -> `DuelClient`; `buttonKey`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)`; depends on `@icp-sdk/auth`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX`; depends only on `@icp-sdk/core/identity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `ic-env.js`               | `readIcEnv()`, `deriveHost()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `ws.js`                   | `connectWs({ actor, principal, gameIdlTypes, intervalMs?, requestTimeoutMs? })`, `GatewayWs`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `ws/gateway-client.js`    | `GatewayWs` — poll loop, reconnect policy, request correlation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `ws/gateway-transport.js` | `SelfGatewayTransport` — moves bytes; swap for a real external-Gateway transport without touching the other two                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `ws/gateway-protocol.js`  | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, envelope interpretation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `style.css`               | generic layout primitives                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 See [`../backend/README.md`](../backend/README.md) for the `Spec`
 contract.

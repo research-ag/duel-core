@@ -1,7 +1,7 @@
 {
   "name": "duel-game-core",
-  "version": "0.2.0",
-  "description": "Rules-agnostic client plumbing for a TwoPlayer-engine-backed game: session identity, real-time push, and generic lobby/staging/rematch/debrief screens.",
+  "version": "0.3.0",
+  "description": "Rules-agnostic client for a duel-game-core game: session identity, real-time push, a headless client, and default lobby/staging/rematch/debrief screens any of which a game can replace.",
   "type": "module",
   "main": "./dist/app.js",
   "types": "./dist/app.d.ts",
@@ -13,6 +13,10 @@
     "./app.js": {
       "types": "./dist/app.d.ts",
       "default": "./dist/app.js"
+    },
+    "./client.js": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
     },
     "./render.js": {
       "types": "./dist/render.d.ts",

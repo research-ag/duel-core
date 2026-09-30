@@ -9,7 +9,7 @@ import { start } from "duel-game-core/app.js";
 import { connectWs } from "duel-game-core/ws.js";
 import { resolveIdentity } from "duel-game-core/identity.js";
 import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
-import { errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag } from "duel-game-core/render.js";
+import { debriefVerdict, errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag } from "duel-game-core/render.js";
 import { plugin } from "./rps-plugin.js";
 
 const env = readIcEnv();
@@ -38,7 +38,28 @@ const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
 const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
 
-start({ plugin, ws, session });
+// The debrief is this game's own: a final scoreline instead of the
+// generic verdict banner. Every other screen stays the default.
+function renderRpsDebrief(v, p) {
+  const me = tag(v.seat);
+  const opp = me === "p1" ? "p2" : "p1";
+  const score = (seat) => (seat === "p1" ? v.finalGame.p1Score : v.finalGame.p2Score);
+  const { title, outcome } = debriefVerdict(v.end, me);
+  return `
+    <h2 class="verdict ${outcome}">${title}</h2>
+    <p class="rps-final">
+      <span class="rps-final-you">${score(me)}</span>
+      <span class="vs">–</span>
+      <span class="rps-final-opp">${score(opp)}</span>
+    </p>
+    <p class="muted">${v.turns} round${v.turns === 1n ? "" : "s"} of ${esc(p.formatVariant(Object.keys(v.finalGame.variant)[0]))}.</p>
+    <p>
+      <button data-rematch class="primary">Play again</button>
+      <button data-leave class="ghost">Back to the lobby</button>
+    </p>`;
+}
+
+start({ plugin, ws, session, screens: { debrief: renderRpsDebrief } });
 
 // Leaderboard: a full-page overlay fetched via plain queries on open.
 const leaderboardToggle = document.getElementById("leaderboard-toggle");

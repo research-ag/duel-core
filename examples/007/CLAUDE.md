@@ -18,14 +18,24 @@ LeaderboardActorMixin(leaderboard, 25)`). Follows
   drive the real engine from `../../backend` with these rules plugged in.
 - **`icp.yaml`** — deploys `src/Host.mo` as `backend` and `frontend/dist`
   as an asset canister.
-- **`frontend/`** — vanilla JS bundled with esbuild. `duel007-plugin.js`
-  is the whole `GamePlugin`; `app.js` resolves the identity
-  (`resolveIdentity()`), builds the actor and `connectWs()` transport,
-  calls `start()`, and wires the 🏆 toggle (first in `.session`) that
-  opens the full-page `#leaderboard-panel` and renders
+- **`frontend/`** — vanilla JS bundled with esbuild, and the framework's
+  CUSTOM-UI reference: nothing from `duel-game-core/app.js` runs here,
+  and the look is its own (light paper, typewriter headings, red stamp
+  buttons, a sticky sidebar). `duel007-plugin.js` is the `GamePlugin`
+  (board and action buttons); `mission-ui.js` is every screen (the lobby
+  as a file index table, one "File it" form with the seat as a radio),
+  the sidebar (agent identity, a channel light driven by
+  `connection`/`pending`, an in-memory log of the current game's
+  round narrations), the alert strip, two native `<dialog>`s, and the
+  once-a-second clock patching, all bound to `createDuelClient()`'s
+  state (`client.subscribe`) and actions with its own
+  `data-op`/`data-key` attributes; `app.js` resolves the
+  identity (`resolveIdentity()`), builds the actor and `connectWs()`
+  transport, creates the client, mounts the UI, and wires the 🏆 toggle
+  that opens the full-page `#leaderboard-panel` and renders
   `actor.get_leaderboard()` via `renderLeaderboard(entries, plugin, {
-yourSid })`. `style.css` holds only 007 visuals over
-  `duel-game-core.css`.
+yourSid })`. `style.css` is self-contained; `duel-game-core.css` is
+  not loaded.
 
 ## Toolchain
 
@@ -60,8 +70,13 @@ rebuilds `frontend/dist/` on every deploy.
 Everything in `../../CLAUDE.md` applies. Additionally:
 
 1. **The engine is never vendored here** — fix it in `../../backend`.
-2. **The generic screens are never vendored here** — `duel007-plugin.js`
-   supplies only `idlTypes`/`seatLabel`/`renderBoard`/`renderActions`.
+2. **No framework UI code is vendored here.** `mission-ui.js` draws
+   from `ClientState` and calls the client; it never reimplements what
+   `client.js` does (call serialization, gen stamping, stale resync,
+   error lifetime, identity lock). If a screen needs something the state
+   lacks, add it to `client.js`.
+3. **`mission-ui.js` imports only `client.js` and `esc`.** The point of
+   this example is that the rest is the game's own.
 
 ## Game-rule notes (src/Duel007Rules.mo)
 

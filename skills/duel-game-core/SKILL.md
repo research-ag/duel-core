@@ -12,8 +12,9 @@ rules-agnostic packages — a Motoko mops package (session engine) and an
 npm package (browser client) — implementing everything a 2-player game
 needs except the game itself: a multi-table lobby (open or access-code
 protected tables), seating, round submission, debrief, idle takeover,
-rematch, claim-win, session identity, real-time push, and the generic
-screens.
+rematch, claim-win, session identity, real-time push, a headless client
+holding all of that browser-side, and default screens over it that a
+game can replace one at a time or entirely.
 
 The user gives you rules, nothing else; you produce the whole game. Make
 the State/Action/rendering design calls yourself. Ask only when the rules
@@ -392,9 +393,15 @@ no CDN or import map. For Internet Identity login, swap
 `resolveAnonymousIdentity()` for `identity.js`'s `resolveIdentity()`
 (`frontend/README.md`, "Logging in with Internet Identity").
 
-If the UI genuinely doesn't fit buttons and text (canvas, 3D, drag and
-drop, or porting a framework client), read `references/rich-ui.md`
-before writing `app.js`.
+`start()` returns the headless `DuelClient` it drives, and takes
+`screens` (any subset of the default screens replaced by your own
+`view -> HTML` functions), `confirm`, and `promptCode`. Reach for
+`screens` when the user wants a screen in the game's own voice (a themed
+debrief, a lobby with its own layout) but the interaction model is still
+buttons and text. If the UI genuinely doesn't fit that (canvas, 3D, drag
+and drop, a framework client, its own lobby), read
+`references/rich-ui.md` before writing `app.js`: it covers binding
+`createDuelClient()` directly.
 
 ## Step 7 — Project/deploy config
 
