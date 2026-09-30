@@ -71,7 +71,13 @@ module {
     };
 
     /// Handles the WS connection open event sent by the client and relayed by the Gateway.
-    public func ws_open(caller : Principal, args : CanisterWsOpenArguments) : async* CanisterWsOpenResult {
+    ///
+    /// `initial`, when present, is an app message the client sends together
+    /// with the handshake; it reaches `on_message` right after `on_open`,
+    /// outside the per-client sequence numbering (the client's own
+    /// `ws_message`s still start at 1). Saves a round trip for the first
+    /// request every connection makes anyway.
+    public func ws_open(caller : Principal, args : CanisterWsOpenArguments, initial : ?Blob) : async* CanisterWsOpenResult {
       // anonymous clients cannot open a connection
       if (Principal.isAnonymous(caller)) {
         return #Err(Errors.to_string(#AnonymousPrincipalNotAllowed));
@@ -123,6 +129,16 @@ module {
       await* handlers.call_on_open({
         client_principal = client_key.client_principal;
       });
+
+      switch (initial) {
+        case (?message) {
+          await* handlers.call_on_message({
+            client_principal = client_key.client_principal;
+            message;
+          });
+        };
+        case (null) {};
+      };
 
       #Ok;
     };

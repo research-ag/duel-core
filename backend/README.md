@@ -170,7 +170,11 @@ The CDK normally expects an off-chain Gateway relay, but does not require
 a pre-registered Gateway principal: a client's own `ws_open` names its
 `gateway_principal`. The frontend's `GatewayWs` therefore has each
 browser tab register itself as its own Gateway and poll its own
-`ws_get_messages`. No relay process, no second identity.
+`ws_get_messages`. No relay process, no second identity. The mixin's
+`ws_open(args, msg : ?Blob)` takes an optional encoded `Msg` that the
+vendored CDK hands to `onMessage` inside the handshake itself, so the
+`#status` every connection starts with rides along instead of costing a
+second update call.
 
 **Disappearance handling.** `attach()`'s `onClose` drives an implicit
 `Registry.leave` for the closed session, whether the close was

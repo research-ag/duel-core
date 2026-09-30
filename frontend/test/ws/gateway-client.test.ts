@@ -63,6 +63,49 @@ test("onopen fires exactly once once the poll loop observes the CDK's OpenMessag
   assert.equal(opens, 1);
 });
 
+test("a send() before the connection is open rides along with ws_open instead of costing a ws_message", async (t) => {
+  const canister = new FakeCanister();
+  canister.respond = () => ({ view: { browsing: { tables: [] } } });
+  const ws = makeWs(t, canister);
+  const received: WsPayload[] = [];
+  ws.onmessage = (ev) => received.push(ev.data);
+  let opens = 0;
+  ws.onopen = () => opens++;
+
+  ws.send({ req: { sid: "player-0", req: { status: null } } });
+  await waitFor(() => received.some((p) => "view" in p && "browsing" in p.view));
+
+  assert.equal(opens, 1);
+  assert.deepEqual(canister.openInitials, [{ status: null }]);
+  assert.equal(canister.sentRequests.length, 0, "no ws_message was needed");
+});
+
+test("a request() before the connection is open resolves off the reply to its ws_open-borne message", async (t) => {
+  const canister = new FakeCanister();
+  const status: Status = { browsing: { tables: [] } };
+  canister.respond = () => ({ view: status });
+  const ws = makeWs(t, canister);
+
+  const result = await ws.request!("player-0", { status: null });
+  assert.deepEqual(result, { view: status });
+  assert.deepEqual(canister.openInitials, [{ status: null }]);
+  assert.equal(canister.sentRequests.length, 0, "no ws_message was needed");
+});
+
+test("only the outbox head rides on ws_open; the rest follows once the open is confirmed, in order", async (t) => {
+  const canister = new FakeCanister();
+  canister.respond = () => ({ view: { browsing: { tables: [] } } });
+  const ws = makeWs(t, canister);
+
+  ws.send({ req: { sid: "player-0", req: { status: null } } });
+  ws.send({ req: { sid: "player-0", req: { rematch: null } } });
+  ws.send({ req: { sid: "player-0", req: { ackEnded: null } } });
+  await waitFor(() => canister.sentRequests.length >= 2);
+
+  assert.deepEqual(canister.openInitials, [{ status: null }]);
+  assert.deepEqual(canister.sentRequests, [{ rematch: null }, { ackEnded: null }]);
+});
+
 test("send(): sid reaches the canister, and the push it triggers arrives via onmessage", async (t) => {
   const canister = new FakeCanister();
   canister.respond = () => ({ view: { browsing: { tables: [] } } });
@@ -102,7 +145,7 @@ test("request(): resolves with its own correlated reply, unaffected by an interl
 });
 
 test("request(): a reply of #alreadySubmitted is reconciled into a fresh status view instead of surfaced as an error", async (t) => {
-  // Simulates the outcome of _queueResend() retrying a submit whose original
+  // Simulates the outcome of _enqueue() retrying a submit whose original
   // attempt actually landed server-side: the resent copy comes back
   // #alreadySubmitted, which must NOT be handed to the caller verbatim (see
   const canister = new FakeCanister();
@@ -224,7 +267,7 @@ test("close(): rejects every pending request and fires onclose", async (t) => {
   let closed = false;
   ws.onclose = () => (closed = true);
   const pending = ws.request!("player-1", { status: null });
-  await waitFor(() => canister.sentRequests.length >= 1);
+  await waitFor(() => canister.openInitials.length >= 1);
   ws.close();
   await assert.rejects(() => pending, /GatewayWs: closed/);
   assert.equal(closed, true);

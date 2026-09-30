@@ -71,7 +71,10 @@ class FakeWsCdkActor implements WsActor {
     this._queue.push(cborEncode(outer));
   }
 
-  async ws_open(args: { client_nonce: bigint; gateway_principal: Principal }) {
+  async ws_open(
+    args: { client_nonce: bigint; gateway_principal: Principal },
+    initial: [Uint8Array] | [] = [],
+  ) {
     this.openCalls += 1;
     const clientKey: TransportClientKey = {
       client_principal: args.gateway_principal,
@@ -82,7 +85,19 @@ class FakeWsCdkActor implements WsActor {
       OpenMessage: { client_key: clientKey },
     });
     this._pushEnvelope(clientKey, true, openContent);
+    if (initial.length) this._handleApp(clientKey, initial[0]);
     return { Ok: null };
+  }
+
+  private _handleApp(clientKey: TransportClientKey, content: Uint8Array): void {
+    const decoded = IDL.decode([engineTypes.WsMsg], content)[0] as {
+      req?: { sid: string; req: unknown; reqId: [] | [bigint] };
+    };
+    if (!decoded.req) return;
+    this.appMessagesProcessed += 1;
+    const { sid, req, reqId } = decoded.req;
+    const replyContent = encodeCandid(engineTypes.WsMsg, this.onReq(sid, req, reqId));
+    this._pushEnvelope(clientKey, false, replyContent);
   }
 
   async ws_close(_args: { client_key: TransportClientKey }) {
@@ -105,16 +120,7 @@ class FakeWsCdkActor implements WsActor {
     if (args.msg.is_service_message) {
       return { Ok: null }; // keep-alive ack reply — no reply of our own needed here
     }
-    const decoded = IDL.decode([engineTypes.WsMsg], args.msg.content)[0] as {
-      req?: { sid: string; req: unknown; reqId: [] | [bigint] };
-    };
-    if (decoded.req) {
-      this.appMessagesProcessed += 1;
-      const { sid, req, reqId } = decoded.req;
-      const reply = this.onReq(sid, req, reqId);
-      const replyContent = encodeCandid(engineTypes.WsMsg, reply);
-      this._pushEnvelope(this._registered, false, replyContent);
-    }
+    this._handleApp(this._registered, args.msg.content);
     return { Ok: null };
   }
 

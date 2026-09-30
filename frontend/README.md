@@ -285,14 +285,23 @@ real external-Gateway transport) can replace `GatewayWs`.
 
 **Reconnection.** Any failed poll or send invalidates the registration;
 the next tick redoes `ws_open` transparently, with no `onclose`.
-`onopen` fires again on every confirmed reopen so a caller can resync.
-`onerror` fires only on a second consecutive failure, since a lone blip
+`onopen` fires again on every confirmed reopen so a caller can resync
+(`client.js` asks for a fresh `#status` on every reopen). `onerror`
+fires only on a second consecutive failure, since a lone blip
 self-heals within a tick.
 
-**`send()`/`request()` are safe before the connection is open** — both
-await one coalesced `ws_open`. **Every outgoing `ws_message` is
-serialized**: the CDK evicts a client on an out-of-order sequence
-number, and two in-flight update calls have no ordering guarantee.
+**`send()`/`request()` are safe before the connection is open** — a
+message sent while the connection is not open waits in an outbox, and
+the outbox head rides along with `ws_open` itself (the mixin's `ws_open`
+takes an optional encoded message the canister handles inside the
+handshake). `client.js` asks for its first `#status` at construction, so
+a first load is one update call plus one poll: the open confirmation and
+the first view arrive together. Call `start()`/`createDuelClient()`
+right after `connectWs()`, before yielding to the event loop, or the
+handshake may already be in flight without it. **Every outgoing
+`ws_message` is serialized**: the CDK evicts a client on an out-of-order
+sequence number, and two in-flight update calls have no ordering
+guarantee.
 
 **Sharing one `ws`.** `GatewayWs` extends `EventTarget`; game code can
 `ws.addEventListener("message", ...)` on the same connection instead of

@@ -132,15 +132,16 @@ test("start(): throws a clear error when the screen element is missing", async (
   assert.throws(() => start({ plugin, ws: new FakeWs(), session: defaultSession }), /no element with id "screen"/);
 });
 
-test("start(): shows a connecting placeholder immediately, then sends #status on ws.onopen", async () => {
+test("start(): shows a connecting placeholder and sends #status right away, not on ws.onopen", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();
   start({ plugin, ws, session: defaultSession });
   assert.match(els.screen.innerHTML, /Connecting/);
-
-  ws.onopen!();
   assert.equal(ws.sent.length, 1);
   assert.deepEqual(ws.sent[0]!.req, { status: null });
+
+  ws.onopen!();
+  assert.equal(ws.sent.length, 1, "the first open must not ask again");
 });
 
 test("onmessage: a pushed status renders via the plugin", async () => {
@@ -864,8 +865,8 @@ test("a createTable rejected as wrongPhase (stale status — already seated else
   await Promise.resolve();
 
   assert.equal(els.error.textContent, "", "must not surface an error the user can't act on");
-  assert.equal(ws.sent.length, 1, "resyncs by re-sending #status, not by ws.request()");
-  assert.deepEqual(ws.sent[0]!.req, { status: null });
+  assert.equal(ws.sent.length, 2, "resyncs by re-sending #status, not by ws.request()");
+  assert.deepEqual(ws.sent[1]!.req, { status: null });
 });
 
 test("a createTable rejected as wrongPhase resyncs even without ws.request (fallback transport)", async () => {
@@ -877,13 +878,13 @@ test("a createTable rejected as wrongPhase resyncs even without ws.request (fall
   const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
   assert.ok(p1Btn, "expected a rendered 'create table as p1' button");
   click(els.screen, p1Btn!);
-  assert.deepEqual(ws.sent[0]!.req, { createTable: { seat: { p1: null }, visibility: { open: null }, variant: "" } });
+  assert.deepEqual(ws.sent[1]!.req, { createTable: { seat: { p1: null }, visibility: { open: null }, variant: "" } });
 
   ws.onmessage!({ data: { err: { wrongPhase: "you are already at another table" } } });
 
   assert.equal(els.error.textContent, "", "must not surface an error the user can't act on");
-  assert.equal(ws.sent.length, 2, "resyncs by re-sending #status");
-  assert.deepEqual(ws.sent[1]!.req, { status: null });
+  assert.equal(ws.sent.length, 3, "resyncs by re-sending #status");
+  assert.deepEqual(ws.sent[2]!.req, { status: null });
 });
 
 test("a wrongPhase rejection from a NON-join request still shows the error banner (regression guard)", async () => {
@@ -925,8 +926,8 @@ test("fallback transport (no ws.request): settles inFlight off the shared onmess
 
   const btn = makeButton({ reset: "" });
   click(els.screen, btn);
-  assert.equal(ws.sent.length, 1);
-  assert.deepEqual(ws.sent[0]!.req, { reset: { gen: 0n } });
+  assert.equal(ws.sent.length, 2);
+  assert.deepEqual(ws.sent[1]!.req, { reset: { gen: 0n } });
   assert.ok(doc.body.classList.contains("working"));
 
   ws.onmessage!({ data: { view: browsing() } });
@@ -985,7 +986,7 @@ test("a logged-in session's sid is used directly, and new-sid is permanently dis
   assert.equal(els["new-sid"].disabled, true);
   assert.equal(els["new-sid"].hidden, true, "a logged-in identity isn't a per-tab thing to switch away from");
   els["new-sid"].dispatch("click", {});
-  assert.equal(ws.sent.length, 0, "a disabled new-sid must never dispatch");
+  assert.equal(ws.sent.length, 1, "a disabled new-sid must never dispatch (only the initial #status)");
 });
 
 test("an anonymous session's sid is used, and new-sid calls session.regenerate()", async () => {
@@ -1017,7 +1018,7 @@ test("new-sid is hidden entirely when session.regenerate isn't provided (a game 
   assert.equal(els["new-sid"].disabled, true);
   assert.equal(els["new-sid"].hidden, true);
   els["new-sid"].dispatch("click", {});
-  assert.equal(ws.sent.length, 0, "a hidden/disabled new-sid must never dispatch");
+  assert.equal(ws.sent.length, 1, "a hidden/disabled new-sid must never dispatch (only the initial #status)");
 });
 
 test("a failed session.regenerate() re-enables new-sid and shows an error", async () => {
@@ -1043,7 +1044,7 @@ test("with a session that provides no login/logout, duel-auth-btn is left untouc
 
   assert.equal(els["duel-auth-btn"].textContent, "");
   els["duel-auth-btn"].dispatch("click", {});
-  assert.equal(ws.sent.length, 0, "an unwired button must do nothing");
+  assert.equal(ws.sent.length, 1, "an unwired button must do nothing (only the initial #status)");
 });
 
 test("duel-auth-btn: labeled and wired to session.login() while anonymous", async () => {

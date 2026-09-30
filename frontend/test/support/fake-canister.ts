@@ -36,6 +36,8 @@ export class FakeCanister implements WsActor {
   /// Calls this test has observed to ws_message, in order — lets a test
   /// assert on what was actually sent (e.g. `sid`).
   sentRequests: unknown[] = [];
+  /// Requests that arrived as `ws_open`'s initial message, in order.
+  openInitials: unknown[] = [];
 
   constructor() {
     const { Action, State } = sampleGameTypes({ IDL });
@@ -69,7 +71,10 @@ export class FakeCanister implements WsActor {
     return this.lastClientKey !== null;
   }
 
-  async ws_open(args: { client_nonce: bigint; gateway_principal: Principal }) {
+  async ws_open(
+    args: { client_nonce: bigint; gateway_principal: Principal },
+    initial: [Uint8Array] | [] = [],
+  ) {
     if (this.wsOpenBehavior === "err") return { Err: "denied" };
     const clientKey = { client_principal: args.gateway_principal, client_nonce: args.client_nonce };
     this.lastClientKey = clientKey;
@@ -80,7 +85,32 @@ export class FakeCanister implements WsActor {
         OpenMessage: { client_key: clientKey },
       }),
     );
+    // Same as the vendored CDK: the initial message reaches `onMessage`
+    // inside the handshake, after the OpenMessage was queued.
+    if (initial.length) this._handleApp(clientKey, initial[0], this.openInitials);
     return { Ok: null };
+  }
+
+  private _handleApp(clientKey: RawClientKey, content: Uint8Array, seen: unknown[]): void {
+    const decoded = IDL.decode([this.types.WsMsg], content)[0] as {
+      req?: { sid: string; req: unknown; reqId: [bigint] | [] };
+    };
+    if (!decoded.req) return;
+    seen.push(decoded.req.req);
+    const reply = this.respond(decoded.req.req);
+    if ("view" in reply) {
+      this._pushRaw(
+        clientKey,
+        false,
+        this._encode(this.types.WsMsg, { view: { reqId: decoded.req.reqId, view: reply.view } }),
+      );
+    } else {
+      this._pushRaw(
+        clientKey,
+        false,
+        this._encode(this.types.WsMsg, { err: { reqId: decoded.req.reqId, err: reply.err } }),
+      );
+    }
   }
 
   async ws_close() {
@@ -97,26 +127,7 @@ export class FakeCanister implements WsActor {
     // implementation) — this fake canister always constructs it with a
     // real `Principal`, same as the genuine `SelfGatewayTransport` does.
     const clientKey = (args.msg.client_key as RawClientKey | null) ?? this.lastClientKey;
-    const decoded = IDL.decode([this.types.WsMsg], args.msg.content)[0] as {
-      req?: { sid: string; req: unknown; reqId: [bigint] | [] };
-    };
-    if (decoded.req && clientKey) {
-      this.sentRequests.push(decoded.req.req);
-      const reply = this.respond(decoded.req.req);
-      if ("view" in reply) {
-        this._pushRaw(
-          clientKey,
-          false,
-          this._encode(this.types.WsMsg, { view: { reqId: decoded.req.reqId, view: reply.view } }),
-        );
-      } else {
-        this._pushRaw(
-          clientKey,
-          false,
-          this._encode(this.types.WsMsg, { err: { reqId: decoded.req.reqId, err: reply.err } }),
-        );
-      }
-    }
+    if (clientKey) this._handleApp(clientKey, args.msg.content, this.sentRequests);
     return { Ok: null };
   }
 

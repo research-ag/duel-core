@@ -183,6 +183,9 @@ export type WsPayload<S = unknown> = { view: Status<S> } | { err: EngineErr };
 
 /// The WebSocket-like surface `start()` requires. `request()` is optional;
 /// when present (`GatewayWs`), `start()` correlates each call's own reply.
+/// `send()` must accept a message before the connection is open (the
+/// client asks for its first status at construction); `onopen` fires on
+/// every confirmed (re)open, and a reopen makes the client ask again.
 export interface DuelWs<S = unknown, A = unknown> {
   onopen: (() => void) | null;
   onmessage: ((ev: { data: WsPayload<S> }) => void) | null;

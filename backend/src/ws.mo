@@ -28,6 +28,9 @@
 ///
 /// `ws_message`'s second Candid parameter is a plain `?Blob` — the CDK
 /// ignores its value; the real message arrives in `args.content`.
+/// `ws_open`'s second parameter is also a `?Blob`, but a real one: an
+/// encoded `Msg` handled by `onMessage` inside the same update call, so a
+/// client's first request (its `#status`) costs no round trip of its own.
 
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";

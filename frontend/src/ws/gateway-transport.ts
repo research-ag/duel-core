@@ -51,10 +51,10 @@ function decodeEnvelope(contentBytes: Uint8Array): DecodedEnvelope {
 
 /// The four `ws_*` methods `mo:duel-game-core/actor_mixin` supplies.
 export interface WsActor {
-  ws_open(args: {
-    client_nonce: bigint;
-    gateway_principal: Principal;
-  }): Promise<{ Ok: null } | { Err: string }>;
+  ws_open(
+    args: { client_nonce: bigint; gateway_principal: Principal },
+    initial: [Uint8Array] | [],
+  ): Promise<{ Ok: null } | { Err: string }>;
   ws_close(args: {
     client_key: TransportClientKey;
   }): Promise<{ Ok: null } | { Err: string }>;
@@ -101,8 +101,11 @@ export class SelfGatewayTransport {
     this._clientKey = null;
   }
 
-  async open(clientNonce: bigint): Promise<void> {
-    console.debug("[duel-ws] ws_open start nonce=%s", clientNonce);
+  /// `initial`, when given, is an already-encoded app message (the
+  /// `content` of a `WebsocketMessageRecord`, no envelope) the canister
+  /// handles inside the same `ws_open` call.
+  async open(clientNonce: bigint, initial: Uint8Array | null = null): Promise<void> {
+    console.debug("[duel-ws] ws_open start nonce=%s initial=%s", clientNonce, initial != null);
     // `_clientKey` is set only after `ws_open` SUCCEEDS: setting it
     // earlier lets a racing `_ensureOpen()` skip coalescing and send with
     // a sequence number this open's `resetSequence()` then reuses —
@@ -111,10 +114,10 @@ export class SelfGatewayTransport {
     // `_nonce` is deliberately NOT reset: the CDK's outgoing queue is keyed
     // by `gateway_principal` (this tab's stable identity) and persists
     // across a reconnect, so a reset replayed already-processed pushes.
-    const res = await this._actor.ws_open({
-      client_nonce: clientNonce,
-      gateway_principal: this._principal,
-    });
+    const res = await this._actor.ws_open(
+      { client_nonce: clientNonce, gateway_principal: this._principal },
+      initial == null ? [] : [initial],
+    );
     if ("Err" in res) {
       console.debug("[duel-ws] ws_open FAILED nonce=%s err=%s", clientNonce, res.Err);
       throw new Error(`ws_open: ${res.Err}`);

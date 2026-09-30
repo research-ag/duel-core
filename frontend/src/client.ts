@@ -480,11 +480,14 @@ export function createDuelClient<S = unknown, A = unknown>({
     }
   }
 
-  // Transport.
+  // Transport. The first status is requested right away — a `send()`
+  // before the connection is open is queued, and `GatewayWs` lets it ride
+  // along with its handshake — and again on every reopen after a gap.
 
   ws.onopen = () => {
+    const reopen = state.connection === "open";
     setState({ connection: "open" });
-    refresh();
+    if (reopen) refresh();
   };
   ws.onmessage = (ev) => {
     const msg = ev.data;
@@ -512,6 +515,7 @@ export function createDuelClient<S = unknown, A = unknown>({
   };
   ws.onerror = (ev) => showError(`WebSocket error: ${ev?.error?.message ?? ev}`);
   ws.onclose = () => closed();
+  refresh();
 
   return {
     sid,

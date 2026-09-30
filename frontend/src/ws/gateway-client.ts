@@ -6,7 +6,9 @@
 // Exposes `onopen`/`onmessage`/`onerror`/`onclose`/`send(msg)` plus
 // `request(sid, req)`, a Promise of this call's own `{view}`/`{err}`
 // correlated by `reqId` (this connection also carries unsolicited pushes
-// from the other seat acting).
+// from the other seat acting). A message sent while the connection is
+// not open waits in the outbox; its head rides along with `ws_open`
+// itself, so a caller's first request costs no update call of its own.
 
 import type { Principal } from "@icp-sdk/core/principal";
 import { SelfGatewayTransport, type WsActor } from "./gateway-transport.js";
@@ -40,9 +42,10 @@ export class GatewayWs extends EventTarget implements DuelWs {
   // `#view`/`#err` here is routinely a broadcast rather than a reply.
   private _pending: Map<bigint, PendingRequest>;
   private _nextReqId: bigint; // matches the wire's Nat64
-  // Messages that never got a confirmed transmission, resent on the next
-  // confirmed open — see _queueResend().
-  private _resendQueue: Array<{ sid: string; req: WsRequest; reqId: bigint | null }>;
+  // Messages waiting for a confirmed open: sent before the connection
+  // was open, or whose send failed. The head goes out with `ws_open`
+  // (_ensureOpen), the rest once the open is confirmed (_flushOutbox).
+  private _outbox: Array<{ sid: string; req: WsRequest; reqId: bigint | null }>;
   private _erroredSinceSuccess: boolean;
   private _consecutiveFailures: number;
   private _opening: Promise<void> | null; // in-flight _ensureOpen()
@@ -84,7 +87,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
     this._wantsAnotherTick = false;
     this._pending = new Map();
     this._nextReqId = 1n;
-    this._resendQueue = [];
+    this._outbox = [];
     this._erroredSinceSuccess = false;
     this._consecutiveFailures = 0;
     this._opening = null;
@@ -137,16 +140,30 @@ export class GatewayWs extends EventTarget implements DuelWs {
     }
   }
 
-  /// Coalesces concurrent callers onto one in-flight `ws_open`. A
-  /// `send()`/`request()` before the first tick would otherwise build a
-  /// message with a null `client_key`.
+  /// Coalesces concurrent callers onto one in-flight `ws_open`, which
+  /// carries the outbox head as its initial message. The head leaves the
+  /// outbox only once the open succeeded; a failed open retries it.
   private _ensureOpen(): Promise<void> {
     if (this._transport.isOpen) return Promise.resolve();
     if (!this._opening) {
       const clientNonce = BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
+      const head = this._outbox.length ? this._outbox[0] : null;
+      let initial: Uint8Array | null = null;
+      if (head) {
+        const enc = this._tryEncode(head.sid, head.req, head.reqId);
+        if ("error" in enc) {
+          console.debug("[duel-ws] queued message could not be encoded, dropping it:", enc.error.message);
+          this._outbox.shift();
+        } else {
+          initial = enc.content;
+        }
+      }
       this._opening = this._transport
-        .open(clientNonce)
-        .then(() => this._protocol.resetSequence())
+        .open(clientNonce, initial)
+        .then(() => {
+          this._protocol.resetSequence();
+          if (initial && this._outbox[0] === head) this._outbox.shift();
+        })
         .finally(() => {
           this._opening = null;
         });
@@ -172,15 +189,25 @@ export class GatewayWs extends EventTarget implements DuelWs {
     this._pollSoon();
   }
 
-  /// A message whose send failed never reached `ws.mo`, so no reply is
-  /// coming; resend it after the next confirmed open. Safe: every
-  /// mutation is gated by the engine's own legality/idempotency checks.
-  private _queueResend(sid: string, req: WsRequest, reqId: bigint | null): void {
-    this._resendQueue.push({ sid, req, reqId });
+  /// A message sent before the connection is open, or whose send failed
+  /// (it never reached `ws.mo`, so no reply is coming), waits for the
+  /// next confirmed open. Safe: every mutation is gated by the engine's
+  /// own legality/idempotency checks.
+  private _enqueue(sid: string, req: WsRequest, reqId: bigint | null): void {
+    this._outbox.push({ sid, req, reqId });
   }
 
-  /// `buildAppMessage` throws on a request its IDL doesn't recognize (a
-  /// tampered `data-act`); never let that become an unhandled rejection.
+  /// `encodeAppMessage`/`buildAppMessage` throw on a request their IDL
+  /// doesn't recognize (a tampered `data-act`); never let that become an
+  /// unhandled rejection.
+  private _tryEncode(sid: string, req: WsRequest, reqId: bigint | null): { content: Uint8Array } | { error: Error } {
+    try {
+      return { content: this._protocol.encodeAppMessage(sid, req, reqId) };
+    } catch (e) {
+      return { error: e as Error };
+    }
+  }
+
   private _tryBuildMessage(sid: string, req: WsRequest, reqId: bigint | null): { record: ReturnType<GatewayProtocol["buildAppMessage"]> } | { error: Error } {
     try {
       return { record: this._protocol.buildAppMessage(this._transport.clientKey, sid, req, reqId) };
@@ -189,21 +216,21 @@ export class GatewayWs extends EventTarget implements DuelWs {
     }
   }
 
-  private _flushResendQueue(): void {
-    if (this._closed || !this._resendQueue.length) return;
-    const queued = this._resendQueue;
-    this._resendQueue = [];
+  private _flushOutbox(): void {
+    if (this._closed || !this._outbox.length) return;
+    const queued = this._outbox;
+    this._outbox = [];
     for (const { sid, req, reqId } of queued) {
       const built = this._tryBuildMessage(sid, req, reqId);
       if ("error" in built) {
-        console.debug("[duel-ws] resend could not be re-encoded, dropping it:", built.error.message);
+        console.debug("[duel-ws] queued message could not be encoded, dropping it:", built.error.message);
         continue;
       }
       this._serialSend(built.record).then(
         () => this._pollSoon(),
         (e) => {
-          console.debug("[duel-ws] resend after reconnect failed, will retry on the next one:", e && e.message ? e.message : e);
-          this._queueResend(sid, req, reqId);
+          console.debug("[duel-ws] send after reconnect failed, will retry on the next one:", e && e.message ? e.message : e);
+          this._enqueue(sid, req, reqId);
           this._invalidateAndRetry();
         },
       );
@@ -254,7 +281,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
         this._opened = true;
         if (this.onopen) this.onopen();
         this.dispatchEvent(new Event("open"));
-        this._flushResendQueue();
+        this._flushOutbox();
         break;
       }
       case "ack": {
@@ -300,32 +327,33 @@ export class GatewayWs extends EventTarget implements DuelWs {
   }
 
   /// Fire-and-forget: the result only ever surfaces as a `message`/`error`
-  /// event. Safe before the connection is open.
+  /// event. Safe before the connection is open (queued, see _ensureOpen).
   send(msg: { req?: { sid: string; req: WsRequest } }): void {
     if (this._closed) return;
     const envelope = msg?.req;
     if (!envelope) return;
     const { sid, req } = envelope;
     this._sid = sid;
-    this._ensureOpen().then(
-      () => {
-        const built = this._tryBuildMessage(sid, req, null);
-        if ("error" in built) {
-          this._reportError(built.error);
-          return;
-        }
-        this._serialSend(built.record).then(
-          () => this._pollSoon(),
-          (e) => {
-            this._reportError(e);
-            this._queueResend(sid, req, null);
-            this._invalidateAndRetry();
-          },
-        );
-      },
+    if (!this._transport.isOpen) {
+      const enc = this._tryEncode(sid, req, null);
+      if ("error" in enc) {
+        this._reportError(enc.error);
+        return;
+      }
+      this._enqueue(sid, req, null);
+      this._pollSoon();
+      return;
+    }
+    const built = this._tryBuildMessage(sid, req, null);
+    if ("error" in built) {
+      this._reportError(built.error);
+      return;
+    }
+    this._serialSend(built.record).then(
+      () => this._pollSoon(),
       (e) => {
         this._reportError(e);
-        this._queueResend(sid, req, null);
+        this._enqueue(sid, req, null);
         this._invalidateAndRetry();
       },
     );
@@ -349,28 +377,31 @@ export class GatewayWs extends EventTarget implements DuelWs {
       }, this._requestTimeoutMs);
       this._pending.set(reqId, { resolve, reject, timer });
 
-      this._ensureOpen().then(
-        () => {
-          const built = this._tryBuildMessage(sid, req, reqId);
-          if ("error" in built) {
-            clearTimeout(timer);
-            this._pending.delete(reqId);
-            reject(built.error);
-            return;
-          }
-          this._serialSend(built.record).then(
-            () => this._pollSoon(),
-            (e) => {
-              // Keep the pending entry; queue a real resend.
-              console.debug("[duel-ws] request seq send failed, will resend once reconnected:", e && e.message ? e.message : e);
-              this._queueResend(sid, req, reqId);
-              this._invalidateAndRetry();
-            },
-          );
-        },
+      if (!this._transport.isOpen) {
+        const enc = this._tryEncode(sid, req, reqId);
+        if ("error" in enc) {
+          clearTimeout(timer);
+          this._pending.delete(reqId);
+          reject(enc.error);
+          return;
+        }
+        this._enqueue(sid, req, reqId);
+        this._pollSoon();
+        return;
+      }
+      const built = this._tryBuildMessage(sid, req, reqId);
+      if ("error" in built) {
+        clearTimeout(timer);
+        this._pending.delete(reqId);
+        reject(built.error);
+        return;
+      }
+      this._serialSend(built.record).then(
+        () => this._pollSoon(),
         (e) => {
-          console.debug("[duel-ws] request could not (re)open the connection, will resend once reconnected:", e && e.message ? e.message : e);
-          this._queueResend(sid, req, reqId);
+          // Keep the pending entry; queue a real resend.
+          console.debug("[duel-ws] request send failed, will resend once reconnected:", e && e.message ? e.message : e);
+          this._enqueue(sid, req, reqId);
           this._invalidateAndRetry();
         },
       );
@@ -399,7 +430,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
       p.reject(new Error("GatewayWs: closed"));
     }
     this._pending.clear();
-    this._resendQueue = [];
+    this._outbox = [];
     if (this.onclose) this.onclose();
     this.dispatchEvent(new Event("close"));
   }

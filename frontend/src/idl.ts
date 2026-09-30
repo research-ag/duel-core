@@ -251,7 +251,10 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
       register_bot: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [], []),
       unregister_bot: IDL.Func([], [], []),
       list_bots: IDL.Func([], [IDL.Vec(t.BotInfo)], ["query"]),
-      ws_open: IDL.Func([t.CanisterWsOpenArguments], [t.WsResult], []),
+      // The second parameter is an optional encoded `WsMsg` the canister
+      // handles inside the handshake — the client's first request rides
+      // along with `ws_open`.
+      ws_open: IDL.Func([t.CanisterWsOpenArguments, IDL.Opt(IDL.Vec(IDL.Nat8))], [t.WsResult], []),
       ws_close: IDL.Func([t.CanisterWsCloseArguments], [t.WsResult], []),
       // The second parameter is a plain `opt blob` the canister ignores;
       // `content` inside `msg` carries the real message.

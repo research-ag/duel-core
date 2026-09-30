@@ -149,9 +149,9 @@ do {
   // reconnect's own first #req has arrived.
   let seenGen = Ws.generationOf(hub, "sid-1");
   Ws.forget(hub, PA); // the stale ws_close itself — same principal throughout
-  // ...then the reconnect's ws_open (Hub learns nothing from ws_open
-  // itself — there is no onOpen handler wired) followed by its first
-  // #req, which is what actually re-registers it:
+  // ...then the reconnect's first #req (piggybacked on its ws_open, or
+  // sent right after — there is no onOpen handler wired, so the #req is
+  // what actually re-registers it):
   Ws.remember(hub, "sid-1", PA);
   // By the time onClose's deferred check (finishClose) finally runs, the
   // generation has moved — the disconnect must be skipped; the game a

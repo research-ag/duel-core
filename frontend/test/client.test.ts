@@ -111,12 +111,16 @@ test("createDuelClient(): throws without ws or session; starts connecting with n
   assert.equal(client.sid, "an:abc");
 });
 
-test("onopen marks the connection open and sends a #status ping under the sid", () => {
+test("the first #status goes out at construction; onopen marks the connection open and only a reopen asks again", () => {
   const ws = new FakeWs();
   const client = createDuelClient({ ws, session });
+  assert.deepEqual(ws.sent, [{ sid: "an:abc", req: { status: null } }]);
   ws.onopen!();
   assert.equal(client.getState().connection, "open");
-  assert.deepEqual(ws.sent, [{ sid: "an:abc", req: { status: null } }]);
+  assert.equal(ws.sent.length, 1, "the first open must not ask a second time");
+  ws.onopen!();
+  assert.equal(ws.sent.length, 2, "a reopen after a gap resyncs");
+  assert.deepEqual(ws.sent[1], { sid: "an:abc", req: { status: null } });
 });
 
 test("a pushed status lands in state with a timestamp; an identical push changes nothing", () => {
@@ -245,7 +249,7 @@ test("a #stale on submit/leave/reset/claimWin resyncs the same way; a wrongPhase
   const p = client.submit({ pass: null });
   ws.requests[0]!.resolve({ err: { stale: null } });
   assert.deepEqual(await p, { ok: false, reason: "stale" });
-  assert.equal(ws.sent.length, 1, "one refresh");
+  assert.equal(ws.sent.length, 2, "the initial #status plus one refresh");
 
   const q = client.rematch();
   ws.requests[1]!.resolve({ err: { wrongPhase: "not in a debrief" } });
@@ -274,7 +278,7 @@ test("fallback transport (no request()): a call goes out via send and settles of
   const ws = new FakeWs(false);
   const client = createDuelClient({ ws, session });
   const p = client.rematch();
-  assert.deepEqual(ws.sent, [{ sid: "an:abc", req: { rematch: null } }]);
+  assert.deepEqual(ws.sent.at(-1), { sid: "an:abc", req: { rematch: null } });
   assert.equal(client.getState().pending!.key, "rematch");
   ws.onmessage!({ data: { view: staging(2n) } });
   assert.deepEqual(await p, { ok: true, view: staging(2n) });

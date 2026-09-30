@@ -14,9 +14,10 @@ mixin <system>(
 ) {
 
   public shared ({ caller }) func ws_open(
-    args : IcWebSocketCdkTypes.CanisterWsOpenArguments
+    args : IcWebSocketCdkTypes.CanisterWsOpenArguments,
+    msg : ?Blob,
   ) : async IcWebSocketCdkTypes.CanisterWsOpenResult {
-    await* ws.ws_open(caller, args);
+    await* ws.ws_open(caller, args, msg);
   };
 
   public shared ({ caller }) func ws_close(

@@ -68,18 +68,23 @@ export class GatewayProtocol {
     return IDL.decode([type], bytes)[0] as T;
   }
 
-  /// `reqId` (or `null` for fire-and-forget) is echoed back on this
-  /// request's own reply.
+  /// The bare encoded request — what `ws_open` carries as its initial
+  /// message, and what `buildAppMessage` wraps in an envelope. `reqId`
+  /// (or `null` for fire-and-forget) is echoed back on this request's
+  /// own reply.
+  encodeAppMessage(sid: string, req: WsRequest, reqId: bigint | null): Uint8Array {
+    return this._encode(this._types.WsMsg, {
+      req: { sid, req, reqId: reqId == null ? [] : [reqId] },
+    });
+  }
+
   buildAppMessage(
     clientKey: ClientKey | null,
     sid: string,
     req: WsRequest,
     reqId: bigint | null,
   ): WebsocketMessageRecord {
-    const content = this._encode(this._types.WsMsg, {
-      req: { sid, req, reqId: reqId == null ? [] : [reqId] },
-    });
-    return this._envelope(clientKey, content, false);
+    return this._envelope(clientKey, this.encodeAppMessage(sid, req, reqId), false);
   }
 
   buildKeepAliveReply(

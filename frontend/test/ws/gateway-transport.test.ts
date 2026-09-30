@@ -31,6 +31,24 @@ test("isOpen/clientKey: false/null before open(), true/set after", async () => {
   assert.deepEqual(t.clientKey, { client_principal: principal, client_nonce: 123n });
 });
 
+test("open() passes an initial message as ws_open's second argument, or [] without one", async () => {
+  const seen: Array<[Uint8Array] | []> = [];
+  const t = new SelfGatewayTransport({
+    actor: makeFakeActor({
+      ws_open: async (_args, initial) => {
+        seen.push(initial);
+        return { Ok: null };
+      },
+    }),
+    principal,
+  });
+  await t.open(1n);
+  t.invalidate();
+  const initial = new Uint8Array([4, 5, 6]);
+  await t.open(2n, initial);
+  assert.deepEqual(seen, [[], [initial]]);
+});
+
 test("open() throws and stays closed when ws_open returns Err", async () => {
   const t = new SelfGatewayTransport({
     actor: makeFakeActor({ ws_open: async () => ({ Err: "nope" }) }),
