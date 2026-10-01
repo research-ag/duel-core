@@ -62,9 +62,9 @@ module {
     lastRound = null;
   };
 
-  func shieldBroken(a : AgentStats) : Bool = a.shieldHits >= SHIELD_CAPACITY;
+  public func shieldBroken(a : AgentStats) : Bool = a.shieldHits >= SHIELD_CAPACITY;
 
-  func hasLaser(a : AgentStats) : Bool = a.charge >= LASER_CHARGE;
+  public func hasLaser(a : AgentStats) : Bool = a.charge >= LASER_CHARGE;
 
   public func validate(s : State, seat : TP.Seat, a : Action) : ?Text {
     let me = switch (seat) { case (#p1) s.p1; case (#p2) s.p2 };

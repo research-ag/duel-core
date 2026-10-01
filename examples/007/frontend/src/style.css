@@ -578,7 +578,8 @@ dialog input {
 
 /* ── leaderboard overlay (rows from duel-game-core/render.js) ────────── */
 
-#leaderboard-panel {
+#leaderboard-panel,
+#bots-panel {
   position: fixed;
   inset: 0;
   z-index: 40;
@@ -587,7 +588,8 @@ dialog input {
   padding: 2rem;
 }
 
-#leaderboard-panel[hidden] {
+#leaderboard-panel[hidden],
+#bots-panel[hidden] {
   display: none;
 }
 
@@ -810,4 +812,52 @@ dialog input {
   font-size: 0.74rem;
   color: var(--faint);
   line-height: 1.35;
+}
+
+/* The "Engage" button on bot rows (leaderboard and bot list): a stamp. */
+
+.leaderboard-challenge {
+  font-family: var(--tw);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--red);
+  background: transparent;
+  border: 2px solid var(--red);
+  border-radius: 3px;
+  padding: 0.2rem 0.7rem;
+  cursor: pointer;
+  transform: rotate(-1.5deg);
+  transition:
+    background 0.1s,
+    transform 0.1s;
+}
+
+.leaderboard-challenge:hover:not(:disabled) {
+  background: rgba(179, 38, 30, 0.08);
+  transform: rotate(0deg);
+}
+
+/* ── bot challenge: seat picker (render.js's renderSeatChoice) ────────── */
+
+#challenge-seat .seats {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+#challenge-seat button.seat {
+  flex: 1;
+  padding: 0.6rem 0.8rem;
+  font-family: var(--tw);
+  font-weight: bold;
+  color: var(--ink);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  cursor: pointer;
+}
+
+#challenge-seat button.seat:hover {
+  background: var(--sheet);
 }

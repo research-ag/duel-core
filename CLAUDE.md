@@ -111,7 +111,7 @@ opponent-move replay and a client-side move history);
 Every example but `racing` (whose 3D scene is its own) keeps the
 opponent's last move visible, debrief included, and implements
 `applyLocal`.
-All but `007` ship a `bot/` canister player; `tic-tac-toe` (`["Easy", "Hard"]`) and
+All ship a `bot/` canister player; `007` (`["Easy", "Medium"]`), `tic-tac-toe` (`["Easy", "Hard"]`) and
 `chopsticks` (`["Bunny", "Fox", "Bear"]`) are the multi-complexity
 references. A real game lives in its own repo with the same layout —
 start from `skills/duel-game-core/SKILL.md`.

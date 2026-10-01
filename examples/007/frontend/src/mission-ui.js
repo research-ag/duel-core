@@ -91,7 +91,7 @@ function busy(id, v) {
     </div>`;
 }
 
-function safeHouse(id, v, plugin) {
+function safeHouse(id, v, plugin, inviting) {
   const seat = tag(v.seat);
   const code = "code" in v.visibility ? v.visibility.code : null;
   const brief = v.reservedForPartner
@@ -106,7 +106,11 @@ function safeHouse(id, v, plugin) {
       <p>You are <strong>${esc(plugin.seatLabel(seat))}</strong>. ${brief}</p>
       ${code !== null ? `<p><span class="lbl">Code</span> <code class="code">${esc(code)}</code></p>` : ""}
       <p class="clock warn" data-clock="reclaim" data-base="${v.secondsUntilReclaimable}" ${v.secondsUntilReclaimable > RECLAIM_WARNING_SECS ? "hidden" : ""}></p>
-      <button class="plain" data-op="leave" data-key="leave">Withdraw</button>
+      ${inviting !== null ? `<p class="clock">Calling in ${esc(inviting)}…</p>` : ""}
+      <p class="row">
+        ${inviting === null ? `<button class="stamp" data-op="add-bot">🤖 Add a bot</button>` : ""}
+        <button class="plain" data-op="leave" data-key="leave">Withdraw</button>
+      </p>
     </div>`;
 }
 
@@ -189,7 +193,7 @@ function endedByOther() {
     </div>`;
 }
 
-export function renderScreen(status, plugin) {
+export function renderScreen(status, plugin, inviting = null) {
   if (status === null) return `<p class="faint">Establishing a secure channel…</p>`;
   if ("browsing" in status) return missionBoard(status.browsing, plugin);
   const { id, view } = status.atTable;
@@ -201,7 +205,7 @@ export function renderScreen(status, plugin) {
     case "busy":
       return busy(id, v);
     case "stagingYou":
-      return safeHouse(id, v, plugin);
+      return safeHouse(id, v, plugin, inviting);
     case "awaitingRematch":
       return rematchOffer(v, plugin);
     case "inGame":
@@ -258,7 +262,9 @@ function syncClocks(root, state) {
 
 // ── Mounting ─────────────────────────────────────────────────────────────
 
-export function mountMissionUi({ client, plugin, els }) {
+// `onAddBot` runs when the staging screen's "Add a bot" is pressed; the
+// returned `setInviting(label | null)` shows who is being called in.
+export function mountMissionUi({ client, plugin, els, onAddBot }) {
   const { screen, alert, sid, newSid, auth, channel, log, confirmDialog, codeDialog } = els;
   const session = client.session;
 
@@ -344,6 +350,8 @@ export function mountMissionUi({ client, plugin, els }) {
         return void client.claimWin();
       case "ack":
         return void client.ackEnded();
+      case "add-bot":
+        return void onAddBot();
     }
   });
 
@@ -426,11 +434,12 @@ export function mountMissionUi({ client, plugin, els }) {
 
   // The new-operation form is live input; keep it across an unrelated
   // redraw (another agent's file appearing on the index).
+  let inviting = null;
   function redraw(state) {
     const seat = screen.querySelector('input[name="op-seat"]:checked')?.value;
     const coded = screen.querySelector('input[name="op-visibility"][value="code"]')?.checked ?? false;
     const code = screen.querySelector("#op-code")?.value ?? "";
-    screen.innerHTML = renderScreen(shownStatus(state), plugin);
+    screen.innerHTML = renderScreen(shownStatus(state), plugin, inviting);
     const seatRadio = seat && screen.querySelector(`input[name="op-seat"][value="${seat}"]`);
     if (seatRadio) seatRadio.checked = true;
     const codeRadio = screen.querySelector('input[name="op-visibility"][value="code"]');
@@ -455,4 +464,12 @@ export function mountMissionUi({ client, plugin, els }) {
     if (state.error !== prev.error || state.connection !== prev.connection) syncAlert(state);
   });
   setInterval(() => syncClocks(screen, client.getState()), 1000);
+
+  return {
+    setInviting(label) {
+      inviting = label;
+      redraw(client.getState());
+      syncButtons(client.getState());
+    },
+  };
 }

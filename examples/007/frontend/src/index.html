@@ -33,7 +33,10 @@
       </section>
 
       <section class="block">
-        <button id="leaderboard-toggle" class="plain small">🏆 Top agents</button>
+        <p class="row-left">
+          <button id="leaderboard-toggle" class="plain small">🏆 Top agents</button>
+          <button id="bots-toggle" class="plain small">🤖 Bot agents</button>
+        </p>
       </section>
 
       <p class="faint fine">
@@ -56,6 +59,21 @@
       </div>
       <div id="leaderboard-body" class="leaderboard-list"><p class="faint">Loading…</p></div>
     </div>
+
+    <div id="bots-panel" hidden>
+      <div class="leaderboard-header">
+        <button id="bots-back" class="plain">← Back</button>
+        <h2 class="tw">Bot agents</h2>
+      </div>
+      <div id="bots-body" class="leaderboard-list"><p class="faint">Loading…</p></div>
+    </div>
+
+    <dialog id="challenge-seat">
+      <div id="challenge-seat-body"></div>
+      <div class="row">
+        <button id="challenge-cancel" class="plain">Cancel</button>
+      </div>
+    </dialog>
 
     <dialog id="confirm-forfeit">
       <form method="dialog">

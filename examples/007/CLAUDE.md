@@ -11,13 +11,28 @@ A deployable `#simultaneous` example on `../../backend` and
   `/metrics` route via `mo:promtracker/mixins/http`), and an ELO
   leaderboard (`Leaderboard.new(50, 1200)`, re-rated in `onGameEnded`
   with `Elo.update` at k=32 for every ending, read via `include
-LeaderboardActorMixin(leaderboard, 25)`). Follows
-  `../../backend/README.md`'s worked examples exactly. No bot.
+LeaderboardActorMixin(leaderboard, 25)`). Plus canister
+  players and bot discovery, wired as in `../rock-paper-scissors/src/Host.mo`.
+- **`src/BotIface.mo`** — `make_move`.
+- **`bot/BotLogic.mo`** — `COMPLEXITIES = ["Easy", "Medium"]`.
+  `chooseMove(req, entropy)` (`entropy` = `Time.now()` from `Bot.mo`,
+  hashed with the seat) picks from `legalActions` (every `Action`
+  `validate` accepts) and returns only a move `validate` accepts, LOAD
+  as the fallback. Easy: uniform over the legal moves. Medium: a weighted
+  random pick over both agents' public stats — LOAD while the opponent
+  cannot shoot, shoot when it cannot fail (own laser, or the opponent
+  has no usable shield or mirror), shoot for the draw against a laser,
+  mirror/shield against an armed opponent. Unknown complexity = Easy.
+- **`bot/Bot.mo`** — `make_move` (`query`), `play(...)`, `register`/
+  `unregister` (sends `COMPLEXITIES`).
 - **`test/*.test.mo`** — `Lifecycle`/`Rules` are scenario walks;
   `Engine`/`RulesUnit` are per-operation unit suites. `Engine`/`Lifecycle`
   drive the real engine from `../../backend` with these rules plugged in.
-- **`icp.yaml`** — deploys `src/Host.mo` as `backend` and `frontend/dist`
-  as an asset canister.
+  `Bot` proves legality for every stat combination, Medium's tactics,
+  Medium beating Easy over full games, and two canister bots playing real
+  matches.
+- **`icp.yaml`** — deploys `src/Host.mo` as `backend`, `bot/Bot.mo` as
+  `bot`, and `frontend/dist` as an asset canister.
 - **`frontend/`** — vanilla JS bundled with esbuild, and the framework's
   CUSTOM-UI reference: nothing from `duel-game-core/app.js` runs here,
   and the look is its own (light paper, typewriter headings, red stamp
@@ -36,8 +51,18 @@ LeaderboardActorMixin(leaderboard, 25)`). Follows
   transport, creates the client, mounts the UI, and wires the 🏆 toggle
   that opens the full-page `#leaderboard-panel` and renders
   `actor.get_leaderboard()` via `renderLeaderboard(entries, plugin, {
-yourSid })`. `style.css` is self-contained; `duel-game-core.css` is
-  not loaded.
+yourSid })`. Bots are `app.js`'s too: the 🤖 toggle opens
+  `#bots-panel` (`renderBotList` over `actor.list_bots()`), and a
+  "Engage" button (there or on a leaderboard bot row; `render.js`'s "Challenge" relabelled in `app.js`, styled as a stamp) either fills the
+  open seat of the file the player is standing by on, or, from the index,
+  asks for a seat in `#challenge-seat` (`renderSeatChoice`), stages an
+  open file, and calls the bot's own `play`. The staging screen's "Add a
+  bot" (`data-op="add-bot"`, handled through `mountMissionUi`'s
+  `onAddBot`; the returned `setInviting` shows "Calling in …") skips the
+  seat step. After a rematch the staged file is reserved for the bot, so
+  `app.js` re-issues the same `play` from the id/complexity kept in
+  `sessionStorage`. `style.css` is self-contained; `duel-game-core.css`
+  is not loaded.
 
 ## Toolchain
 
@@ -55,7 +80,8 @@ cd examples/007
 mops install
 moc --check $(mops sources) src/Duel007Rules.mo
 moc --check $(mops sources) src/Host.mo
-mops test                  # all four; `mops test Rules` matches Rules and RulesUnit
+moc --check $(mops sources) bot/Bot.mo
+mops test                  # all five; `mops test Rules` matches Rules and RulesUnit
 
 (cd ../../frontend && npm run build)
 cd frontend && npm install --legacy-peer-deps && npm run build && node --check dist/app.js && cd ..
@@ -78,7 +104,9 @@ Everything in `../../CLAUDE.md` applies. Additionally:
    error lifetime, identity lock). If a screen needs something the state
    lacks, add it to `client.js`.
 3. **`mission-ui.js` imports only `client.js` and `esc`.** The point of
-   this example is that the rest is the game's own.
+   this example is that the rest is the game's own. Bot discovery and
+   the challenge flow stay in `app.js`; `mission-ui.js` only exposes the
+   `onAddBot` hook and `setInviting`.
 
 ## Game-rule notes (src/Duel007Rules.mo)
 
@@ -96,5 +124,5 @@ Everything in `../../CLAUDE.md` applies. Additionally:
 ## Conventions
 
 Plain interpreter tests (`ok`/`expectErr` + `Runtime.trap`); `msg`, not
-`label`; update all four suites when `Duel007Rules.mo`'s semantics
+`label`; update all five suites when `Duel007Rules.mo`'s semantics
 change. Motoko playbooks live in `../../.agents/skills/`.

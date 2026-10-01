@@ -4,12 +4,13 @@
 // Bundled by esbuild (../build.js).
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
-import { makeIdlFactory } from "duel-game-core/idl.js";
-import { createDuelClient } from "duel-game-core/client.js";
+import { Principal } from "@icp-sdk/core/principal";
+import { buildBotPlayIdlFactory, makeIdlFactory } from "duel-game-core/idl.js";
+import { atTableOf, createDuelClient, errText, tag, viewOf } from "duel-game-core/client.js";
 import { connectWs } from "duel-game-core/ws.js";
 import { resolveIdentity } from "duel-game-core/identity.js";
 import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
-import { renderLeaderboard } from "duel-game-core/render.js";
+import { botDisplayName, renderBotList, renderLeaderboard, renderSeatChoice } from "duel-game-core/render.js";
 import { plugin } from "./duel007-plugin.js";
 import { mountMissionUi } from "./mission-ui.js";
 
@@ -42,7 +43,53 @@ const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin
 const client = createDuelClient({ ws, session });
 
 const $ = (id) => document.getElementById(id);
-mountMissionUi({
+
+// ── Bots ─────────────────────────────────────────────────────────────────
+// A bot is seated by calling its own canister's `play`, never through the
+// push channel. See ../../../frontend/README.md, "Bot registry".
+
+// `render.js` words the bot-row button "Challenge"; this game says "Engage".
+const engage = (html) => html.replaceAll(">Challenge</button>", ">Engage</button>");
+
+const hostPrincipal = Principal.fromText(canisterId);
+const LAST_BOT_KEY = "duel007-last-bot";
+
+function stagingOf(status) {
+  const at = atTableOf(status);
+  const v = viewOf(status, "stagingYou");
+  if (!at || !v) return null;
+  return {
+    tableId: at.id,
+    openSeat: tag(v.seat) === "p1" ? { p2: null } : { p1: null },
+    code: "code" in v.visibility ? [v.visibility.code] : [],
+  };
+}
+
+function storageGet(key) {
+  try {
+    return JSON.parse(sessionStorage.getItem(key));
+  } catch (_) {
+    return null;
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify(value));
+  } catch (_) {}
+}
+
+// The last bot seated, kept so a rematch (which reserves the seat for the
+// bot's per-table session) can re-issue the identical `play`.
+let lastBot = storageGet(LAST_BOT_KEY);
+if (lastBot) lastBot = { ...lastBot, tableId: BigInt(lastBot.tableId) };
+function setLastBot(bot) {
+  lastBot = bot;
+  storageSet(LAST_BOT_KEY, bot ? { ...bot, tableId: bot.tableId.toString() } : null);
+}
+
+const ui = mountMissionUi({
   client,
   plugin,
   els: {
@@ -56,17 +103,123 @@ mountMissionUi({
     confirmDialog: $("confirm-forfeit"),
     codeDialog: $("enter-code"),
   },
+  onAddBot: () => void openBots(),
+});
+
+function setInviting(bot) {
+  ui.setInviting(bot === null ? null : botDisplayName(bot.name, bot.complexity));
+}
+
+async function inviteBot(bot, staging) {
+  setInviting(bot);
+  try {
+    const botActor = Actor.createActor(buildBotPlayIdlFactory, { agent, canisterId: bot.principalText });
+    const res = await botActor.play(hostPrincipal, staging.tableId, staging.openSeat, staging.code, bot.complexity);
+    if ("err" in res) throw new Error(errText(res.err));
+    setLastBot({ ...bot, tableId: staging.tableId });
+    // The bot's join pushes a fresh status on its own; the invite stays up
+    // until it lands, unless it already did.
+    if (stagingOf(client.getState().status) === null) setInviting(null);
+  } catch (e) {
+    client.showError(e && e.message ? e.message : String(e));
+    setInviting(null);
+  }
+}
+
+async function startBotGame(bot, seat) {
+  setInviting(bot);
+  const res = await client.createTable(seat, { open: null }, "");
+  const staging = res.ok ? stagingOf(res.view) : null;
+  if (staging === null) {
+    if (res.ok) client.showError("Could not stage a file.");
+    setInviting(null);
+    return;
+  }
+  await inviteBot(bot, staging);
+}
+
+function onState(state) {
+  if (state.status === null) return;
+  const at = atTableOf(state.status);
+  if (lastBot && !(at && at.id === lastBot.tableId)) setLastBot(null);
+  if (stagingOf(state.status) === null) setInviting(null);
+}
+
+// A rematch stages the same file with the seat held for the bot.
+let reinvited = null;
+function maybeReinvite(state) {
+  const at = atTableOf(state.status);
+  const v = viewOf(state.status, "stagingYou");
+  if (!lastBot || !at || !v || !v.reservedForPartner) return;
+  const key = `${at.id}:${v.gen}`;
+  if (reinvited === key) return;
+  reinvited = key;
+  void inviteBot(lastBot, stagingOf(state.status));
+}
+
+client.subscribe((state) => {
+  onState(state);
+  maybeReinvite(state);
+});
+
+const botsPanel = $("bots-panel");
+const botsBody = $("bots-body");
+const seatDialog = $("challenge-seat");
+let challenged = null;
+
+async function openBots() {
+  botsPanel.hidden = false;
+  botsBody.innerHTML = `<p class="faint">Loading…</p>`;
+  try {
+    botsBody.innerHTML = engage(renderBotList(await actor.list_bots(), plugin));
+  } catch (err) {
+    botsBody.innerHTML = `<p class="alert">Could not load the bot agents.</p>`;
+    console.error(err);
+  }
+}
+
+function onChallengeClick(ev) {
+  const b = ev.target.closest("[data-challenge-bot]");
+  if (!b) return;
+  const bot = {
+    principalText: b.dataset.challengeBot,
+    name: b.dataset.botName || b.dataset.challengeBot,
+    complexity: b.dataset.botComplexity || "",
+  };
+  botsPanel.hidden = true;
+  leaderboardPanel.hidden = true;
+  const status = client.getState().status;
+  const staging = stagingOf(status);
+  if (staging !== null) return void inviteBot(bot, staging);
+  if (status === null || !("browsing" in status)) return client.showError("Leave your current file before challenging a bot.");
+  challenged = bot;
+  $("challenge-seat-body").innerHTML = renderSeatChoice(plugin);
+  seatDialog.showModal();
+}
+
+seatDialog.addEventListener("click", (ev) => {
+  if (ev.target.closest("#challenge-cancel")) return seatDialog.close();
+  const seat = ev.target.closest("[data-challenge-seat]");
+  if (!seat) return;
+  seatDialog.close();
+  void startBotGame(challenged, seat.dataset.challengeSeat);
+});
+botsBody.addEventListener("click", onChallengeClick);
+$("bots-toggle").addEventListener("click", () => void openBots());
+$("bots-back").addEventListener("click", () => {
+  botsPanel.hidden = true;
 });
 
 // Leaderboard: a full-page overlay fetched via a plain query on open.
 const leaderboardPanel = $("leaderboard-panel");
 const leaderboardBody = $("leaderboard-body");
+leaderboardBody.addEventListener("click", onChallengeClick);
 $("leaderboard-toggle").addEventListener("click", async () => {
   leaderboardPanel.hidden = false;
   leaderboardBody.innerHTML = `<p class="faint">Loading…</p>`;
   try {
     const entries = await actor.get_leaderboard();
-    leaderboardBody.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid });
+    leaderboardBody.innerHTML = engage(renderLeaderboard(entries, plugin, { yourSid: session.sid }));
   } catch (err) {
     leaderboardBody.innerHTML = `<p class="alert">Could not load the leaderboard.</p>`;
     console.error(err);
