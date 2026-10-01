@@ -155,7 +155,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
         }
         const hiddenFor = this._hiddenAt === null ? 0 : Date.now() - this._hiddenAt;
         this._hiddenAt = null;
-        if (hiddenFor > RESUME_GAP_MS) this._resume();
+        if (hiddenFor > RESUME_GAP_MS || this._suspended) this._resume();
       });
     }
   }
@@ -171,6 +171,8 @@ export class GatewayWs extends EventTarget implements DuelWs {
   /// reconnects and whose reply resyncs the caller either way.
   private _resume(): void {
     if (this._closed) return;
+    // A `pagehide` with no matching `pageshow`: the page is still alive.
+    this._suspended = false;
     const now = Date.now();
     if (now - this._lastResumeAt < 2000) return;
     this._lastResumeAt = now;
