@@ -16,8 +16,9 @@ knows any particular game.
   - `registry.mo` — the multi-table router built on it: `Registry.new`,
     `createTable`/`createTableReserving`/`listTables`/`joinTable`/
     `peekNextTableId`, the same caller-facing operations routed to the
-    right table, `sweep`, and the optional `attachMetrics(pt)`
-    (`mo:promtracker`). Tables are `#open` or `#code`-protected, carry an
+    right table, `sweep`, `setTimeouts` (every host calls it on the line
+    after the declaration: a stable `registry` skips `Registry.new` on
+    upgrade), and the optional `attachMetrics(pt)` (`mo:promtracker`). Tables are `#open` or `#code`-protected, carry an
     opaque `variant : Text` picked by their creator and read only by
     the game's own `Spec.init(variant)`. No game logic is reimplemented
     here.
@@ -99,8 +100,10 @@ actor + `GamePlugin` frontend + deploy config, with its own `CLAUDE.md`:
 `tic-tac-toe`, `ultimate-tic-tac-toe`, `chopsticks` (`#alternating`).
 `rock-paper-scissors` (Classic/Well, gated in `validate`) and
 `chopsticks` (Classic/Instructables, branching in `validate` and
-`resolve`) are the table-variant references. `007` is the custom-UI
-reference (every screen its own, over `client.js` alone);
+`resolve`) are the table-variant references. `007` and `chopsticks` are
+the custom-UI references (every screen their own, over `client.js`
+alone; `chopsticks` is a port of an existing app's design, with an
+opponent-move replay and a client-side move history);
 `rock-paper-scissors` replaces one screen through `start({ screens })`.
 All but `007` ship a `bot/` canister player; `tic-tac-toe` (`["Easy", "Hard"]`) and
 `chopsticks` (`["Bunny", "Fox", "Bear"]`) are the multi-complexity
@@ -230,6 +233,14 @@ deploys all of them to the IC.
     concern lives in `app.js` or the game. Anything a game might want
     to redraw goes through `ClientState` or a `Screens` entry, never a
     private hook in `start()`.
+14. **Timeouts are re-applied after the declaration.** `persistent actor`
+    makes `registry` stable, so `Registry.new()` (argument-free, 90s/60s
+    defaults) runs on first install only; the next line is always
+    `registry.setTimeouts(...)` with the host's numbers, and the stored
+    `Registry`/`Table` fields stay `var`. A `var` field inside a stable
+    record is invariant across upgrades, so any
+    further change to either stable type needs an explicit actor
+    migration or a reinstall.
 
 ## Skills (read before editing)
 

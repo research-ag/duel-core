@@ -23,8 +23,10 @@ module {
   public type Mode = { #simultaneous; #alternating };
 
   public type Registry<S, M> = {
-    idleTimeoutNs : Int;
-    claimTimeoutNs : Int;
+    /// Mutable so a host can re-apply them on every upgrade (a stable
+    /// `Registry` skips `Registry.new`); see `Registry.setTimeouts`.
+    var idleTimeoutNs : Int;
+    var claimTimeoutNs : Int;
     var tables : Map.Map<TableId, Table<S, M>>;
     /// A session's current table; absent = browsing.
     var bySession : Map.Map<SessionId, TableId>;
@@ -150,8 +152,8 @@ module {
   };
 
   public type Table<S, M> = {
-    idleTimeoutNs : Int;
-    claimTimeoutNs : Int;
+    var idleTimeoutNs : Int;
+    var claimTimeoutNs : Int;
     visibility : TableVisibility;
     createdBy : SessionId;
     /// Immutable for the table's lifetime; handed to `Spec.init`.

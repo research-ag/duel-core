@@ -67,7 +67,9 @@ func noopAfterMutation(_now : Int, _sid : TP.SessionId, _reqId : ?Nat64, _id : ?
 
 let bot1 = Principal.fromText("aaaaa-aa");
 
-let reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT);
+let reg = Registry.new<Rules.State, Rules.Action>();
+
+reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
 let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   spec,
   reg,
