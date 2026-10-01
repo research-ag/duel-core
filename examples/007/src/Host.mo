@@ -20,8 +20,8 @@ persistent actor {
   renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
-  let registry = Registry.new<Rules.State, Rules.Action>(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
-  registry.setTimeouts(90_000_000_000, 60_000_000_000); // re-applied on every upgrade
+  let registry = Registry.new<Rules.State, Rules.Action>();
+  registry.setTimeouts(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
   registry.attachMetrics(pt);
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {

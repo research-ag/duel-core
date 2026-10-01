@@ -19,7 +19,8 @@ module {
 
     let spec = Rules.spec();
     let timeout : Int = 60_000_000_000;
-    let reg = Registry.new<Rules.State, Rules.Action>(timeout, timeout);
+    let reg = Registry.new<Rules.State, Rules.Action>();
+    reg.setTimeouts(timeout, timeout);
     let ns : [Nat] = [10, 100, 1000];
 
     func freshGame() : () {

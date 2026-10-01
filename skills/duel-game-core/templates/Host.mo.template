@@ -13,8 +13,7 @@ import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 import Rules "__RULES_MODULE__";
 
 persistent actor {
-  let registry : TP.Registry<Rules.State, Rules.Action> =
-    Registry.new(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__);
+  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
   registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // re-applied on every upgrade
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {

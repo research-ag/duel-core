@@ -23,7 +23,11 @@ let CLAIM_TIMEOUT : Int = 20_000_000_000; // 20 s
 // `lastActivity` via their OWN internal `Time.now()` call
 let T0 : Int = 1_000_000_000;
 
-func fresh() : Reg = Registry.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT);
+func fresh() : Reg {
+  let r = Registry.new<Rules.State, Rules.Action>();
+  r.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
+  r;
+};
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;

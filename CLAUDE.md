@@ -234,10 +234,11 @@ deploys all of them to the IC.
     to redraw goes through `ClientState` or a `Screens` entry, never a
     private hook in `start()`.
 14. **Timeouts are re-applied after the declaration.** `persistent actor`
-    makes `registry` stable, so `Registry.new` runs on first install only;
-    the next line is always `registry.setTimeouts(...)` with the same
-    numbers, and the stored `Registry`/`Table` fields stay `var`. A `var`
-    field inside a stable record is invariant across upgrades, so any
+    makes `registry` stable, so `Registry.new()` (argument-free, 90s/60s
+    defaults) runs on first install only; the next line is always
+    `registry.setTimeouts(...)` with the host's numbers, and the stored
+    `Registry`/`Table` fields stay `var`. A `var` field inside a stable
+    record is invariant across upgrades, so any
     further change to either stable type needs an explicit actor
     migration or a reinstall.
 

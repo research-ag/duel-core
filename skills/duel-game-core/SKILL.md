@@ -161,9 +161,9 @@ From `templates/Host.mo.template`, write `src/Host.mo`, filling in only
 long an abandoned table sits before a third party may reclaim it), and
 `__CLAIM_TIMEOUT_NS__` (`60_000_000_000` = 60s: how long your submitted
 move may sit against the opponent's silence before you may claim the
-win). Both numbers appear twice: in `Registry.new`, which a stable
-`registry` runs only on first install, and in `registry.setTimeouts` on
-the next line, which runs on every upgrade — keep the two in sync. Keep
+win). Both go into `registry.setTimeouts` on the line after
+`Registry.new()`: a stable `registry` runs its initializer only on first
+install, while `setTimeouts` runs on every upgrade. Keep
 `idleTimeoutNs` comfortably above `claimTimeoutNs` (at least 15s of
 margin) — an idle table can otherwise be reclaimed by a third party
 before its own claim window even opens. Change nothing else. Do not add plain Candid methods for
@@ -192,7 +192,7 @@ persistent actor {
   renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
-  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__);
+  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
   registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__);
   registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
 

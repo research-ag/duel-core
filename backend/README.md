@@ -65,7 +65,8 @@ variant)` plus `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
   `ackEnded`/`status`/`sweep`. For a game that wants exactly one fixed
   board and no lobby.
 - `src/registry.mo` (`mo:duel-game-core/registry`) — `Registry<S, M>`,
-  created once with `Registry.new(idleTimeoutNs, claimTimeoutNs)`.
+  created once with `Registry.new()` and tuned with
+  `setTimeouts(idleTimeoutNs, claimTimeoutNs)`.
   `createTable`/`createTableReserving`/`listTables`/`joinTable` create,
   discover, and join tables; `submit`/`rematch`/`leave`/`reset`/
   `claimWin`/`ackEnded`/`status` resolve the caller's current table via a
@@ -103,8 +104,8 @@ import Rules "YourGameRules"; // implements TP.Spec<S, M>
 import Time "mo:core/Time";
 
 persistent actor {
-  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
-  registry.setTimeouts(90_000_000_000, 60_000_000_000); // re-applied on every upgrade
+  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
+  registry.setTimeouts(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
 
   public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
     registry.status(Rules.spec(), Time.now(), sid);
@@ -118,12 +119,13 @@ persistent actor {
 
 ### Timeouts and upgrades
 
-`registry` is a stable variable of a `persistent actor`, so `Registry.new`
-runs on the first install only: an upgrade keeps the stored record and
-skips the initializer, numbers included. `registry.setTimeouts(idle,
-claim)` on the line after the declaration re-applies them on every
-upgrade, to the registry and to every table already in it. Keep the two
-lines in sync.
+`Registry.new()` takes no arguments and starts at 90s idle / 60s claim.
+`registry` is a stable variable of a `persistent actor`, so its
+initializer runs on the first install only: an upgrade keeps the stored
+record, numbers included. The host's own timeouts therefore live in
+`registry.setTimeouts(idle, claim)` on the line after the declaration,
+which runs on every install and upgrade and applies them to the registry
+and to every table already in it.
 
 ### Table variants
 
@@ -241,7 +243,7 @@ import ActorMixin "mo:duel-game-core/actor_mixin";
 import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
 persistent actor {
-  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new(90_000_000_000, 60_000_000_000);
+  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
   registry.setTimeouts(90_000_000_000, 60_000_000_000);
   // ...status...
 
@@ -602,7 +604,7 @@ persistent actor {
   renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
-  let registry = Registry.new<Rules.State, Rules.Action>(90_000_000_000, 60_000_000_000);
+  let registry = Registry.new<Rules.State, Rules.Action>();
   registry.setTimeouts(90_000_000_000, 60_000_000_000);
   registry.attachMetrics(pt);
   // ...

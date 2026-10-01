@@ -19,9 +19,11 @@ module {
 
   public type Registry<S, M> = T.Registry<S, M>;
 
-  public func new<S, M>(idleTimeoutNs : Int, claimTimeoutNs : Int) : Registry<S, M> = {
-    var idleTimeoutNs = idleTimeoutNs;
-    var claimTimeoutNs = claimTimeoutNs;
+  /// Starts at 90s idle / 60s claim; a host overrides them with
+  /// `setTimeouts` on the next line.
+  public func new<S, M>() : Registry<S, M> = {
+    var idleTimeoutNs = 90_000_000_000;
+    var claimTimeoutNs = 60_000_000_000;
     var tables = Map.empty<T.TableId, T.Table<S, M>>();
     var bySession = Map.empty<T.SessionId, T.TableId>();
     var tableIdNonce = 1;
