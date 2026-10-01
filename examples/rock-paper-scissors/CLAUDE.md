@@ -13,11 +13,12 @@ purely in `validate`. Not part of either package.
   (metrics, canister players, bot discovery, ELO). Nothing about variants
   lives here.
 - **`src/BotIface.mo`** — `make_move`.
-- **`bot/BotLogic.mo`** — rotates through the current variant's action
-  set (read off `req.game.variant`) by `req.turn`, with a per-seat
-  multiplier (1 for p1; 2 for p2 in Classic, 3 in Well — each coprime to
-  the set size) so two copies of the bot don't tie forever.
-- **`bot/Bot.mo`** — `make_move` (`query`), `play(...)`, `register`/
+- **`bot/BotLogic.mo`** — `chooseMove(req, entropy)` picks uniformly
+  from the current variant's action set (read off `req.game.variant`),
+  hashing `entropy` with the seat so two copies of the bot asked at the
+  same instant still pick independently.
+- **`bot/Bot.mo`** — `make_move` (`query`, passes `Time.now()` as the
+  entropy), `play(...)`, `register`/
   `unregister` (registers `[]`, "Default").
 - **`test/*.test.mo`** — `RulesUnit` (variant parsing, well gating, all
   six beat pairs plus a tie, first-to-3 in both variants); `Engine`

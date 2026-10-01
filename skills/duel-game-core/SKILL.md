@@ -256,9 +256,11 @@ a `bot/Bot.mo`/`bot/BotLogic.mo` pair like `examples/checkers/bot/`. The
 backend README's "Canister players" has the full design. `MoveRequest`
 also carries `turn`/`gen`, `opponent`, `opponentLastMove`, and
 `lastRoundDurationNs`; a bot that only reads `game`/`seat`/`turn` is a
-pure `query`, which is the right default. Read
-`references/canister-player-bots.md` before writing a bot that remembers
-anything — `make_move` then can no longer be a `query`.
+pure `query`, which is the right default; a bot that needs randomness
+stays one by seeding from `Time.now()`. Read
+`references/canister-player-bots.md` before writing a bot that picks at
+random or remembers anything — the latter makes `make_move` no longer a
+`query`.
 
 A challengeable bot self-registers once, by hand, after both canisters
 are deployed:
