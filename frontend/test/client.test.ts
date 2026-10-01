@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   createDuelClient,
   CONNECTION_CLOSED_MESSAGE,
+  ENDED_WHILE_AWAY_MESSAGE,
   claimRoleOf,
   genOf,
   isSeated,
@@ -33,6 +34,8 @@ class FakeWs implements DuelWs {
   onmessage: ((ev: { data: WsPayload }) => void) | null = null;
   onerror: ((ev: { error?: Error }) => void) | null = null;
   onclose: (() => void) | null = null;
+  onconnecting: (() => void) | null = null;
+  queryStatus?: (sid: string) => Promise<Status>;
   sent: Array<{ sid: string; req: WsRequest }> = [];
   requests: PendingRequest[] = [];
   request?: (sid: string, req: WsRequest) => Promise<WsPayload>;
@@ -244,6 +247,7 @@ test("an engine rejection resolves with reason rejected, its text, and shows it 
   assert.deepEqual(outcome, { ok: false, reason: "rejected", err: { notSeated: null }, message: "You are not seated in this game." });
   assert.equal(client.getState().error, "You are not seated in this game.");
   assert.equal(client.getState().pending, null);
+  assert.deepEqual(ws.sent.at(-1), { sid: "an:abc", req: { status: null } }, "a rejection resyncs the view");
 });
 
 test("a wrongPhase on create/join is a stale view: silent refresh, no error", async () => {
@@ -287,6 +291,72 @@ test("a transport rejection or a synchronous throw from request() resolves faile
   };
   assert.deepEqual(await client.leave(), { ok: false, reason: "failed", message: "Call failed: sync boom" });
   assert.equal(client.getState().error, "Call failed: sync boom");
+});
+
+test("onconnecting after an open is 'reconnecting' (calls still go out); the reopen asks for a fresh status", async () => {
+  const ws = new FakeWs();
+  const client = createDuelClient({ ws, session });
+  ws.onconnecting!();
+  assert.equal(client.getState().connection, "connecting", "lost before the first open is still the first connect");
+  ws.onopen!();
+  ws.onconnecting!();
+  assert.equal(client.getState().connection, "reconnecting");
+  assert.equal(client.getState().identityLocked, false);
+  const p = client.rematch();
+  assert.equal(ws.requests.length, 1, "a call made while reconnecting queues on the transport");
+  ws.requests[0]!.resolve({ view: browsing() });
+  await p;
+  const before = ws.sent.length;
+  ws.onopen!();
+  assert.equal(client.getState().connection, "open");
+  assert.equal(ws.sent.length, before + 1);
+});
+
+test("a seated session that comes back from a reconnect to the lobby is told why; one still seated is not", () => {
+  const ws = new FakeWs();
+  const client = createDuelClient({ ws, session, errorTtlMs: 0 });
+  ws.onopen!();
+  ws.onmessage!({ data: { view: inGame() } });
+  ws.onconnecting!();
+  ws.onopen!();
+  ws.onmessage!({ data: { view: inGame() } });
+  assert.equal(client.getState().error, null);
+
+  ws.onconnecting!();
+  ws.onopen!();
+  ws.onmessage!({ data: { view: browsing() } });
+  assert.equal(client.getState().error, ENDED_WHILE_AWAY_MESSAGE);
+  client.clearError();
+  ws.onmessage!({ data: { view: browsing() } });
+  assert.equal(client.getState().error, null, "only the first status after the gap counts");
+});
+
+test("ws.queryStatus paints a first status while still connecting; the connection's own status wins", async () => {
+  const ws = new FakeWs();
+  let answer!: (s: Status) => void;
+  ws.queryStatus = (sid) => {
+    assert.equal(sid, "an:abc");
+    return new Promise((r) => (answer = r));
+  };
+  const client = createDuelClient({ ws, session });
+  answer(staging(1n));
+  await Promise.resolve();
+  assert.deepEqual(client.getState().status, staging(1n));
+  assert.equal(client.getState().connection, "connecting");
+
+  const ws2 = new FakeWs();
+  ws2.queryStatus = () => new Promise((r) => (answer = r));
+  const client2 = createDuelClient({ ws: ws2, session });
+  ws2.onmessage!({ data: { view: browsing() } });
+  answer(staging(1n));
+  await Promise.resolve();
+  assert.deepEqual(client2.getState().status, browsing(), "a late query must not overwrite a pushed status");
+
+  const ws3 = new FakeWs();
+  ws3.queryStatus = () => Promise.reject(new Error("no query"));
+  const client3 = createDuelClient({ ws: ws3, session });
+  await Promise.resolve();
+  assert.equal(client3.getState().error, null, "a failed query is silent");
 });
 
 test("fallback transport (no request()): a call goes out via send and settles off the next onmessage", async () => {

@@ -50,12 +50,12 @@ is forgotten:
 | which screen                                             | `state.status`                                                                            |
 | a call in flight (disable, spin)                         | `state.pending` (`key` names the control: `create:p1`, `act:{"pass":null}`, `rematch`, …) |
 | your move, before the reply                              | `withLocalMove(state.status, state.pending, plugin.applyLocal)` (below)                   |
-| errors, and the terminal disconnect                      | `state.error`, `state.connection === "closed"`                                            |
+| errors, reconnects, and the terminal disconnect          | `state.error`, `state.connection` (`"reconnecting"`, `"closed"`)                          |
 | "new sid" / login / logout enabled                       | `!state.identityLocked`; call `client.regenerateSid()`/`login()`/`logout()`               |
 | countdowns between pushes                                | `localSecondsLeft(view.secondsUntilX, state.statusAt)` on a local 1 s timer               |
 | who may claim                                            | `claimRoleOf(inGame)`: `"waiting"` may, `"atRisk"` is the mirror                          |
 | submit's `gen`/`turn`                                    | stamped by the client; never send them yourself                                           |
-| a stale view (`#wrongPhase` on join, `#stale` on a move) | handled: the client refreshes silently, `reason: "stale"`                                 |
+| a stale view (`#wrongPhase` on join, `#stale` on a move) | handled: the client refreshes silently, `reason: "stale"`; any rejection also refreshes   |
 
 ## Your move at once, the opponent's move marked
 

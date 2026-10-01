@@ -156,6 +156,7 @@ test("poll() decodes each message's CBOR envelope and advances past the highest 
     }),
     principal,
   });
+  await t.open(1n);
 
   const { envelopes, isEndOfQueue } = await t.poll();
   assert.equal(envelopes.length, 1);
@@ -176,6 +177,7 @@ test("poll() decodes each message's CBOR envelope and advances past the highest 
     },
   });
   const t2 = new SelfGatewayTransport({ actor: t2Actor, principal });
+  await t2.open(1n);
   await t2.poll();
   let secondPollNonce: bigint | null = null;
   t2Actor.ws_get_messages = async ({ nonce }) => {
@@ -184,6 +186,66 @@ test("poll() decodes each message's CBOR envelope and advances past the highest 
   };
   await t2.poll();
   assert.equal(secondPollNonce, 43n);
+});
+
+async function envelopeFor(clientNonce: bigint): Promise<Uint8Array> {
+  const { encode: cborEncode } = await import("cborg");
+  const protocol = new GatewayProtocol({ gameIdlTypes: sampleGameTypes });
+  const built = protocol.buildAppMessage({ client_principal: principal, client_nonce: clientNonce }, "sid", { status: null }, null);
+  return new Uint8Array(
+    cborEncode({
+      client_key: { client_principal: principal.toUint8Array(), client_nonce: clientNonce },
+      sequence_num: built.sequence_num,
+      timestamp: built.timestamp,
+      is_service_message: false,
+      content: built.content,
+    }),
+  );
+}
+
+test("poll() drops envelopes addressed to another connection (an earlier page load's leftovers) but reads past them", async () => {
+  const mine = await envelopeFor(2n);
+  const theirs = await envelopeFor(1n);
+  const actor = makeFakeActor({
+    ws_get_messages: async () => ({
+      Ok: {
+        messages: [
+          { key: "gw_00000000000000000000", content: theirs },
+          { key: "gw_00000000000000000001", content: mine },
+        ],
+        is_end_of_queue: true,
+      },
+    }),
+  });
+  const t = new SelfGatewayTransport({ actor, principal });
+  await t.open(2n);
+  const { envelopes } = await t.poll();
+  assert.equal(envelopes.length, 1);
+  assert.equal(envelopes[0]!.clientKey.client_nonce, 2n);
+  let next: bigint | null = null;
+  actor.ws_get_messages = async ({ nonce }) => {
+    next = nonce;
+    return { Ok: { messages: [], is_end_of_queue: true } };
+  };
+  await t.poll();
+  assert.equal(next, 2n);
+});
+
+test("open() restarts the read position at 0: the canister's counter restarts with a re-created gateway", async () => {
+  const content = await envelopeFor(1n);
+  const seen: bigint[] = [];
+  const actor = makeFakeActor({
+    ws_get_messages: async ({ nonce }) => {
+      seen.push(nonce);
+      return { Ok: { messages: [{ key: "gw_00000000000000000041", content }], is_end_of_queue: true } };
+    },
+  });
+  const t = new SelfGatewayTransport({ actor, principal });
+  await t.open(1n);
+  await t.poll();
+  await t.open(3n);
+  await t.poll();
+  assert.deepEqual(seen, [0n, 0n]);
 });
 
 test("poll() throws the canister's Err text on failure", async () => {

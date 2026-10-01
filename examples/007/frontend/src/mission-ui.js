@@ -373,9 +373,21 @@ export function mountMissionUi({ client, plugin, els }) {
 
   function syncChannel(state) {
     const mode =
-      state.connection === "closed" ? "closed" : state.pending !== null ? "pending" : state.connection === "open" ? "open" : "connecting";
+      state.connection === "closed" || state.connection === "reconnecting"
+        ? state.connection
+        : state.pending !== null
+          ? "pending"
+          : state.connection === "open"
+            ? "open"
+            : "connecting";
     channel.dataset.mode = mode;
-    channel.textContent = { closed: "Channel lost", pending: "Transmitting…", open: "Channel secure", connecting: "Connecting…" }[mode];
+    channel.textContent = {
+      closed: "Channel lost",
+      reconnecting: "Re-establishing channel…",
+      pending: "Transmitting…",
+      open: "Channel secure",
+      connecting: "Connecting…",
+    }[mode];
   }
 
   function syncIdentity(state) {

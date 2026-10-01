@@ -271,10 +271,15 @@ module {
     };
 
     /// Returns messages to the WS Gateway in response of a polling iteration.
+    ///
+    /// An unknown gateway gets `#Err` rather than an empty batch: a
+    /// self-registered client polls only after its own `ws_open`, so this
+    /// means the canister forgot it (an upgrade, or an eviction whose empty
+    /// gateway expired) and it must reconnect.
     public func ws_get_messages(caller : Principal, args : CanisterWsGetMessagesArguments) : CanisterWsGetMessagesResult {
       let gateway_principal = caller;
       if (not WS_STATE.is_registered_gateway(gateway_principal)) {
-        return WS_STATE.get_cert_messages_empty();
+        return #Err(Errors.to_string(#GatewayNotRegistered({ gateway_principal })));
       };
 
       WS_STATE.get_cert_messages(gateway_principal, args.nonce, params.max_number_of_returned_messages);

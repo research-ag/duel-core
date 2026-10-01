@@ -189,13 +189,24 @@ vendored CDK hands to `onMessage` inside the handshake itself, so the
 `#status` every connection starts with rides along instead of costing a
 second update call.
 
-**Disappearance handling.** `attach()`'s `onClose` drives an implicit
-`Registry.leave` for the closed session, whether the close was
-cooperative or the CDK's keep-alive timeout (fixed at 60s, giving an
-involuntary-disappearance detection floor of roughly 60–180s). A live
-game the player vanished from ends in a shared debrief; if the partner
+**Disappearance handling.** A cooperative close — the client's own
+`ws_close`, sent on `pagehide` — drives an implicit `Registry.leave` for
+the closed session: a live game ends in a shared debrief; if the partner
 is also disconnected, their side is acked too and the table frees
-immediately. `Registry.sweep` stays as the timeout-based backstop.
+immediately. A connection the CDK drops on its own (a missed keep-alive,
+fixed at 60s; a sequence error) only unbinds the transport: the vendored
+CDK passes `on_close` the `reason`, and a reasoned close is a lost
+connection, not a departure. Background tabs are throttled and phones
+freeze pages, so a player who glances away must not forfeit. The client
+reconnects when it is back, and genuine absence is the engine's own
+business: `claimWin` after `claimTimeoutNs`, idle takeover, and
+`Registry.sweep`.
+
+The vendored CDK's `ws_get_messages` answers a gateway it doesn't know
+with `#Err` rather than an empty batch: a self-registered client polls
+only after its own `ws_open`, so the error tells it the canister forgot
+it (an upgrade wipes the `transient` CDK state; an evicted client's
+empty gateway expires after one ack interval) and must reconnect.
 
 **Push helpers are `async*`/`await*`.** Only `pushTo`'s call into
 `IcWebSocketCdk.send` is a genuine send; `pushStatus`/`afterMutation`/
@@ -215,7 +226,7 @@ client-chosen token echoed back only on that session's own reply; every
 other push carries `null`. It exists because a FIFO "next message is my
 reply" scheme let an opponent's broadcast steal a reply's slot. `Hub`
 bridges `sid <-> principal`, learned from each inbound message and
-forgotten on `ws_close`.
+forgotten when the connection closes or is dropped.
 
 **Player identity.** `Table`/`Registry` only compare `SessionId`s for
 equality, so anonymous and logged-in players share tables with no

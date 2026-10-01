@@ -345,6 +345,11 @@ export function start<S>({
       $("duel-reload")?.addEventListener("click", () => location.reload());
       return;
     }
+    if (state.error === null && state.connection === "reconnecting") {
+      errorEl.textContent = "Reconnecting…";
+      errorEl.hidden = false;
+      return;
+    }
     if (state.error === null) {
       errorEl.hidden = true;
       return;

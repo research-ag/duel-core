@@ -340,6 +340,7 @@ module {
             case (?handlers) {
               await* handlers.call_on_close({
                 client_principal = client_key.client_principal;
+                reason = close_reason;
               });
             };
             case (null) {

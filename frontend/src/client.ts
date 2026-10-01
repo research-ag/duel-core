@@ -161,7 +161,9 @@ export interface SessionIdentity {
   logout?(): Promise<void>;
 }
 
-export type Connection = "connecting" | "open" | "closed";
+/// `"reconnecting"`: was open, lost it, redoing it (calls queue behind
+/// the reopen); `"closed"`: over for good.
+export type Connection = "connecting" | "open" | "reconnecting" | "closed";
 
 /// The one call in flight. `key` names what it does (`create:p1`,
 /// `jointable:3:p2`, `act:{"pass":null}`, `rematch`, `leave`, `reset`,
@@ -210,7 +212,8 @@ export function withLocalMove<S, A = unknown>(
 
 export interface ClientState<S = unknown> {
   connection: Connection;
-  /// The last status received; `null` until the first one lands.
+  /// The last status received (the first may come from `ws.queryStatus`
+  /// while still `"connecting"`); `null` until one lands.
   status: Status<S> | null;
   /// `Date.now()` when `status` last changed. Every `secondsUntilX` field
   /// is only as fresh as that moment; see `localSecondsLeft`.
@@ -324,6 +327,10 @@ function isStaleMutation(req: WsRequest | null, err: EngineErr): boolean {
 
 export const CONNECTION_CLOSED_MESSAGE = "Connection closed.";
 
+/// Shown when the first status after a reconnect finds a seated session
+/// back in the lobby.
+export const ENDED_WHILE_AWAY_MESSAGE = "Your game ended while you were away.";
+
 export function createDuelClient<S = unknown, A = unknown>({
   ws,
   session,
@@ -424,9 +431,23 @@ export function createDuelClient<S = unknown, A = unknown>({
     if (r) r(outcome ?? { ok: false, reason: "closed" });
   }
 
+  // Set by `onconnecting` when the session was seated; the first status
+  // after it decides whether to say the seat is gone.
+  let seatedBeforeGap = false;
+
+  function noteResync(status: Status<S>): void {
+    if (!seatedBeforeGap) return;
+    seatedBeforeGap = false;
+    if (viewTagOf(status) === "browsing") showError(ENDED_WHILE_AWAY_MESSAGE);
+  }
+
   function setStatus(status: Status<S>): void {
-    if (deepEqual(status, state.status)) return;
+    if (deepEqual(status, state.status)) {
+      noteResync(status);
+      return;
+    }
     setState({ status, statusAt: Date.now() });
+    noteResync(status);
   }
 
   function sendWs(req: WsRequest): boolean {
@@ -465,11 +486,19 @@ export function createDuelClient<S = unknown, A = unknown>({
       Object.assign(patch, { status: outcome.view, statusAt: Date.now() });
     }
     setState(patch);
-    if (outcome.ok) return outcome;
+    if (outcome.ok) {
+      noteResync(outcome.view);
+      return outcome;
+    }
+    // A rejection usually means this tab's view is behind (the table is
+    // gone, the seat was lost): the refresh replaces it with the truth.
     if (outcome.reason === "stale") {
       if (isCurrent) refresh();
     } else if (outcome.reason === "rejected") {
-      if (isCurrent) showError(outcome.message);
+      if (isCurrent) {
+        showError(outcome.message);
+        refresh();
+      }
     }
     return outcome;
   }
@@ -487,6 +516,7 @@ export function createDuelClient<S = unknown, A = unknown>({
         if (state.pending !== null && state.pending.req === req) {
           setState({ pending: null });
           showError(message);
+          refresh();
         }
         return { ok: false, reason: "failed", message };
       };
@@ -526,11 +556,20 @@ export function createDuelClient<S = unknown, A = unknown>({
   // Transport. The first status is requested right away — a `send()`
   // before the connection is open is queued, and `GatewayWs` lets it ride
   // along with its handshake — and again on every reopen after a gap.
+  // `ws.queryStatus`, when offered, paints sooner still; whatever the
+  // connection delivers supersedes it.
 
+  let everOpened = false;
   ws.onopen = () => {
-    const reopen = state.connection === "open";
+    const reopen = everOpened;
+    everOpened = true;
     setState({ connection: "open" });
     if (reopen) refresh();
+  };
+  ws.onconnecting = () => {
+    if (state.connection === "closed") return;
+    seatedBeforeGap = isSeated(state.status);
+    setState({ connection: everOpened ? "reconnecting" : "connecting" });
   };
   ws.onmessage = (ev) => {
     const msg = ev.data;
@@ -559,6 +598,18 @@ export function createDuelClient<S = unknown, A = unknown>({
   ws.onerror = (ev) => showError(`WebSocket error: ${ev?.error?.message ?? ev}`);
   ws.onclose = () => closed();
   refresh();
+  if (typeof ws.queryStatus === "function") {
+    try {
+      ws.queryStatus(sid).then(
+        (status) => {
+          if (state.status === null && state.connection !== "closed") setStatus(status);
+        },
+        (e) => console.debug("[duel-client] status query failed:", (e as Error)?.message ?? e),
+      );
+    } catch (e) {
+      console.debug("[duel-client] status query failed:", (e as Error)?.message ?? e);
+    }
+  }
 
   return {
     sid,
@@ -593,6 +644,7 @@ export function createDuelClient<S = unknown, A = unknown>({
       if (ws.onmessage) ws.onmessage = null;
       if (ws.onerror) ws.onerror = null;
       if (ws.onclose) ws.onclose = null;
+      if (ws.onconnecting) ws.onconnecting = null;
     },
   };
 }
