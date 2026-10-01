@@ -7,7 +7,7 @@
 // or skips this file entirely and binds `createDuelClient` to its own UI.
 // See ../README.md, "Wiring it up".
 
-import { createDuelClient, claimRoleOf, viewOf } from "./client.js";
+import { createDuelClient, claimRoleOf, viewOf, withLocalMove } from "./client.js";
 import type { ClientState, DuelClient, SessionIdentity } from "./client.js";
 import {
   renderStatus,
@@ -577,8 +577,17 @@ export function start<S>({
 
   screenEl.innerHTML = sc.connecting();
 
+  // What is on screen: the real status, or it with the pending move
+  // already applied (`plugin.applyLocal`).
+  let shown: Status<S> | null = null;
+  const applyLocal = plugin.applyLocal?.bind(plugin);
+
   client.subscribe((state, prev) => {
-    if (state.status !== prev.status && state.status !== null) redraw(state.status);
+    if (state.status !== prev.status || state.pending !== prev.pending) {
+      const next = withLocalMove(state.status, state.pending, applyLocal);
+      if (next !== shown && next !== null) redraw(next);
+      shown = next;
+    }
     if (state.pending !== prev.pending) {
       document.body.classList.toggle("working", state.pending !== null);
       if (state.pending === null) unmarkDirect();

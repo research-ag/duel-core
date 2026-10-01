@@ -1,4 +1,5 @@
 import Principal "mo:core/Principal";
+import Time "mo:core/Time";
 
 import TP "mo:duel-game-core";
 
@@ -32,7 +33,7 @@ persistent actor {
   };
 
   public query func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async Rules.Action {
-    BotLogic.chooseMove(req);
+    BotLogic.chooseMove(req, Time.now());
   };
 
 };

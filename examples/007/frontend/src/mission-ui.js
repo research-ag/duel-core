@@ -6,7 +6,7 @@
 // `duel007-plugin.js`'s. See ../../../../frontend/README.md, "The
 // headless client".
 
-import { claimRoleOf, localSecondsElapsed, localSecondsLeft, oppSeatOf, tag, viewOf } from "duel-game-core/client.js";
+import { claimRoleOf, localSecondsElapsed, localSecondsLeft, oppSeatOf, tag, viewOf, withLocalMove } from "duel-game-core/client.js";
 import { esc } from "duel-game-core/render.js";
 
 const IDLE_WARNING_SECS = 30n;
@@ -409,13 +409,16 @@ export function mountMissionUi({ client, plugin, els }) {
         : logLines.map((l) => `<li><span class="tw">R${l.round}</span> ${esc(l.text)}</li>`).join("");
   }
 
+  // An order in flight already shows as committed (`plugin.applyLocal`).
+  const shownStatus = (state) => withLocalMove(state.status, state.pending, plugin.applyLocal.bind(plugin));
+
   // The new-operation form is live input; keep it across an unrelated
   // redraw (another agent's file appearing on the index).
   function redraw(state) {
     const seat = screen.querySelector('input[name="op-seat"]:checked')?.value;
     const coded = screen.querySelector('input[name="op-visibility"][value="code"]')?.checked ?? false;
     const code = screen.querySelector("#op-code")?.value ?? "";
-    screen.innerHTML = renderScreen(state.status, plugin);
+    screen.innerHTML = renderScreen(shownStatus(state), plugin);
     const seatRadio = seat && screen.querySelector(`input[name="op-seat"][value="${seat}"]`);
     if (seatRadio) seatRadio.checked = true;
     const codeRadio = screen.querySelector('input[name="op-visibility"][value="code"]');
@@ -432,7 +435,7 @@ export function mountMissionUi({ client, plugin, els }) {
   redraw(client.getState());
   syncChannel(client.getState());
   client.subscribe((state, prev) => {
-    if (state.status !== prev.status) redraw(state);
+    if (state.status !== prev.status || (state.pending !== prev.pending && shownStatus(state) !== shownStatus(prev))) redraw(state);
     document.body.classList.toggle("working", state.pending !== null);
     syncButtons(state);
     syncChannel(state);

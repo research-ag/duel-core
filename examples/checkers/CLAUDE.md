@@ -43,8 +43,12 @@ n]`; no lookahead. Separate from `Bot.mo` so `Bot.test.mo` calls it
   one shows destinations, and the finishing click is a real `<button
 data-act>` while intermediate clicks are local `<div data-sq>` state
   handled by the plugin's own listener; a multi-jump chain is built one
-  click at a time; the board is flipped for Red. `renderActions` returns
-  `""`. `app.js` wires identity, `connectWs`, `start()`, the 🏆
+  click at a time; the board is flipped for Red. The opponent's last move
+  (origin `.cb-last-from`, landing `.cb-last-to`, captured pieces as
+  faded ghosts `.cb-last-captured`) is found by diffing consecutive
+  boards, since `State` has no move history. `applyLocal` mirrors
+  `resolve` (captures, crowning) so your own move shows while it is in
+  flight. `renderActions` returns `""`. `app.js` wires identity, `connectWs`, `start()`, the 🏆
   leaderboard overlay (fetching `list_bots()` alongside for bot names),
   and the 🤖 Bots overlay: `list_bots()` → `renderBotList`; picking a bot
   fills the player's own staged table or shows `renderSeatChoice` and

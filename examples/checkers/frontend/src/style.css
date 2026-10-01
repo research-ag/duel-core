@@ -120,3 +120,39 @@ button.cb-square:focus-visible {
 .cb-piece.cb-king {
   font-weight: bold;
 }
+
+/* The opponent's last move: origin and landing tinted, captured pieces
+   shown as a faded ghost. A background-image layer, so it composes with
+   the selection box-shadows and the target dot above. */
+.cb-last-from {
+  background-image: linear-gradient(
+    rgba(241, 196, 15, 0.25),
+    rgba(241, 196, 15, 0.25)
+  );
+}
+
+.cb-last-to {
+  background-image: linear-gradient(
+    rgba(241, 196, 15, 0.55),
+    rgba(241, 196, 15, 0.55)
+  );
+}
+
+.cb-last-captured {
+  background-image: linear-gradient(
+    rgba(231, 76, 60, 0.35),
+    rgba(231, 76, 60, 0.35)
+  );
+}
+
+.cb-ghost {
+  opacity: 0.35;
+}
+
+.cb-ghost-p1 {
+  color: #1c1c1c;
+}
+
+.cb-ghost-p2 {
+  color: #c0392b;
+}

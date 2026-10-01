@@ -1,12 +1,12 @@
 # Writing a canister-player bot: simple vs. stateful
 
-Read this when building the bot canister itself (`Bot.mo`/`BotLogic.mo`)
-and it needs more than "play a fixed script" or "pick deterministically
-from the legal moves". The shipped reference bots are all the simple
-shape; this file covers a bot that remembers a match's history or models
-an opponent across games. Don't reach for the stateful shape unless the
-strategy actually needs memory. Making a bot challengeable (self-
-registration) is covered in `SKILL.md`'s "Canister players" step.
+Read this when building the bot canister itself (`Bot.mo`/`BotLogic.mo`).
+It covers the simple shape every shipped reference bot uses (including
+stateless randomness from `Time.now()`), and a bot that remembers a
+match's history or models an opponent across games. Don't reach for the
+stateful shape unless the strategy actually needs memory. Making a bot
+challengeable (self-registration) is covered in
+`SKILL.md`'s "Canister players" step.
 
 ## What `make_move` receives
 
@@ -52,6 +52,27 @@ public query func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : a
 Every example bot is this. A query is near-instant and skips consensus.
 Keep the logic in `BotLogic.mo`, a plain module with no actor/`Time`/
 storage, so `test/Bot.test.mo` can call `chooseMove` directly.
+
+**Randomness without state.** A bot whose strategy is a random pick (a
+game of hidden simultaneous choices, a tie-break between equal moves)
+must not derive it from `turn`/`seat` alone: a deterministic bot plays
+the same sequence every match and is trivially exploited. `Time.now()`'s
+nanoseconds are unpredictable enough in practice and keep `make_move` a
+`query`. `Bot.mo` passes it in as a parameter (`BotLogic` stays
+`Time`-free and testable), and `BotLogic` hashes it together with
+`req.seat` so two copies of the bot asked in the same round don't mirror
+each other (`examples/rock-paper-scissors/bot/BotLogic.mo`):
+
+```motoko
+public query func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async Rules.Action {
+  BotLogic.chooseMove(req, Time.now());
+};
+
+```
+
+A seeded PRNG is the alternative only if its state is stored in the
+actor (stateful shape below) so the sequence continues instead of
+restarting each call.
 
 **Stateful: remembers across calls, `update`.** A query's state changes
 are never committed — a hard IC constraint — so a bot that remembers

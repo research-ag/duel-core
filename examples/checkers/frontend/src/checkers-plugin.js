@@ -7,6 +7,9 @@
 // finishing click is a real `data-act` button submitted by app.js, and
 // the move generation here is a cosmetic mirror of `validate`. The board
 // is flipped for Red so each player sees their own side at the bottom.
+// The opponent's last move (origin, landing, captured pieces) is
+// highlighted by diffing consecutive boards; State carries no move history.
+// Your own move shows the moment you submit it (`applyLocal`).
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -108,6 +111,27 @@ function seatHasCapture(board, seat) {
 
 let path = []; // [] = nothing selected; [from, ...landingSquares] otherwise
 let lastBoardKey = null;
+let prevBoard = null;
+let oppMove = null; // { from, to, captured: Map<square, tag> } or null
+
+// The opponent's single move from `before` to `after`, or null when the
+// boards differ in any other way (own move, new game, missed pushes).
+function diffOppMove(before, after, oppSeat) {
+  if (!before || before.length !== after.length) return null;
+  let from = null;
+  let to = null;
+  const captured = new Map();
+  for (let i = 0; i < after.length; i++) {
+    const a = pieceTagAt(before, i);
+    const b = pieceTagAt(after, i);
+    if (a === b) continue;
+    if (a && !b && ownerOfTag(a) === oppSeat && from === null) from = i;
+    else if (a && !b && ownerOfTag(a) !== oppSeat) captured.set(i, a);
+    else if (!a && b && ownerOfTag(b) === oppSeat && to === null) to = i;
+    else return null;
+  }
+  return from !== null && to !== null ? { from, to, captured } : null;
+}
 let cachedBoard = null;
 let cachedMySeat = null;
 
@@ -174,6 +198,17 @@ function drawBoard(board, highlights, flip) {
       const classes = ["cb-square", dark ? "cb-dark" : "cb-light"];
       if (tag) classes.push("cb-piece", `cb-${ownerOfTag(tag)}`);
       if (tag && isKingTag(tag)) classes.push("cb-king");
+      let glyph = tag ? GLYPH[tag] : "";
+      if (oppMove && oppMove.from === i) classes.push("cb-last-from");
+      if (oppMove && oppMove.to === i) classes.push("cb-last-to");
+      if (oppMove && oppMove.captured.has(i)) {
+        classes.push("cb-last-captured");
+        if (!tag) {
+          const ghost = oppMove.captured.get(i);
+          classes.push(`cb-ghost-${ownerOfTag(ghost)}`);
+          glyph = `<span class="cb-ghost">${GLYPH[ghost]}</span>`;
+        }
+      }
 
       let tagName = "div";
       let extraAttrs = "";
@@ -194,7 +229,7 @@ function drawBoard(board, highlights, flip) {
         }
       }
 
-      cells += `<${tagName} class="${classes.join(" ")}" title="${esc(squareLabel(i))}"${extraAttrs}>${tag ? GLYPH[tag] : ""}</${tagName}>`;
+      cells += `<${tagName} class="${classes.join(" ")}" title="${esc(squareLabel(i))}"${extraAttrs}>${glyph}</${tagName}>`;
     }
   }
   return `<div class="cb-board">${cells}</div>`;
@@ -263,6 +298,8 @@ export const plugin = {
     if (key !== lastBoardKey) {
       lastBoardKey = key;
       path = [];
+      oppMove = diffOppMove(prevBoard, board, oppSeat);
+      prevBoard = board;
     }
     cachedBoard = board;
     cachedMySeat = mySeat;
@@ -276,5 +313,24 @@ export const plugin = {
 
   renderActions() {
     return "";
+  },
+
+  // Mirrors `resolve`: every two-square leg clears its victim, and a man
+  // landing on the far row is crowned.
+  applyLocal(gameState, mySeat, move) {
+    const steps = ("move" in move ? [move.move.from, move.move.to] : move.jump.path).map(Number);
+    const tag = pieceTagAt(gameState.board, steps[0]);
+    if (tag === null) return null;
+    let board = gameState.board;
+    for (let k = 0; k + 1 < steps.length; k++) {
+      const a = steps[k];
+      const b = steps[k + 1];
+      const jumped = Math.abs(rowOf(b) - rowOf(a)) === 2 ? idx((rowOf(a) + rowOf(b)) / 2, (colOf(a) + colOf(b)) / 2) : undefined;
+      board = withMove(board, a, b, tag, jumped);
+    }
+    const land = steps[steps.length - 1];
+    const backRow = mySeat === "p1" ? 0 : SIZE - 1;
+    if (!isKingTag(tag) && rowOf(land) === backRow) board[land] = [{ [tag.replace("man", "king")]: null }];
+    return { ...gameState, board };
   },
 };

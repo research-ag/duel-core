@@ -15,8 +15,10 @@ import {
   turnOf,
   viewOf,
   viewTagOf,
+  withLocalMove,
+  pendingMoveOf,
 } from "../src/client.js";
-import type { ClientState } from "../src/client.js";
+import type { ClientState, PendingCall } from "../src/client.js";
 import type { DuelWs, InGameView, Status, WsPayload, WsRequest } from "../src/types.js";
 
 interface PendingRequest {
@@ -218,6 +220,19 @@ test("submit stamps the last-seen gen and turn; leave/reset/claimWin stamp gen",
   void client.claimWin();
   assert.deepEqual(ws.requests[1]!.req, { claimWin: { gen: 5n } });
   assert.equal(client.getState().pending!.key, "claim-win");
+});
+
+test("a successful reply clears pending and lands its status in one snapshot", async () => {
+  const ws = new FakeWs();
+  const client = createDuelClient({ ws, session });
+  ws.onmessage!({ data: { view: inGame() } });
+  void client.submit({ pass: null });
+  const states = record(client);
+  ws.requests[0]!.resolve({ view: inGame({ youSubmitted: true }) });
+  await Promise.resolve();
+  assert.equal(states.length, 1);
+  assert.equal(states[0]!.pending, null);
+  assert.equal(viewOf<InGameView>(states[0]!.status, "inGame")!.youSubmitted, true);
 });
 
 test("an engine rejection resolves with reason rejected, its text, and shows it in state.error", async () => {
@@ -426,6 +441,44 @@ test("pendingKeyOf mirrors the default UI's button keys, bigint moves included",
   assert.equal(pendingKeyOf({ submit: { gen: 0n, turn: 0n, move: { n: 5n } } }), 'act:{"n":"5"}');
   assert.equal(pendingKeyOf({ ackEnded: null }), "ack");
   assert.equal(pendingKeyOf({ status: null }), "");
+});
+
+test("withLocalMove: applies a pending submit stamped against the shown view, else returns status unchanged", () => {
+  const add = (game: unknown, _seat: string, move: unknown): unknown =>
+    (move as { add?: number }).add ? { n: ((game as { n?: number }).n ?? 0) + 1 } : null;
+  const submit = (turn = 3n, gen = 5n, move: unknown = { add: 1 }): PendingCall => ({
+    key: "act",
+    req: { submit: { gen, turn, move } },
+  });
+  const sim = inGame({ game: { n: 1 }, oppSubmitted: true });
+  assert.equal(withLocalMove(sim, null, add), sim);
+  assert.equal(withLocalMove(sim, submit(), undefined), sim);
+  assert.equal(withLocalMove(sim, { key: "leave", req: { leave: { gen: 5n } } }, add), sim);
+  assert.equal(withLocalMove(sim, submit(2n), add), sim, "the turn moved on");
+  assert.equal(withLocalMove(sim, submit(3n, 4n), add), sim, "the gen moved on");
+  assert.equal(withLocalMove(sim, submit(3n, 5n, { pass: null }), add), sim, "applyLocal declined");
+  const b = browsing();
+  assert.equal(withLocalMove(b, submit(), add), b);
+  const already = inGame({ youSubmitted: true });
+  assert.equal(withLocalMove(already, submit(), add), already, "the move is already in");
+
+  const s = viewOf<InGameView>(withLocalMove(sim, submit(), add), "inGame")!;
+  assert.deepEqual(s.game, { n: 2 });
+  assert.equal(s.turn, 3n);
+  assert.equal(s.youSubmitted, true);
+  assert.equal(s.oppSubmitted, true, "simultaneous: the opponent's lock-in is kept");
+
+  const alt = inGame({ mode: { alternating: null }, oppSubmitted: true, claimWinAvailable: true, secondsUntilClaimable: 0n });
+  const a = viewOf<InGameView>(withLocalMove(alt, submit(), add), "inGame")!;
+  assert.equal(a.turn, 4n);
+  assert.equal(a.youSubmitted, true);
+  assert.equal(a.oppSubmitted, false);
+  assert.equal(a.claimWinAvailable, false);
+  assert.equal(a.secondsUntilClaimable, 20n);
+
+  assert.deepEqual(pendingMoveOf(submit()), { add: 1 });
+  assert.equal(pendingMoveOf({ key: "ack", req: { ackEnded: null } }), null);
+  assert.equal(pendingMoveOf(null), null);
 });
 
 test("localSecondsLeft/localSecondsElapsed count from statusAt and never go negative", () => {

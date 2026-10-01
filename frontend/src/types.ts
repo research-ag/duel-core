@@ -159,6 +159,10 @@ export interface GamePlugin<S = unknown> {
   renderBoard(gameState: S, mySeat: SeatTag, oppSeat: SeatTag, yourTurn?: boolean): string;
   /// Called only while `mySeat` may move. May return "".
   renderActions(gameState: S, mySeat: SeatTag): string;
+  /// Optional: the board as it will look once `move` lands, drawn while
+  /// the submit is in flight; null draws the board as it is. Display only,
+  /// never sent anywhere. See `withLocalMove` in client.ts.
+  applyLocal?(gameState: S, mySeat: SeatTag, move: unknown): S | null;
   /// Optional: rules variants; the first is the default, each `key` is
   /// what the backend's `Spec.init(variant)` receives.
   variantChoices?(): { key: string; label: string }[];

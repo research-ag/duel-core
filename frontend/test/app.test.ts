@@ -449,6 +449,48 @@ test("a submit action button round-trips its data-act JSON verbatim", async () =
   assert.deepEqual(ws.requests[0]!.req, { submit: { gen: 0n, turn: 0n, move: { shoot: { power: 2 } } } });
 });
 
+test("plugin.applyLocal: the move shows as soon as it is submitted, and a rejection puts the real board back", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  const local: GamePlugin<{ n: number }> = {
+    ...plugin,
+    applyLocal: (game, _seat, move) => ((move as { add?: number }).add ? { n: game.n + 1 } : null),
+  };
+  start({ plugin: local, ws, session: defaultSession });
+  const live = (n: number, turn: bigint) =>
+    atTable({
+      inGame: {
+        mode: { alternating: null },
+        seat: { p1: null },
+        game: { n },
+        turn,
+        youSubmitted: false,
+        oppSubmitted: true,
+        gen: 1n,
+        secondsUntilIdleReset: 60n,
+        idleTimeoutSecs: 60n,
+        claimWinAvailable: false,
+        secondsUntilClaimable: 20n,
+        claimTimeoutSecs: 20n,
+      },
+    });
+  ws.onmessage!({ data: { view: live(7, 4n) } });
+
+  click(els.screen, makeButton({ act: JSON.stringify({ add: 1 }) }));
+  assert.match(els.screen.innerHTML, /n=8/);
+  assert.match(els.screen.innerHTML, /Opponent's turn/);
+  assert.match(els.screen.innerHTML, /Move <strong>6<\/strong>/);
+
+  ws.requests[0]!.resolve({ err: { illegalMove: "no" } });
+  await new Promise((r) => setImmediate(r));
+  assert.match(els.screen.innerHTML, /n=7/);
+  assert.match(els.screen.innerHTML, /Your turn/);
+
+  // null from applyLocal: the board stays as it is while in flight.
+  click(els.screen, makeButton({ act: JSON.stringify({ pass: null }) }));
+  assert.match(els.screen.innerHTML, /n=7/);
+});
+
 test("a disabled button never dispatches", async () => {
   const { start } = await import("../src/app.js");
   const { els, ws } = setup();

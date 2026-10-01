@@ -1,6 +1,7 @@
 // Proves the rock-paper-scissors bot: `chooseMove` always returns a legal
 // pick per variant (offline), and two canister-seated bots play a full real
 // match per variant through `canister_players`.
+import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Nat "mo:core/Nat";
 import Principal "mo:core/Principal";
@@ -14,11 +15,16 @@ import BotLogic "../bot/BotLogic";
 import Rules "../src/RockPaperScissorsRules";
 
 let spec = Rules.spec();
+let TIMEOUT : Int = 60_000_000_000;
+let CLAIM_TIMEOUT : Int = 15_000_000_000;
+let T0 : Int = 1_000_000_000_000;
 
-// ── 1. chooseMove always returns a legal pick, whatever the turn ───────────
+// ── 1. chooseMove always returns a legal pick, whatever the entropy, and
+//      covers the whole action set ───────────────────────────────────────────
 for (raw in ["", "well"].values()) {
   let s0 = Rules.init(raw);
-  for (turn in Nat.range(0, 6)) {
+  var seen : [Rules.Action] = [];
+  for (turn in Nat.range(0, 64)) {
     let req : TP.MoveRequest<Rules.State, Rules.Action> = {
       tableId = 0;
       seat = #p1;
@@ -32,20 +38,21 @@ for (raw in ["", "well"].values()) {
       opponentLastMove = null;
       lastRoundDurationNs = null;
     };
-    let move = BotLogic.chooseMove(req);
+    let move = BotLogic.chooseMove(req, T0 + turn * 1_000_003);
     switch (Rules.validate(s0, #p1, move)) {
       case null {};
       case (?why) Runtime.trap("chooseMove produced an illegal pick: " # why);
     };
+    if (seen.find(func(a : Rules.Action) : Bool { a == move }) == null) {
+      seen := seen.concat([move]);
+    };
   };
+  assert seen.size() == (if (raw == "") 3 else 4);
 };
-Debug.print("1. BotLogic.chooseMove always picks a legal move, in classic and well alike OK");
+Debug.print("1. BotLogic.chooseMove always picks a legal move and reaches every action, in classic and well alike OK");
 
 // ── 2/3. wired live through canister_players.mo, two canister seats play a
 //      full real #simultaneous match to a decisive finish ───────────────────
-let TIMEOUT : Int = 60_000_000_000;
-let CLAIM_TIMEOUT : Int = 15_000_000_000;
-let T0 : Int = 1_000_000_000_000;
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
@@ -57,6 +64,8 @@ func noopAfterMutation(_now : Int, _sid : TP.SessionId, _reqId : ?Nat64, _id : ?
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
 
+var entropy : Int = T0;
+
 func playFullMatch(variant : Text) : async* () {
   let reg = Registry.new<Rules.State, Rules.Action>();
   reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
@@ -65,7 +74,8 @@ func playFullMatch(variant : Text) : async* () {
     reg,
     noopAfterMutation,
     func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
-      await* k(?BotLogic.chooseMove(req));
+      entropy += 1_000_003;
+      await* k(?BotLogic.chooseMove(req, entropy));
     },
     func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
   );
@@ -101,7 +111,7 @@ func playFullMatch(variant : Text) : async* () {
     await* cp.sweep(T0);
     round += 1;
   };
-  assert not stalled; // two rule-following bots picking a fixed rotation must reach 3 round wins well within 12 rounds
+  assert not stalled; // two rule-following bots with varying entropy must reach 3 round wins well within 12 rounds
 };
 
 await* playFullMatch(""); // classic

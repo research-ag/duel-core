@@ -66,7 +66,9 @@ n)` supplying `get_leaderboard`. Filled from `Ws.attach`'s
   client: `createDuelClient({ ws, session })` owns the transport, the
   current `Status`, the one call in flight, error lifetime, the identity
   lock, and the stale-view resync, and publishes immutable `ClientState`
-  snapshots; no DOM, no HTML. `render.js` is the default UI: one pure
+  snapshots; no DOM, no HTML. Its pure `withLocalMove` overlays a
+  pending submit through the optional `GamePlugin.applyLocal`, so every
+  UI shows the player's own move before the reply. `render.js` is the default UI: one pure
   `view -> HTML` function per generic screen (lobby/staging/rematch/
   busy/debrief/...), collected in `defaultScreens`, plus
   `renderLeaderboard`/`renderBotList`/`renderSeatChoice`, which a game
@@ -105,6 +107,9 @@ the custom-UI references (every screen their own, over `client.js`
 alone; `chopsticks` is a port of an existing app's design, with an
 opponent-move replay and a client-side move history);
 `rock-paper-scissors` replaces one screen through `start({ screens })`.
+Every example but `racing` (whose 3D scene is its own) keeps the
+opponent's last move visible, debrief included, and implements
+`applyLocal`.
 All but `007` ship a `bot/` canister player; `tic-tac-toe` (`["Easy", "Hard"]`) and
 `chopsticks` (`["Bunny", "Fox", "Bear"]`) are the multi-complexity
 references. A real game lives in its own repo with the same layout —

@@ -46,6 +46,17 @@ generic chrome hides the button from the on-turn seat.
 move. `renderBoard` receives a fourth `yourTurn` argument for a game
 whose interaction lives on the board itself.
 
+Two things matter more here than in a simultaneous game, because every
+ply is a visible change. `applyLocal` (SKILL.md, Step 6) places your
+piece the instant you click; without it the board sits unchanged until
+the reply, and against a canister bot your move and the bot's answer
+land together. And the opponent's last move gets a mark: `State` rarely
+records it, so the plugin keeps the previous board and diffs (one cell
+went from empty to theirs; for checkers, an origin, a landing, and the
+captured squares), resetting to "no mark" whenever the difference isn't
+exactly one opponent move. `examples/tic-tac-toe`,
+`examples/ultimate-tic-tac-toe` and `examples/checkers` do both.
+
 A game whose moves are coordinate pairs reads better as click-to-select
 than a button list: click a piece, click a destination. The click that
 FINISHES a move is a real `<button data-act=...>` (`actionAttr()`), so

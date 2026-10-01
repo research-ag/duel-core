@@ -49,12 +49,47 @@ is forgotten:
 | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | which screen                                             | `state.status`                                                                            |
 | a call in flight (disable, spin)                         | `state.pending` (`key` names the control: `create:p1`, `act:{"pass":null}`, `rematch`, …) |
+| your move, before the reply                              | `withLocalMove(state.status, state.pending, plugin.applyLocal)` (below)                   |
 | errors, and the terminal disconnect                      | `state.error`, `state.connection === "closed"`                                            |
 | "new sid" / login / logout enabled                       | `!state.identityLocked`; call `client.regenerateSid()`/`login()`/`logout()`               |
 | countdowns between pushes                                | `localSecondsLeft(view.secondsUntilX, state.statusAt)` on a local 1 s timer               |
 | who may claim                                            | `claimRoleOf(inGame)`: `"waiting"` may, `"atRisk"` is the mirror                          |
 | submit's `gen`/`turn`                                    | stamped by the client; never send them yourself                                           |
 | a stale view (`#wrongPhase` on join, `#stale` on a move) | handled: the client refreshes silently, `reason: "stale"`                                 |
+
+## Your move at once, the opponent's move marked
+
+The default shell draws a submitted move before the engine confirms it;
+a UI of your own does the same with one pure helper:
+
+```js
+import { withLocalMove } from "duel-game-core/client.js";
+
+const shown = (state) =>
+  withLocalMove(state.status, state.pending, plugin.applyLocal.bind(plugin));
+
+client.subscribe((state, prev) => {
+  if (state.status !== prev.status || state.pending !== prev.pending) {
+    drawScreen(shown(state));
+  }
+});
+```
+
+While a `submit` is out, `shown(state)` is the in-game view with
+`applyLocal`'s board and the seat already waiting; otherwise it is
+`state.status` itself. The reply clears `pending` and lands its status in
+the same snapshot, and a rejection leaves `status` as it was, so either
+way the next draw is the real view with no flash in between. Feed the
+same shown status to anything that diffs consecutive views (a move log,
+an opponent-move replay): it then sees your ply and the opponent's as
+two steps even when the server sends both in one push.
+
+The opponent's last move stays visible on every screen that shows the
+board, the debrief included; the move that ended the game is the one
+the player most wants to see. Mark it, or replay it as an animation and
+then mark it.
+
+## Drawing the board
 
 The plugin still draws the board: `plugin.renderBoard(view.game, mySeat,
 oppSeat, yourTurn)` and `plugin.renderActions(view.game, mySeat)` return
@@ -74,7 +109,8 @@ complexities into pickable characters and calls the bot's `play` after
 state alongside the screen, an opponent-move replay that keeps drawing
 the previous `view.game` while animating the move inferred by diffing it
 against the new one (`turn` advanced by one ply; the mover is the seat
-on turn), and a move-history sidebar built from the same diffs. A
+on turn), and a move-history sidebar built from the same diffs, both
+over `withLocalMove`. A
 design that needs the last move should carry it in `State` when it can
 change the backend; the diff is the fallback when it cannot.
 

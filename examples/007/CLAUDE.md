@@ -22,7 +22,9 @@ LeaderboardActorMixin(leaderboard, 25)`). Follows
   CUSTOM-UI reference: nothing from `duel-game-core/app.js` runs here,
   and the look is its own (light paper, typewriter headings, red stamp
   buttons, a sticky sidebar). `duel007-plugin.js` is the `GamePlugin`
-  (board and action buttons); `mission-ui.js` is every screen (the lobby
+  (board and action buttons; `applyLocal` returns the state unchanged);
+  `mission-ui.js` draws through `withLocalMove`, so an order shows as
+  committed the moment it is sent, and is every screen (the lobby
   as a file index table, one "File it" form with the seat as a radio),
   the sidebar (agent identity, a channel light driven by
   `connection`/`pending`, an in-memory log of the current game's
