@@ -937,9 +937,10 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
       const res = await services.playBot(bot.principalText, staging.tableId, staging.openSeat, staging.code, bot.complexity);
       if ("err" in res) throw new Error(errText(res.err));
       // The bot's join pushes a fresh status to this connection on its own;
-      // the invite stays on screen until that status lands.
+      // the invite stays on screen until that status lands — unless it
+      // already landed while this call was in flight.
       setLastBot({ ...bot, tableId: staging.tableId });
-      pendingBotInvite = { bot, stage: "joining" };
+      pendingBotInvite = stagingOf(client.getState().status) !== null ? { bot, stage: "joining" } : null;
     } catch (e) {
       client.showError(e && e.message ? e.message : String(e));
       pendingBotInvite = null;
@@ -1196,6 +1197,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     note.textContent = reason ?? "";
     const confirm = overlay.querySelector("#split-confirm");
     confirm.disabled = reason !== null;
+    confirm.dataset.naturallyOff = reason !== null ? "1" : "0";
     confirm.dataset.l = split.left;
     confirm.dataset.r = right;
     confirm.dataset.key = `act:${JSON.stringify({ split: { l: split.left, r: right } })}`;

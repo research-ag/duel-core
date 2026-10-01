@@ -603,6 +603,7 @@ persistent actor {
   renderer.addValue(pt.toValue());
 
   let registry = Registry.new<Rules.State, Rules.Action>(90_000_000_000, 60_000_000_000);
+  registry.setTimeouts(90_000_000_000, 60_000_000_000);
   registry.attachMetrics(pt);
   // ...
   include Http(renderer.renderExposition, "/metrics");
