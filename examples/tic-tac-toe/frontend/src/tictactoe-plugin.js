@@ -1,6 +1,7 @@
 // GamePlugin for tic-tac-toe. Candid shapes mirror ../src/TicTacToeRules.mo.
-// Every empty cell is a `data-act` button while it is your turn. The
-// opponent's last mark is highlighted by diffing consecutive boards.
+// Every empty cell is a `data-act` button while it is your turn; your mark
+// shows the moment you click (`applyLocal`). The opponent's last mark is
+// highlighted by diffing consecutive boards.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -74,5 +75,13 @@ export const plugin = {
 
   renderActions() {
     return "";
+  },
+
+  applyLocal(gameState, mySeat, move) {
+    const at = move.place.at;
+    if (markAt(gameState.board, at) !== null) return null;
+    const board = gameState.board.slice();
+    board[at] = [{ [mySeat]: null }];
+    return { ...gameState, board };
   },
 };

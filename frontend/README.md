@@ -53,9 +53,11 @@ const plugin = {
   },
 
   // Board markup from `mySeat`'s point of view. Called for a live game
-  // and for a debrief's final state. `yourTurn` (true/false live,
-  // undefined in a debrief) is for a game whose interaction lives on the
-  // board itself; a plugin with a separate action panel can ignore it.
+  // and for a debrief's final state, and must show the opponent's most
+  // recent move in both (see "Showing moves"). `yourTurn` (true/false
+  // live, undefined in a debrief) is for a game whose interaction lives
+  // on the board itself; a plugin with a separate action panel can
+  // ignore it.
   renderBoard(gameState, mySeat, oppSeat, yourTurn) {
     return `<pre>${JSON.stringify(gameState, null, 2)}</pre>`;
   },
@@ -65,6 +67,13 @@ const plugin = {
   // submit any Action shape as-is.
   renderActions(gameState, mySeat) {
     return `<button ${actionAttr({ pass: null })}>Pass</button>`;
+  },
+
+  // Optional: `gameState` with `mySeat`'s `move` applied, drawn while the
+  // submit is in flight; null draws the board as it is. A cosmetic mirror
+  // of `resolve` (see "Showing moves").
+  applyLocal(gameState, mySeat, move) {
+    return { ...gameState, passes: gameState.passes + 1 };
   },
 
   // Optional: render a leaderboard `score` (bigint). Default is the plain
@@ -93,6 +102,31 @@ Only `renderBoard`/`renderActions` return game markup. Everything else
 rematch/leave/forfeit buttons, claim-win controls) is the default chrome
 driven by `InGameView`, replaceable per screen (below) or wholesale
 ("The headless client").
+
+## Showing moves
+
+Two things a player must always see, whatever the UI:
+
+- **The opponent's most recent move**, on the live board and on the
+  debrief. The game's last move is on screen when the debrief replaces
+  the board, so a debrief that drops the board (a custom one showing
+  only a score) drops it too. Mark it on the board (a highlighted cell,
+  the origin and landing of a piece, captured pieces as ghosts), replay
+  it as an animation, or show both picks of the last round. When `State`
+  carries no record of the last move, diff consecutive `game`s in the
+  plugin; `examples/tic-tac-toe`, `checkers` and `chopsticks` do.
+- **Your own move, at once.** A submit is a round trip, and against a
+  canister bot your move's view often arrives together with the bot's
+  reply. With `applyLocal`, `start()` draws the in-game screen from
+  `withLocalMove(status, pending, plugin.applyLocal)` while the submit is
+  out: the board with your move applied and the seat already waiting
+  (for `#alternating`, the opponent on turn and the turn counter
+  advanced). The reply, a later push, or a rejection (which leaves
+  `status` untouched) puts the real view back in the same frame. A
+  `#simultaneous` game whose hidden pick changes nothing visible returns
+  `gameState` as-is, which still flips the screen to "locked in".
+  `applyLocal` mirrors `resolve` the way move highlighting mirrors
+  `validate`: purely cosmetic, never sent, and `validate` still decides.
 
 ## Wiring it up
 
@@ -194,7 +228,8 @@ by using the same hooks the defaults do:
 
 `confirm` (`(msg) => Promise<boolean>`) and `promptCode` (`() =>
 Promise<string>`, resolving `null` to cancel) replace the two overlays the
-same way. `examples/rock-paper-scissors` replaces its debrief this way.
+same way. `examples/rock-paper-scissors` replaces its debrief this way,
+keeping the final round's two picks on it.
 
 ## The headless client
 
@@ -244,7 +279,17 @@ UI's own messages on the same lifetime. `login()`, `logout()`,
 Selectors, all pure: `viewTagOf(status)`, `viewOf(status, "inGame")`,
 `isSeated`, `genOf`, `turnOf`, `claimRoleOf(inGame)` (`"waiting"` may
 claim, `"atRisk"` is the mirror), `oppSeatOf`, `localSecondsLeft`,
-`localSecondsElapsed`, `pendingKeyOf(req)`, plus `tag`/`val`/`errText`.
+`localSecondsElapsed`, `pendingKeyOf(req)`, `pendingMoveOf(pending)`,
+`withLocalMove(status, pending, applyLocal)`, plus `tag`/`val`/`errText`.
+
+A custom UI shows its own move at once the way `start()` does: draw from
+`withLocalMove(state.status, state.pending, plugin.applyLocal)` and redraw
+when `status` or `pending` changes. The reply clears `pending` and lands
+its `status` in one snapshot, so the board never flashes back to the
+pre-move position. Anything derived from consecutive views (a move log,
+an opponent-move replay) should read the same local status: it then sees
+your move and the opponent's as two steps even when the server delivers
+both in one push.
 `render.js`'s text helpers (`debriefVerdict`, `opponentStatusText`, the
 warning thresholds and texts) are pure too and free to reuse or ignore.
 
@@ -253,7 +298,8 @@ alert bar, two native `<dialog>`s, and its own stylesheet, over nothing
 but `client.js`, the plugin, and `renderLeaderboard`. `examples/chopsticks`
 is the second: an existing app's design (opponent and rules pickers,
 modal dialogs, an opponent-move replay driven by diffing consecutive
-`view.game`s, a move-history sidebar) over the same client.
+`view.game`s, a move-history sidebar, all over `withLocalMove`) over the
+same client.
 
 ## Real-time push
 
@@ -434,7 +480,7 @@ on icp.net, `icp-api.io` as a last resort). `start()` never calls them.
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})`, `buildBotPlayIdlFactory({IDL})`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `render.js`               | `renderStatus(status, plugin, screens?)`, `renderView`, `defaultScreens`, `resolveScreens`, one `render*` per screen (`renderBrowsing`, `renderTableRow`, `renderLobby`, `renderBusy`, `renderStagingYou`, `renderAwaitingRematch`, `renderInGame`, `renderDebrief`, `renderEndedByOther`, `renderConnecting`, `renderTableBadge`), `debriefVerdict`, `opponentStatusText`, `renderLeaderboard(entries, plugin, opts?)`, `renderBotList`, `renderSeatChoice`, `playerKeyOf`, `isCanisterPlayer`, `parseCanisterPlayer`, `botDisplayName`, `displayPlayerId`, `DEFAULT_BOT_COMPLEXITY`, `errText`, `actionAttr`, `tag`, `val`, `esc` |
-| `client.js`               | `createDuelClient({ ws, session, errorTtlMs? })` -> `DuelClient`; `viewTagOf`, `viewOf`, `isSeated`, `genOf`, `turnOf`, `claimRoleOf`, `oppSeatOf`, `localSecondsLeft`, `localSecondsElapsed`, `pendingKeyOf`, `deepEqual`, `tag`, `val`, `errText`                                                                                                                                                                                                                                                                                                                                                                                 |
+| `client.js`               | `createDuelClient({ ws, session, errorTtlMs? })` -> `DuelClient`; `viewTagOf`, `viewOf`, `isSeated`, `genOf`, `turnOf`, `claimRoleOf`, `oppSeatOf`, `localSecondsLeft`, `localSecondsElapsed`, `pendingKeyOf`, `pendingMoveOf`, `withLocalMove`, `deepEqual`, `tag`, `val`, `errText`                                                                                                                                                                                                                                                                                                                                               |
 | `app.js`                  | `start({ plugin, ws, session, screens?, confirm?, promptCode?, errorTtlMs?, ...elIds })` -> `DuelClient`; `buttonKey`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)`; depends on `@icp-sdk/auth`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX`; depends only on `@icp-sdk/core/identity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |

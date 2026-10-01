@@ -10,7 +10,7 @@ import { connectWs } from "duel-game-core/ws.js";
 import { resolveIdentity } from "duel-game-core/identity.js";
 import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
 import { debriefVerdict, errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag } from "duel-game-core/render.js";
-import { plugin } from "./rps-plugin.js";
+import { plugin, renderLastRound } from "./rps-plugin.js";
 
 const env = readIcEnv();
 const canisterId = env["PUBLIC_CANISTER_ID:backend"];
@@ -38,8 +38,8 @@ const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
 const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
 
-// The debrief is this game's own: a final scoreline instead of the
-// generic verdict banner. Every other screen stays the default.
+// The debrief is this game's own: a final scoreline and the deciding
+// round instead of the generic board. Every other screen stays the default.
 function renderRpsDebrief(v, p) {
   const me = tag(v.seat);
   const opp = me === "p1" ? "p2" : "p1";
@@ -52,6 +52,7 @@ function renderRpsDebrief(v, p) {
       <span class="vs">–</span>
       <span class="rps-final-opp">${score(opp)}</span>
     </p>
+    ${renderLastRound(v.finalGame, me, opp)}
     <p class="muted">${v.turns} round${v.turns === 1n ? "" : "s"} of ${esc(p.formatVariant(Object.keys(v.finalGame.variant)[0]))}.</p>
     <p>
       <button data-rematch class="primary">Play again</button>

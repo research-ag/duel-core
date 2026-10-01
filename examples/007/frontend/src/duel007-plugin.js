@@ -132,6 +132,12 @@ export const plugin = {
       </div>`;
   },
 
+  // An order changes nothing visible until the round resolves; returning
+  // the state as-is shows it committed the moment it is sent.
+  applyLocal(gameState) {
+    return gameState;
+  },
+
   renderActions(gameState, mySeat) {
     const me = gameState[mySeat];
     return ACTIONS.map((a) => {

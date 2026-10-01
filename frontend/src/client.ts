@@ -171,6 +171,43 @@ export interface PendingCall {
   req: WsRequest;
 }
 
+/// The move a pending `submit` carries, or null for any other call.
+export function pendingMoveOf<A = unknown>(pending: PendingCall | null): A | null {
+  return pending !== null && "submit" in pending.req ? (pending.req.submit.move as A) : null;
+}
+
+/// `status` as it will look once the pending `submit` lands: the board
+/// through `applyLocal`, and the seat flipped to waiting. Unchanged when
+/// nothing is pending, `applyLocal` returns null, or `status` already moved
+/// past the view the move was stamped against (gen/turn changed, or the
+/// move is already in). Display only — calls keep reading the real status.
+/// See ../README.md, "Showing moves".
+export function withLocalMove<S, A = unknown>(
+  status: Status<S> | null,
+  pending: PendingCall | null,
+  applyLocal: ((gameState: S, mySeat: SeatTag, move: A) => S | null) | undefined,
+): Status<S> | null {
+  if (!applyLocal || pending === null || !("submit" in pending.req)) return status;
+  const at = atTableOf(status);
+  const v = viewOf<InGameView<S>>(status, "inGame");
+  if (at === null || v === null || v.youSubmitted) return status;
+  const { gen, turn, move } = pending.req.submit;
+  if (v.gen !== gen || v.turn !== turn) return status;
+  const game = applyLocal(v.game, tag(v.seat) as SeatTag, move as A);
+  if (game === null) return status;
+  const alternating = "alternating" in v.mode;
+  const local: InGameView<S> = {
+    ...v,
+    game,
+    turn: alternating ? v.turn + 1n : v.turn,
+    youSubmitted: true,
+    oppSubmitted: alternating ? false : v.oppSubmitted,
+    claimWinAvailable: false,
+    secondsUntilClaimable: v.claimTimeoutSecs,
+  };
+  return { atTable: { id: at.id, view: { inGame: local } } };
+}
+
 export interface ClientState<S = unknown> {
   connection: Connection;
   /// The last status received; `null` until the first one lands.
@@ -421,9 +458,15 @@ export function createDuelClient<S = unknown, A = unknown>({
   function settleCall(req: WsRequest, payload: WsPayload<S>): CallOutcome<S> {
     const outcome = outcomeOf(req, payload);
     const isCurrent = state.pending !== null && state.pending.req === req;
-    if (isCurrent) setState({ pending: null });
-    if (outcome.ok) setStatus(outcome.view);
-    else if (outcome.reason === "stale") {
+    // One snapshot: a board drawn with the move applied locally goes
+    // straight to the reply's, never back through the pre-move one.
+    const patch: Partial<ClientState<S>> = isCurrent ? { pending: null } : {};
+    if (outcome.ok && !deepEqual(outcome.view, state.status)) {
+      Object.assign(patch, { status: outcome.view, statusAt: Date.now() });
+    }
+    setState(patch);
+    if (outcome.ok) return outcome;
+    if (outcome.reason === "stale") {
       if (isCurrent) refresh();
     } else if (outcome.reason === "rejected") {
       if (isCurrent) showError(outcome.message);

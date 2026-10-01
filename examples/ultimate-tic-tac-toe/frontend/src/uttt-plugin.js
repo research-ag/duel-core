@@ -1,7 +1,9 @@
 // GamePlugin for ultimate tic-tac-toe. Candid shapes mirror
 // ../src/UltimateTicTacToeRules.mo. Every empty cell of a currently
-// playable local board is a `data-act` button while it is your turn. The
-// opponent's last mark is highlighted by diffing consecutive boards.
+// playable local board is a `data-act` button while it is your turn; your
+// mark, a local board it decides, and the routing show the moment you click
+// (`applyLocal`, mirroring `resolve`). The opponent's last mark is
+// highlighted by diffing consecutive boards.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -14,6 +16,17 @@ function decodeOptTag(opt) {
 function decodeOptNat(opt) {
   return opt && opt.length ? Number(opt[0]) : null;
 }
+
+const LINES = [
+  [0, 1, 2],
+  [3, 4, 5],
+  [6, 7, 8],
+  [0, 3, 6],
+  [1, 4, 7],
+  [2, 5, 8],
+  [0, 4, 8],
+  [2, 4, 6],
+];
 
 let lastCellsKey = null;
 let prevCells = null;
@@ -107,5 +120,18 @@ export const plugin = {
 
   renderActions() {
     return "";
+  },
+
+  applyLocal(gameState, mySeat, move) {
+    const { board, cell } = move.place;
+    const cells = gameState.cells.slice();
+    cells[board * 9 + cell] = [{ [mySeat]: null }];
+    const local = cells.slice(board * 9, board * 9 + 9).map(decodeOptTag);
+    const won = LINES.some((line) => line.every((i) => local[i] === mySeat));
+    const result = won ? mySeat : local.every((m) => m !== null) ? "tie" : null;
+    const results = gameState.results.slice();
+    if (result) results[board] = [{ [result]: null }];
+    const activeBoard = results[cell].length ? [] : [BigInt(cell)];
+    return { cells, results, activeBoard };
   },
 };

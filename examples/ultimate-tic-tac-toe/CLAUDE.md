@@ -31,7 +31,9 @@ board*9 + cell); results (per local board: #p1/#p2/#tie); activeBoard :
   overlay mark (`.uttt-board-won`); every playable empty cell is a
   `data-act` button (`actionAttr({ place: { board, cell } })`); the
   opponent's last mark (`.uttt-last`) comes from diffing consecutive
-  `cells`. `renderActions` returns `""`. `app.js` matches `examples/tic-tac-toe`.
+  `cells`. `applyLocal` mirrors `resolve` (your mark, a local board it
+  decides, the next routing) while the move is in flight. `renderActions`
+  returns `""`. `app.js` matches `examples/tic-tac-toe`.
 
 ## Toolchain / Build & test
 

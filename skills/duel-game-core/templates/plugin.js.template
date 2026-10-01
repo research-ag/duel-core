@@ -1,6 +1,7 @@
 // GamePlugin for __GAME_TITLE__ — the only game-specific client code.
 // Action/State must mirror ../src/__RULES_MODULE__.mo exactly. `legal()`
-// is a cosmetic echo of that module's `validate`.
+// is a cosmetic echo of that module's `validate`, `applyLocal` of its
+// `resolve`.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -42,7 +43,8 @@ export const plugin = {
     return SEAT_NAME[seat];
   },
 
-  // Called for a live game and for a debrief's final state.
+  // Called for a live game and for a debrief's final state. Must show
+  // the opponent's last move in both; here, `lastRound`'s two picks.
   renderBoard(gameState, mySeat, oppSeat) {
     return `<pre>${esc(JSON.stringify(gameState, (_, v) =>
       typeof v === "bigint" ? v.toString() : v, 2))}</pre>`;
@@ -59,6 +61,14 @@ export const plugin = {
           <span class="hint">${esc(a.hint)}</span>
         </button>`;
     }).join("");
+  },
+
+  // The state as it will look once mySeat's move lands, drawn while the
+  // submit is in flight. A hidden simultaneous pick changes nothing
+  // visible, so the state comes back as-is (the screen still flips to
+  // "locked in" at once); a board game places the piece here.
+  applyLocal(gameState, mySeat, move) {
+    return gameState;
   },
 
   // Optional — only for a leaderboard storing a converted score (an ELO

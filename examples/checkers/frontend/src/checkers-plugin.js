@@ -9,6 +9,7 @@
 // is flipped for Red so each player sees their own side at the bottom.
 // The opponent's last move (origin, landing, captured pieces) is
 // highlighted by diffing consecutive boards; State carries no move history.
+// Your own move shows the moment you submit it (`applyLocal`).
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -312,5 +313,24 @@ export const plugin = {
 
   renderActions() {
     return "";
+  },
+
+  // Mirrors `resolve`: every two-square leg clears its victim, and a man
+  // landing on the far row is crowned.
+  applyLocal(gameState, mySeat, move) {
+    const steps = ("move" in move ? [move.move.from, move.move.to] : move.jump.path).map(Number);
+    const tag = pieceTagAt(gameState.board, steps[0]);
+    if (tag === null) return null;
+    let board = gameState.board;
+    for (let k = 0; k + 1 < steps.length; k++) {
+      const a = steps[k];
+      const b = steps[k + 1];
+      const jumped = Math.abs(rowOf(b) - rowOf(a)) === 2 ? idx((rowOf(a) + rowOf(b)) / 2, (colOf(a) + colOf(b)) / 2) : undefined;
+      board = withMove(board, a, b, tag, jumped);
+    }
+    const land = steps[steps.length - 1];
+    const backRow = mySeat === "p1" ? 0 : SIZE - 1;
+    if (!isKingTag(tag) && rowOf(land) === backRow) board[land] = [{ [tag.replace("man", "king")]: null }];
+    return { ...gameState, board };
   },
 };

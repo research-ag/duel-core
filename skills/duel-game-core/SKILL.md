@@ -96,7 +96,10 @@ Read the rules fully, then answer:
 damage : Nat } }`. Client input is untrusted. This is the single most
    common mistake when porting an existing game.
 3. **What persists in `State` across rounds?** Only what future rounds
-   need. A `lastRound : ?Round` field is optional and cheap narration.
+   need, plus whatever the client needs to show the opponent's last move
+   (Step 6). A `#simultaneous` game whose state doesn't reveal both
+   picks (rock-paper-scissors) carries a `lastRound : ?Round`; a board
+   game can leave it out, since the plugin can diff two boards.
 4. **What ends the game?** Map every win/lose/draw to `resolve`'s
    `verdict : ?TP.Verdict` (`#p1Wins`/`#p2Wins`/`#draw`). `null` means
    "continue", not "draw".
@@ -383,10 +386,22 @@ From `templates/plugin.js.template`, write `frontend/src/<game>-plugin.js`:
   `Nat`/`Int` decode to `bigint`; a tuple decodes to an array.
 - `seatLabel(seat)`.
 - `renderBoard(gameState, mySeat, oppSeat)` — an HTML string, valid for
-  a live game and a debrief. `esc()` any text from game state.
+  a live game and a debrief. `esc()` any text from game state. It must
+  show the opponent's most recent move, live and in the debrief: a
+  highlighted cell, a piece's origin and landing, captured pieces as
+  ghosts, or both picks of the last round. Without `lastRound` in
+  `State`, find the move by diffing the board against the previous one
+  the plugin saw (`examples/tic-tac-toe`, `examples/checkers`).
 - `renderActions(gameState, mySeat)` — one `<button>` per action via
   `actionAttr()`. Disable via a cosmetic `legal()` mirror of `validate`;
   the engine still runs the real one.
+- `applyLocal(gameState, mySeat, move)` — the state with the player's
+  own move applied, a cosmetic mirror of `resolve` (for
+  `#alternating`, the board after the move; for `#simultaneous`,
+  usually `gameState` unchanged). The default UI draws it the moment the
+  move is sent, so a player never stares at an unchanged board while the
+  submit, or a bot's reply, is in flight. Return `null` only for a move
+  you can't predict. Write it for every game.
 - `formatScore(score)` — only for a converted-metric leaderboard.
 - `variantChoices()`/`formatVariant(variant)` — only with variants; the
   first choice is the default, each `key` is what `init` receives.
@@ -406,10 +421,12 @@ no CDN or import map. For Internet Identity login, swap
 `view -> HTML` functions), `confirm`, and `promptCode`. Reach for
 `screens` when the user wants a screen in the game's own voice (a themed
 debrief, a lobby with its own layout) but the interaction model is still
-buttons and text. If the UI genuinely doesn't fit that (canvas, 3D, drag
-and drop, a framework client, its own lobby), read
+buttons and text. A replaced `debrief` still draws the final board
+(or at least the final round): the move that ended the game is the one
+the player most wants to see. If the UI genuinely doesn't fit that
+(canvas, 3D, drag and drop, a framework client, its own lobby), read
 `references/rich-ui.md` before writing `app.js`: it covers binding
-`createDuelClient()` directly.
+`createDuelClient()` directly, including showing your own move at once.
 
 ## Step 7 — Project/deploy config
 
@@ -436,8 +453,10 @@ step.
 
 Then play both seats in two browser tabs: create a table in one, join
 from the other, and confirm a round resolves and the debrief/rematch loop
-works. Tests passing and the frontend building are necessary, not
-sufficient.
+works. Check that your move appears the instant you click, that the
+opponent's move is marked when it lands, and that the debrief still
+shows the final move. Tests passing and the frontend building are
+necessary, not sufficient.
 
 ## Common pitfalls
 
@@ -446,7 +465,11 @@ sufficient.
 - **Never let a client value stand in for something `resolve` should
   compute** (Step 2, point 2).
 - **`validate` is the only legality gate.** If the plugin's `legal()`
-  disagrees, the plugin has a cosmetic bug.
+  disagrees, the plugin has a cosmetic bug; so does an `applyLocal` that
+  disagrees with `resolve`.
+- **Never hide the last move.** A debrief showing only a verdict or a
+  score, or a board with no mark on what the opponent just did, leaves
+  the player guessing what happened.
 - **No engine bookkeeping in `State`.** A timestamp or "waiting for
   opponent" flag in your state means the design drifted from "just the
   rules".

@@ -7,7 +7,7 @@
 // chopsticks-plugin.js's. See ../../../../frontend/README.md, "The
 // headless client".
 
-import { atTableOf, claimRoleOf, errText, localSecondsElapsed, localSecondsLeft, oppSeatOf, tag, viewOf } from "duel-game-core/client.js";
+import { atTableOf, claimRoleOf, errText, localSecondsElapsed, localSecondsLeft, oppSeatOf, tag, viewOf, withLocalMove } from "duel-game-core/client.js";
 import { esc, isCanisterPlayer, parseCanisterPlayer, playerKeyOf, truncatePlayerId } from "duel-game-core/render.js";
 import { HAND_NAME, RULE_SETS, SEAT_NAME, SIDES, canSplit, handsOf, hit, renderHands, ruleSetOf, splitReason, splitValid, variantOf } from "./chopsticks-plugin.js";
 
@@ -884,6 +884,8 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
       split = null;
       return;
     }
+    // A rejected move takes back the ply `applyLocal` showed.
+    if (turn <= history.turn) history.moves = history.moves.filter((m) => m.ply < turn);
     if (turn === history.turn + 1n) {
       const move = inferMove(history.game, game, history.turn);
       history.moves.push({ ...move, you: move.mover === me, before: snapshot(history.game, me), after: snapshot(game, me) });
@@ -1251,7 +1253,15 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
 
   // The friend-table options are live input; keep them across an
   // unrelated redraw (another table appearing in the lobby).
-  function redraw(state) {
+  // The client's state with the move in flight already applied
+  // (`plugin.applyLocal`): what every screen, the history and the replay see.
+  function shown(state) {
+    const status = withLocalMove(state.status, state.pending, plugin.applyLocal.bind(plugin));
+    return status === state.status ? state : { ...state, status };
+  }
+
+  function redraw(rawState) {
+    const state = shown(rawState);
     const seat = overlay.querySelector('input[name="op-seat"]:checked')?.value;
     const coded = overlay.querySelector('input[name="op-visibility"][value="code"]')?.checked ?? false;
     const code = overlay.querySelector("#op-code")?.value ?? "";
@@ -1285,11 +1295,16 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
   }
 
   if (!storageGet(TUTORIAL_KEY)) tutorial = { step: 0 };
+  let lastShown = shown(client.getState()).status;
   onStatus(client.getState());
   redraw(client.getState());
   syncIdentity(client.getState());
   client.subscribe((state, prev) => {
-    if (state.status !== prev.status) onStatus(state);
+    if (state.status !== prev.status || state.pending !== prev.pending) {
+      const display = shown(state);
+      if (display.status !== lastShown) onStatus(display);
+      lastShown = display.status;
+    }
     if (state.status !== prev.status || state.pending !== prev.pending) redraw(state);
     else syncButtons(state);
     document.body.classList.toggle("working", state.pending !== null);

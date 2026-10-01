@@ -50,7 +50,7 @@ depth`, live-hands heuristic — depth-limited because the position graph
   alone: nothing from `duel-game-core/app.js` or its stylesheet runs
   here. `chopsticks-plugin.js` is the `GamePlugin` (Candid types,
   `variantChoices()` Classic first, `formatVariant()`, `renderBoard`/
-  `renderActions`) plus what the UI shares with it: `renderHands`/
+  `renderActions`, `applyLocal` mirroring `resolve`) plus what the UI shares with it: `renderHands`/
   `handCard` (the finger-emoji hand cards with selection, last-moved,
   targetable and replay states) and the cosmetic rules mirrors `hit`,
   `splitValid`, `canSplit`, `splitReason`. `chopsticks-ui.js` is every
@@ -72,7 +72,10 @@ depth`, live-hands heuristic — depth-limited because the position graph
   sidebar (2×2 grids with arrows and after-value badges) is derived
   client-side by diffing consecutive positions — `State` carries no
   history, so it starts empty on reload, and an attacker hand that
-  equals its sibling is named left. The W/L/D record strip is per
+  equals its sibling is named left. Screens, history and replay all read
+  `withLocalMove`'s status, so your move shows at once and a reply that
+  carries the bot's answer too still replays it as its own ply; a
+  rejected move drops the local ply from the history. The W/L/D record strip is per
   identity in `localStorage` (the backend keeps ELO only). `app.js`
   builds the actor, `connectWs()`, the client, and a `services` object
   (`get_leaderboard`, `list_bots`, the bot's `play`) the UI reads

@@ -29,10 +29,12 @@ purely in `validate`. Not part of either package.
 - **`icp.yaml`** — `backend`, `bot`, `frontend/dist`.
 - **`frontend/`** — `rps-plugin.js`: scoreboard, last round's picks, three
   or four emoji buttons depending on `gameState.variant`, plus
-  `variantChoices()`/`formatVariant()`. `app.js` matches
+  `variantChoices()`/`formatVariant()`; `applyLocal` returns the state
+  unchanged, so a pick shows as locked in at once. `app.js` matches
   `examples/checkers` (its Challenge flow sends `variant: ""`) and is
   the `start({ screens })` reference: `renderRpsDebrief` replaces the
-  debrief with a final scoreline (via `debriefVerdict`) while keeping
+  debrief with a final scoreline (via `debriefVerdict`) and the deciding
+  round's picks (`renderLastRound`, shared with the plugin) while keeping
   the default `data-rematch`/`data-leave` hooks.
 
 ## Toolchain / Build & test

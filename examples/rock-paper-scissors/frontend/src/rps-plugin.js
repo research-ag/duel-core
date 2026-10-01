@@ -1,6 +1,7 @@
 // GamePlugin for rock-paper-scissors. Candid shapes mirror
 // ../src/RockPaperScissorsRules.mo. The WELL button renders only when the
-// live game state says `variant: well`.
+// live game state says `variant: well`. The last round's two picks stay on
+// screen through the debrief (`renderLastRound`).
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -18,6 +19,21 @@ const VARIANT_LABEL = { classic: "Classic — 🪨📄✂️", well: "Well — �
 
 function variantOf(gameState) {
   return Object.keys(gameState.variant)[0];
+}
+
+/// Both picks of the most recent round, or "" before the first one. Also
+/// drawn by app.js's debrief, so the deciding round stays on screen.
+export function renderLastRound(gameState, mySeat, oppSeat) {
+  const last = gameState.lastRound[0];
+  if (!last) return "";
+  const myAction = Object.keys(mySeat === "p1" ? last.p1Action : last.p2Action)[0];
+  const oppAction = Object.keys(oppSeat === "p1" ? last.p1Action : last.p2Action)[0];
+  return `
+    <div class="rps-last-round">
+      <span title="${esc(myAction)}">${GLYPH[myAction]}</span>
+      <span class="vs">vs</span>
+      <span title="${esc(oppAction)}">${GLYPH[oppAction]}</span>
+    </div>`;
 }
 
 export const plugin = {
@@ -67,20 +83,17 @@ export const plugin = {
         <span>Opponent: ${opp}</span>
       </div>`;
 
-    const last = gameState.lastRound[0];
-    if (!last) {
+    const lastRoundHtml = renderLastRound(gameState, mySeat, oppSeat);
+    if (!lastRoundHtml) {
       return `${scoreboard}<p class="muted" style="text-align:center">No rounds played yet.</p>`;
     }
-    const myAction = Object.keys(mySeat === "p1" ? last.p1Action : last.p2Action)[0];
-    const oppAction = Object.keys(oppSeat === "p1" ? last.p1Action : last.p2Action)[0];
-    const lastRoundHtml = `
-      <div class="rps-last-round">
-        <span title="${esc(myAction)}">${GLYPH[myAction]}</span>
-        <span class="vs">vs</span>
-        <span title="${esc(oppAction)}">${GLYPH[oppAction]}</span>
-      </div>`;
-
     return `${scoreboard}${lastRoundHtml}`;
+  },
+
+  // Nothing about a hidden pick changes the board; returning it as-is
+  // still flips the screen to "locked in" the moment you click.
+  applyLocal(gameState) {
+    return gameState;
   },
 
   renderActions(gameState, mySeat) {

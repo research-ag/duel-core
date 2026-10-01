@@ -230,4 +230,16 @@ export const plugin = {
       .map((s) => `<button ${actionAttr({ split: { l: s.l, r: s.r } })}>${s.l} · ${s.r}</button>`)
       .join("");
   },
+
+  // Mirrors `resolve`, so your move is on the board while it is in flight.
+  applyLocal(gameState, mySeat, move) {
+    const nat = (h) => ({ l: BigInt(h.l), r: BigInt(h.r) });
+    if ("split" in move) return { ...gameState, [mySeat]: nat(move.split) };
+    const opp = mySeat === "p1" ? "p2" : "p1";
+    const from = Object.keys(move.attack.from)[0];
+    const to = Object.keys(move.attack.to)[0];
+    const theirs = handsOf(gameState, opp);
+    theirs[to] = hit(variantOf(gameState), theirs[to], handsOf(gameState, mySeat)[from]);
+    return { ...gameState, [opp]: nat(theirs) };
+  },
 };

@@ -26,7 +26,8 @@ reference for a bot with two complexities. Not part of either package.
 - **`frontend/`** — `tictactoe-plugin.js`: every empty cell is a `data-act`
   button while `yourTurn`, otherwise a plain `<div>`; the opponent's last
   mark (`.ttt-last`) is found by diffing consecutive boards, since `State`
-  has no move history; `renderActions` returns `""`. `app.js` matches `examples/checkers`.
+  has no move history; `applyLocal` places your mark the moment you
+  click; `renderActions` returns `""`. `app.js` matches `examples/checkers`.
 
 ## Toolchain / Build & test
 
