@@ -1161,7 +1161,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
       mode = "idle";
       selected = null;
       void client.submit(JSON.parse(b.dataset.act));
-      redraw(state);
+      redraw(client.getState());
       return;
     }
     if (b.dataset.hand !== undefined) {
