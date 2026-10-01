@@ -29,8 +29,9 @@ board*9 + cell); results (per local board: #p1/#p2/#tie); activeBoard :
 - **`frontend/`** — `uttt-plugin.js`: nine `.uttt-local-board` panels,
   playable boards outlined (`.uttt-active`), decided boards faded with an
   overlay mark (`.uttt-board-won`); every playable empty cell is a
-  `data-act` button (`actionAttr({ place: { board, cell } })`).
-  `renderActions` returns `""`. `app.js` matches `examples/tic-tac-toe`.
+  `data-act` button (`actionAttr({ place: { board, cell } })`); the
+  opponent's last mark (`.uttt-last`) comes from diffing consecutive
+  `cells`. `renderActions` returns `""`. `app.js` matches `examples/tic-tac-toe`.
 
 ## Toolchain / Build & test
 

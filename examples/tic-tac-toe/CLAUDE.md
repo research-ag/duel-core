@@ -24,8 +24,9 @@ reference for a bot with two complexities. Not part of either package.
   different complexities through real plies).
 - **`icp.yaml`** — `backend`, `bot`, `frontend/dist`.
 - **`frontend/`** — `tictactoe-plugin.js`: every empty cell is a `data-act`
-  button while `yourTurn`, otherwise a plain `<div>`; `renderActions`
-  returns `""`. `app.js` matches `examples/checkers`.
+  button while `yourTurn`, otherwise a plain `<div>`; the opponent's last
+  mark (`.ttt-last`) is found by diffing consecutive boards, since `State`
+  has no move history; `renderActions` returns `""`. `app.js` matches `examples/checkers`.
 
 ## Toolchain / Build & test
 

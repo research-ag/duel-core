@@ -1,6 +1,7 @@
 // GamePlugin for ultimate tic-tac-toe. Candid shapes mirror
 // ../src/UltimateTicTacToeRules.mo. Every empty cell of a currently
-// playable local board is a `data-act` button while it is your turn.
+// playable local board is a `data-act` button while it is your turn. The
+// opponent's last mark is highlighted by diffing consecutive boards.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -12,6 +13,25 @@ function decodeOptTag(opt) {
 }
 function decodeOptNat(opt) {
   return opt && opt.length ? Number(opt[0]) : null;
+}
+
+let lastCellsKey = null;
+let prevCells = null;
+let oppLast = null; // flat index b * 9 + c, or null
+
+// The one cell the opponent just marked, or null when the boards differ
+// in any other way (own move, new game, missed pushes).
+function diffOppMark(before, after, oppSeat) {
+  if (!before || before.length !== after.length) return null;
+  let at = null;
+  for (let i = 0; i < after.length; i++) {
+    const a = decodeOptTag(before[i]);
+    const b = decodeOptTag(after[i]);
+    if (a === b) continue;
+    if (a !== null || b !== oppSeat || at !== null) return null;
+    at = i;
+  }
+  return at;
 }
 
 function drawBoard(state, yourTurn) {
@@ -27,7 +47,8 @@ function drawBoard(state, yourTurn) {
     for (let c = 0; c < 9; c++) {
       const mark = decodeOptTag(state.cells[b * 9 + c]);
       if (mark) {
-        cells += `<div class="uttt-cell uttt-mark-${mark}">${GLYPH[mark]}</div>`;
+        const last = b * 9 + c === oppLast ? " uttt-last" : "";
+        cells += `<div class="uttt-cell uttt-mark-${mark}${last}">${GLYPH[mark]}</div>`;
       } else if (yourTurn && isRoutedHere) {
         cells += `<button type="button" class="uttt-cell uttt-empty" ${actionAttr({ place: { board: b, cell: c } })} title="board ${b + 1}, cell ${c + 1}"></button>`;
       } else {
@@ -74,7 +95,13 @@ export const plugin = {
     return SEAT_NAME[seat];
   },
 
-  renderBoard(gameState, _mySeat, _oppSeat, yourTurn) {
+  renderBoard(gameState, _mySeat, oppSeat, yourTurn) {
+    const key = JSON.stringify(gameState.cells);
+    if (key !== lastCellsKey) {
+      lastCellsKey = key;
+      oppLast = diffOppMark(prevCells, gameState.cells, oppSeat);
+      prevCells = gameState.cells;
+    }
     return drawBoard(gameState, !!yourTurn);
   },
 
