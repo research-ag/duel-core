@@ -14,6 +14,7 @@
 import { decode as cborDecode } from "cborg";
 import { Principal } from "@icp-sdk/core/principal";
 import type { DecodedEnvelope, WebsocketMessageRecord } from "./gateway-protocol.js";
+import type { Status } from "../types.js";
 
 const CBOR_OPTS = { useMaps: false };
 
@@ -62,6 +63,8 @@ export interface WsActor {
     args: { msg: WebsocketMessageRecord },
     msgType: [Uint8Array] | [],
   ): Promise<{ Ok: null } | { Err: string }>;
+  /// The host's plain `status` query, when the actor declares it.
+  status?(sid: string): Promise<Status>;
   ws_get_messages(args: { nonce: bigint }): Promise<
     | {
         Ok: {
@@ -111,9 +114,11 @@ export class SelfGatewayTransport {
     // a sequence number this open's `resetSequence()` then reuses —
     // rejected as a wrong sequence number.
     //
-    // `_nonce` is deliberately NOT reset: the CDK's outgoing queue is keyed
-    // by `gateway_principal` (this tab's stable identity) and persists
-    // across a reconnect, so a reset replayed already-processed pushes.
+    // `_nonce` restarts at 0: the CDK's outgoing counter restarts whenever
+    // it re-creates this gateway (an upgrade, an expired eviction), and a
+    // kept nonce would skip everything it sends from then on. What a reset
+    // replays from a surviving queue belongs to earlier connections, which
+    // `poll()` drops by `client_key`.
     const res = await this._actor.ws_open(
       { client_nonce: clientNonce, gateway_principal: this._principal },
       initial == null ? [] : [initial],
@@ -126,11 +131,16 @@ export class SelfGatewayTransport {
       client_principal: this._principal,
       client_nonce: clientNonce,
     };
+    this._nonce = 0n;
     console.debug("[duel-ws] ws_open OK nonce=%s", clientNonce);
   }
 
   /// The batch waiting since the last poll, advancing the local nonce.
+  /// Only the current connection's envelopes: the queue is per gateway
+  /// (this tab's stable principal), so it also holds what an earlier page
+  /// load or connection left behind.
   async poll(): Promise<{ envelopes: DecodedEnvelope[]; isEndOfQueue: boolean }> {
+    const current = this._clientKey?.client_nonce ?? null;
     const res = await this._actor.ws_get_messages({ nonce: this._nonce });
     if ("Err" in res) throw new Error(`ws_get_messages: ${res.Err}`);
     const { messages, is_end_of_queue } = res.Ok;
@@ -147,7 +157,9 @@ export class SelfGatewayTransport {
       console.debug("[duel-ws] poll got %d msg(s), nonce now=%s, eoq=%s", messages.length, this._nonce, is_end_of_queue);
     }
     return {
-      envelopes: messages.map((m) => decodeEnvelope(m.content)),
+      envelopes: messages
+        .map((m) => decodeEnvelope(m.content))
+        .filter((e) => current !== null && e.clientKey.client_nonce === current),
       isEndOfQueue: is_end_of_queue,
     };
   }

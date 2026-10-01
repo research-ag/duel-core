@@ -25,6 +25,7 @@ class FakeWs implements DuelWs {
   onmessage: ((ev: { data: WsPayload }) => void) | null = null;
   onerror: ((ev: { error?: Error }) => void) | null = null;
   onclose: (() => void) | null = null;
+  onconnecting: (() => void) | null = null;
   sent: Array<{ sid: string; req: WsRequest }> = [];
   requests: PendingRequest[] = [];
   request?: (sid: string, req: WsRequest) => Promise<WsPayload>;
@@ -1016,6 +1017,22 @@ test("ws.onclose shows a persistent reload prompt and disables every button on t
   ws.onerror!({ error: new Error("boom") });
   assert.match(els.error.innerHTML, /Connection closed/);
   assert.doesNotMatch(els.error.innerHTML, /boom/);
+});
+
+test("a lost connection shows 'Reconnecting…' with the screen still live, and clears on reopen", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, ws } = setup();
+  start({ plugin, ws, session: defaultSession });
+  ws.onopen!();
+  ws.onmessage!({ data: { view: browsing() } });
+
+  ws.onconnecting!();
+  assert.equal(els.error.hidden, false);
+  assert.equal(els.error.textContent, "Reconnecting…");
+  assert.ok(els.screen.querySelectorAll("button").every((b) => !b.disabled), "calls queue behind the reopen");
+
+  ws.onopen!();
+  assert.equal(els.error.hidden, true);
 });
 
 test("a logged-in session's sid is used directly, and new-sid is permanently disabled AND hidden", async () => {

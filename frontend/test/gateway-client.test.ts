@@ -24,21 +24,23 @@ function encodeCandid(type: IDL.Type, value: unknown): Uint8Array {
 }
 
 /// Minimal from-scratch stand-in for the real `ic-websocket-cdk` canister
-/// surface
+/// surface. Like the real one, the outgoing queue belongs to the gateway
+/// (it outlives a connection), a poll returns what is at or past its
+/// nonce, and an unknown gateway's poll is an error.
 class FakeWsCdkActor implements WsActor {
   private _registered: TransportClientKey | null = null;
-  private _queue: Uint8Array[] = [];
-  private _msgIndex = 0;
+  private _log: Array<{ nonce: number; content: Uint8Array }> = [];
+  private _nextNonce = 0;
   private _seq = 0;
+  private _gatewayKnown = false;
 
   /// Set by a test right before an action that should fail exactly once
   /// with this error — simulating the canister having already forgotten
   /// the connection (a keep-alive eviction, an upgrade, ...).
   failNextMessage: string | null = null;
-  /// Set by a test to fail the very next `ws_get_messages` poll — the
-  /// generic "some round trip blipped" case `_tick()`'s own catch reacts
-  /// to by invalidating and redoing the handshake.
-  failNextPoll = false;
+  /// How many upcoming `ws_get_messages` polls fail — the generic "some
+  /// round trip blipped" case `_tick()`'s own catch reacts to.
+  failPolls = 0;
 
   openCalls = 0;
   /// How many times a NON-service app message actually reached this
@@ -68,7 +70,34 @@ class FakeWsCdkActor implements WsActor {
       is_service_message: isService,
       content,
     };
-    this._queue.push(cborEncode(outer));
+    this._log.push({ nonce: this._nextNonce, content: cborEncode(outer) });
+    this._nextNonce += 1;
+  }
+
+  /// A canister upgrade: `transient` CDK state is gone, the counter
+  /// restarts, the gateway is unknown until its next `ws_open`.
+  upgrade(): void {
+    this._registered = null;
+    this._log = [];
+    this._nextNonce = 0;
+    this._gatewayKnown = false;
+  }
+
+  /// A keep-alive eviction: a `CloseMessage` for the current connection,
+  /// which is then unregistered (the gateway lingers).
+  evict(): void {
+    if (!this._registered) return;
+    const content = encodeCandid(engineTypes.WebsocketServiceMessageContent, {
+      CloseMessage: { reason: { KeepAliveTimeout: null } },
+    });
+    this._pushEnvelope(this._registered, true, content);
+    this._registered = null;
+  }
+
+  /// Test hook: an unsolicited `#view`/`#err` to the current connection.
+  push(msg: unknown): void {
+    if (!this._registered) return;
+    this._pushEnvelope(this._registered, false, encodeCandid(engineTypes.WsMsg, msg));
   }
 
   async ws_open(
@@ -76,6 +105,7 @@ class FakeWsCdkActor implements WsActor {
     initial: [Uint8Array] | [] = [],
   ) {
     this.openCalls += 1;
+    this._gatewayKnown = true;
     const clientKey: TransportClientKey = {
       client_principal: args.gateway_principal,
       client_nonce: args.client_nonce,
@@ -124,17 +154,15 @@ class FakeWsCdkActor implements WsActor {
     return { Ok: null };
   }
 
-  async ws_get_messages(_args: { nonce: bigint }) {
-    if (this.failNextPoll) {
-      this.failNextPoll = false;
+  async ws_get_messages(args: { nonce: bigint }) {
+    if (this.failPolls > 0) {
+      this.failPolls -= 1;
       return { Err: "boom" };
     }
-    const messages = this._queue.map((content) => {
-      const key = `gateway_${this._msgIndex}_${this._msgIndex}`;
-      this._msgIndex += 1;
-      return { key, content };
-    });
-    this._queue = [];
+    if (!this._gatewayKnown) return { Err: "gateway not registered" };
+    const messages = this._log
+      .filter((m) => BigInt(m.nonce) >= args.nonce)
+      .map((m) => ({ key: `gateway_${String(m.nonce).padStart(20, "0")}`, content: m.content }));
     return { Ok: { messages, is_end_of_queue: true } };
   }
 }
@@ -168,11 +196,13 @@ test("onopen fires again after a self-healed reconnect, not just the first conne
     await waitUntil(() => opens === 1);
     assert.equal(actor.openCalls, 1);
 
-    // Simulate a transient round-trip blip — the same thing a keep-alive
-    // eviction, a cold-starting canister, or a redeploy produces: the
-    // NEXT poll fails, `_tick()` invalidates, and the transport redoes
-    // the `ws_open` handshake from scratch.
-    actor.failNextPoll = true;
+    // One failed poll is a blip and retried as is; two in a row mean the
+    // canister forgot this gateway, and the transport redoes `ws_open`.
+    actor.failPolls = 1;
+    await waitUntil(() => actor.failPolls === 0);
+    await delay(60);
+    assert.equal(actor.openCalls, 1, "a single failed poll must not reconnect");
+    actor.failPolls = 2;
     await waitUntil(() => actor.openCalls === 2);
 
     // The whole point: a caller relying solely on `onopen` to resync
@@ -247,5 +277,146 @@ test("send() (fire-and-forget) also resends after a connection-registration send
     await waitUntil(() => actor.appMessagesProcessed === 1);
   } finally {
     ws.close();
+  }
+});
+
+function openWs(actor: FakeWsCdkActor, seed: number, requestTimeoutMs = 2000) {
+  const principal = Principal.fromUint8Array(new Uint8Array([seed, seed, seed]));
+  const ws = new GatewayWs({ actor, principal, gameIdlTypes, intervalMs: 15, requestTimeoutMs });
+  const seen = { opens: 0, connecting: 0, closes: 0, messages: [] as unknown[] };
+  ws.onopen = () => {
+    seen.opens += 1;
+  };
+  ws.onconnecting = () => {
+    seen.connecting += 1;
+  };
+  ws.onclose = () => {
+    seen.closes += 1;
+  };
+  ws.onmessage = (ev) => {
+    seen.messages.push(ev.data);
+  };
+  return { ws, seen };
+}
+
+test("after a canister upgrade (counter restarted, gateway forgotten) the tab reconnects and hears replies again", async () => {
+  const actor = new FakeWsCdkActor();
+  const { ws, seen } = openWs(actor, 4);
+  try {
+    ws.send({ req: { sid: "sid-4", req: { status: null } } });
+    await waitUntil(() => seen.opens === 1 && seen.messages.length === 1);
+    // Advance the tab's read position well past where a fresh counter
+    // restarts.
+    for (let i = 0; i < 5; i++) await ws.request("sid-4", { status: null });
+
+    actor.upgrade();
+    actor.failNextMessage = "Client with principal x doesn't have an open connection";
+    const payload = await ws.request("sid-4", { status: null });
+    assert.ok("view" in payload, "the reply sent after the upgrade must reach the tab");
+    assert.equal(seen.opens, 2);
+    assert.equal(seen.connecting, 1, "the caller hears the connection was lost");
+    assert.equal(seen.closes, 0, "an upgrade is not the end of the connection");
+  } finally {
+    ws.close();
+  }
+});
+
+test("an upgrade noticed only by polling reconnects, re-binding the sid with a #status inside ws_open", async () => {
+  const actor = new FakeWsCdkActor();
+  const { ws, seen } = openWs(actor, 5);
+  try {
+    ws.send({ req: { sid: "sid-5", req: { status: null } } });
+    await waitUntil(() => seen.opens === 1 && actor.appMessagesProcessed === 1);
+    actor.upgrade();
+    await waitUntil(() => seen.opens === 2);
+    assert.equal(actor.appMessagesProcessed, 2, "the reopen carried a #status of its own");
+    await waitUntil(() => seen.messages.length === 2);
+  } finally {
+    ws.close();
+  }
+});
+
+test("a CDK CloseMessage (keep-alive eviction) reconnects instead of closing for good", async () => {
+  const actor = new FakeWsCdkActor();
+  const { ws, seen } = openWs(actor, 6);
+  try {
+    ws.send({ req: { sid: "sid-6", req: { status: null } } });
+    await waitUntil(() => seen.opens === 1);
+    actor.evict();
+    await waitUntil(() => seen.opens === 2);
+    assert.equal(seen.closes, 0);
+    assert.equal(seen.connecting, 1);
+    assert.equal(ws.closed, false);
+    const payload = await ws.request("sid-6", { status: null });
+    assert.ok("view" in payload);
+  } finally {
+    ws.close();
+  }
+});
+
+test("a new page ignores what an earlier connection left in the gateway's queue", async () => {
+  const actor = new FakeWsCdkActor();
+  const first = openWs(actor, 7);
+  await waitUntil(() => first.seen.opens === 1);
+  // The old page's failed call: its reply is still queued when it goes.
+  actor.push({ err: { reqId: [1n], err: { notSeated: null } } });
+  first.ws.close();
+
+  const second = openWs(actor, 7);
+  try {
+    second.ws.send({ req: { sid: "sid-7", req: { status: null } } });
+    await waitUntil(() => second.seen.opens === 1 && second.seen.messages.length === 1);
+    await delay(60);
+    assert.deepEqual(second.seen.messages, [{ view: { browsing: { tables: [] } } }]);
+  } finally {
+    second.ws.close();
+  }
+});
+
+test("a request with no reply in time reconnects as well as rejecting", async () => {
+  const actor = new FakeWsCdkActor();
+  const { ws, seen } = openWs(actor, 8, 100);
+  try {
+    await waitUntil(() => seen.opens === 1);
+    actor.onReq = () => ({ view: { reqId: [999n], view: { browsing: { tables: [] } } } });
+    await assert.rejects(() => ws.request("sid-8", { status: null }), /timed out/);
+    await waitUntil(() => seen.opens === 2);
+  } finally {
+    ws.close();
+  }
+});
+
+test("queryStatus() uses the actor's plain status query, and rejects when there is none", async () => {
+  const actor = new FakeWsCdkActor();
+  const { ws } = openWs(actor, 9);
+  try {
+    await assert.rejects(() => ws.queryStatus("sid-9"), /no `status` query/);
+    (actor as WsActor).status = async (sid: string) => ({ browsing: { tables: [] }, sid }) as never;
+    assert.deepEqual(await ws.queryStatus("sid-9"), { browsing: { tables: [] }, sid: "sid-9" });
+  } finally {
+    ws.close();
+  }
+});
+
+test("pagehide says goodbye and suspends the loop (no reopen to cancel the departure); pageshow reconnects", async () => {
+  // Node's `globalThis` is no `EventTarget`; lend it one, as a window is.
+  const win = new EventTarget();
+  const g = globalThis as unknown as Record<string, unknown>;
+  const lent = ["addEventListener", "removeEventListener", "dispatchEvent"] as const;
+  for (const k of lent) g[k] = (win as unknown as Record<string, Function>)[k].bind(win);
+  const actor = new FakeWsCdkActor();
+  const { ws, seen } = openWs(actor, 10);
+  try {
+    ws.send({ req: { sid: "sid-10", req: { status: null } } });
+    await waitUntil(() => seen.opens === 1);
+    win.dispatchEvent(new Event("pagehide"));
+    await delay(80);
+    assert.equal(actor.openCalls, 1, "no tick may reopen after the goodbye");
+    win.dispatchEvent(new Event("pageshow"));
+    await waitUntil(() => seen.opens === 2);
+    assert.equal(seen.closes, 0);
+  } finally {
+    ws.close();
+    for (const k of lent) delete g[k];
   }
 });

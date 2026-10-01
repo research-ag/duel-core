@@ -26,8 +26,9 @@ knows any particular game.
     `ic-websocket-cdk` (`src/ic-websocket-cdk/src`). It is the only
     transport that can mutate game state: no `Registry` mutating
     operation is a plain Candid method on a host; `status` is the one
-    plain `query`. Also drives disappearance handling (a closed
-    connection implicitly leaves) and offers optional hooks
+    plain `query`. Also drives disappearance handling (a cooperative
+    `ws_close` implicitly leaves; a keep-alive eviction only unbinds the
+    transport, the client reconnects) and offers optional hooks
     `onSettled`/`onGameEnded`/`onGameStarted`.
   - `actor_mixin.mo` — `include ActorMixin<system>(ws, sweepFunc)`:
     the four `ws_*` Candid methods plus the 5-minute idle-sweep timer.

@@ -339,8 +339,11 @@ module {
   public type OnMessageCallback = (OnMessageCallbackArgs) -> async* ();
 
   /// Arguments passed to the `on_close` handler.
+  /// `reason` is `null` for a gateway `ws_close` or a same-principal
+  /// `ws_open` replacing the connection, and the cause otherwise.
   public type OnCloseCallbackArgs = {
     client_principal : ClientPrincipal;
+    reason : ?CloseMessageReason;
   };
   /// Handler initialized by the canister
   /// and triggered by the CDK once the WS Gateway closes the IC WebSocket connection

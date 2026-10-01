@@ -190,11 +190,16 @@ export type WsPayload<S = unknown> = { view: Status<S> } | { err: EngineErr };
 /// `send()` must accept a message before the connection is open (the
 /// client asks for its first status at construction); `onopen` fires on
 /// every confirmed (re)open, and a reopen makes the client ask again.
+/// `onconnecting` (optional) fires when an open connection is lost and
+/// being redone; `onclose` only when it is over for good. `queryStatus()`
+/// (optional) answers a status without the connection, for a first paint.
 export interface DuelWs<S = unknown, A = unknown> {
   onopen: (() => void) | null;
   onmessage: ((ev: { data: WsPayload<S> }) => void) | null;
   onerror: ((ev: { error?: Error }) => void) | null;
   onclose: (() => void) | null;
+  onconnecting?: (() => void) | null;
   send(msg: { req: { sid: string; req: WsRequest<A> } }): void;
   request?(sid: string, req: WsRequest<A>): Promise<WsPayload<S>>;
+  queryStatus?(sid: string): Promise<Status<S>>;
 }

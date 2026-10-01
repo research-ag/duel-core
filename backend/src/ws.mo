@@ -11,8 +11,8 @@
 /// keypair), both `sidFor(prefix, p)`; `onMessage` rejects anything else
 /// with `#unauthorized`. Every request reuses `Registry`'s operations with
 /// `Time.now()` and then pushes a fresh `SessionStatus` to whoever needs
-/// it. `ws_close` (cooperative or the CDK's 60s keep-alive timeout, giving
-/// a 60–180s floor) drives an implicit `Registry.leave`.
+/// it. A cooperative `ws_close` drives an implicit `Registry.leave`; a
+/// keep-alive timeout only unbinds the transport.
 ///
 /// Wiring — see `../README.md`, "Real-time push":
 ///
@@ -124,7 +124,8 @@ module {
   /// sid <-> principal bridge. `generation` is bumped by every `remember`
   /// (even under an unchanged principal — a same-tab reconnect) so a stale
   /// close for a superseded connection can be told apart from a genuine
-  /// departure; see `onClose`. Pruned in `finishClose`.
+  /// departure; see `onClose`. Pruned in `finishClose` and on a lost
+  /// (not closed) connection.
   public type Hub = {
     var bySid : Map.Map<TP.SessionId, Principal.Principal>;
     var byPrincipal : Map.Map<Principal.Principal, TP.SessionId>;
@@ -491,18 +492,23 @@ module {
       };
     };
 
-    /// `OnCloseCallbackArgs` carries only the principal, and a same-tab
-    /// reconnect reuses one principal, so a stale close for the OLD
-    /// connection can arrive after the NEW one opened but before its first
-    /// `#req` re-registers it. Deferring by `CLOSE_GRACE` and re-checking
-    /// `generation` is what tells the two apart.
+    /// Only a close without a CDK `reason` (the client's own `ws_close`,
+    /// or a same-principal `ws_open` replacing it) is a departure; a
+    /// keep-alive timeout or sequence error just unbinds the transport and
+    /// leaves the session to the engine's own timeouts — see
+    /// `../README.md`, "Disappearance handling". A same-tab reconnect
+    /// reuses one principal, so a stale close for the OLD connection can
+    /// arrive after the NEW one opened but before a `#req` re-registers
+    /// it; deferring by `CLOSE_GRACE` and re-checking `generation` tells
+    /// the two apart.
     func onClose(args : IcWebSocketCdkTypes.OnCloseCallbackArgs) : async* () {
       let p = args.client_principal;
       let sid = hub.byPrincipal.get(p);
       forget(hub, p);
-      switch (sid) {
-        case null {};
-        case (?s) {
+      switch (sid, args.reason) {
+        case (null, _) {};
+        case (?s, ?_) hub.generation.remove(s);
+        case (?s, null) {
           let seenGen = generationOf(hub, s);
           ignore Timer.setTimer<system>(
             CLOSE_GRACE,

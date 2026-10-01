@@ -204,6 +204,11 @@ h2.tw {
   background: var(--red);
 }
 
+.light[data-mode="reconnecting"]::before {
+  background: var(--red);
+  animation: blink 0.8s steps(2) infinite;
+}
+
 @keyframes blink {
   to {
     opacity: 0.2;

@@ -1242,8 +1242,9 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
       alert.querySelector("#reload").addEventListener("click", () => location.reload());
       return;
     }
-    alert.hidden = state.error === null;
-    alert.textContent = state.error ?? "";
+    const text = state.error ?? (state.connection === "reconnecting" ? "Reconnecting…" : null);
+    alert.hidden = text === null;
+    alert.textContent = text ?? "";
   }
 
   function syncIdentity(state) {

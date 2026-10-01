@@ -1,6 +1,7 @@
 // Regression test for the vendored CDK's `remove_client`: a belated removal
 // for a superseded `ClientKey` must not erase a newer, live connection's
 // `CURRENT_CLIENT_KEY_MAP` entry.
+import IcWebSocketCdk "mo:ic-websocket-cdk";
 import State "mo:ic-websocket-cdk/State";
 import Types "mo:ic-websocket-cdk/Types";
 import Principal "mo:core/Principal";
@@ -71,6 +72,42 @@ await async {
   };
 
   Debug.print("2. remove_client() for the current client_key still clears the lookup entry OK");
+};
+
+// ── 3. `on_close` learns WHY: `null` for a caller-driven removal, the
+//      cause for a CDK-driven one (what `ws.mo` tells "left" from "lost"
+//      by). ────────────────────────────────────────────────────────────────
+await async {
+  let state = State.IcWebSocketState(Types.WsInitParams(null, null));
+  var seen : [?Types.CloseMessageReason] = [];
+  let handlers = Types.WsHandlers(
+    null,
+    null,
+    ?(func(args : Types.OnCloseCallbackArgs) : async* () { seen := [args.reason] }),
+  );
+  let key : Types.ClientKey = { client_principal = clientP; client_nonce = 1 };
+
+  state.add_client(key, Types.RegisteredClient(gateway));
+  await* state.remove_client(key, ?handlers, null);
+  if (seen != [null]) Runtime.trap("3a: a caller-driven removal must report a null reason");
+  // A non-null reason also queues a `#CloseMessage` (`to_candid`), which
+  // the interpreter cannot run; `remove_client` forwards it verbatim.
+
+  Debug.print("3. on_close carries the removal reason OK");
+};
+
+// ── 4. `ws_get_messages` from a gateway the canister doesn't know (an
+//      upgrade wiped it, or its eviction expired) is an error, not an
+//      empty batch the client would mistake for a live connection. ───────
+await async {
+  let params = Types.WsInitParams(null, null);
+  let state = State.IcWebSocketState(params);
+  let ws = IcWebSocketCdk.IcWebSocket(state, params, Types.WsHandlers(null, null, null));
+  switch (ws.ws_get_messages(gateway, { nonce = 0 })) {
+    case (#Err(_)) {};
+    case (#Ok(_)) Runtime.trap("4a: an unknown gateway must get #Err");
+  };
+  Debug.print("4. ws_get_messages rejects an unknown gateway OK");
 };
 
 Debug.print("ALL CDK CLIENT-KEY-MAP CHECKS PASSED");

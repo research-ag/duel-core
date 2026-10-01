@@ -6,20 +6,34 @@
 // Exposes `onopen`/`onmessage`/`onerror`/`onclose`/`send(msg)` plus
 // `request(sid, req)`, a Promise of this call's own `{view}`/`{err}`
 // correlated by `reqId` (this connection also carries unsolicited pushes
-// from the other seat acting). A message sent while the connection is
-// not open waits in the outbox; its head rides along with `ws_open`
-// itself, so a caller's first request costs no update call of its own.
+// from the other seat acting), `onconnecting` (an open connection was
+// lost and is being redone), and `queryStatus(sid)`. A message sent while
+// the connection is not open waits in the outbox; its head rides along
+// with `ws_open` itself, so a caller's first request costs no update call
+// of its own. Only `close()` (or `pagehide` followed by no return) ends
+// it: anything the canister forgets — an upgrade, a keep-alive eviction,
+// a `CloseMessage` — is reconnected.
 
 import type { Principal } from "@icp-sdk/core/principal";
 import { SelfGatewayTransport, type WsActor } from "./gateway-transport.js";
 import { GatewayProtocol } from "./gateway-protocol.js";
 import type { BuildGameTypes } from "../idl.js";
-import type { DuelWs, WsPayload, WsRequest } from "../types.js";
+import type { DuelWs, Status, WsPayload, WsRequest } from "../types.js";
 
 const DEFAULT_INTERVAL_MS = 500;
 
 /// Backstop for a request that never reached the canister at all.
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+
+/// Ceiling for the back-off between failed `ws_open`s.
+const MAX_RETRY_MS = 5000;
+
+/// A tab hidden this long, or a poll loop that slept this long (a laptop
+/// lid), may have been evicted meanwhile: check on the way back.
+const RESUME_GAP_MS = 20000;
+
+const isVisible = (): boolean =>
+  typeof document === "undefined" || document.visibilityState !== "hidden";
 
 interface PendingRequest {
   resolve: (payload: WsPayload) => void;
@@ -28,13 +42,15 @@ interface PendingRequest {
 }
 
 export class GatewayWs extends EventTarget implements DuelWs {
+  private _actor: WsActor;
   private _transport: SelfGatewayTransport;
   private _protocol: GatewayProtocol;
   private _intervalMs: number;
   private _requestTimeoutMs: number;
   private _sid: string | null;
   private _closed: boolean;
-  private _opened: boolean;
+  // An `OpenMessage` arrived and nothing has invalidated it since.
+  private _connected: boolean;
   private _pollTimer: ReturnType<typeof setTimeout> | null;
   private _ticking: boolean; // re-entrancy guard for _tick()
   private _wantsAnotherTick: boolean;
@@ -50,9 +66,16 @@ export class GatewayWs extends EventTarget implements DuelWs {
   private _consecutiveFailures: number;
   private _opening: Promise<void> | null; // in-flight _ensureOpen()
   private _sendChain: Promise<void>; // serializes every outgoing ws_message
-  private _onHide?: () => void;
+  private _lastTickAt: number;
+  // Between `pagehide` and `pageshow`: no tick may reopen what the
+  // goodbye just closed, or the reopen would cancel the departure.
+  private _suspended: boolean;
+  private _hiddenAt: number | null;
+  private _lastResumeAt: number;
+  private _unlisten: Array<() => void>;
 
   onopen: (() => void) | null;
+  onconnecting: (() => void) | null;
   onmessage: ((ev: { data: WsPayload }) => void) | null;
   onerror: ((ev: { error?: Error }) => void) | null;
   onclose: (() => void) | null;
@@ -75,13 +98,14 @@ export class GatewayWs extends EventTarget implements DuelWs {
     if (!principal) throw new Error("GatewayWs: `principal` is required");
     if (!gameIdlTypes) throw new Error("GatewayWs: `gameIdlTypes` is required");
 
+    this._actor = actor;
     this._transport = new SelfGatewayTransport({ actor, principal });
     this._protocol = new GatewayProtocol({ gameIdlTypes });
     this._intervalMs = intervalMs;
     this._requestTimeoutMs = requestTimeoutMs;
     this._sid = null;
     this._closed = false;
-    this._opened = false;
+    this._connected = false;
     this._pollTimer = null;
     this._ticking = false;
     this._wantsAnotherTick = false;
@@ -92,8 +116,14 @@ export class GatewayWs extends EventTarget implements DuelWs {
     this._consecutiveFailures = 0;
     this._opening = null;
     this._sendChain = Promise.resolve();
+    this._lastTickAt = 0;
+    this._suspended = false;
+    this._hiddenAt = null;
+    this._lastResumeAt = 0;
+    this._unlisten = [];
 
     this.onopen = null;
+    this.onconnecting = null;
     this.onmessage = null;
     this.onerror = null;
     this.onclose = null;
@@ -103,57 +133,134 @@ export class GatewayWs extends EventTarget implements DuelWs {
     setTimeout(() => this._tick(), 0);
 
     // Cooperative goodbye on `pagehide` only — NOT `visibilitychange`,
-    // which fires on plain backgrounding and would abort a live game.
-    if (typeof addEventListener === "function") {
-      this._onHide = () => this._transport.close();
-      addEventListener("pagehide", this._onHide);
+    // which fires on plain backgrounding and would abort a live game. A
+    // page restored from the back/forward cache reconnects.
+    this._listen(globalThis, "pagehide", () => {
+      this._suspended = true;
+      if (this._pollTimer != null) clearTimeout(this._pollTimer);
+      void this._transport.close();
+      this._lose();
+    });
+    this._listen(globalThis, "pageshow", () => {
+      if (!this._suspended) return;
+      this._suspended = false;
+      this._pollSoon();
+    });
+    this._listen(globalThis, "online", () => this._resume());
+    if (typeof document !== "undefined") {
+      this._listen(document, "visibilitychange", () => {
+        if (!isVisible()) {
+          this._hiddenAt = Date.now();
+          return;
+        }
+        const hiddenFor = this._hiddenAt === null ? 0 : Date.now() - this._hiddenAt;
+        this._hiddenAt = null;
+        if (hiddenFor > RESUME_GAP_MS || this._suspended) this._resume();
+      });
     }
   }
 
-  /// The one loop: reopen if needed, poll, react, reschedule. ANY failure
-  /// invalidates the registration so the next tick redoes `ws_open`.
+  private _listen(target: EventTarget | undefined, type: string, fn: (ev: Event) => void): void {
+    if (!target || typeof target.addEventListener !== "function") return;
+    target.addEventListener(type, fn);
+    this._unlisten.push(() => target.removeEventListener(type, fn));
+  }
+
+  /// Back from a gap the canister may have outlived this connection in:
+  /// poll now, and send a `#status` whose failure (an unknown client)
+  /// reconnects and whose reply resyncs the caller either way.
+  private _resume(): void {
+    if (this._closed) return;
+    // A `pagehide` with no matching `pageshow`: the page is still alive.
+    this._suspended = false;
+    const now = Date.now();
+    if (now - this._lastResumeAt < 2000) return;
+    this._lastResumeAt = now;
+    if (this._transport.isOpen && this._sid !== null) {
+      this.send({ req: { sid: this._sid, req: { status: null } } });
+    }
+    this._pollSoon();
+  }
+
+  /// The registration is gone, or presumed gone: the next tick redoes
+  /// `ws_open`, and a caller that saw it open hears `onconnecting`.
+  private _lose(): void {
+    this._transport.invalidate();
+    if (!this._connected) return;
+    this._connected = false;
+    if (this.onconnecting) this.onconnecting();
+    this.dispatchEvent(new Event("connecting"));
+  }
+
+  /// The one loop: reopen if needed, poll, react, reschedule. A failed
+  /// `ws_open` backs off; a failed poll is retried once as is (a replica
+  /// lagging behind the `ws_open` it just took, a network blip) and, on a
+  /// second failure in a row, invalidates the registration so the next
+  /// tick redoes `ws_open` (the canister forgot this gateway).
   private async _tick(): Promise<void> {
+    if (this._suspended) return;
     // A second overlapping tick would deliver views out of order.
     if (this._closed || this._ticking) {
       this._wantsAnotherTick = true;
       return;
     }
     this._ticking = true;
-    let fast = false;
+    const now = Date.now();
+    const slept = this._lastTickAt > 0 && now - this._lastTickAt > RESUME_GAP_MS && isVisible();
+    this._lastTickAt = now;
+    if (slept) this._resume();
+    let delay = this._intervalMs;
     try {
       await this._ensureOpen();
       const { envelopes, isEndOfQueue } = await this._transport.poll();
       this._markAlive();
-      for (const envelope of envelopes) await this._handle(envelope);
-      fast = !isEndOfQueue;
+      for (const envelope of envelopes) {
+        // A `CloseMessage` just invalidated this connection; the rest of
+        // the batch is addressed to it.
+        if (!this._transport.isOpen) break;
+        await this._handle(envelope);
+      }
+      if (!isEndOfQueue) delay = 0;
     } catch (e) {
       this._reportError(e as Error);
-      this._transport.invalidate();
+      if (!this._transport.isOpen) {
+        delay = Math.min(MAX_RETRY_MS, this._intervalMs * 2 ** Math.max(0, this._consecutiveFailures - 1));
+      } else if (this._consecutiveFailures >= 2) {
+        this._lose();
+      }
     }
     this._ticking = false;
     if (this._wantsAnotherTick) {
       this._wantsAnotherTick = false;
-      fast = true;
+      delay = 0;
     }
-    if (!this._closed) {
-      this._pollTimer = setTimeout(() => this._tick(), fast ? 0 : this._intervalMs);
+    if (!this._closed && !this._suspended) {
+      this._pollTimer = setTimeout(() => this._tick(), delay);
     }
   }
 
   /// Coalesces concurrent callers onto one in-flight `ws_open`, which
   /// carries the outbox head as its initial message. The head leaves the
-  /// outbox only once the open succeeded; a failed open retries it.
+  /// outbox only once the open succeeded; a failed open retries it. A
+  /// reopen with nothing queued still carries a `#status`: the request
+  /// re-binds the sid inside the very call that replaced the old
+  /// connection, so `ws.mo` never mistakes the replacement for a
+  /// departure, and its reply resyncs the caller.
   private _ensureOpen(): Promise<void> {
     if (this._transport.isOpen) return Promise.resolve();
     if (!this._opening) {
       const clientNonce = BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
-      const head = this._outbox.length ? this._outbox[0] : null;
+      const head: { sid: string; req: WsRequest; reqId: bigint | null } | null = this._outbox.length
+        ? this._outbox[0]
+        : this._sid !== null
+          ? { sid: this._sid, req: { status: null }, reqId: null }
+          : null;
       let initial: Uint8Array | null = null;
       if (head) {
         const enc = this._tryEncode(head.sid, head.req, head.reqId);
         if ("error" in enc) {
           console.debug("[duel-ws] queued message could not be encoded, dropping it:", enc.error.message);
-          this._outbox.shift();
+          if (this._outbox[0] === head) this._outbox.shift();
         } else {
           initial = enc.content;
         }
@@ -185,7 +292,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
   /// registration (upgrade, keep-alive eviction); redo `ws_open` now
   /// rather than wait up to the CDK's own timeout.
   private _invalidateAndRetry(): void {
-    this._transport.invalidate();
+    this._lose();
     this._pollSoon();
   }
 
@@ -259,7 +366,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
   /// Poll right away: by the time `ws_message` resolves, `ws.mo` has
   /// already queued the resulting view.
   private _pollSoon(): void {
-    if (this._closed) return;
+    if (this._closed || this._suspended) return;
     if (this._ticking) {
       this._wantsAnotherTick = true;
       return;
@@ -278,7 +385,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
       case "open": {
         // Fires on EVERY confirmed (re)open — `onopen` is the caller's
         // only hook to resync after a gap.
-        this._opened = true;
+        this._connected = true;
         if (this.onopen) this.onopen();
         this.dispatchEvent(new Event("open"));
         this._flushOutbox();
@@ -300,7 +407,9 @@ export class GatewayWs extends EventTarget implements DuelWs {
         break;
       }
       case "close": {
-        this._teardown();
+        // The CDK dropped this client (keep-alive timeout, sequence
+        // error): a transport event, not the caller's goodbye.
+        this._invalidateAndRetry();
         break;
       }
       case "message": {
@@ -373,6 +482,7 @@ export class GatewayWs extends EventTarget implements DuelWs {
       const timer = setTimeout(() => {
         if (this._pending.delete(reqId)) {
           reject(new Error("GatewayWs: request timed out waiting for a reply"));
+          this._invalidateAndRetry();
         }
       }, this._requestTimeoutMs);
       this._pending.set(reqId, { resolve, reject, timer });
@@ -408,6 +518,15 @@ export class GatewayWs extends EventTarget implements DuelWs {
     });
   }
 
+  /// The host's plain `status` query: a first paint while `ws_open` is
+  /// still on its way. Rejects when the actor declares no `status`.
+  queryStatus(sid: string): Promise<Status> {
+    if (typeof this._actor.status !== "function") {
+      return Promise.reject(new Error("GatewayWs: the actor declares no `status` query"));
+    }
+    return this._actor.status(sid);
+  }
+
   get closed(): boolean {
     return this._closed;
   }
@@ -422,9 +541,8 @@ export class GatewayWs extends EventTarget implements DuelWs {
     if (this._closed) return;
     this._closed = true;
     if (this._pollTimer != null) clearTimeout(this._pollTimer);
-    if (this._onHide && typeof removeEventListener === "function") {
-      removeEventListener("pagehide", this._onHide);
-    }
+    for (const off of this._unlisten) off();
+    this._unlisten = [];
     for (const p of this._pending.values()) {
       clearTimeout(p.timer);
       p.reject(new Error("GatewayWs: closed"));

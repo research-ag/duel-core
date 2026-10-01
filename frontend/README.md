@@ -182,9 +182,11 @@ Element ids `start()` uses (all overridable, `start({ ..., sidElId })`):
   both.
 - `screen` — where `renderStatus` output goes; clicks are delegated from
   here so re-rendering never leaks listeners.
-- `error` — transient rejections, auto-hidden after 5s (`errorTtlMs`). A
-  closed transport is terminal: the banner stays with a "Reload to
-  reconnect" button and every button is disabled.
+- `error` — transient rejections, auto-hidden after 5s (`errorTtlMs`).
+  "Reconnecting…" while a lost connection is redone (the screen stays
+  live; clicks queue behind the reopen). A closed transport is terminal:
+  the banner stays with a "Reload to reconnect" button and every button
+  is disabled.
 
 ## Replacing screens
 
@@ -255,8 +257,8 @@ client.subscribe((state, prev) => {
 
 | Field            | Meaning                                                                                                                                                 |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `connection`     | `"connecting"` / `"open"` / `"closed"`; closed is terminal (reload)                                                                                     |
-| `status`         | the last `Status` received, `null` before the first; structurally equal pushes never re-notify                                                          |
+| `connection`     | `"connecting"` / `"open"` / `"reconnecting"` (lost, being redone; calls queue) / `"closed"` (terminal: reload)                                          |
+| `status`         | the last `Status` received (the first may be `ws.queryStatus`'s, still `"connecting"`), `null` before one; structurally equal pushes never re-notify    |
 | `statusAt`       | `Date.now()` when `status` last changed — every `secondsUntilX` is only as fresh as that; `localSecondsLeft(secs, statusAt)` counts down from it        |
 | `pending`        | `{ key, req }` while one call is out (`create:p1`, `jointable:3:p2`, `act:{"pass":null}`, `rematch`, `leave`, `reset`, `claim-win`, `ack`); at most one |
 | `error`          | a transient message (cleared after `errorTtlMs`), or the permanent "Connection closed."                                                                 |
@@ -271,7 +273,12 @@ where `reason` is `"inFlight"` (one is already out), `"closed"`,
 `"stale"` (a `#wrongPhase` create/join or `#stale` mutation: the view was
 behind, a silent `refresh()` is on its way), `"rejected"` (`err` and its
 `message`, also shown in `state.error`), or `"failed"` (transport,
-`message`). `refresh()` is a sync ping. `showError`/`clearError` put a
+`message`). A `"rejected"` or `"failed"` call also sends a `refresh()`,
+so a screen the server has moved past (the table is gone, the seat was
+lost) is replaced by the real status. When the first status after a
+reconnect finds a session that was seated back in the lobby,
+`state.error` says so (`ENDED_WHILE_AWAY_MESSAGE`). `refresh()` is a sync
+ping. `showError`/`clearError` put a
 UI's own messages on the same lifetime. `login()`, `logout()`,
 `regenerateSid()` wrap the session's own functions and drive
 `authPending`. `dispose()` detaches from `ws`.
@@ -307,10 +314,18 @@ same client.
 `mo:duel-game-core/ws`'s `ic-websocket-cdk` protocol directly: the tab
 registers itself as its own Gateway via `ws_open`, polls
 `ws_get_messages`, sends via `ws_message`, and says goodbye with
-`ws_close` on `pagehide`. Genuine canister-driven push, and a genuine
-server-side disappearance signal (the CDK's fixed 60s keep-alive gives a
-60–180s floor for an involuntary drop; a cooperative close is
-immediate).
+`ws_close` on `pagehide` (the one goodbye `ws.mo` treats as leaving). A
+tab the CDK evicts for a missed keep-alive — a throttled background
+tab, a sleeping laptop, a phone in another app — keeps its seat and
+reconnects when it is back; genuine absence is the engine's claim and
+idle timeouts' business.
+
+**First paint.** `queryStatus(sid)` calls the host's plain `status`
+query (every host declares it, and `makeIdlFactory` includes it).
+`createDuelClient` uses it when the transport offers it, so the first
+screen lands in one query round trip while `ws_open`, an update call,
+is still on its way; whatever the connection then delivers supersedes
+it. Clicks made meanwhile wait in the outbox for the open.
 
 **`principal` must be `session.principal`** — the identity that produced
 `session.sid` and signs the `actor`'s calls. The backend rejects a `sid`
@@ -332,11 +347,28 @@ mutating method to poll. The client only needs the four handlers and
 `send(msg)`, so a hand-rolled WebSocket-shaped object (a test mock, a
 real external-Gateway transport) can replace `GatewayWs`.
 
-**Reconnection.** Any failed poll or send invalidates the registration;
-the next tick redoes `ws_open` transparently, with no `onclose`.
-`onopen` fires again on every confirmed reopen so a caller can resync
-(`client.js` asks for a fresh `#status` on every reopen). `onerror`
-fires only on a second consecutive failure, since a lone blip
+**Reconnection.** Only `close()` (and `pagehide` with no return) ends
+a `GatewayWs`; anything else the canister forgets is redone on the next
+tick with no `onclose`: a failed send, two failed polls in a row
+(`ws_get_messages` errors for a gateway the canister no longer knows —
+after an upgrade, or once an eviction's empty gateway expires), a CDK
+`CloseMessage` (keep-alive timeout), or a request with no reply within
+`requestTimeoutMs`. A failing `ws_open` backs off up to 5s. `onconnecting`
+fires when an open connection is lost; `onopen` fires again on every
+confirmed reopen (`client.js` asks for a fresh `#status` on every
+reopen). Every reopen carries a message inside `ws_open` itself — the
+outbox head, or a `#status` — so the sid is re-bound in the same call
+that replaced the old connection and `ws.mo` never mistakes the
+replacement for a departure. Each open reads the gateway's queue from
+nonce 0 (the canister's counter restarts with a re-created gateway) and
+drops envelopes addressed to any other `client_key`: the queue belongs
+to the tab's principal and outlives a connection, page loads included.
+Coming back — the tab visible again after 20s hidden, `online`, or a
+poll loop that slept 20s — polls at once and sends a `#status` that
+reconnects if the registration is gone. Between `pagehide` and
+`pageshow` the loop is suspended, so nothing reopens what the goodbye
+closed; a back/forward-cache restore reconnects.
+`onerror` fires only on a second consecutive failure, since a lone blip
 self-heals within a tick.
 
 **`send()`/`request()` are safe before the connection is open** — a
