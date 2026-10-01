@@ -218,8 +218,9 @@ $("leaderboard-toggle").addEventListener("click", async () => {
   leaderboardPanel.hidden = false;
   leaderboardBody.innerHTML = `<p class="faint">Loading…</p>`;
   try {
-    const entries = await actor.get_leaderboard();
-    leaderboardBody.innerHTML = engage(renderLeaderboard(entries, plugin, { yourSid: session.sid }));
+    const [entries, bots] = await Promise.all([actor.get_leaderboard(), actor.list_bots().catch(() => [])]);
+    const botNames = new Map(bots.map((b) => [b.principal.toString(), b.name]));
+    leaderboardBody.innerHTML = engage(renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames }));
   } catch (err) {
     leaderboardBody.innerHTML = `<p class="alert">Could not load the leaderboard.</p>`;
     console.error(err);

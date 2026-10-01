@@ -50,7 +50,7 @@ LeaderboardActorMixin(leaderboard, 25)`). Plus canister
   identity (`resolveIdentity()`), builds the actor and `connectWs()`
   transport, creates the client, mounts the UI, and wires the 🏆 toggle
   that opens the full-page `#leaderboard-panel` and renders
-  `actor.get_leaderboard()` via `renderLeaderboard(entries, plugin, {
+  `actor.get_leaderboard()` (names from `list_bots()`) via `renderLeaderboard(entries, plugin, {
 yourSid })`. Bots are `app.js`'s too: the 🤖 toggle opens
   `#bots-panel` (`renderBotList` over `actor.list_bots()`), and a
   "Engage" button (there or on a leaderboard bot row; `render.js`'s "Challenge" relabelled in `app.js`, styled as a stamp) either fills the
