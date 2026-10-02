@@ -95,8 +95,10 @@ function PrerequisitesStep() {
           <a href="https://cycle.express/" target="_blank" rel="noreferrer">
             cycle.express
           </a>{" "}
-          — no exchange account needed. Open this URL with your own principal
-          (from above) in place of <code>&lt;principal&gt;</code>:
+          — no exchange account needed. Paste your principal (from above) into
+          its <strong>Canister ID</strong> field, or open this URL with your
+          principal in place of <code>&lt;principal&gt;</code> to have it filled
+          in:
           <CodeBlock code="https://cycle.express/?to=<principal>" />
         </li>
       </ol>
