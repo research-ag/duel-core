@@ -17,6 +17,8 @@ let SOON : Int = T0 + 1_000_000_000; // +1 s — still fresh
 let LATER : Int = T0 + 61_000_000_000; // +61 s — past the timeout
 let CLAIMABLE : Int = T0 + 21_000_000_000; // +21 s — past the claim window, still short of TIMEOUT
 
+let nobody = func(_ : Text) : Bool = false;
+
 func fresh() : Tbl = Table.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT, #open, "test", "");
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
@@ -82,39 +84,43 @@ switch (t.status(spec, SOON, "a")) {
   case (#stagingYou v) {
     assert v.seat == #p2;
     assert not v.reservedForPartner;
-    // Switching seats re-stamps `since = now` (see lib.mo's join, the
-    // seat-switch branch) — so even though the ORIGINAL join was at T0,
-    // the clock restarted at SOON when "a" switched to p2, and checking
-    // at that same instant sees the full 60s, not 59.
-    assert v.secondsUntilReclaimable == 60;
   };
   case (_) Runtime.trap("a should still be staging");
 };
 Debug.print("2. join idempotence + seat switch OK");
 
-// ── 3. A held seat is #seatTaken until it goes idle, then evictable ────────
+// ── 3. A staged seat is #seatTaken even long idle; only sweep frees it ─────
 t := fresh();
 ignore ok(t.join(spec, T0, "a", #p1), "a stages");
 switch (t.join(spec, SOON, "b", #p1)) {
   case (#err(#seatTaken)) {};
   case (_) Runtime.trap("a fresh seat must not be stealable");
 };
-// Once expired but before anyone actually evicts it, "a" still sees their OWN
-// #stagingYou (status()'s own-occupant branch never checks expiry)
-switch (t.status(spec, LATER, "a")) {
-  case (#stagingYou v) { assert v.secondsUntilReclaimable == 0 };
-  case (_) Runtime.trap("a should still see their own staging until evicted");
+switch (t.join(spec, LATER, "b", #p1)) {
+  case (#err(#seatTaken)) {};
+  case (_) Runtime.trap("an idle staged seat must not be stealable either");
 };
-switch (ok(t.join(spec, LATER, "b", #p1), "b evicts the squatter")) {
-  case (#staged(#p1)) {};
-  case (_) Runtime.trap("an idle squatter must be evictable");
+switch (t.reset(LATER, "b", 0)) {
+  case (#err(#seatTaken)) {};
+  case (_) Runtime.trap("an outsider must not reset an idle staging");
 };
 switch (t.status(spec, LATER, "a")) {
-  case (#stagingYou _) Runtime.trap("evicted player still holds the seat");
-  case (#lobby l) { assert not l.p1Open; assert l.p2Open };
-  case (_) Runtime.trap("evicted player should fall back to the lobby");
+  case (#stagingYou v) { assert v.seat == #p1 };
+  case (_) Runtime.trap("a still holds the seat");
 };
-Debug.print("3. seat squat: #seatTaken then eviction OK");
+switch (t.status(spec, LATER, "b")) {
+  case (#lobby l) {
+    assert not l.p1Open;
+    assert l.p2Open;
+    assert not l.resetAvailable;
+  };
+  case (_) Runtime.trap("an outsider sees only the open seat");
+};
+switch (ok(t.join(spec, LATER, "b", #p2), "b takes the open seat")) {
+  case (#started(#p2)) {};
+  case (_) Runtime.trap("the open seat of an idle staging is still joinable");
+};
+Debug.print("3. idle staged seat: #seatTaken, open seat joinable OK");
 
 // ── 4. A rematch reservation blocks outsiders — until it expires ───────────
 t := debriefOf(T0);
@@ -153,8 +159,6 @@ switch (t.status(spec, T0, "a")) {
   case (#stagingYou v) {
     assert v.seat == #p2;
     assert v.reservedForPartner;
-    // staged and checked at the same instant — the full timeout is left.
-    assert v.secondsUntilReclaimable == 60;
   };
   case (_) Runtime.trap("a's rematch staging should reserve b's seat");
 };
@@ -313,24 +317,21 @@ switch (t.status(spec, T0, "b")) {
 };
 Debug.print("10. debrief needs both acks, dismissal idempotent OK");
 
-// ── 11. reset: owner any time, outsider only once idle ─────────────────────
+// ── 11. reset: owner any time, outsider never on a staging ────────────────
 t := fresh();
 ignore ok(t.join(spec, T0, "a", #p1), "a stages");
 switch (t.reset(SOON, "zz", 0)) {
-  // outsider path never consults gen
-  case (#err(#notIdle n)) { assert n.secondsLeft == 59 };
-  case (_) Runtime.trap("outsider reset must be gated by the timeout");
+  case (#err(#seatTaken)) {};
+  case (_) Runtime.trap("outsider reset of a fresh staging must be refused");
 };
-ok(t.reset(SOON, "a", genOf(t, SOON, "a")), "owner resets its own staging");
-switch (t.status(spec, SOON, "a")) {
+switch (t.reset(LATER, "zz", 0)) {
+  case (#err(#seatTaken)) {};
+  case (_) Runtime.trap("outsider reset of an idle staging must be refused");
+};
+ok(t.reset(LATER, "a", genOf(t, LATER, "a")), "owner resets its own staging");
+switch (t.status(spec, LATER, "a")) {
   case (#lobby _) {};
   case (_) Runtime.trap("owner reset should empty the board");
-};
-ignore ok(t.join(spec, T0, "a", #p1), "a stages again");
-ok(t.reset(LATER, "zz", 0), "outsider resets an idle staging"); // outsider path
-switch (t.status(spec, LATER, "zz")) {
-  case (#lobby _) {};
-  case (_) Runtime.trap("idle staging should be resettable");
 };
 Debug.print("11. reset gating OK");
 
@@ -491,37 +492,44 @@ Debug.print("17. debrief reset delegates to leave-semantics OK");
 // ── 18. sweep: frees an idle board with no visitor, on every phase ─────────
 // #empty: a no-op.
 t := fresh();
-t.sweep(T0);
+t.sweep(T0, nobody);
 switch (t.status(spec, T0, "zz")) {
   case (#lobby _) {};
   case (_) Runtime.trap("sweeping an empty board must stay a no-op");
 };
 
-// #staging: untouched before the timeout, freed after.
+// #staging: untouched before the timeout or while its occupant is present;
+// freed once both are past.
 t := fresh();
 ignore ok(t.join(spec, T0, "a", #p1), "a stages");
-t.sweep(SOON);
+t.sweep(SOON, nobody);
 switch (t.status(spec, SOON, "a")) {
   case (#stagingYou _) {};
   case (_) Runtime.trap("a fresh staging must survive a sweep");
 };
-t.sweep(LATER);
+t.sweep(LATER, func(s) = s == "a");
+switch (t.status(spec, LATER, "a")) {
+  case (#stagingYou _) {};
+  case (_) Runtime.trap("a present occupant's staging must survive a sweep");
+};
+t.sweep(LATER, nobody);
 switch (t.status(spec, LATER, "a")) {
   case (#lobby l) { assert l.p1Open; assert l.p2Open };
-  case (_) Runtime.trap("an idle staging must be swept away");
+  case (_) Runtime.trap("an idle, absent staging must be swept away");
 };
 Debug.print("18a. sweep on #staging OK");
 
 // #active: untouched before the timeout; after it, freed with
-// #endedByOther for BOTH former players — nobody needs to visit the
-// board to learn their game is over, unlike outsider takeover.
+// #endedByOther for BOTH former players even though both are present —
+// nobody needs to visit the board to learn their game is over, unlike
+// outsider takeover.
 t := gameOf(T0);
-t.sweep(SOON);
+t.sweep(SOON, nobody);
 switch (t.status(spec, SOON, "a")) {
   case (#inGame _) {};
   case (_) Runtime.trap("a live game must survive a sweep");
 };
-t.sweep(LATER);
+t.sweep(LATER, func(_) = true);
 switch (t.status(spec, LATER, "a")) {
   case (#endedByOther) {};
   case (_) Runtime.trap("a stalled game must be swept into #endedByOther for a");
@@ -538,12 +546,12 @@ Debug.print("18b. sweep on #active OK");
 
 // #debrief: untouched before the timeout
 t := debriefOf(T0);
-t.sweep(SOON);
+t.sweep(SOON, nobody);
 switch (t.status(spec, SOON, "a")) {
   case (#debrief _) {};
   case (_) Runtime.trap("a fresh debrief must survive a sweep");
 };
-t.sweep(LATER);
+t.sweep(LATER, nobody);
 switch (t.status(spec, LATER, "a")) {
   case (#lobby _) {};
   case (_) Runtime.trap("a swept, already-seen debrief should go straight to #lobby");
@@ -560,19 +568,19 @@ Debug.print("18c. sweep on #debrief OK");
 
 // ── 19. sweep also prunes a long-unacked #endedByOther notice ──────────────
 t := gameOf(T0);
-t.sweep(LATER); // a/b's game goes idle with nobody visiting; noteEnded fires
+t.sweep(LATER, nobody); // a/b's game goes idle with nobody visiting; noteEnded fires
 switch (t.status(spec, LATER, "a")) {
   case (#endedByOther) {};
   case (_) Runtime.trap("a's notice should still be fresh");
 };
 let WELL_WITHIN = LATER + TIMEOUT * 9; // short of the prune threshold
-t.sweep(WELL_WITHIN);
+t.sweep(WELL_WITHIN, nobody);
 switch (t.status(spec, WELL_WITHIN, "a")) {
   case (#endedByOther) {};
   case (_) Runtime.trap("a well-within-window notice must survive further sweeps");
 };
 let LONG_AFTER = LATER + TIMEOUT * 10 + 1_000_000_000; // past the prune threshold
-t.sweep(LONG_AFTER);
+t.sweep(LONG_AFTER, nobody);
 switch (t.status(spec, LONG_AFTER, "a")) {
   case (#endedByOther) Runtime.trap("an ancient, never-acked notice should have been pruned");
   case (_) {};

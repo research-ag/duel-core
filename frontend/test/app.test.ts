@@ -294,7 +294,7 @@ test("a button's spinner survives an unrelated re-render that arrives before its
 
   // B's own call finally resolves.
   ws.requests[0]!.resolve({
-    view: atTable({ stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n, visibility: { open: null } } }),
+    view: atTable({ stagingYou: { seat: { p2: null }, reservedForPartner: false, gen: 1n, visibility: { open: null } } }),
   });
   await Promise.resolve();
   await Promise.resolve();
@@ -725,7 +725,7 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
   start({ plugin, ws, session });
 
   const seated = [
-    atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n, visibility: { open: null } } }),
+    atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, gen: 1n, visibility: { open: null } } }),
     atTable({
       inGame: {
         mode: { simultaneous: null },
@@ -798,7 +798,7 @@ test("the new-sid button disables the instant a create-table request is dispatch
 
   // The call succeeds; the confirmed seat keeps new-sid disabled as usual.
   ws.requests[0]!.resolve({
-    view: atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n, visibility: { open: null } } }),
+    view: atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, gen: 1n, visibility: { open: null } } }),
   });
   await Promise.resolve();
   await Promise.resolve();
@@ -884,7 +884,7 @@ test("the new-sid button stays disabled through an unrelated push arriving mid-j
   // B's own request finally resolves — new-sid stays disabled as usual,
   // now because the confirmed status itself is seated.
   ws.requests[0]!.resolve({
-    view: atTable({ stagingYou: { seat: { p2: null }, reservedForPartner: false, secondsUntilReclaimable: 999n, gen: 1n, visibility: { open: null } } }),
+    view: atTable({ stagingYou: { seat: { p2: null }, reservedForPartner: false, gen: 1n, visibility: { open: null } } }),
   });
   await Promise.resolve();
   await Promise.resolve();
@@ -1184,7 +1184,7 @@ test("duel-auth-btn is disabled together with new-sid once the session holds a s
   ws.onmessage!({
     data: {
       view: atTable({
-        stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen: 1n, visibility: { open: null } },
+        stagingYou: { seat: { p1: null }, reservedForPartner: false, gen: 1n, visibility: { open: null } },
       }),
     },
   });

@@ -26,7 +26,7 @@
     <footer>
       <p class="muted">
         Your session id is per browser tab — open a second tab to play the
-        other seat. An idle table can be taken over after
+        other seat. An idle game can be taken over after
         __IDLE_TIMEOUT_SECONDS__&nbsp;seconds.
       </p>
     </footer>

@@ -11,7 +11,6 @@ import { esc } from "duel-game-core/render.js";
 
 const IDLE_WARNING_SECS = 30n;
 const CLAIM_WARNING_SECS = 15n;
-const RECLAIM_WARNING_SECS = 15n;
 const LOG_KEEP = 8;
 
 const fileNo = (id) => `OP-${String(id).padStart(3, "0")}`;
@@ -105,7 +104,6 @@ function safeHouse(id, v, plugin, inviting) {
       <p class="lbl">Standing by</p>
       <p>You are <strong>${esc(plugin.seatLabel(seat))}</strong>. ${brief}</p>
       ${code !== null ? `<p><span class="lbl">Code</span> <code class="code">${esc(code)}</code></p>` : ""}
-      <p class="clock warn" data-clock="reclaim" data-base="${v.secondsUntilReclaimable}" ${v.secondsUntilReclaimable > RECLAIM_WARNING_SECS ? "hidden" : ""}></p>
       ${inviting !== null ? `<p class="clock">Calling in ${esc(inviting)}…</p>` : ""}
       <p class="row">
         ${inviting === null ? `<button class="stamp" data-op="add-bot">🤖 Add a bot</button>` : ""}
@@ -232,12 +230,6 @@ function syncClocks(root, state) {
       case "busy":
         el.textContent = `It can be commandeered in ${localSecondsLeft(base, at)}s.`;
         break;
-      case "reclaim": {
-        const left = localSecondsLeft(base, at);
-        el.hidden = left > RECLAIM_WARNING_SECS;
-        el.textContent = `Still there? This cover is released ${left <= 0n ? "any moment now" : `in ${left}s`} if the page stays idle.`;
-        break;
-      }
       case "idle": {
         const left = localSecondsLeft(base, at);
         el.hidden = left > IDLE_WARNING_SECS;

@@ -2,6 +2,8 @@
 import Rules "FakeGame";
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
+import Map "mo:core/Map";
+import Nat "mo:core/Nat";
 import Runtime "mo:core/Runtime";
 
 import TP "../src/lib";
@@ -16,6 +18,8 @@ let CLAIM_TIMEOUT : Int = 20_000_000_000; // 20 s
 let T0 : Int = 1_000_000_000_000;
 let LATER : Int = T0 + 61_000_000_000; // +61 s — past the timeout
 let CLAIMABLE : Int = T0 + 21_000_000_000; // +21 s — past the claim window
+
+let nobody = func(_ : Text) : Bool = false;
 
 func fresh() : Reg {
   let r = Registry.new<Rules.State, Rules.Action>();
@@ -197,7 +201,7 @@ let reg8 = fresh();
 let idG = ok(reg8.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
 ignore ok(reg8.joinTable(spec, T0, "b", idG, #p2, null), "b joins; game live");
 let VANISH = T0 + TIMEOUT + 1_000_000_000; // a/b's own game goes idle
-reg8.sweep(VANISH); // the periodic timer frees it with nobody visiting
+reg8.sweep(VANISH, nobody); // the periodic timer frees it with nobody visiting
 var ghostSeen = false;
 for (r in reg8.listTables(VANISH).values()) {
   if (r.id == idG) ghostSeen := true;
@@ -219,7 +223,7 @@ for (r in reg8.listTables(VANISH).values()) {
 assert ghostSeen; // a/b's still-unacked notice blocks GC even after c/d's clean finish
 // long after: a/b were never coming back — the notice goes stale and is pruned
 let LONG_AFTER = VANISH + TIMEOUT * 10 + 1_000_000_000;
-reg8.sweep(LONG_AFTER);
+reg8.sweep(LONG_AFTER, nobody);
 for (r in reg8.listTables(LONG_AFTER).values()) { assert r.id != idG }; // finally GC'd
 switch (reg8.status(spec, LONG_AFTER, "a")) {
   case (#browsing _) {}; // the stale notice is gone quietly, not shown forever either
@@ -284,21 +288,26 @@ Debug.print("10. a still-live rematch invite can be declined, not just accepted 
 // ── 11. a session a phase transition moved past isn't locked out of the game
 //      FOREVER ──────────────────────────────────────────────────────────────
 
-// 11a. nobody ever joins the abandoned seat, and no `sweep` has even run
-//        — time passing alone must be enough; the fix can't depend on a
-//        host's periodic timer having already flipped the phase.
+// 11a. a lone staging never times out for its occupant: it stays theirs
+//        (and still blocks a second table) until they leave it.
 let reg11a = fresh();
-ignore ok(reg11a.createTable(spec, T0, "a", #p1, #open, ""), "a stages, alone");
-ignore ok(reg11a.createTable(spec, LATER, "a", #p1, #open, ""), "a can create again once their own staging has expired");
-Debug.print("11a. a lone staging that simply times out doesn't lock its session out OK");
+let idA = ok(reg11a.createTable(spec, T0, "a", #p1, #open, ""), "a stages, alone");
+expectErr(reg11a.createTable(spec, LATER, "a", #p1, #open, ""), "a still holds their idle staging");
+expectErr(reg11a.joinTable(spec, LATER, "b", idA, #p1, null), "nobody takes a's idle staged seat");
+ignore ok(reg11a.leave(LATER, "a", genOf(reg11a, LATER, "a")), "a leaves their staging");
+ignore ok(reg11a.createTable(spec, LATER, "a", #p1, #open, ""), "a can create again after leaving");
+Debug.print("11a. an idle staging stays its occupant's until they leave OK");
 
-// 11b. someone else's `join` evicts the expired squatter instead of a
-//        sweep — the EVICTED session, not the evictor, must recover.
+// 11b. a sweep frees an absent occupant's idle staging — the swept
+//        session must recover, and the table is GC'd.
 let reg11b = fresh();
 let idB = ok(reg11b.createTable(spec, T0, "a", #p1, #open, ""), "a stages, alone");
-ignore ok(reg11b.joinTable(spec, LATER, "b", idB, #p1, null), "b evicts a's expired squat on the same seat");
-ignore ok(reg11b.createTable(spec, LATER, "a", #p1, #open, ""), "a (evicted by b) can create again");
-Debug.print("11b. a session evicted by someone else's join can create again OK");
+reg11b.sweep(LATER, func(s) = s == "a");
+expectErr(reg11b.createTable(spec, LATER, "a", #p1, #open, ""), "a is present: their staging survives the sweep");
+reg11b.sweep(LATER, nobody);
+for (r in reg11b.listTables(LATER).values()) { assert r.id != idB };
+ignore ok(reg11b.createTable(spec, LATER, "a", #p1, #open, ""), "a (swept while absent) can create again");
+Debug.print("11b. a session swept while absent can create again OK");
 
 // 11c. a full debrief expires pre-acked — an outsider's `join` is what
 //        actually marks it that way (see `join`'s own #debrief doc);
@@ -384,16 +393,14 @@ let id15 = ok(reg15.createTable(spec, T0, "a", #p1, #open, ""), "a creates a tab
 reg15.setTimeouts(TIMEOUT * 2, CLAIM_TIMEOUT * 2);
 assert reg15.idleTimeoutNs == TIMEOUT * 2;
 assert reg15.claimTimeoutNs == CLAIM_TIMEOUT * 2;
-switch (atTableView(reg15, T0, "a")) {
-  case (#stagingYou v) assert v.secondsUntilReclaimable == 120;
-  case (_) Runtime.trap("a should still be staging its own table");
+func idleOf(id : Nat) : Int = switch (reg15.tables.get(id)) {
+  case (?t) t.idleTimeoutNs;
+  case null Runtime.trap("table " # debug_show id # " should exist");
 };
+assert idleOf(id15) == TIMEOUT * 2;
 let id15b = ok(reg15.createTable(spec, T0, "b", #p1, #open, ""), "b creates a table after the timeouts change");
 assert id15b != id15;
-switch (atTableView(reg15, T0, "b")) {
-  case (#stagingYou v) assert v.secondsUntilReclaimable == 120;
-  case (_) Runtime.trap("b should be staging its own table");
-};
+assert idleOf(id15b) == TIMEOUT * 2;
 Debug.print("15. setTimeouts rewrites the registry defaults and every live table OK");
 
 Debug.print("ALL LOBBY CHECKS PASSED");

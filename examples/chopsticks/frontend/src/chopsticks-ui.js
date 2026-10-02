@@ -13,7 +13,6 @@ import { HAND_NAME, RULE_SETS, SEAT_NAME, SIDES, canSplit, handsOf, hit, renderH
 
 const IDLE_WARNING_SECS = 30n;
 const CLAIM_WARNING_SECS = 15n;
-const RECLAIM_WARNING_SECS = 15n;
 const ANIM_SOURCE_MS = 900;
 const ANIM_TARGET_MS = 700;
 const HISTORY_SHOWN = 10;
@@ -378,7 +377,6 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
       <p class="faint mono">Table #${id} · ${esc(rs.title)} · You are ${esc(SEAT_NAME[seat])}</p>
       <p class="faint">${brief}</p>
       ${code !== null ? `<p class="code-line"><span class="lbl">Code</span><code class="code">${esc(code)}</code></p>` : ""}
-      <p class="clock warn" data-clock="reclaim" data-base="${v.secondsUntilReclaimable}" ${v.secondsUntilReclaimable > RECLAIM_WARNING_SECS ? "hidden" : ""}></p>
       <div class="row">
         ${inviting ? "" : `<button type="button" class="btn-action accent" data-op="add-bot">🤖 Add a Bot</button>`}
         <button type="button" class="btn-action muted" data-op="leave" data-key="leave">Cancel</button>
@@ -788,12 +786,6 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
         case "busy":
           el.textContent = `${localSecondsLeft(base, at)}s until it can be taken over`;
           break;
-        case "reclaim": {
-          const left = localSecondsLeft(base, at);
-          el.hidden = left > RECLAIM_WARNING_SECS;
-          el.textContent = `Still there? This seat may be given to someone else ${left <= 0n ? "any moment now" : `in ${left}s`} if the page stays idle.`;
-          break;
-        }
         case "idle": {
           const left = localSecondsLeft(base, at);
           el.hidden = left > IDLE_WARNING_SECS;

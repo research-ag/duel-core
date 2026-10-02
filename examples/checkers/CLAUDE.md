@@ -32,8 +32,7 @@ n]`; no lookahead. Separate from `Bot.mo` so `Bot.test.mo` calls it
   `icp canister call bot register '(principal "<backend-canister-id>", "CheckersBot")'`.
 - **`test/*.test.mo`** — `RulesUnit` (synthetic boards: forward-only men,
   kings, mandatory capture, maximal chains, promotion, win by elimination
-  and stalemate); `Engine` (`#notYourTurn`, claim-win gated to the
-  waiting seat); `Lifecycle` (join, opening moves, then seed
+  and stalemate); `Lifecycle` (join, opening moves, then seed
   `Table.phase` to one capture from the end); `Bot` (`chooseMove` stays
   within `legalActions`, then two canister-seated bots play several real
   plies through `canister_players`).
@@ -68,7 +67,7 @@ cd examples/checkers
 mops install
 moc --check $(mops sources) src/CheckersRules.mo
 moc --check $(mops sources) src/Host.mo
-mops test                  # all four; `mops test Bot` for the bot
+mops test                  # all three; `mops test Bot` for the bot
 
 (cd ../../frontend && npm run build)
 cd frontend && npm install --legacy-peer-deps && npm run build && node --check dist/app.js && cd ..
@@ -106,5 +105,5 @@ Everything in `../../CLAUDE.md`, plus:
 ## Conventions
 
 Plain interpreter tests; `msg`, not `label`; update
-`RulesUnit`/`Engine`/`Lifecycle` when the rules change (`legalActions`
+`RulesUnit`/`Lifecycle` when the rules change (`legalActions`
 must keep matching `validate`) and keep the plugin's mirror in sync.

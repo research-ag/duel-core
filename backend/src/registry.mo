@@ -129,10 +129,11 @@ module {
         since = now;
       };
       case (#staging st) {
-        let ex = t.isExpired(st.since, now);
-        if (st.reservedFor.isSome() and not ex) { null } else {
-          let p1Open = st.seat != #p1 or ex;
-          let p2Open = st.seat != #p2 or ex;
+        if (st.reservedFor.isSome() and not t.isExpired(st.since, now)) {
+          null;
+        } else {
+          let p1Open = st.seat != #p1;
+          let p2Open = st.seat != #p2;
           ?{
             p1Open;
             p2Open;
@@ -189,13 +190,13 @@ module {
   /// Drops a `bySession` mapping whose table no longer considers the
   /// session seated (a phase that moved on without `leave`/`reset`/
   /// `ackEnded`), so `alreadyAtATable` can't refuse them forever.
-  func releaseIfStale<S, M>(reg : Registry<S, M>, session : T.SessionId, now : Int) {
+  func releaseIfStale<S, M>(reg : Registry<S, M>, session : T.SessionId) {
     switch (reg.bySession.get(session)) {
       case null {};
       case (?id) switch (reg.tables.get(id)) {
         case null reg.bySession.remove(session);
         case (?t) {
-          if (not t.isStillSeated(now, session)) {
+          if (not t.isStillSeated(session)) {
             reg.bySession.remove(session);
             gcIfQuiesced(reg, id, t);
           };
@@ -276,7 +277,7 @@ module {
       case (#code c) { if (c.size() == 0) return #err(#badCode) };
       case (#open) {};
     };
-    releaseIfStale(self, session, now);
+    releaseIfStale(self, session);
     if (alreadyAtATable(self, session)) {
       return #err(#wrongPhase("you are already at another table"));
     };
@@ -313,11 +314,11 @@ module {
     if (reservedFor == session) {
       return #err(#wrongPhase("cannot reserve yourself for the other seat"));
     };
-    releaseIfStale(self, session, now);
+    releaseIfStale(self, session);
     if (alreadyAtATable(self, session)) {
       return #err(#wrongPhase("you are already at another table"));
     };
-    releaseIfStale(self, reservedFor, now);
+    releaseIfStale(self, reservedFor);
     if (alreadyAtATable(self, reservedFor)) {
       return #err(#wrongPhase("the other seat's own session is already at another table"));
     };
@@ -348,7 +349,7 @@ module {
     seat : T.Seat,
     code : ?Text,
   ) : T.Res<T.JoinOk> {
-    releaseIfStale(self, session, now);
+    releaseIfStale(self, session);
     if (alreadyAtATable(self, session)) {
       return #err(#wrongPhase("you are already at another table"));
     };
@@ -508,9 +509,11 @@ module {
   };
 
   /// Snapshots the table list first: GC mutates `tables` in place.
-  public func sweep<S, M>(self : Registry<S, M>, now : Int) {
+  /// `isPresent` keeps a waiting occupant's staging alive; see
+  /// `Table.sweep`.
+  public func sweep<S, M>(self : Registry<S, M>, now : Int, isPresent : T.SessionId -> Bool) {
     for ((id, t) in self.tables.toArray().values()) {
-      t.sweep(now);
+      t.sweep(now, isPresent);
       gcIfQuiesced(self, id, t);
     };
     recordActiveGames(self);

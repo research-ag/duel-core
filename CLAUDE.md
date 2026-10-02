@@ -202,7 +202,7 @@ deploys all of them to the IC.
 4. **`validate` is the only legality gate.** Called for both seats on
    every submission; a client's disabled buttons are cosmetic.
 5. **Every phase carries a timestamp** (`since`/`lastActivity`) so idle
-   takeover works from any phase.
+   eviction works from any phase.
 6. **Rematch is create-then-join.** A rematch stages the SAME table with
    `reservedFor = partner` (or unreserved if the partner already acked
    the debrief); the partner's `rematch`/`join` matches that staging;

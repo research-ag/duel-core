@@ -205,21 +205,8 @@ export function renderBusy(v: BusyView): string {
     <p class="countdown">${v.secondsUntilTakeover}s until it can be taken over</p>`;
 }
 
-// Warns a staged occupant their seat is about to become reclaimable.
-// Rendered unconditionally (just `hidden`) so app.ts's countdown ticker
-// has a stable element to patch between pushes.
-export const DUEL_RECLAIM_WARNING_ID = "duel-reclaim-warning";
-export const RECLAIM_WARNING_SECS = 15n;
-
-export function reclaimWarningText(secondsUntilReclaimable: bigint): string {
-  const when =
-    secondsUntilReclaimable <= 0n ? "any moment now" : `in ${secondsUntilReclaimable}s`;
-  return `Still there? This seat may be given to someone else ${when} if the page stays idle.`;
-}
-
 export function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string {
   const seat = tag(v.seat) as SeatTag;
-  const reclaimWarningHidden = v.secondsUntilReclaimable > RECLAIM_WARNING_SECS;
   // A protected table's code, present only on the occupant's own view.
   const code = "code" in v.visibility ? v.visibility.code : null;
   return `
@@ -236,7 +223,6 @@ export function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string 
           : `<p class="muted">Open this page in another tab to take the other
                seat.</p>`
     }
-    <p class="countdown" id="${DUEL_RECLAIM_WARNING_ID}"${reclaimWarningHidden ? " hidden" : ""}>${reclaimWarningText(v.secondsUntilReclaimable)}</p>
     <p><button data-leave class="ghost">Leave</button></p>`;
 }
 
