@@ -1,6 +1,7 @@
 /// FakeTurnGame — a trivial `#alternating` `TP.Spec` used only by
 /// Alternating.test.mo. INC always legal, +1 to a shared counter, never ends;
 /// WINNOW illegal at 0, otherwise ends the match for the seat on turn.
+/// Variant "headStart" starts the counter at 1.
 import TP "../src/lib";
 
 module {
@@ -9,7 +10,9 @@ module {
 
   public type State = { count : Nat };
 
-  public func init(_ : Text) : State = { count = 0 };
+  public func init(variant : Text) : State = {
+    count = if (variant == "headStart") 1 else 0;
+  };
 
   public func validate(s : State, seat : TP.Seat, a : Action) : ?Text {
     switch (a) {

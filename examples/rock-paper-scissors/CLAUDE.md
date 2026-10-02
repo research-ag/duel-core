@@ -21,9 +21,7 @@ purely in `validate`. Not part of either package.
   entropy), `play(...)`, `register`/
   `unregister` (registers `[]`, "Default").
 - **`test/*.test.mo`** — `RulesUnit` (variant parsing, well gating, all
-  six beat pairs plus a tie, first-to-3 in both variants); `Engine`
-  (hidden pending move, resolution once both submit, claim-win) on `""`;
-  `Lifecycle` (join, full match, rematch, mid-game leave, idle takeover)
+  six beat pairs plus a tie, first-to-3 in both variants); `Lifecycle` (join, full match, rematch, mid-game leave, idle takeover)
   on `""`; `Bot` (legal per variant, then two canister bots play a full
   match per variant with the table's variant flowing through).
 - **`icp.yaml`** — `backend`, `bot`, `frontend/dist`.

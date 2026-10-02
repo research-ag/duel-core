@@ -35,8 +35,7 @@ depth`, live-hands heuristic — depth-limited because the position graph
 - **`test/*.test.mo`** — `RulesUnit` (variant parsing, attack gating,
   Classic's free split minus stay-put/pure-swap/hand-of-five,
   Instructables' one-dead-and-even gate, `>= 5` vs exact-5 and wrap, win,
-  `legalActions` counts); `Engine` (`#notYourTurn`, a pure swap refused,
-  claim-win, variant reaching `init`); `Lifecycle` (an Instructables
+  `legalActions` counts); `Lifecycle` (an Instructables
   table, three opening moves, seed to one attack from the end); `Bot`
   (every tier legal in both variants, Fox/Bear win-taking and
   loss-avoidance, ladder play-outs — Bear beats Bunny and Fox from either

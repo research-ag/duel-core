@@ -15,9 +15,6 @@ import {
   DUEL_IDLE_WARNING_ID,
   idleWarningThreshold,
   idleWarningText,
-  DUEL_RECLAIM_WARNING_ID,
-  RECLAIM_WARNING_SECS,
-  reclaimWarningText,
   DUEL_CLAIM_WARNING_ID,
   DUEL_CLAIM_BUTTON_ID,
   claimWarningText,
@@ -26,7 +23,7 @@ import {
   waitingText,
 } from "./render.js";
 import type { Screens } from "./render.js";
-import type { DuelWs, GamePlugin, InGameView, SeatTag, StagingYouView, Status, Visibility } from "./types.js";
+import type { DuelWs, GamePlugin, InGameView, SeatTag, Status, Visibility } from "./types.js";
 
 export type { SessionIdentity } from "./client.js";
 
@@ -468,7 +465,6 @@ export function start<S>({
   // Local countdowns, re-baselined off every fresh push.
 
   const idleTicker = makeCountdownTicker(DUEL_IDLE_WARNING_ID);
-  const reclaimTicker = makeCountdownTicker(DUEL_RECLAIM_WARNING_ID);
   const claimTicker = makeCountdownTicker(DUEL_CLAIM_WARNING_ID);
   const claimButtonTicker = makeVisibilityTicker(DUEL_CLAIM_BUTTON_ID);
   const waitTicker = makeTableWaitTicker(screenEl);
@@ -485,19 +481,6 @@ export function start<S>({
       secs: inGame.secondsUntilIdleReset,
       hidden: (secondsLeft) => secondsLeft > idleWarningThreshold(inGame.idleTimeoutSecs),
       text: idleWarningText,
-    });
-  }
-
-  function syncReclaimTick(status: Status<S> | null): void {
-    const staging = viewOf<StagingYouView>(status, "stagingYou");
-    if (!staging) {
-      reclaimTicker.sync(null);
-      return;
-    }
-    reclaimTicker.sync({
-      secs: staging.secondsUntilReclaimable,
-      hidden: (secondsLeft) => secondsLeft > RECLAIM_WARNING_SECS,
-      text: reclaimWarningText,
     });
   }
 
@@ -575,7 +558,6 @@ export function start<S>({
     screenEl.innerHTML = renderStatus(status, plugin, sc);
     if (savedForm) restoreCreateFormState(savedForm);
     syncIdleTick(status);
-    syncReclaimTick(status);
     syncClaimTick(status);
     waitTicker.sync();
   };

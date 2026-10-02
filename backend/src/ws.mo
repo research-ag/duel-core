@@ -522,9 +522,10 @@ module {
 
     /// Pushes to EVERY connected session (a browsing tab is never a
     /// former participant) but only if the sweep actually freed a table.
+    /// A WS-connected session counts as present.
     func sweepAndPush(now : Int) : async* () {
       let snapshot = registry.tables.toArray();
-      registry.sweep(now);
+      registry.sweep(now, func(sid) = hub.bySid.get(sid) != null);
       var anyTableFreedUp = false;
       for ((_, t) in snapshot.values()) {
         switch (t.phase) {

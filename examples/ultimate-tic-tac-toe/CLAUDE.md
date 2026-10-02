@@ -20,8 +20,7 @@ board*9 + cell); results (per local board: #p1/#p2/#tie); activeBoard :
   `unregister` (registers `[]`, "Default").
 - **`test/*.test.mo`** — `RulesUnit` (free vs routed vs
   routed-to-decided legality, local win without ending, local tie,
-  meta-line win, full draw); `Engine` (routing enforced through `submit`,
-  claim-win); `Lifecycle` (opening moves exercising routing, seed to one
+  meta-line win, full draw); `Lifecycle` (opening moves exercising routing, seed to one
   placement from a meta win); `Bot` (legal including a board routed to
   its last cell; two canister bots through real plies with a larger sweep
   budget).

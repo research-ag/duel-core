@@ -92,7 +92,6 @@ export function buildEngineTypes({
     stagingYou: IDL.Record({
       seat: Seat,
       reservedForPartner: IDL.Bool,
-      secondsUntilReclaimable: IDL.Nat,
       gen: IDL.Nat,
       visibility: Visibility,
     }),

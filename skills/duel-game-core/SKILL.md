@@ -161,14 +161,15 @@ From `templates/Rules.mo.template`, write `src/<YourGame>Rules.mo`:
 
 From `templates/Host.mo.template`, write `src/Host.mo`, filling in only
 `__RULES_MODULE__`, `__IDLE_TIMEOUT_NS__` (`90_000_000_000` = 90s: how
-long an abandoned table sits before a third party may reclaim it), and
+long an abandoned game sits before a third party may take it over, and
+how long a waiting seat whose player has disconnected is kept), and
 `__CLAIM_TIMEOUT_NS__` (`60_000_000_000` = 60s: how long your submitted
 move may sit against the opponent's silence before you may claim the
 win). Both go into `registry.setTimeouts` on the line after
 `Registry.new()`: a stable `registry` runs its initializer only on first
 install, while `setTimeouts` runs on every upgrade. Keep
 `idleTimeoutNs` comfortably above `claimTimeoutNs` (at least 15s of
-margin) — an idle table can otherwise be reclaimed by a third party
+margin) — an idle game can otherwise be taken over by a third party
 before its own claim window even opens. Change nothing else. Do not add plain Candid methods for
 `createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
 `ackEnded` — `mo:duel-game-core/ws` (`Ws.attach` + `ActorMixin`) is the

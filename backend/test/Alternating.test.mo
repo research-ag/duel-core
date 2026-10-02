@@ -136,4 +136,24 @@ switch (t.status(spec, CLAIMABLE, "b")) {
   case (_) Runtime.trap("b should see a's claimed win");
 };
 Debug.print("5. claim-win gated to the waiting seat only OK");
+
+// ── 6. the table's variant reaches `init`, for the first game and a rematch ─
+t := Table.new<Rules.State, Rules.Action>(TIMEOUT, CLAIM_TIMEOUT, #open, "test", "headStart");
+ignore ok(t.join(spec, T0, "a", #p1), "a joins");
+ignore ok(t.join(spec, T0, "b", #p2), "b joins");
+switch (t.status(spec, T0, "a")) {
+  case (#inGame v) assert v.game.count == 1;
+  case (_) Runtime.trap("a should be in a headStart game");
+};
+switch (ok(t.submit(spec, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), #winNow), "a wins at once")) {
+  case (#gameEnded _) {};
+  case (_) Runtime.trap("headStart makes WINNOW legal on turn 0");
+};
+ignore ok(t.rematch(spec, T0, "a"), "a requests a rematch");
+ignore ok(t.rematch(spec, T0, "b"), "b accepts");
+switch (t.status(spec, T0, "b")) {
+  case (#inGame v) { assert v.turn == 0; assert v.game.count == 1 };
+  case (_) Runtime.trap("the rematch should start from the same variant");
+};
+Debug.print("6. variant flows into init, rematch included OK");
 Debug.print("ALL ALTERNATING ENGINE CHECKS PASSED");

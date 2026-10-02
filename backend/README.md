@@ -26,10 +26,12 @@ It handles everything a 2-player game needs except the game itself:
 - **Claim a win** — once your move has sat pending against the
   opponent's silence for `claimTimeoutNs`, you may claim the win. Never
   automatic.
-- **Idle takeover** — after `idleTimeoutNs`, third parties may reclaim a
-  squatted seat, reset a dead game, or start over an expired debrief.
-  Abandoned tables are garbage-collected, including pruning
-  `#endedByOther` notices nobody will ever ack.
+- **Idle takeover** — after `idleTimeoutNs`, third parties may reset a
+  dead game or start over an expired debrief. A seat taken while waiting
+  for an opponent is never taken over: `sweep` frees it once it has
+  been idle for `idleTimeoutNs` and its occupant is no longer present
+  (WS-connected). Abandoned tables are garbage-collected, including
+  pruning `#endedByOther` notices nobody will ever ack.
 - **Status views** — one truthful per-caller `SessionStatus`: the
   browsable table list, or a specific table's `View`, including the
   `#endedByOther` notice after a takeover.
@@ -71,7 +73,9 @@ variant)` plus `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
   discover, and join tables; `submit`/`rematch`/`leave`/`reset`/
   `claimWin`/`ackEnded`/`status` resolve the caller's current table via a
   `SessionId -> TableId` map and delegate to `Table`. `sweep` evicts and
-  garbage-collects across every table. `attachMetrics(pt)` is optional
+  garbage-collects across every table, sparing a staging whose occupant
+  passes its `isPresent` predicate (`Ws.attach`'s `sweep` passes "has a
+  live WebSocket connection"). `attachMetrics(pt)` is optional
   (see Metrics). `peekNextTableId` is a pure read of the id nonce.
 - Every mutating operation takes `spec` and `now : Int` (nanoseconds).
   At the `Registry` layer they are called only from `mo:duel-game-core/ws`
@@ -200,7 +204,8 @@ connection, not a departure. Background tabs are throttled and phones
 freeze pages, so a player who glances away must not forfeit. The client
 reconnects when it is back, and genuine absence is the engine's own
 business: `claimWin` after `claimTimeoutNs`, idle takeover, and
-`Registry.sweep`.
+`Registry.sweep`. A lost connection also stops counting as presence, so
+the next sweep frees a seat its occupant staged and then went idle on.
 
 The vendored CDK's `ws_get_messages` answers a gateway it doesn't know
 with `#Err` rather than an empty batch: a self-registered client polls
@@ -661,8 +666,9 @@ hold at both the `Table` and `Registry` layer):
    unless they already acked; the partner's `rematch`/`join` matches it,
    `leave` declines it. Actor serialization makes simultaneous clicks
    safe.
-2. **No ghost lobbies.** Every phase carries a timestamp; an idle table
-   is evictable and resurfaces in `listTables` in every phase.
+2. **No ghost lobbies.** Every phase carries a timestamp; an idle game
+   or debrief is evictable and resurfaces in `listTables`, and an idle
+   staging whose occupant is gone is swept.
 3. **Server-side legality.** `validate` for both players, always.
 4. **No silent endings.** `#aborted`, `#claimed`, and `#endedByOther`
    (until acked, or pruned by `Table.pruneEnded` after a generous

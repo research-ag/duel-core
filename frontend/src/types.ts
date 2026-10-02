@@ -77,7 +77,6 @@ export interface BusyView {
 export interface StagingYouView {
   seat: Seat;
   reservedForPartner: boolean;
-  secondsUntilReclaimable: bigint;
   gen: bigint;
   visibility: Visibility;
 }

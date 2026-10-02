@@ -26,8 +26,8 @@ LeaderboardActorMixin(leaderboard, 25)`). Plus canister
 - **`bot/Bot.mo`** — `make_move` (`query`), `play(...)`, `register`/
   `unregister` (sends `COMPLEXITIES`).
 - **`test/*.test.mo`** — `Lifecycle`/`Rules` are scenario walks;
-  `Engine`/`RulesUnit` are per-operation unit suites. `Engine`/`Lifecycle`
-  drive the real engine from `../../backend` with these rules plugged in.
+  `RulesUnit` is the per-operation unit suite. `Lifecycle` drives the
+  real engine from `../../backend` with these rules plugged in.
   `Bot` proves legality for every stat combination, Medium's tactics,
   Medium beating Easy over full games, and two canister bots playing real
   matches.

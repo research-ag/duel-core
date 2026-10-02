@@ -64,7 +64,7 @@ function staging(gen = 1n): Status {
     atTable: {
       id: 1n,
       view: {
-        stagingYou: { seat: { p1: null }, reservedForPartner: false, secondsUntilReclaimable: 30n, gen, visibility: { open: null } },
+        stagingYou: { seat: { p1: null }, reservedForPartner: false, gen, visibility: { open: null } },
       },
     },
   };

@@ -16,8 +16,7 @@ reference for a bot with two complexities. Not part of either package.
   `unregister` (sends `COMPLEXITIES`, listing "TicTacToeBot (Easy)" and
   "(Hard)").
 - **`test/*.test.mo`** — `RulesUnit` (empty/occupied/out-of-bounds, each
-  line type, full-board draw, `legalActions`); `Engine` (`#notYourTurn`,
-  immediate resolve, claim-win, occupied-cell refusal); `Lifecycle`
+  line type, full-board draw, `legalActions`); `Lifecycle`
   (join, opening moves, seed to one placement from the end); `Bot` (Easy
   stays legal including the last cell; Hard wins, blocks, draws itself,
   never loses to Easy; unknown complexity = Easy; two canister bots at

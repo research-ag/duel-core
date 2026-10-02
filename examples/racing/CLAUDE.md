@@ -29,7 +29,7 @@ either package.
   `unregister` (registers `[]`):
   `icp canister call bot register '(principal "<backend-canister-id>", "RacerBot")'`.
 - **`test/*.test.mo`** — `Lifecycle`/`Rules` are scenario walks;
-  `Engine`/`RulesUnit` per-operation suites. `RaceTestHelpers.mo`
+  `RulesUnit` the per-operation suite. `RaceTestHelpers.mo`
   (not `.test.mo`) seeds a live table one legal step from the finish
   instead of simulating a race. `Bot.test.mo` replays both scripts (plus
   the post-script clamp) through the real `validate`/`resolve`, then

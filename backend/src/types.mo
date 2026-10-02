@@ -205,7 +205,6 @@ module {
     #stagingYou : {
       seat : Seat;
       reservedForPartner : Bool;
-      secondsUntilReclaimable : Nat;
       gen : Nat;
       /// Includes a `#code` table's own code — only ever on the sole
       /// occupant's view of their own table.

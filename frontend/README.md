@@ -219,14 +219,14 @@ each with the same signature as the `render*` function it replaces. A
 custom screen keeps the shell's click handling, spinner, and countdowns
 by using the same hooks the defaults do:
 
-| Hook                                                                                                                              | Dispatches                      |
-| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `data-create-table="p1"` + the `table-visibility` radios, `#create-code`, `table-variant` radios                                  | `createTable`                   |
-| `data-join-table-id="3" data-join-table="p2"` (+ bare `data-protected` to prompt for a code)                                      | `joinTable`                     |
-| `data-act='<json>'` (via `actionAttr`)                                                                                            | `submit`                        |
-| `data-rematch`, `data-leave`, `data-reset`, `data-claim-win`, `data-ack`                                                          | the matching call               |
-| `data-confirm="Sure?"` on any of the above                                                                                        | asks first                      |
-| `id="duel-idle-warning"`, `id="duel-reclaim-warning"`, `id="duel-claim-warning"`, `id="duel-claim-button"`, `data-wait-base="12"` | patched by the local countdowns |
+| Hook                                                                                                 | Dispatches                      |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `data-create-table="p1"` + the `table-visibility` radios, `#create-code`, `table-variant` radios     | `createTable`                   |
+| `data-join-table-id="3" data-join-table="p2"` (+ bare `data-protected` to prompt for a code)         | `joinTable`                     |
+| `data-act='<json>'` (via `actionAttr`)                                                               | `submit`                        |
+| `data-rematch`, `data-leave`, `data-reset`, `data-claim-win`, `data-ack`                             | the matching call               |
+| `data-confirm="Sure?"` on any of the above                                                           | asks first                      |
+| `id="duel-idle-warning"`, `id="duel-claim-warning"`, `id="duel-claim-button"`, `data-wait-base="12"` | patched by the local countdowns |
 
 `confirm` (`(msg) => Promise<boolean>`) and `promptCode` (`() =>
 Promise<string>`, resolving `null` to cancel) replace the two overlays the

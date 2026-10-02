@@ -84,10 +84,10 @@ module {
   /// Whether `session` still has unfinished business here — what
   /// `Registry.releaseIfStale` uses to drop a `bySession` mapping the
   /// phase itself already moved past.
-  public func isStillSeated<S, M>(self : Table<S, M>, now : Int, session : T.SessionId) : Bool {
+  public func isStillSeated<S, M>(self : Table<S, M>, session : T.SessionId) : Bool {
     switch (self.phase) {
       case (#empty) self.unackedEnded(session);
-      case (#staging st) st.session == session and not self.isExpired(st.since, now);
+      case (#staging st) st.session == session;
       case (#active g) getSessionSeat(g, session).isSome();
       case (#debrief d) self.activeDebriefSeat(d, session).isSome();
     };
@@ -139,9 +139,10 @@ module {
   };
 
   /// Claim a seat: fresh join, seat switch while staging alone, idempotent
-  /// re-join, reservation enforcement, squatter eviction, idle takeover,
-  /// fresh start over an expired debrief, or (for a debrief participant)
-  /// a rematch staging with a free choice of seat.
+  /// re-join, reservation enforcement, idle takeover of a game or an
+  /// expired debrief, or (for a debrief participant) a rematch staging
+  /// with a free choice of seat. A staged seat is never taken over: only
+  /// `sweep` frees it.
   public func join<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, seat : T.Seat) : T.Res<T.JoinOk> {
     switch (self.phase) {
 
@@ -161,12 +162,7 @@ module {
             };
             #ok(#staged(seat));
           };
-        } else if (st.seat == seat) {
-          if (self.isExpired(st.since, now)) {
-            self.stage(now, session, seat, null);
-            #ok(#staged(seat));
-          } else { #err(#seatTaken) };
-        } else {
+        } else if (st.seat == seat) { #err(#seatTaken) } else {
           switch (st.reservedFor) {
             case (?p) {
               if (p != session and not self.isExpired(st.since, now)) {
@@ -482,7 +478,8 @@ module {
   };
 
   /// Participants get `leave` semantics (`gen`-checked); outsiders are
-  /// gated by the idle timeout and never checked against `gen`.
+  /// gated by the idle timeout and never checked against `gen`, and can't
+  /// reset a staging at all.
   public func reset<S, M>(self : Table<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> {
     switch (self.phase) {
       case (#empty) #ok(());
@@ -495,10 +492,7 @@ module {
           };
           self.phase := #empty;
           #ok(());
-        } else if (self.isExpired(st.since, now)) {
-          self.phase := #empty;
-          #ok(());
-        } else { #err(#notIdle { secondsLeft = self.secsLeft(st.since, now) }) };
+        } else { #err(#seatTaken) };
       };
 
       case (#active g) {
@@ -528,12 +522,15 @@ module {
   };
 
   /// Idle eviction with no visitor required, plus `pruneEnded`. Driven by
-  /// the host's periodic timer.
-  public func sweep<S, M>(self : Table<S, M>, now : Int) {
+  /// the host's periodic timer. A staging survives while its occupant
+  /// `isPresent`; a game or debrief is evicted regardless.
+  public func sweep<S, M>(self : Table<S, M>, now : Int, isPresent : T.SessionId -> Bool) {
     switch (self.phase) {
       case (#empty) {};
       case (#staging st) {
-        if (self.isExpired(st.since, now)) { self.phase := #empty };
+        if (self.isExpired(st.since, now) and not isPresent(st.session)) {
+          self.phase := #empty;
+        };
       };
       case (#active g) {
         if (self.isExpired(g.lastActivity, now)) {
@@ -578,12 +575,9 @@ module {
 
       case (#staging st) {
         if (st.session == session) {
-          // Never expires for its own occupant; only a third party's
-          // `join` evicts. `secondsUntilReclaimable` is their warning.
           #stagingYou {
             seat = st.seat;
             reservedForPartner = st.reservedFor.isSome();
-            secondsUntilReclaimable = self.secsLeft(st.since, now);
             gen = self.gen;
             visibility = self.visibility;
           };
@@ -592,14 +586,13 @@ module {
         } else if (self.unackedEnded(session)) {
           #endedByOther;
         } else {
-          let ex = self.isExpired(st.since, now);
-          if (st.reservedFor.isSome() and not ex) {
+          if (st.reservedFor.isSome() and not self.isExpired(st.since, now)) {
             #busy { secondsUntilTakeover = self.secsLeft(st.since, now) };
           } else {
             #lobby {
-              p1Open = st.seat != #p1 or ex;
-              p2Open = st.seat != #p2 or ex;
-              resetAvailable = ex;
+              p1Open = st.seat != #p1;
+              p2Open = st.seat != #p2;
+              resetAvailable = false;
             };
           };
         };
