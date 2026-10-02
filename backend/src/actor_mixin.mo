@@ -1,42 +1,22 @@
 import Time "mo:core/Time";
 import Timer "mo:core/Timer";
 
-import IcWebSocketCdk "mo:ic-websocket-cdk";
-import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
+import Transport "./transport";
 
-import TP ".";
-
-/// The four `ws_*` Candid methods plus the idle-sweep timer. `sweepFunc`
-/// should be `Ws.Attached.sweep`, which pushes to the sessions it evicts.
+/// `duel_request`/`duel_poll` plus the idle-sweep timer. `sweepFunc`
+/// should be `Transport.Attached.sweep`, which marks the sessions it
+/// evicts as changed.
 mixin <system>(
-  ws : IcWebSocketCdk.IcWebSocket,
+  endpoint : Transport.Endpoint,
   sweepFunc : (Int) -> async* (),
 ) {
 
-  public shared ({ caller }) func ws_open(
-    args : IcWebSocketCdkTypes.CanisterWsOpenArguments,
-    msg : ?Blob,
-  ) : async IcWebSocketCdkTypes.CanisterWsOpenResult {
-    await* ws.ws_open(caller, args, msg);
+  public shared ({ caller }) func duel_request(msg : Blob) : async Blob {
+    await* endpoint.request(caller, msg);
   };
 
-  public shared ({ caller }) func ws_close(
-    args : IcWebSocketCdkTypes.CanisterWsCloseArguments
-  ) : async IcWebSocketCdkTypes.CanisterWsCloseResult {
-    await* ws.ws_close(caller, args);
-  };
-
-  public shared ({ caller }) func ws_message(
-    args : IcWebSocketCdkTypes.CanisterWsMessageArguments,
-    msgType : ?Blob,
-  ) : async IcWebSocketCdkTypes.CanisterWsMessageResult {
-    await* ws.ws_message(caller, args, msgType);
-  };
-
-  public shared query ({ caller }) func ws_get_messages(
-    args : IcWebSocketCdkTypes.CanisterWsGetMessagesArguments
-  ) : async IcWebSocketCdkTypes.CanisterWsGetMessagesResult {
-    ws.ws_get_messages(caller, args);
+  public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult {
+    endpoint.poll(caller, sid, rev);
   };
 
   func startSweeping<system>() {

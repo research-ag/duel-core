@@ -31,7 +31,7 @@ test("sidFor: pure, deterministic, and namespaced by prefix", () => {
   assert.equal(a, sidFor(ANON_SID_PREFIX, "abc-def"), "same input must always produce the same sid");
   assert.ok(a.startsWith(ANON_SID_PREFIX), "must fall in the reserved namespace");
   assert.notEqual(a, sidFor(ANON_SID_PREFIX, "xyz-123"), "distinct principals must not collide");
-  assert.equal(sidFor(ANON_SID_PREFIX, "abc-def"), "an:abc-def", "must match backend/src/ws.mo's own derivation exactly");
+  assert.equal(sidFor(ANON_SID_PREFIX, "abc-def"), "an:abc-def", "must match backend/src/transport.mo's own derivation exactly");
 });
 
 test("resolveAnonymousIdentity: a fresh keypair is generated and persisted when nothing is stored", () => {

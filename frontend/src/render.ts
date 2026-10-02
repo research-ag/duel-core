@@ -78,7 +78,7 @@ export function truncatePlayerId(id: string): { text: string; truncated: boolean
   return { text: `${id.slice(0, PLAYER_ID_MAX_LEN)}…`, truncated: true };
 }
 
-/// Mirrors `Ws.playerKey`: strips `ii:`/`an:` to the bare principal text
+/// Mirrors `Transport.playerKey`: strips `ii:`/`an:` to the bare principal text
 /// so a `session.sid` can be compared against `LeaderboardEntry.player`.
 export function playerKeyOf(sid: string): string {
   if (sid.startsWith("ii:")) return sid.slice(3);

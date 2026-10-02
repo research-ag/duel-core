@@ -7,7 +7,7 @@ import type { Identity } from "@icp-sdk/core/agent";
 import { Ed25519KeyIdentity } from "@icp-sdk/core/identity";
 import type { Principal } from "@icp-sdk/core/principal";
 
-/// Must equal `Ws.ANON_SID_PREFIX`.
+/// Must equal `Transport.ANON_SID_PREFIX`.
 export const ANON_SID_PREFIX = "an:";
 
 export function sidFor(prefix: string, principalText: string): string {

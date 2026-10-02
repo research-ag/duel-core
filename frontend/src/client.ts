@@ -553,9 +553,8 @@ export function createDuelClient<S = unknown, A = unknown>({
     }
   }
 
-  // Transport. The first status is requested right away — a `send()`
-  // before the connection is open is queued, and `GatewayWs` lets it ride
-  // along with its handshake — and again on every reopen after a gap.
+  // Transport. The first status is requested right away, and again on
+  // every relink after a gap.
   // `ws.queryStatus`, when offered, paints sooner still; whatever the
   // connection delivers supersedes it.
 
@@ -595,7 +594,7 @@ export function createDuelClient<S = unknown, A = unknown>({
     if ("err" in msg) showError(errText(msg.err));
     else setStatus(msg.view);
   };
-  ws.onerror = (ev) => showError(`WebSocket error: ${ev?.error?.message ?? ev}`);
+  ws.onerror = (ev) => showError(`Connection error: ${ev?.error?.message ?? ev}`);
   ws.onclose = () => closed();
   refresh();
   if (typeof ws.queryStatus === "function") {

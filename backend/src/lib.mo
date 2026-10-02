@@ -7,13 +7,13 @@
 /// `./registry` (`mo:duel-game-core/registry`, the multi-table router).
 ///
 /// Every mutating `Registry` operation is driven exclusively through
-/// `mo:duel-game-core/ws` — never a plain Candid method — because two
+/// `mo:duel-game-core/transport` — never a plain Candid method — because two
 /// independent update calls have no guaranteed relative processing order.
 /// Only `status` is a plain public `query`.
 ///
 ///   import TP "mo:duel-game-core";
 ///   import Registry "mo:duel-game-core/registry";
-///   import Ws "mo:duel-game-core/ws";
+///   import Transport "mo:duel-game-core/transport";
 ///   import ActorMixin "mo:duel-game-core/actor_mixin";
 ///
 ///   persistent actor {
@@ -24,7 +24,7 @@
 ///       registry.status(Rules.spec(), Time.now(), sid);
 ///     };
 ///
-///     // Ws.attach + include ActorMixin<system>(attached.ws, attached.sweep)
+///     // Transport.attach + include ActorMixin<system>(attached.endpoint, attached.sweep)
 ///   };
 ///
 /// `Registry<S, M>`/`Table<S, M>` are stable whenever `S`/`M` are; the

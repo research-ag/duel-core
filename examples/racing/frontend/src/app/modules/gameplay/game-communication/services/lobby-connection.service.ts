@@ -41,7 +41,7 @@ function reconstructTrajectory(before: RacingCarState, after: RacingCarState): S
   return StepTrajectoryModel.fromCartesianPosition(local);
 }
 
-/// Bridges duel-app.js's shared `GatewayWs` to the `{ slot, step }[]`
+/// Bridges duel-app.js's shared `DuelTransport` to the `{ slot, step }[]`
 /// events gameplay.service.ts expects. NO polling of its own: a second
 /// poll loop would race the shared one and deliver views out of order.
 export class LobbyConnectionService {
@@ -56,7 +56,7 @@ export class LobbyConnectionService {
   // its View.youSubmitted, so startRace() can seed itself correctly.
   public raceStarted: Subject<{ resumedAtStep: number, youAlreadySubmitted: boolean }> = new Subject();
 
-  private ws: any; // shared GatewayWs — see duel-game-core/ws/gateway-client.js
+  private ws: any; // shared DuelTransport — see duel-game-core/transport.js
   private mySlot: number = -1;
   private wasInGame: boolean = false;
   private prevGame: RacingState | null = null;
@@ -81,7 +81,7 @@ export class LobbyConnectionService {
     return getSid();
   }
 
-  /// False once the shared `GatewayWs` has closed for good.
+  /// False once the shared `DuelTransport` has closed for good.
   public get isConnected(): boolean {
     return !!this.ws && !this.ws.closed;
   }

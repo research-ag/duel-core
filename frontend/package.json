@@ -1,7 +1,7 @@
 {
   "name": "duel-game-core",
   "version": "0.3.0",
-  "description": "Rules-agnostic client for a duel-game-core game: session identity, real-time push, a headless client, and default lobby/staging/rematch/debrief screens any of which a game can replace.",
+  "description": "Rules-agnostic client for a duel-game-core game: session identity, polling transport, a headless client, and default lobby/staging/rematch/debrief screens any of which a game can replace.",
   "type": "module",
   "main": "./dist/app.js",
   "types": "./dist/app.d.ts",
@@ -30,9 +30,9 @@
       "types": "./dist/ic-env.d.ts",
       "default": "./dist/ic-env.js"
     },
-    "./ws.js": {
-      "types": "./dist/ws.d.ts",
-      "default": "./dist/ws.js"
+    "./transport.js": {
+      "types": "./dist/transport.d.ts",
+      "default": "./dist/transport.js"
     },
     "./identity.js": {
       "types": "./dist/identity.d.ts",
@@ -45,18 +45,6 @@
     "./types.js": {
       "types": "./dist/types.d.ts",
       "default": "./dist/types.js"
-    },
-    "./ws/gateway-client.js": {
-      "types": "./dist/ws/gateway-client.d.ts",
-      "default": "./dist/ws/gateway-client.js"
-    },
-    "./ws/gateway-transport.js": {
-      "types": "./dist/ws/gateway-transport.d.ts",
-      "default": "./dist/ws/gateway-transport.js"
-    },
-    "./ws/gateway-protocol.js": {
-      "types": "./dist/ws/gateway-protocol.d.ts",
-      "default": "./dist/ws/gateway-protocol.js"
     },
     "./style.css": "./style.css"
   },
@@ -79,8 +67,7 @@
   },
   "dependencies": {
     "@icp-sdk/auth": "^8.0.3",
-    "@icp-sdk/core": "^6.1.0",
-    "cborg": "^4.2.3"
+    "@icp-sdk/core": "^6.1.0"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",

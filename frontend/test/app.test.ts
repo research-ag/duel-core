@@ -834,7 +834,7 @@ test("call() recovers if ws.request() throws synchronously instead of rejecting 
 
   ws.onmessage!({ data: { view: browsing() } });
   // A misbehaving (or simply different — DuelWs.request is a
-  // caller-supplied surface, not just the bundled GatewayWs) transport
+  // caller-supplied surface, not just the bundled DuelTransport) transport
   // that throws instead of returning a rejected promise — exactly the
   // shape `sendWs()`'s own try/catch already guards against for `send`.
   ws.request = () => {
@@ -982,7 +982,7 @@ test("ws.onerror shows the error banner", async () => {
   const { els, ws } = setup();
   start({ plugin, ws, session: defaultSession });
   ws.onerror!({ error: new Error("boom") });
-  assert.match(els.error.textContent, /WebSocket error: boom/);
+  assert.match(els.error.textContent, /Connection error: boom/);
 });
 
 test("ws.onclose shows a persistent reload prompt and disables every button on the page", async () => {
@@ -1011,7 +1011,7 @@ test("ws.onclose shows a persistent reload prompt and disables every button on t
   }
 
   // A stray in-flight rejection landing right after close ("Call failed:
-  // GatewayWs: closed", the exact symptom the 007 defect report's
+  // DuelTransport: closed", the exact symptom the 007 defect report's
   // finding 04 reproduced) must not clobber the persistent banner with a
   // fresh, auto-hiding toast.
   ws.onerror!({ error: new Error("boom") });

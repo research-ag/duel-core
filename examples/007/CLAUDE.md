@@ -6,7 +6,7 @@ A deployable `#simultaneous` example on `../../backend` and
 - **`src/Duel007Rules.mo`** — the rules as pure functions (no actor, no
   storage, no `Time`), plugged in via `spec() : TP.Spec<State, Action>`.
 - **`src/Host.mo`** — the host actor: a `Registry` (90s idle timeout, 60s
-  claim window), `status` as the only plain query, `Ws.attach` +
+  claim window), `status` as the only plain query, `Transport.attach` +
   `include ActorMixin`, Prometheus metrics (`attachMetrics` + a
   `/metrics` route via `mo:promtracker/mixins/http`), and an ELO
   leaderboard (`Leaderboard.new(50, 1200)`, re-rated in `onGameEnded`
@@ -47,7 +47,7 @@ LeaderboardActorMixin(leaderboard, 25)`). Plus canister
   once-a-second clock patching, all bound to `createDuelClient()`'s
   state (`client.subscribe`) and actions with its own
   `data-op`/`data-key` attributes; `app.js` resolves the
-  identity (`resolveIdentity()`), builds the actor and `connectWs()`
+  identity (`resolveIdentity()`), builds the actor and `connectTransport()`
   transport, creates the client, mounts the UI, and wires the 🏆 toggle
   that opens the full-page `#leaderboard-panel` and renders
   `actor.get_leaderboard()` (names from `list_bots()`) via `renderLeaderboard(entries, plugin, {
@@ -67,8 +67,7 @@ yourSid })`. Bots are `app.js`'s too: the 🤖 toggle opens
 ## Toolchain
 
 moc 1.11.2 (`mops.toml`). Dependencies: `duel-game-core` (path to
-`../../backend`), `core`; `ic-websocket-cdk` and `promtracker` arrive
-transitively. Never import `mo:base`. The frontend depends on
+`../../backend`), `core`; `promtracker` arrives transitively. Never import `mo:base`. The frontend depends on
 `duel-game-core` (`file:../../../frontend`, copied via `install-links`)
 and `@icp-sdk/core`; see `../../CLAUDE.md`'s "After touching anything
 under `frontend/`" for the refresh procedure.

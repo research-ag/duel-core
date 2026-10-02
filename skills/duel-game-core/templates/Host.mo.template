@@ -1,14 +1,13 @@
 // Host actor for __GAME_SLUG__. Copy verbatim; only the `Rules` import
 // and the two timeouts change between games. `status` is the only plain
-// Candid method — every mutation goes through `mo:duel-game-core/ws`.
+// Candid method — every mutation goes through `mo:duel-game-core/transport`.
 
 import Time "mo:core/Time";
 
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
-import Ws "mo:duel-game-core/ws";
+import Transport "mo:duel-game-core/transport";
 import ActorMixin "mo:duel-game-core/actor_mixin";
-import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
 import Rules "__RULES_MODULE__";
 
@@ -20,21 +19,19 @@ persistent actor {
     registry.status(Rules.spec(), Time.now(), sid);
   };
 
-  transient let wsHub : Ws.Hub = Ws.createHub();
-  transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
+  transient let hub : Transport.Hub = Transport.createHub();
+  transient let attached = Transport.attach<system, Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
-    wsHub,
+    hub,
     {
-      encode = func(m : Ws.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
-      decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
+      encode = func(m : Transport.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
+      decode = func(b : Blob) : ?Transport.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
-    IcWebSocketCdkTypes.WsInitParams(null, ?120_000),
     null, // onSettled — canister players
     null, // onGameEnded — leaderboard
     null, // onGameStarted — leaderboard
   );
-  attached.ws.init<system>();
 
-  include ActorMixin<system>(attached.ws, attached.sweep);
+  include ActorMixin<system>(attached.endpoint, attached.sweep);
 };

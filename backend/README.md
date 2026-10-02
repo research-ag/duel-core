@@ -74,11 +74,11 @@ variant)` plus `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
   `claimWin`/`ackEnded`/`status` resolve the caller's current table via a
   `SessionId -> TableId` map and delegate to `Table`. `sweep` evicts and
   garbage-collects across every table, sparing a staging whose occupant
-  passes its `isPresent` predicate (`Ws.attach`'s `sweep` passes "has a
-  live WebSocket connection"). `attachMetrics(pt)` is optional
+  passes its `isPresent` predicate (`Transport.attach`'s `sweep` passes
+  "sent a request within `PRESENCE_TTL_NS`"). `attachMetrics(pt)` is optional
   (see Metrics). `peekNextTableId` is a pure read of the id nonce.
 - Every mutating operation takes `spec` and `now : Int` (nanoseconds).
-  At the `Registry` layer they are called only from `mo:duel-game-core/ws`
+  At the `Registry` layer they are called only from `mo:duel-game-core/transport`
   — never exposed as plain Candid methods. `status` is the exception
   (side-effect-free `query`).
 - `View<S>` — one table's per-caller screen: `#lobby`, `#busy`,
@@ -115,7 +115,7 @@ persistent actor {
     registry.status(Rules.spec(), Time.now(), sid);
   };
 
-  // ...Ws.attach + ActorMixin — see "Real-time push"; that include also
+  // ...Transport.attach + ActorMixin — see "Transport"; that include also
   // supplies the idle-sweep timer.
 };
 
@@ -172,80 +172,85 @@ than a third `Spec` type parameter: `TableSummary` is not generic over
 Frontend: `GamePlugin.variantChoices()`/`formatVariant()` in
 [`../frontend/README.md`](../frontend/README.md).
 
-### Real-time push
+### Transport
 
-`src/ws.mo` (`mo:duel-game-core/ws`), built on the vendored
-[`ic-websocket-cdk`](https://github.com/omnia-network/ic-websocket-cdk-mo)
-at `backend/src/ic-websocket-cdk/src` (migrated to `mo:core`; its
-`ic-certification` dependency still uses `mo:base`), is the only way a
+`src/transport.mo` (`mo:duel-game-core/transport`) is the only way a
 client mutates game state. Two independent update calls have no
-guaranteed relative processing order once both are in flight, so a
-plain `submit` racing the WS channel could resolve out of order — hence
-no plain Candid method for any mutating operation.
+guaranteed relative processing order once both are in flight, so there
+is no plain Candid method for any mutating operation: everything goes
+through one update method, which the client calls one request at a time.
 
-The CDK normally expects an off-chain Gateway relay, but does not require
-a pre-registered Gateway principal: a client's own `ws_open` names its
-`gateway_principal`. The frontend's `GatewayWs` therefore has each
-browser tab register itself as its own Gateway and poll its own
-`ws_get_messages`. No relay process, no second identity. The mixin's
-`ws_open(args, msg : ?Blob)` takes an optional encoded `Msg` that the
-vendored CDK hands to `onMessage` inside the handshake itself, so the
-`#status` every connection starts with rides along instead of costing a
-second update call.
+`actor_mixin.mo` exposes two methods:
 
-**Disappearance handling.** A cooperative close — the client's own
-`ws_close`, sent on `pagehide` — drives an implicit `Registry.leave` for
-the closed session: a live game ends in a shared debrief; if the partner
-is also disconnected, their side is acked too and the table frees
-immediately. A connection the CDK drops on its own (a missed keep-alive,
-fixed at 60s; a sequence error) only unbinds the transport: the vendored
-CDK passes `on_close` the `reason`, and a reasoned close is a lost
-connection, not a departure. Background tabs are throttled and phones
-freeze pages, so a player who glances away must not forfeit. The client
-reconnects when it is back, and genuine absence is the engine's own
+- `duel_request(msg : Blob) : async Blob` — an update. `msg` is an
+  encoded `#req`; the reply is the caller's own fresh status (`#view`)
+  or the engine's rejection (`#err`).
+- `duel_poll(sid, rev) : async PollResult` — a query the client calls
+  every 500 ms. `#unchanged` while the session's revision is still
+  `rev`; `#changed` with an encoded `#view` once it moved; `#unknown`
+  when the canister holds no link for the session (an upgrade wiped the
+  `transient` hub, or the link was pruned), which tells the client to
+  send `#status` again.
+
+Nothing is queued. `Hub` keeps one `Link { rev; lastSeen; epoch }` per
+connected session. After each successful mutation the module gives a
+fresh `rev` to the acting session, the table's other occupants
+(including a rematch reservation's named partner), and — when the
+open-table list may have changed — every other linked session not at a
+table. A poll that sees a different `rev` gets `registry.status`
+computed on the spot, so a client always receives the latest snapshot
+and may skip intermediate ones. Revisions are hub-wide, strictly
+increasing, and seeded from the clock, so they keep increasing across an
+upgrade; a client drops any view not newer than the last it applied,
+which orders a direct reply against a polled view.
+
+**Presence.** A session is present while its last request is younger
+than `PRESENCE_TTL_NS` (180 s). The client sends a `#status` after 120 s
+without any other request; there is no handshake and no keep-alive
+timer. Presence is evaluated when asked (`sweep`, a goodbye's partner
+check); lapsed links are pruned by the idle-sweep timer.
+
+**Disappearance handling.** A cooperative goodbye — the client's `#bye`,
+sent on `pagehide` — drives an implicit `Registry.leave` for that
+session after a 3 s grace: a live game ends in a shared debrief; if the
+partner is no longer present, their side is acked too and the table
+frees immediately. `epoch` is a token the client picks per connection
+(page load or resume): a `#bye` under an older epoch, or one followed by
+any later request, is ignored, so a reload or a page restored from the
+back/forward cache keeps its seat. Silence is not a departure:
+background tabs are throttled and phones freeze pages, so a player who
+glances away must not forfeit. Genuine absence is the engine's own
 business: `claimWin` after `claimTimeoutNs`, idle takeover, and
-`Registry.sweep`. A lost connection also stops counting as presence, so
-the next sweep frees a seat its occupant staged and then went idle on.
+`Registry.sweep`. A session that stopped being present no longer keeps
+its staging alive, so the next sweep frees a seat its occupant staged
+and then went idle on.
 
-The vendored CDK's `ws_get_messages` answers a gateway it doesn't know
-with `#Err` rather than an empty batch: a self-registered client polls
-only after its own `ws_open`, so the error tells it the canister forgot
-it (an upgrade wipes the `transient` CDK state; an evicted client's
-empty gateway expires after one ack interval) and must reconnect.
+**One commit point per request.** `afterMutation` is synchronous except
+for `onSettled`, the canister-player hook, which may await a bot's move.
+The acting session's `rev` is bumped before that await, so its poll
+delivers its own move while the bot is still thinking; the update's
+reply is built afterwards and carries the latest state.
 
-**Push helpers are `async*`/`await*`.** Only `pushTo`'s call into
-`IcWebSocketCdk.send` is a genuine send; `pushStatus`/`afterMutation`/
-`finishClose`/`sweepAndPush` are wrappers. Plain `async` would make each
-wrapper its own message with its own commit point; `async*` inlines them
-into one. Don't widen them back. `disconnectSession` is not async at all.
-
-**Wire protocol.** `Ws.Msg<S, M>` is one variant for both directions:
-`#req { sid; req; reqId }` (client→canister; `req` mirrors `Registry`'s
-operations plus `#status`) and `#view { reqId; view }`/`#err { reqId;
-err }` (canister→client; `view` is a `SessionStatus<S>`). After each
-successful mutation the module pushes a fresh status to the acting
-session, the table's other occupants (including a rematch reservation's
-named partner), and — when the open-table list may have changed — every
-other connected session not at a table. `reqId` is an opaque
-client-chosen token echoed back only on that session's own reply; every
-other push carries `null`. It exists because a FIFO "next message is my
-reply" scheme let an opponent's broadcast steal a reply's slot. `Hub`
-bridges `sid <-> principal`, learned from each inbound message and
-forgotten when the connection closes or is dropped.
+**Wire protocol.** `Transport.Msg<S, M>` is one variant for both
+directions: `#req { sid; epoch; req }` (client→canister; `req` mirrors
+`Registry`'s operations plus `#status` and `#bye`) and `#view { rev;
+view }`/`#err { err }` (canister→client; `view` is a
+`SessionStatus<S>`). `#status` is the first request of a connection, the
+resync, and the heartbeat.
 
 **Player identity.** `Table`/`Registry` only compare `SessionId`s for
 equality, so anonymous and logged-in players share tables with no
-special-casing. Both are non-spoofable: `Ws.sidFor(prefix, p) = prefix #
+special-casing. Both are non-spoofable: `Transport.sidFor(prefix, p) = prefix #
 Principal.toText(p)` with `PRINCIPAL_SID_PREFIX` (`"ii:"`, Internet
 Identity) or `ANON_SID_PREFIX` (`"an:"`, a locally persisted keypair).
-`onMessage` rejects any `sid` whose principal doesn't match the
-connection's `client_principal` under its namespace, or that names no
-namespace, with `#unauthorized`. There is no client-asserted tier.
-`Ws.playerKey(sid)` strips the prefix to a stable per-player key.
+A request whose `sid` doesn't match the caller's principal under its
+namespace, or that names no namespace, is rejected with `#unauthorized`;
+`duel_poll` answers it `#unknown`. There is no client-asserted tier.
+`Transport.playerKey(sid)` strips the prefix to a stable per-player key.
 
 **Replay safety.** `#submit`/`#leave`/`#reset`/`#claimWin` carry the
-`gen` (and `#submit` the `turn`) the client last saw. The client's resend
-queue retries a call it cannot tell landed or not, so without this a
+`gen` (and `#submit` the `turn`) the client last saw. The client resends
+a call it cannot tell landed or not, so without this a
 resent `submit` could replay against a later round, and a resent
 `leave`/`reset` could abort a new match. A mismatch is `Err.#stale`; the
 client refetches `status`. `#createTable`/`#joinTable`/`#rematch`/
@@ -254,50 +259,45 @@ client refetches `status`. `#createTable`/`#joinTable`/`#rematch`/
 **Wiring:**
 
 ```motoko
-import Ws "mo:duel-game-core/ws";
+import Transport "mo:duel-game-core/transport";
 import ActorMixin "mo:duel-game-core/actor_mixin";
-import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 
 persistent actor {
   let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
   registry.setTimeouts(90_000_000_000, 60_000_000_000);
   // ...status...
 
-  // Not stable (live connections/closures) — rebuilt on every upgrade;
-  // `registry` is untouched and browsers reconnect on their own.
-  transient let wsHub : Ws.Hub = Ws.createHub();
-  transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
+  // Not stable — rebuilt on every upgrade; `registry` is untouched and
+  // browsers relink on their own.
+  transient let hub : Transport.Hub = Transport.createHub();
+  transient let attached = Transport.attach<system, Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
-    wsHub,
+    hub,
     // Built where S/M are concrete.
     {
-      encode = func(m : Ws.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
-      decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
+      encode = func(m : Transport.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
+      decode = func(b : Blob) : ?Transport.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
-    // send_ack_interval_ms must exceed the CDK's fixed 60s keep-alive.
-    IcWebSocketCdkTypes.WsInitParams(null, ?120_000),
     null, // onSettled — see "Canister players"
     null, // onGameEnded — see "Leaderboard"
     null, // onGameStarted — see "Leaderboard"
   );
-  attached.ws.init<system>(); // reruns on every upgrade; no postupgrade needed
 
-  // ws_open/ws_close/ws_message/ws_get_messages + the idle-sweep timer.
-  // `attached.sweep` (not a bare `registry.sweep`) pushes to sessions the
-  // sweep just evicted.
-  include ActorMixin<system>(attached.ws, attached.sweep);
+  // duel_request/duel_poll + the idle-sweep timer. `attached.sweep` (not
+  // a bare `registry.sweep`) marks the sessions the sweep just evicted
+  // as changed and prunes lapsed links.
+  include ActorMixin<system>(attached.endpoint, attached.sweep);
 };
 
 ```
 
-`ws_message`'s second Candid parameter is a plain `?Blob`: the CDK
-ignores its value (it only shapes the `.did`), and the mixin has no
-`S`/`M` in scope. The real message arrives in `args.content`.
+Both methods carry blobs because the mixin has no `S`/`M` in scope; the
+codec encodes and decodes `Transport.Msg`.
 
-The frontend's `makeIdlFactory` already declares the four `ws_*` methods;
-`connectWs()` calls them. See `examples/*/src/Host.mo` for this wired
-end to end.
+The frontend's `makeIdlFactory` already declares both methods;
+`connectTransport()` calls them. See `examples/*/src/Host.mo` for this
+wired end to end.
 
 ### Canister players
 
@@ -336,7 +336,11 @@ table's own `Registry.status` (plus `opponent`/`opponentLastMove`/
 synchronous step), hands it to the host's `callBot`, re-reads `gen`/`turn`
 fresh after the reply (the human may have claimed, left, or been swept
 meanwhile), applies via `registry.submit`, and runs
-`Ws.Attached.afterMutation`. `callBot` is continuation-passing —
+`Transport.Attached.afterMutation`. `attach`'s `afterMutationSettles`
+names who settles the table after such a move: `true` when the callback
+itself ends in `settle` (the wiring below, through `onSettled`), so the
+module does not settle a second time; `false` for a callback that does
+not, and the module then settles itself. `callBot` is continuation-passing —
 `(SessionId, MoveRequest<S, M>, (?M) -> async* ()) -> async* ()` — because
 Motoko rejects `async M` for an unconstrained generic `M`; the host's
 concrete closure does the `try`/`catch`. An `#illegalMove` reply is
@@ -354,7 +358,7 @@ is itself a canister, so two canister seats never deadlock on each
 other's ack and a deciding human's rematch window is never cut short. A
 one-bit in-flight flag per (table, seat) prevents double asks.
 Canister-driven mutations call `settle` inline; human-driven ones reach
-it through `Ws.attach`'s `onSettled`. `sweep` is the slow full-registry
+it through `Transport.attach`'s `onSettled`. `sweep` is the slow full-registry
 fallback, folded into the existing idle-sweep timer.
 
 **Wiring** (the two `attach` calls need each other's result, so one
@@ -375,23 +379,22 @@ persistent actor {
     switch (settleTable) { case (?f) await* f(now, id); case null {} };
   };
 
-  transient let wsHub : Ws.Hub = Ws.createHub();
-  transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
+  transient let hub : Transport.Hub = Transport.createHub();
+  transient let attached = Transport.attach<system, Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
-    wsHub,
+    hub,
     codec,
-    wsParams,
     ?settle,
     null,
     null,
   );
-  attached.ws.init<system>();
 
   transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
     attached.afterMutation,
+    true, // afterMutationSettles: `attached` runs `settle` via onSettled
     func(session, req, k) : async* () {
       let p = CanisterPlayers.principalOfCanisterSession(session);
       let bot : BotIface.CanisterPlayer = actor (p.toText());
@@ -410,7 +413,7 @@ persistent actor {
     await* attached.sweep(now);
     await* cpAttached.sweep(now);
   };
-  include ActorMixin<system>(attached.ws, combinedSweep);
+  include ActorMixin<system>(attached.endpoint, combinedSweep);
 };
 
 ```
@@ -447,7 +450,7 @@ It rejects a self-reservation and a `reservedFor` already busy
 elsewhere. It only ever creates a brand-new table, so it cannot fill an
 already-staged table's open seat — the examples' "Add Bot" controls use
 Flow 1 (the bot's own `play` → `join_table_as_canister`) for that. No
-`ws.mo` request reaches this call; an orchestrator seating two bots
+`transport.mo` request reaches this call; an orchestrator seating two bots
 would call it directly from Motoko.
 
 **Writing the bot.** `MoveRequest<S, M>` carries `game`/`seat`/`mode`/
@@ -517,7 +520,7 @@ reserved session again.
 
 ### Leaderboard
 
-Opt-in, across three game-agnostic modules and two `Ws.attach` hooks:
+Opt-in, across three game-agnostic modules and two `Transport.attach` hooks:
 
 - `mo:duel-game-core/leaderboard` — `Board`, always sorted
   highest-first. `Leaderboard.new(keep, defaultScore)` (`keep` is a
@@ -535,7 +538,7 @@ LeaderboardActorMixin(leaderboard, 25)` supplies `get_leaderboard()`.
 (TableId, SessionId, SessionId) -> ()` fires once a table freshly
   enters `#active` (`turn == 0`, no pending move, `lastActivity == now`).
   Both are synchronous and fire for canister players' moves too.
-- **Player identity, not session identity.** Use `Ws.playerKey(sid)` for
+- **Player identity, not session identity.** Use `Transport.playerKey(sid)` for
   `ii:`/`an:`; a `cp:` session is per-table, so a host wiring canister
   players special-cases `CanisterPlayers.leaderboardKeyOfSession(sid)`
   first. That key is per bot AND per complexity, matching what
@@ -557,13 +560,13 @@ func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.
     case (#aborted(#p1)) #bWins;
     case (#aborted(#p2)) #aWins;
   };
-  let (k1, k2) = (Ws.playerKey(p1), Ws.playerKey(p2));
+  let (k1, k2) = (Transport.playerKey(p1), Transport.playerKey(p2));
   let (r1, r2) = Elo.update(Leaderboard.scoreOf(leaderboard, k1), Leaderboard.scoreOf(leaderboard, k2), outcome, 32);
   let now = Time.now();
   Leaderboard.setScore(leaderboard, k1, r1, now);
   Leaderboard.setScore(leaderboard, k2, r2, now);
 };
-// Ws.attach(..., null, ?onGameEnded, null);
+// Transport.attach(..., null, ?onGameEnded, null);
 include LeaderboardActorMixin(leaderboard, 25);
 
 ```
@@ -585,8 +588,8 @@ func lapMsFor(car : Rules.CarState, turns : Nat) : Int {
 
 func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
   switch (d.end) {
-    case (#finished(#p1Wins)) ignore Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(p1), scoreFromLapMs(lapMsFor(d.finalGame.p1, d.turns)), Time.now());
-    case (#finished(#p2Wins)) ignore Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(p2), scoreFromLapMs(lapMsFor(d.finalGame.p2, d.turns)), Time.now());
+    case (#finished(#p1Wins)) ignore Leaderboard.recordIfBetter(leaderboard, Transport.playerKey(p1), scoreFromLapMs(lapMsFor(d.finalGame.p1, d.turns)), Time.now());
+    case (#finished(#p2Wins)) ignore Leaderboard.recordIfBetter(leaderboard, Transport.playerKey(p2), scoreFromLapMs(lapMsFor(d.finalGame.p2, d.turns)), Time.now());
     case (_) {}; // nobody finished a lap
   };
 };
@@ -686,8 +689,8 @@ hold at both the `Table` and `Registry` layer):
 - **Pending moves are hidden by construction.** `status` exposes only
   Booleans about the opponent's pending move.
 - **Module layout.** `lib.mo` is the type surface; `table.mo`/
-  `registry.mo` the operations; `ws.mo` + `actor_mixin.mo` the mandatory
-  transport, kept separate only to confine the CDK dependency;
+  `registry.mo` the operations; `transport.mo` + `actor_mixin.mo` the mandatory
+  transport;
   `canister_players.mo` + `canister_players_actor_mixin.mo`,
   `leaderboard.mo` + `elo.mo` + `leaderboard_actor_mixin.mo` are
   optional.

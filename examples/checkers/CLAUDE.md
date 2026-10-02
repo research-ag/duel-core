@@ -9,7 +9,7 @@ to end. Not part of either package.
   (only maximal `#jump` chains when a capture is mandatory) and is what
   `BotLogic.mo` consumes. The doc header lists the deliberate
   simplifications against tournament draughts.
-- **`src/Host.mo`** — `Registry` (90s/60s), `status`, `Ws.attach` +
+- **`src/Host.mo`** — `Registry` (90s/60s), `status`, `Transport.attach` +
   `ActorMixin`, metrics, canister players (`CanisterPlayers.attach`
   reusing `attached.afterMutation`; `callBot` recovers the bot principal
   via `principalOfCanisterSession` and `await`s `make_move` in a
@@ -47,7 +47,7 @@ data-act>` while intermediate clicks are local `<div data-sq>` state
   faded ghosts `.cb-last-captured`) is found by diffing consecutive
   boards, since `State` has no move history. `applyLocal` mirrors
   `resolve` (captures, crowning) so your own move shows while it is in
-  flight. `renderActions` returns `""`. `app.js` wires identity, `connectWs`, `start()`, the 🏆
+  flight. `renderActions` returns `""`. `app.js` wires identity, `connectTransport`, `start()`, the 🏆
   leaderboard overlay (fetching `list_bots()` alongside for bot names),
   and the 🤖 Bots overlay: `list_bots()` → `renderBotList`; picking a bot
   fills the player's own staged table or shows `renderSeatChoice` and

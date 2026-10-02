@@ -6,12 +6,7 @@ files = [ "src/**/*.mo" ]
 
 [dependencies]
 core = "2.6.1"
-ic-websocket-cdk = "./src/ic-websocket-cdk/src"
 promtracker = "1.0.1"
-# ic-websocket-cdk dependencies
-ic-certification = "1.1.0"
-sha2 = "0.2.5"
-cbor = "4.1.0"
 
 [optimize]
 
