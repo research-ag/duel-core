@@ -59,5 +59,5 @@ Everything in `../../CLAUDE.md`, plus: the engine is never vendored here.
 
 ## Conventions
 
-Plain interpreter tests; `msg`, not `label`; update all four suites when
+Plain interpreter tests; `msg`, not `label`; update all three suites when
 the rules change.

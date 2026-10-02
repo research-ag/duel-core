@@ -69,7 +69,7 @@ cd examples/racing
 mops install
 moc --check $(mops sources) src/RacingRules.mo
 moc --check $(mops sources) src/Host.mo
-mops test                  # all five; `mops test Rules` matches Rules and RulesUnit
+mops test                  # all four; `mops test Rules` matches Rules and RulesUnit
 
 (cd ../../frontend && npm run build)
 cd frontend && npm install --legacy-peer-deps && cd ..

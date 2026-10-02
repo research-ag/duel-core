@@ -67,7 +67,7 @@ cd examples/checkers
 mops install
 moc --check $(mops sources) src/CheckersRules.mo
 moc --check $(mops sources) src/Host.mo
-mops test                  # all four; `mops test Bot` for the bot
+mops test                  # all three; `mops test Bot` for the bot
 
 (cd ../../frontend && npm run build)
 cd frontend && npm install --legacy-peer-deps && npm run build && node --check dist/app.js && cd ..

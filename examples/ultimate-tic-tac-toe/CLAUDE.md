@@ -57,5 +57,5 @@ never vendored here.
 
 ## Conventions
 
-Plain interpreter tests; `msg`, not `label`; update all four suites when
+Plain interpreter tests; `msg`, not `label`; update all three suites when
 the rules change (`legalActions` must keep matching `validate`).

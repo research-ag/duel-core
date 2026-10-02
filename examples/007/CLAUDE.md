@@ -81,7 +81,7 @@ mops install
 moc --check $(mops sources) src/Duel007Rules.mo
 moc --check $(mops sources) src/Host.mo
 moc --check $(mops sources) bot/Bot.mo
-mops test                  # all five; `mops test Rules` matches Rules and RulesUnit
+mops test                  # all four; `mops test Rules` matches Rules and RulesUnit
 
 (cd ../../frontend && npm run build)
 cd frontend && npm install --legacy-peer-deps && npm run build && node --check dist/app.js && cd ..
@@ -124,5 +124,5 @@ Everything in `../../CLAUDE.md` applies. Additionally:
 ## Conventions
 
 Plain interpreter tests (`ok`/`expectErr` + `Runtime.trap`); `msg`, not
-`label`; update all five suites when `Duel007Rules.mo`'s semantics
+`label`; update all four suites when `Duel007Rules.mo`'s semantics
 change. Motoko playbooks live in `../../.agents/skills/`.

@@ -120,6 +120,6 @@ Everything in `../../CLAUDE.md`, plus:
 
 ## Conventions
 
-Plain interpreter tests; `msg`, not `label`; update all four suites when
+Plain interpreter tests; `msg`, not `label`; update all three suites when
 the rules change (`legalActions` must keep matching `validate`) and keep
 the plugin's `splitValid`/`hit` in sync.
