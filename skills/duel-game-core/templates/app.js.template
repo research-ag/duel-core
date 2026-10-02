@@ -1,4 +1,4 @@
-// Bootstrap for __GAME_TITLE__: build the actor and push transport, hand
+// Bootstrap for __GAME_TITLE__: build the actor and transport, hand
 // off to duel-game-core's generic wiring. Bundled by esbuild (../build.js)
 // into dist/app.js, so every import resolves from node_modules at build
 // time.
@@ -6,7 +6,7 @@
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { makeIdlFactory } from "duel-game-core/idl.js";
 import { start } from "duel-game-core/app.js";
-import { connectWs } from "duel-game-core/ws.js";
+import { connectTransport } from "duel-game-core/transport.js";
 import { resolveAnonymousIdentity } from "duel-game-core/anon-identity.js";
 import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
 import { plugin } from "./__PLUGIN_FILE__";
@@ -23,7 +23,7 @@ if (!canisterId) {
 }
 
 const host = deriveHost();
-// The same identity must build the agent and open the WS connection;
+// The same identity must build the agent and sign the transport calls;
 // the backend checks the two match on every request.
 const session = resolveAnonymousIdentity();
 const agent = await HttpAgent.create({
@@ -34,6 +34,6 @@ const agent = await HttpAgent.create({
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
-const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
+const ws = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 
 start({ plugin, ws, session });

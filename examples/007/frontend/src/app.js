@@ -7,7 +7,7 @@ import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { Principal } from "@icp-sdk/core/principal";
 import { buildBotPlayIdlFactory, makeIdlFactory } from "duel-game-core/idl.js";
 import { atTableOf, createDuelClient, errText, tag, viewOf } from "duel-game-core/client.js";
-import { connectWs } from "duel-game-core/ws.js";
+import { connectTransport } from "duel-game-core/transport.js";
 import { resolveIdentity } from "duel-game-core/identity.js";
 import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
 import { botDisplayName, renderBotList, renderLeaderboard, renderSeatChoice } from "duel-game-core/render.js";
@@ -38,7 +38,7 @@ const agent = await HttpAgent.create({
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
-const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
+const ws = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 
 const client = createDuelClient({ ws, session });
 

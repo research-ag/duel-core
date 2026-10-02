@@ -22,24 +22,17 @@ Plain TypeScript, no framework, one track and one car:
   via `body.in-race`). The only per-challenge actor is the chosen bot's
   own `play`, built from `buildBotPlayIdlFactory`.
 - `duel-app.js` uses `resolveIdentity()` — never the anonymous default
-  identity, which the CDK's `ws_open` rejects ("Anonymous principal is
-  not allowed"; symptom: a lobby stuck on loading). The keypair persists
-  in `sessionStorage` and `sid` derives from its principal, as
-  `isAuthorizedSid` requires. A same-principal reconnect is safe because
-  the vendored CDK's `remove_client` is scoped to the exact connection; a
-  recurring `ws_message: Client with principal ... doesn't have an open
-connection` banner means that fix regressed.
+  identity, which `isAuthorizedSid` rejects (`#unauthorized`; symptom: a
+  lobby stuck on loading). The keypair persists in `sessionStorage` and
+  `sid` derives from its principal.
 - `lobby-connection.service.ts` fires a `status` `request()` the moment
-  `getDuelWs()` resolves. Safe because `GatewayWs`'s `send()`/`request()`
-  coalesce on `_ensureOpen()`. Don't add a wait-for-onopen here; a `null
-client_key` decode error means that coalescing regressed.
-- `lobby-connection.service.ts` shares the ONE `GatewayWs` via
+  `getDuelWs()` resolves. Safe because `DuelTransport`'s `send()`/
+  `request()` work at any time. Don't add a wait-for-onopen here.
+- `lobby-connection.service.ts` shares the ONE `DuelTransport` via
   `window.duelWsReady` (an `EventTarget` listener, not `ws.onmessage`),
-  submits via `request(sid, req)` for a correlated reply, and has NO poll
-  loop of its own. Sharp edge: the CDK queue is keyed by
-  `gateway_principal` and persists across a reconnect, so
-  `SelfGatewayTransport`'s nonce is set once and never reset — a reset
-  replays the queue (cars animate backwards, then teleport).
+  submits via `request(sid, req)` for its own reply, and has NO poll
+  loop of its own. Views arrive as snapshots in revision order; two
+  rounds resolved within one poll interval show up as one view.
 - The HUD (`game-viewport/hud/hud.ts`) subscribes to `GameStateService`
   and pokes the DOM directly; `raceTime` is polled on a `setInterval` and
   reset by `resetRaceClock()` from `startRace()`. A page-lifetime

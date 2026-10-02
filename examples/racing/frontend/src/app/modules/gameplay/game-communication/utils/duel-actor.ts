@@ -1,4 +1,4 @@
-// Bridge to the actor and `GatewayWs` duel-app.js builds, published via
+// Bridge to the actor and `DuelTransport` duel-app.js builds, published via
 // Promises index.html sets up before either script runs.
 
 declare global {

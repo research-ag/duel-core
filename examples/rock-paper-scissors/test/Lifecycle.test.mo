@@ -70,8 +70,8 @@ switch (t.status(spec, now, "bob")) {
   case (#inGame g) { assert g.turn == 0 };
   case (_) Runtime.trap("bob not in fresh game");
 };
-// A `leave` delayed across the rematch (see gateway-client.ts's
-// `_queueResend` doc) must be rejected as #stale, not replayed against
+// A `leave` delayed across the rematch (the transport resends a call
+// that threw) must be rejected as #stale, not replayed against
 // the new match.
 switch (t.leave(now, "alice", firstMatchGen)) {
   case (#err(#stale)) {};

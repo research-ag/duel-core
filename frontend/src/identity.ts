@@ -10,7 +10,7 @@ import { ANON_SID_PREFIX, regenerateAnonymousIdentity, resolveAnonymousIdentity,
 
 export { ANON_SID_PREFIX, sidFor };
 
-/// Must equal `Ws.PRINCIPAL_SID_PREFIX`; the backend enforces it.
+/// Must equal `Transport.PRINCIPAL_SID_PREFIX`; the backend enforces it.
 export const PRINCIPAL_SID_PREFIX = "ii:";
 
 export function sidForPrincipal(principalText: string): string {
@@ -25,7 +25,7 @@ export interface ResolveIdentityOptions {
 export interface ResolvedIdentity {
   /// For `HttpAgent.create({ identity, host })`.
   identity: Identity;
-  /// For `connectWs({ principal, ... })`.
+  /// The principal `identity` signs as.
   principal: Principal;
   /// For `start({ session, ... })`.
   sid: string;

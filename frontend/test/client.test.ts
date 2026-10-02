@@ -410,7 +410,7 @@ test("onerror shows a transient error", () => {
   const ws = new FakeWs();
   const client = createDuelClient({ ws, session, errorTtlMs: 0 });
   ws.onerror!({ error: new Error("poll failed") });
-  assert.equal(client.getState().error, "WebSocket error: poll failed");
+  assert.equal(client.getState().error, "Connection error: poll failed");
 });
 
 test("identityLocked follows the seat: staging/inGame/debrief lock, browsing unlocks, a join in flight keeps it locked through an unrelated browsing push", async () => {

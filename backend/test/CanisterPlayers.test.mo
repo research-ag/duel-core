@@ -1,5 +1,5 @@
 // Per-operation checks for `canister_players.mo`, with
-// `afterMutation`/`armClaimCheck` stubbed (the full CDK actor machinery is
+// `afterMutation`/`armClaimCheck` stubbed (a real actor is
 // not exercisable here).
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
@@ -86,12 +86,12 @@ Debug.print("1. sidForCanister / isCanisterSession / principalOfCanisterSession 
 // ── shared test doubles ────────────────────────────────────────────────────
 
 /// Counts every push this stub is asked to run — stands in for
-/// `Ws.Attached.afterMutation` (see this file's own header for why the
+/// `Transport.Attached.afterMutation` (see this file's own header for why the
 /// real one isn't exercisable here).
 func newAfterMutationCounter() : { var calls : Nat } = { var calls = 0 };
 
-func stubAfterMutation(counter : { var calls : Nat }) : (Int, TP.SessionId, ?Nat64, ?TP.TableId, Bool) -> async* () {
-  func(_now : Int, _sid : TP.SessionId, _reqId : ?Nat64, _id : ?TP.TableId, _broadcast : Bool) : async* () {
+func stubAfterMutation(counter : { var calls : Nat }) : (Int, TP.SessionId, ?TP.TableId, Bool) -> async* () {
+  func(_now : Int, _sid : TP.SessionId, _id : ?TP.TableId, _broadcast : Bool) : async* () {
     counter.calls += 1;
   };
 };
@@ -167,7 +167,7 @@ assert counter2.calls == 1; // afterMutation ran once, for the create
 Debug.print("2. createTable seats the canister under its own cp: sid OK");
 
 // ── 3. a human joining a bot's table doesn't move on its own; sweep asks it ───
-ignore ok(reg2.joinTable(spec, T0, "human", id2, #p2, null), "human joins bot1's table directly (bypassing canister_players — as ws.mo would)");
+ignore ok(reg2.joinTable(spec, T0, "human", id2, #p2, null), "human joins bot1's table directly (bypassing canister_players — as transport.mo would)");
 switch (atTableView(reg2, T0, sidBot1)) {
   case (#inGame v) assert not v.youSubmitted; // bot1 hasn't been asked yet
   case (_) Runtime.trap("bot1 should be in-game");
@@ -427,7 +427,7 @@ let reg14 = fresh();
 let counter14 = newAfterMutationCounter();
 let cp14 = CanisterPlayers.attach<Rules.State, Rules.Action>(spec, reg14, stubAfterMutation(counter14), constantBot(#gather), noopArm);
 let id14 = ok(await* cp14.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
-ignore ok(reg14.joinTable(spec, T0, "human", id14, #p2, null), "human joins bot1's table directly, as ws.mo's own onSettled hook would observe");
+ignore ok(reg14.joinTable(spec, T0, "human", id14, #p2, null), "human joins bot1's table directly, as transport.mo's own onSettled hook would observe");
 await* cp14.settle(T0, id14);
 switch (atTableView(reg14, T0, sidBot1)) {
   case (#inGame v) assert v.youSubmitted;

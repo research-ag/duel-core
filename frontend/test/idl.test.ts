@@ -18,16 +18,13 @@ test("buildEngineTypes builds every named type without throwing", () => {
   const t = buildEngineTypes({ IDL, Action, State });
   for (const key of [
     "Seat", "Verdict", "End", "Err", "View", "LeaderboardEntry",
-    "ClientKey", "WsResult", "CanisterWsOpenArguments", "CanisterWsCloseArguments",
-    "WebsocketMessage", "CanisterWsMessageArguments", "CanisterWsGetMessagesArguments",
-    "CanisterOutputMessage", "CanisterOutputCertifiedMessages", "CanisterWsGetMessagesResult",
-    "WebsocketServiceMessageContent", "WsRequest", "WsMsg",
+    "PollResult", "WsRequest", "WsMsg",
   ] as const) {
     assert.ok(t[key], `missing type: ${key}`);
   }
 });
 
-test("makeIdlFactory produces a Service with status + get_leaderboard + bot discovery + the four ws_* methods, no plain mutating game method", () => {
+test("makeIdlFactory produces a Service with status + get_leaderboard + bot discovery + duel_request/duel_poll, no plain mutating game method", () => {
   const idlFactory = makeIdlFactory(sampleGameTypes);
   const service = idlFactory({ IDL });
   // IDL.Service exposes its method table via ._fields (array of [name,
@@ -39,7 +36,7 @@ test("makeIdlFactory produces a Service with status + get_leaderboard + bot disc
     [...names].sort(),
     [
       "status", "get_leaderboard", "register_bot", "unregister_bot", "list_bots",
-      "ws_close", "ws_get_messages", "ws_message", "ws_open",
+      "duel_request", "duel_poll",
     ].sort(),
   );
   for (const forbidden of ["join", "submit", "rematch", "leave", "reset", "claimWin", "ackEnded"]) {

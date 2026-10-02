@@ -12,7 +12,7 @@ rules-agnostic packages — a Motoko mops package (session engine) and an
 npm package (browser client) — implementing everything a 2-player game
 needs except the game itself: a multi-table lobby (open or access-code
 protected tables), seating, round submission, debrief, idle takeover,
-rematch, claim-win, session identity, real-time push, a headless client
+rematch, claim-win, session identity, the polling transport, a headless client
 holding all of that browser-side, and default screens over it that a
 game can replace one at a time or entirely.
 
@@ -172,7 +172,7 @@ install, while `setTimeouts` runs on every upgrade. Keep
 margin) — an idle game can otherwise be taken over by a third party
 before its own claim window even opens. Change nothing else. Do not add plain Candid methods for
 `createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
-`ackEnded` — `mo:duel-game-core/ws` (`Ws.attach` + `ActorMixin`) is the
+`ackEnded` — `mo:duel-game-core/transport` (`Transport.attach` + `ActorMixin`) is the
 only mutation path; a direct update call reopens the ordering race it
 closes. `status` stays a plain `query`. The template wires a
 `Registry`, so the game gets a multi-table lobby for free.
@@ -200,7 +200,7 @@ persistent actor {
   registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__);
   registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
 
-  // ...status/Ws.attach/ActorMixin as in the template...
+  // ...status/Transport.attach/ActorMixin as in the template...
   include Http(renderer.renderExposition, "/metrics");
 };
 
@@ -219,14 +219,12 @@ import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin
 import BotIface "BotIface"; // make_move : (TP.MoveRequest<Rules.State, Rules.Action>) -> async Rules.Action
 
 persistent actor {
-  // ...registry/status; Ws.attach's onSettled argument becomes ?settle...
+  // ...registry/status; Transport.attach's onSettled argument becomes ?settle...
 
   transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
   transient let settle = func(now : Int, id : TP.TableId) : async* () {
     switch (settleTable) { case (?f) await* f(now, id); case null {} };
   };
-
-  // ...attached.ws.init<system>()...
 
   transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
     Rules.spec(),
@@ -250,7 +248,7 @@ persistent actor {
     await* attached.sweep(now);
     await* cpAttached.sweep(now);
   };
-  include ActorMixin<system>(attached.ws, combinedSweep);
+  include ActorMixin<system>(attached.endpoint, combinedSweep);
 };
 
 ```
@@ -311,14 +309,14 @@ persistent actor {
       case (#aborted(#p1)) #bWins;
       case (#aborted(#p2)) #aWins;
     };
-    let (k1, k2) = (Ws.playerKey(p1), Ws.playerKey(p2));
+    let (k1, k2) = (Transport.playerKey(p1), Transport.playerKey(p2));
     let (r1, r2) = Elo.update(Leaderboard.scoreOf(leaderboard, k1), Leaderboard.scoreOf(leaderboard, k2), outcome, 32);
     let now = Time.now();
     Leaderboard.setScore(leaderboard, k1, r1, now);
     Leaderboard.setScore(leaderboard, k2, r2, now);
   };
 
-  // ...Ws.attach's onGameEnded argument becomes ?onGameEnded...
+  // ...Transport.attach's onGameEnded argument becomes ?onGameEnded...
   include LeaderboardActorMixin(leaderboard, 25);
 };
 
@@ -327,7 +325,7 @@ persistent actor {
 For a metric like a best time, first check whether game state already
 tells you (`examples/racing` derives the lap time from `Debrief.turns`
 and the final state). Only when real elapsed time is genuinely needed,
-wire `onGameStarted` (the third `null` after `WsInitParams`):
+wire `onGameStarted` (the third `null` after the codec):
 
 ```motoko
 let leaderboard = Leaderboard.new(50, 0); // defaultScore unused by this shape
@@ -339,21 +337,21 @@ func onGameStarted(id : TP.TableId, _p1 : TP.SessionId, _p2 : TP.SessionId) {
 };
 func onGameEnded(id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
   // read d.end/d.finalGame, elapsed = Time.now() - matchStarts.get(id),
-  // Leaderboard.recordIfBetter(leaderboard, Ws.playerKey(winner), scoreFromYourMetric(raw), Time.now())
+  // Leaderboard.recordIfBetter(leaderboard, Transport.playerKey(winner), scoreFromYourMetric(raw), Time.now())
   matchStarts.remove(id);
 };
 
 ```
 
 With canister players, special-case
-`CanisterPlayers.leaderboardKeyOfSession(sid)` before `Ws.playerKey`, so
+`CanisterPlayers.leaderboardKeyOfSession(sid)` before `Transport.playerKey`, so
 a bot's rating accumulates across tables, per complexity. On the
 frontend, call `actor.get_leaderboard()` (already declared by `idl.js`)
 and `renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames })`
 (`botNames` from `actor.list_bots().catch(() => [])`). Use the examples'
 panel shape: an icon-only 🏆 toggle first in `.session` opening a
 full-page overlay (`#leaderboard-panel`), never an inline panel a status
-push could clobber. Add `formatScore` to the plugin only for a converted
+view could clobber. Add `formatScore` to the plugin only for a converted
 metric.
 
 ## Step 5 — Write the rules unit tests
@@ -411,7 +409,7 @@ Copy `index.html.template`, `app.js.template`, `style.css.template` into
 `frontend/src/`, filling `__GAME_TITLE__`, `__PLUGIN_FILE__`,
 `__IDLE_TIMEOUT_SECONDS__`. `style.css` may stay empty but must exist
 (`build.js` copies it). `app.js` resolves a non-spoofable anonymous
-identity, builds the actor, connects the push transport, and calls
+identity, builds the actor, connects the transport, and calls
 `start({ plugin, ws, session })`; esbuild inlines every dependency, so
 no CDN or import map. For Internet Identity login, swap
 `resolveAnonymousIdentity()` for `identity.js`'s `resolveIdentity()`
