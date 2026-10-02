@@ -100,6 +100,7 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   spec,
   reg,
   noopAfterMutation,
+  false,
   func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     await* k(?BotLogic.chooseMove(req));
   },

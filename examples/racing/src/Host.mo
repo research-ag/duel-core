@@ -106,6 +106,7 @@ persistent actor {
     Rules.spec(),
     registry,
     attached.afterMutation,
+    true, // `attached` settles through `onSettled`
     func(session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
       let p = CanisterPlayers.principalOfCanisterSession(session);
       let bot : BotIface.CanisterPlayer = actor (p.toText());

@@ -230,6 +230,7 @@ persistent actor {
     Rules.spec(),
     registry,
     attached.afterMutation,
+    true, // afterMutationSettles: `attached` runs `settle` via onSettled
     func(session, req, k) : async* () {
       let p = CanisterPlayers.principalOfCanisterSession(session);
       let bot : BotIface.CanisterPlayer = actor (p.toText());

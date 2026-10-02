@@ -73,6 +73,7 @@ func playFullMatch(variant : Text) : async* () {
     spec,
     reg,
     noopAfterMutation,
+    false,
     func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
       entropy += 1_000_003;
       await* k(?BotLogic.chooseMove(req, entropy));

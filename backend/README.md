@@ -336,7 +336,11 @@ table's own `Registry.status` (plus `opponent`/`opponentLastMove`/
 synchronous step), hands it to the host's `callBot`, re-reads `gen`/`turn`
 fresh after the reply (the human may have claimed, left, or been swept
 meanwhile), applies via `registry.submit`, and runs
-`Transport.Attached.afterMutation`. `callBot` is continuation-passing —
+`Transport.Attached.afterMutation`. `attach`'s `afterMutationSettles`
+names who settles the table after such a move: `true` when the callback
+itself ends in `settle` (the wiring below, through `onSettled`), so the
+module does not settle a second time; `false` for a callback that does
+not, and the module then settles itself. `callBot` is continuation-passing —
 `(SessionId, MoveRequest<S, M>, (?M) -> async* ()) -> async* ()` — because
 Motoko rejects `async M` for an unconstrained generic `M`; the host's
 concrete closure does the `try`/`catch`. An `#illegalMove` reply is
@@ -390,6 +394,7 @@ persistent actor {
     Rules.spec(),
     registry,
     attached.afterMutation,
+    true, // afterMutationSettles: `attached` runs `settle` via onSettled
     func(session, req, k) : async* () {
       let p = CanisterPlayers.principalOfCanisterSession(session);
       let bot : BotIface.CanisterPlayer = actor (p.toText());

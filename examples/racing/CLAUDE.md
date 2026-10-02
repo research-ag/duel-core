@@ -10,7 +10,7 @@ either package.
 - **`src/Track.mo`** — baked geometry for the one "island" map (boundary
   polygons and road centerline), generated from
   `frontend/src/assets/maps/island/scene.meta`.
-- **`src/Host.mo`** — `Registry` (60s/15s), `status`, `Transport.attach` +
+- **`src/Host.mo`** — `Registry` (300s/45s), `status`, `Transport.attach` +
   `ActorMixin`, metrics with a `/metrics` route, canister players (same
   wiring as `examples/checkers`), bot discovery, and a best-lap
   leaderboard: `Leaderboard.new(50, 0)` (the default score is inert),

@@ -23,6 +23,7 @@
 ///   );
 ///   include ActorMixin<system>(attached.endpoint, attached.sweep);
 
+import Array "mo:core/Array";
 import Int "mo:core/Int";
 import Map "mo:core/Map";
 import Principal "mo:core/Principal";
@@ -496,14 +497,18 @@ module {
 
     /// A present session keeps its waiting staging alive.
     func sweep(now : Int) : async* () {
-      let snapshot = registry.tables.toArray();
+      func isLive(t : TP.Table<S, M>) : Bool = switch (t.phase) {
+        case (#empty) false;
+        case (_) true;
+      };
+      let live = registry.tables.toArray().filter(func((_, t)) = isLive(t));
       registry.sweep(now, func(sid) = isPresent(hub, sid, now));
       prune(hub, now);
       var anyTableFreedUp = false;
-      for ((_, t) in snapshot.values()) {
-        switch (t.phase) {
-          case (#empty) anyTableFreedUp := true;
-          case (_) {};
+      for ((id, _) in live.values()) {
+        switch (registry.tables.get(id)) {
+          case (?t) if (not isLive(t)) anyTableFreedUp := true;
+          case null anyTableFreedUp := true;
         };
       };
       if (not anyTableFreedUp) return;

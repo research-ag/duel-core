@@ -162,6 +162,7 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   spec,
   reg,
   noopAfterMutation,
+  false,
   func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     switch (req.seat) {
       case (#p1) assert req.complexity == "Hard";

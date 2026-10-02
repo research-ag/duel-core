@@ -182,10 +182,15 @@ module {
   /// generic `M`): the host calls `k(?move)` on success, `k(null)` on a
   /// trap. `armClaimCheck(id, secs)` schedules one future `settle` — a
   /// host hook because only an actor holds `Timer.setTimer`'s `<system>`.
+  /// `afterMutationSettles` says who owns settlement after a mutation
+  /// made here: `true` when `afterMutation` itself ends in this module's
+  /// `settle` (`Transport.Attached.afterMutation` with `onSettled` wired
+  /// to it); `false` makes this module settle the table itself.
   public func attach<S, M>(
     spec : T.Spec<S, M>,
     registry : T.Registry<S, M>,
     afterMutation : (Int, T.SessionId, ?T.TableId, Bool) -> async* (),
+    afterMutationSettles : Bool,
     callBot : (T.SessionId, T.MoveRequest<S, M>, (?M) -> async* ()) -> async* (),
     armClaimCheck : (T.TableId, Nat) -> async* (),
 
@@ -255,7 +260,7 @@ module {
                   case (?fresh) switch (registry.submit(spec, now, session, fresh.gen, fresh.turn, move)) {
                     case (#ok _) {
                       await* afterMutation(now, session, ?id, false);
-                      await* maybeSettleBoth(now, id);
+                      await* settleUnlessOwned(now, id);
                     };
                     case (#err(#illegalMove reason)) {
                       if (triesLeft > 0) {
@@ -333,6 +338,10 @@ module {
       };
     };
 
+    func settleUnlessOwned(now : Int, id : T.TableId) : async* () {
+      if (not afterMutationSettles) await* maybeSettleBoth(now, id);
+    };
+
     /// The session `caller` holds at board `id`, read off the phase record
     /// (and `lastEnded`, for `ackEnded`) by principal + tableId prefix.
     func sessionAt(caller : Principal.Principal, id : T.TableId) : ?T.SessionId {
@@ -373,7 +382,7 @@ module {
         switch (registry.joinTable(spec, now, session, id, seat, code)) {
           case (#ok j) {
             await* afterMutation(now, session, ?id, true);
-            await* maybeSettleBoth(Time.now(), id);
+            await* settleUnlessOwned(Time.now(), id);
             #ok(j);
           };
           case (#err e) #err(e);
