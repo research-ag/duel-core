@@ -40,6 +40,10 @@ const DEFAULT_PING_MS = 120000;
 /// retries a query that errors but never gives up on one that hangs.
 const DEFAULT_POLL_TIMEOUT_MS = 3000;
 
+/// Unanswered polls allowed at once: a call cannot be cancelled, so at
+/// the limit the loop waits on the newest instead of asking again.
+const MAX_OPEN_POLLS = 3;
+
 /// Delays before resending a request whose update call threw.
 const RESEND_DELAYS_MS = [500, 1500];
 
@@ -91,6 +95,8 @@ export class DuelTransport extends EventTarget implements DuelWs {
   private _lastRequestAt: number;
   private _pollTimer: ReturnType<typeof setTimeout> | null;
   private _ticking: boolean;
+  private _openPolls: number;
+  private _lastPoll: Promise<void> | null;
   private _erroredSinceSuccess: boolean;
   private _consecutiveFailures: number;
   private _unlisten: Array<() => void>;
@@ -139,6 +145,8 @@ export class DuelTransport extends EventTarget implements DuelWs {
     this._lastRequestAt = 0;
     this._pollTimer = null;
     this._ticking = false;
+    this._openPolls = 0;
+    this._lastPoll = null;
     this._erroredSinceSuccess = false;
     this._consecutiveFailures = 0;
     this._unlisten = [];
@@ -204,9 +212,21 @@ export class DuelTransport extends EventTarget implements DuelWs {
     this._pollTimer = setTimeout(() => this._tick(), delay);
   }
 
-  /// One poll, abandoned after `pollTimeoutMs`: a late answer is dropped
-  /// and the next tick asks again.
-  private _poll(sid: string): Promise<PollResult> {
+  /// One wait of `pollTimeoutMs` on a poll: a new one, or the newest
+  /// while `MAX_OPEN_POLLS` are unanswered. A poll that outlives its wait
+  /// still applies its answer.
+  private _poll(sid: string): Promise<void> {
+    if (this._lastPoll === null || this._openPolls < MAX_OPEN_POLLS) {
+      const epoch = this._epoch;
+      this._openPolls++;
+      const poll = (async () => this._actor.duel_poll(sid, this._rev))()
+        .finally(() => {
+          this._openPolls--;
+        })
+        .then((res) => this._applyPoll(sid, epoch, res));
+      poll.catch(() => {});
+      this._lastPoll = poll;
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const expired = new Promise<never>((_, reject) => {
       timer = setTimeout(
@@ -214,14 +234,28 @@ export class DuelTransport extends EventTarget implements DuelWs {
         this._pollTimeoutMs
       );
     });
-    return Promise.race([
-      this._actor.duel_poll(sid, this._rev),
-      expired,
-    ]).finally(() => clearTimeout(timer));
+    return Promise.race([this._lastPoll, expired]).finally(() =>
+      clearTimeout(timer)
+    );
+  }
+
+  private _applyPoll(sid: string, epoch: bigint, res: PollResult): void {
+    if (this._closed || sid !== this._sid) return;
+    this._markAlive();
+    if ("changed" in res) {
+      const reply = this._decode(res.changed);
+      if ("view" in reply && reply.view.rev > this._rev) {
+        this._rev = reply.view.rev;
+        this._last = { view: reply.view.view };
+        this._deliver(this._last);
+      }
+    } else if ("unknown" in res && this._linked && epoch === this._epoch) {
+      this._lose();
+    }
   }
 
   /// The one loop: relink if needed, ping if due, else poll. Two failed
-  /// or unanswered polls in a row presume the link lost.
+  /// or expired waits in a row presume the link lost.
   private async _tick(): Promise<void> {
     if (this._closed || this._suspended || this._ticking) return;
     this._ticking = true;
@@ -239,19 +273,8 @@ export class DuelTransport extends EventTarget implements DuelWs {
         if (idle && Date.now() - this._lastRequestAt >= this._pingMs)
           this._sendStatus(sid);
         try {
-          const res = await this._poll(sid);
-          this._markAlive();
-          if ("changed" in res) {
-            const reply = this._decode(res.changed);
-            if ("view" in reply && reply.view.rev > this._rev) {
-              this._rev = reply.view.rev;
-              this._last = { view: reply.view.view };
-              this._deliver(this._last);
-            }
-          } else if ("unknown" in res && this._linked) {
-            this._lose();
-            delay = 0;
-          }
+          await this._poll(sid);
+          if (!this._linked) delay = 0;
         } catch (e) {
           this._reportError(e as Error);
           if (this._consecutiveFailures >= 2) this._lose();

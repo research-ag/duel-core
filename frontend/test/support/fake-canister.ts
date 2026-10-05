@@ -34,7 +34,9 @@ export class FakeCanister implements TransportActor {
   failRequests = 0;
   /// Whether a throwing `duel_request` still applies the request.
   landsBeforeFailing = false;
-  pollBehavior: "ok" | "err" | "hang" = "ok";
+  pollBehavior: "ok" | "err" | "hang" | "throw" = "ok";
+  /// How long each `duel_poll` takes to answer.
+  pollDelayMs = 0;
   /// Every decoded request, in arrival order, with the epoch it carried.
   requests: Array<{ sid: string; epoch: bigint; req: WsRequest }> = [];
   polls = 0;
@@ -93,10 +95,17 @@ export class FakeCanister implements TransportActor {
     return this._handle(msg);
   }
 
-  async duel_poll(_sid: string, rev: bigint): Promise<PollResult> {
+  duel_poll(sid: string, rev: bigint): Promise<PollResult> {
     this.polls++;
+    if (this.pollBehavior === "throw") throw new Error("not async");
+    return this._poll(sid, rev);
+  }
+
+  private async _poll(_sid: string, rev: bigint): Promise<PollResult> {
     if (this.pollBehavior === "err") throw new Error("unavailable");
     if (this.pollBehavior === "hang") return new Promise(() => {});
+    if (this.pollDelayMs > 0)
+      await new Promise((r) => setTimeout(r, this.pollDelayMs));
     if (this.rev === null) return { unknown: null };
     if (this.rev === rev) return { unchanged: null };
     return {

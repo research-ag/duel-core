@@ -316,8 +316,11 @@ Nothing is queued on either side, so a client always gets the latest
 snapshot and may skip intermediate ones. The transport drops any view
 whose revision is not newer than the last it applied, which orders a
 reply against a polled view. A poll unanswered after `pollTimeoutMs`
-(3000) is abandoned and counts as a failed one, so a query the gateway
-never answers costs one retry instead of freezing the loop.
+(3000) counts as a failed one and the loop asks again, so a query the
+gateway never answers costs one retry instead of freezing the loop. Its
+answer still applies if it arrives late, which keeps a slow link from
+reading as a lost one. At most three polls are ever unanswered at once;
+past that the loop waits on the newest.
 
 **Presence and goodbye.** After `pingMs` (120000) without any other
 request the transport sends a `#status`, which is all the canister needs

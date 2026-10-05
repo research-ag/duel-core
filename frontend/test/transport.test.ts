@@ -221,6 +221,57 @@ test("polls that keep hanging presume the link lost, then it recovers", async ()
   ws.close();
 });
 
+test("a poll answering after its timeout still delivers, without a relink", async () => {
+  const canister = new FakeCanister();
+  const ws = connect(canister, 60000, 30);
+  const seen: WsPayload[] = [];
+  let connecting = 0;
+  ws.onmessage = (ev) => seen.push(ev.data);
+  ws.onconnecting = () => connecting++;
+  await ws.request(SID, { status: null });
+  canister.pollDelayMs = 45;
+  canister.push(BROWSING);
+  await until(() => seen.length === 2, "the late view");
+  assert.deepEqual(seen[1], { view: BROWSING });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(connecting, 0, "a slow link is not a lost one");
+  ws.close();
+});
+
+test("hanging polls stop piling up at the limit", async () => {
+  const canister = new FakeCanister();
+  const ws = connect(canister, 60000, 10);
+  let connecting = 0;
+  ws.onconnecting = () => connecting++;
+  await ws.request(SID, { status: null });
+  const polls = canister.polls;
+  canister.pollBehavior = "hang";
+  await until(() => connecting === 3, "repeated relinks");
+  assert.equal(canister.polls - polls, 3);
+  ws.close();
+});
+
+test("a poll that throws synchronously is an ordinary failure", async () => {
+  const canister = new FakeCanister();
+  const ws = connect(canister, 60000, 20);
+  const unhandled: unknown[] = [];
+  const onUnhandled = (e: unknown) => unhandled.push(e);
+  process.on("unhandledRejection", onUnhandled);
+  let connecting = 0;
+  let opens = 0;
+  ws.onconnecting = () => connecting++;
+  ws.onopen = () => opens++;
+  await ws.request(SID, { status: null });
+  canister.pollBehavior = "throw";
+  await until(() => connecting === 1, "onconnecting");
+  canister.pollBehavior = "ok";
+  await until(() => opens === 2, "the relink");
+  await new Promise((r) => setTimeout(r, 60));
+  process.off("unhandledRejection", onUnhandled);
+  assert.deepEqual(unhandled, []);
+  ws.close();
+});
+
 test("a quiet link sends a status as its heartbeat", async () => {
   const canister = new FakeCanister();
   const ws = connect(canister, 40);
