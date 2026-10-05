@@ -8,10 +8,15 @@ import type { PollResult, TransportActor } from "../../src/transport.js";
 import type { EngineErr, Status, WsRequest } from "../../src/types.js";
 
 export function sampleGameTypes({ IDL: I }: { IDL: typeof IDL }) {
-  return { Action: I.Variant({ pass: I.Null }), State: I.Record({ hp: I.Nat }) };
+  return {
+    Action: I.Variant({ pass: I.Null }),
+    State: I.Record({ hp: I.Nat }),
+  };
 }
 
-export const ENDED: Status = { atTable: { id: 1n, view: { endedByOther: null } } };
+export const ENDED: Status = {
+  atTable: { id: 1n, view: { endedByOther: null } },
+};
 export const BROWSING: Status = { browsing: { tables: [] } };
 
 export class FakeCanister implements TransportActor {
@@ -22,12 +27,16 @@ export class FakeCanister implements TransportActor {
   private nextRev = 100n;
 
   /// What to reply with for the next decoded request. Override per test.
-  respond: (req: WsRequest) => { view: Status } | { err: EngineErr } = () => ({ view: this.current });
+  respond: (req: WsRequest) => { view: Status } | { err: EngineErr } = () => ({
+    view: this.current,
+  });
   /// How many upcoming `duel_request` calls throw before one lands.
   failRequests = 0;
   /// Whether a throwing `duel_request` still applies the request.
   landsBeforeFailing = false;
-  pollBehavior: "ok" | "err" = "ok";
+  pollBehavior: "ok" | "err" | "hang" | "throw" = "ok";
+  /// How long each `duel_poll` takes to answer.
+  pollDelayMs = 0;
   /// Every decoded request, in arrival order, with the epoch it carried.
   requests: Array<{ sid: string; epoch: bigint; req: WsRequest }> = [];
   polls = 0;
@@ -64,7 +73,10 @@ export class FakeCanister implements TransportActor {
       req: { sid: string; epoch: bigint; req: WsRequest };
     };
     this.requests.push(decoded.req);
-    if ("bye" in decoded.req.req) return this._encode({ view: { rev: this.rev ?? 0n, view: this.current } });
+    if ("bye" in decoded.req.req)
+      return this._encode({
+        view: { rev: this.rev ?? 0n, view: this.current },
+      });
     if (this.rev === null) this.rev = this.nextRev++;
     const reply = this.respond(decoded.req.req);
     if ("err" in reply) return this._encode({ err: { err: reply.err } });
@@ -83,12 +95,22 @@ export class FakeCanister implements TransportActor {
     return this._handle(msg);
   }
 
-  async duel_poll(_sid: string, rev: bigint): Promise<PollResult> {
+  duel_poll(sid: string, rev: bigint): Promise<PollResult> {
     this.polls++;
+    if (this.pollBehavior === "throw") throw new Error("not async");
+    return this._poll(sid, rev);
+  }
+
+  private async _poll(_sid: string, rev: bigint): Promise<PollResult> {
     if (this.pollBehavior === "err") throw new Error("unavailable");
+    if (this.pollBehavior === "hang") return new Promise(() => {});
+    if (this.pollDelayMs > 0)
+      await new Promise((r) => setTimeout(r, this.pollDelayMs));
     if (this.rev === null) return { unknown: null };
     if (this.rev === rev) return { unchanged: null };
-    return { changed: this._encode({ view: { rev: this.rev, view: this.current } }) };
+    return {
+      changed: this._encode({ view: { rev: this.rev, view: this.current } }),
+    };
   }
 
   async status(_sid: string): Promise<Status> {
