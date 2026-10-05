@@ -17,8 +17,18 @@
 // link) is relinked with a `#status`.
 
 import { IDL } from "@icp-sdk/core/candid";
-import { buildEngineTypes, type BuildGameTypes, type EngineTypes } from "./idl.js";
-import type { DuelWs, EngineErr, Status, WsPayload, WsRequest } from "./types.js";
+import {
+  buildEngineTypes,
+  type BuildGameTypes,
+  type EngineTypes,
+} from "./idl.js";
+import type {
+  DuelWs,
+  EngineErr,
+  Status,
+  WsPayload,
+  WsRequest,
+} from "./types.js";
 
 const DEFAULT_INTERVAL_MS = 500;
 
@@ -26,13 +36,18 @@ const DEFAULT_INTERVAL_MS = 500;
 /// canister's `PRESENCE_TTL_NS` (180s) is what it keeps alive.
 const DEFAULT_PING_MS = 120000;
 
+/// A `duel_poll` unanswered for this long counts as failed: the agent
+/// retries a query that errors but never gives up on one that hangs.
+const DEFAULT_POLL_TIMEOUT_MS = 3000;
+
 /// Delays before resending a request whose update call threw.
 const RESEND_DELAYS_MS = [500, 1500];
 
 /// Ceiling for the back-off between failed relinks.
 const MAX_RETRY_MS = 5000;
 
-export type PollResult = { unchanged: null } | { changed: Uint8Array | number[] } | { unknown: null };
+export type PollResult =
+  { unchanged: null } | { changed: Uint8Array | number[] } | { unknown: null };
 
 /// The two methods `mo:duel-game-core/actor_mixin` supplies.
 export interface TransportActor {
@@ -42,11 +57,14 @@ export interface TransportActor {
   status?(sid: string): Promise<Status>;
 }
 
-type Reply = { view: { rev: bigint; view: Status } } | { err: { err: EngineErr } };
+type Reply =
+  { view: { rev: bigint; view: Status } } | { err: { err: EngineErr } };
 
-const newEpoch = (): bigint => BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
+const newEpoch = (): bigint =>
+  BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number): Promise<void> =>
+  new Promise((r) => setTimeout(r, ms));
 
 const isStatus = (req: WsRequest): boolean => "status" in req;
 
@@ -55,6 +73,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
   private _types: EngineTypes;
   private _intervalMs: number;
   private _pingMs: number;
+  private _pollTimeoutMs: number;
   private _sid: string | null;
   private _epoch: bigint;
   // The newest revision applied, and the payload it carried.
@@ -87,21 +106,25 @@ export class DuelTransport extends EventTarget implements DuelWs {
     gameIdlTypes,
     intervalMs = DEFAULT_INTERVAL_MS,
     pingMs = DEFAULT_PING_MS,
+    pollTimeoutMs = DEFAULT_POLL_TIMEOUT_MS,
   }: {
     actor: TransportActor;
     gameIdlTypes: BuildGameTypes;
     intervalMs?: number;
     pingMs?: number;
+    pollTimeoutMs?: number;
   }) {
     super();
     if (!actor) throw new Error("DuelTransport: `actor` is required");
-    if (!gameIdlTypes) throw new Error("DuelTransport: `gameIdlTypes` is required");
+    if (!gameIdlTypes)
+      throw new Error("DuelTransport: `gameIdlTypes` is required");
 
     this._actor = actor;
     const { Action, State } = gameIdlTypes({ IDL });
     this._types = buildEngineTypes({ IDL, Action, State });
     this._intervalMs = intervalMs;
     this._pingMs = pingMs;
+    this._pollTimeoutMs = pollTimeoutMs;
     this._sid = null;
     this._epoch = newEpoch();
     this._rev = 0n;
@@ -147,7 +170,11 @@ export class DuelTransport extends EventTarget implements DuelWs {
     }
   }
 
-  private _listen(target: EventTarget | undefined, type: string, fn: (ev: Event) => void): void {
+  private _listen(
+    target: EventTarget | undefined,
+    type: string,
+    fn: (ev: Event) => void
+  ): void {
     if (!target || typeof target.addEventListener !== "function") return;
     target.addEventListener(type, fn);
     this._unlisten.push(() => target.removeEventListener(type, fn));
@@ -177,8 +204,24 @@ export class DuelTransport extends EventTarget implements DuelWs {
     this._pollTimer = setTimeout(() => this._tick(), delay);
   }
 
+  /// One poll, abandoned after `pollTimeoutMs`: a late answer is dropped
+  /// and the next tick asks again.
+  private _poll(sid: string): Promise<PollResult> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("DuelTransport: duel_poll timed out")),
+        this._pollTimeoutMs
+      );
+    });
+    return Promise.race([
+      this._actor.duel_poll(sid, this._rev),
+      expired,
+    ]).finally(() => clearTimeout(timer));
+  }
+
   /// The one loop: relink if needed, ping if due, else poll. Two failed
-  /// polls in a row presume the link lost.
+  /// or unanswered polls in a row presume the link lost.
   private async _tick(): Promise<void> {
     if (this._closed || this._suspended || this._ticking) return;
     this._ticking = true;
@@ -188,11 +231,15 @@ export class DuelTransport extends EventTarget implements DuelWs {
       const idle = this._inFlight === 0;
       if (!this._linked) {
         if (idle) this._sendStatus(sid);
-        delay = Math.min(MAX_RETRY_MS, this._intervalMs * 2 ** Math.min(4, this._consecutiveFailures));
+        delay = Math.min(
+          MAX_RETRY_MS,
+          this._intervalMs * 2 ** Math.min(4, this._consecutiveFailures)
+        );
       } else {
-        if (idle && Date.now() - this._lastRequestAt >= this._pingMs) this._sendStatus(sid);
+        if (idle && Date.now() - this._lastRequestAt >= this._pingMs)
+          this._sendStatus(sid);
         try {
-          const res = await this._actor.duel_poll(sid, this._rev);
+          const res = await this._poll(sid);
           this._markAlive();
           if ("changed" in res) {
             const reply = this._decode(res.changed);
@@ -216,7 +263,10 @@ export class DuelTransport extends EventTarget implements DuelWs {
   }
 
   private _encode(sid: string, req: WsRequest): Uint8Array {
-    const buf = IDL.encode([this._types.WsMsg], [{ req: { sid, epoch: this._epoch, req } }]);
+    const buf = IDL.encode(
+      [this._types.WsMsg],
+      [{ req: { sid, epoch: this._epoch, req } }]
+    );
     return buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   }
 
@@ -228,7 +278,10 @@ export class DuelTransport extends EventTarget implements DuelWs {
   /// One update call, resent when it throws: the call may or may not have
   /// landed, and every mutation is gated by the engine's own
   /// legality/idempotency checks.
-  private async _call(sid: string, req: WsRequest): Promise<{ reply: Reply; resent: boolean }> {
+  private async _call(
+    sid: string,
+    req: WsRequest
+  ): Promise<{ reply: Reply; resent: boolean }> {
     for (let attempt = 0; ; attempt++) {
       if (this._closed) throw new Error("DuelTransport: closed");
       // Encoded per attempt: a relink in between changed the epoch.
@@ -268,7 +321,11 @@ export class DuelTransport extends EventTarget implements DuelWs {
   /// error that would make a successful click look failed.
   private async _exchange(sid: string, req: WsRequest): Promise<WsPayload> {
     let { reply, resent } = await this._call(sid, req);
-    if (resent && "err" in reply && ("alreadySubmitted" in reply.err.err || "stale" in reply.err.err)) {
+    if (
+      resent &&
+      "err" in reply &&
+      ("alreadySubmitted" in reply.err.err || "stale" in reply.err.err)
+    ) {
       ({ reply } = await this._call(sid, { status: null }));
     }
     const { payload, fresh } = this._apply(reply);
@@ -285,7 +342,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
     const result = this._chain.then(() => this._exchange(sid, req));
     this._chain = result.then(
       () => {},
-      () => {},
+      () => {}
     );
     void this._chain.then(() => {
       this._inFlight--;
@@ -302,7 +359,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
       },
       () => {
         this._statusQueued = false;
-      },
+      }
     );
   }
 
@@ -319,7 +376,9 @@ export class DuelTransport extends EventTarget implements DuelWs {
   private _bye(): void {
     if (this._sid === null || !this._everLinked) return;
     try {
-      void this._actor.duel_request(this._encode(this._sid, { bye: null })).catch(() => {});
+      void this._actor
+        .duel_request(this._encode(this._sid, { bye: null }))
+        .catch(() => {});
     } catch {
       // already gone
     }
@@ -361,7 +420,9 @@ export class DuelTransport extends EventTarget implements DuelWs {
   /// `#status` is still on its way. Rejects when the actor declares none.
   queryStatus(sid: string): Promise<Status> {
     if (typeof this._actor.status !== "function") {
-      return Promise.reject(new Error("DuelTransport: the actor declares no `status` query"));
+      return Promise.reject(
+        new Error("DuelTransport: the actor declares no `status` query")
+      );
     }
     return this._actor.status(sid);
   }
@@ -406,12 +467,14 @@ export class DuelTransport extends EventTarget implements DuelWs {
 }
 
 /// `intervalMs` (default 500) is the poll interval; `pingMs` (default
-/// 120000) is how long the link may stay quiet before a `#status`.
+/// 120000) is how long the link may stay quiet before a `#status`;
+/// `pollTimeoutMs` (default 3000) is how long one poll may go unanswered.
 export function connectTransport(opts: {
   actor: TransportActor;
   gameIdlTypes: BuildGameTypes;
   intervalMs?: number;
   pingMs?: number;
+  pollTimeoutMs?: number;
 }): DuelTransport {
   return new DuelTransport(opts);
 }

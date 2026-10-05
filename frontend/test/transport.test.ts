@@ -3,7 +3,12 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { connectTransport, type DuelTransport } from "../src/transport.js";
-import { FakeCanister, sampleGameTypes, BROWSING, ENDED } from "./support/fake-canister.js";
+import {
+  FakeCanister,
+  sampleGameTypes,
+  BROWSING,
+  ENDED,
+} from "./support/fake-canister.js";
 import type { Status, WsPayload } from "../src/types.js";
 
 const SID = "an:test";
@@ -13,13 +18,27 @@ afterEach(() => {
   for (const ws of live.splice(0)) ws.close();
 });
 
-function connect(canister: FakeCanister, pingMs = 60000): DuelTransport {
-  const ws = connectTransport({ actor: canister, gameIdlTypes: sampleGameTypes, intervalMs: 5, pingMs });
+function connect(
+  canister: FakeCanister,
+  pingMs = 60000,
+  pollTimeoutMs = 3000
+): DuelTransport {
+  const ws = connectTransport({
+    actor: canister,
+    gameIdlTypes: sampleGameTypes,
+    intervalMs: 5,
+    pingMs,
+    pollTimeoutMs,
+  });
   live.push(ws);
   return ws;
 }
 
-async function until(cond: () => boolean, what: string, ms = 3000): Promise<void> {
+async function until(
+  cond: () => boolean,
+  what: string,
+  ms = 3000
+): Promise<void> {
   const deadline = Date.now() + ms;
   while (!cond()) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
@@ -28,7 +47,12 @@ async function until(cond: () => boolean, what: string, ms = 3000): Promise<void
 }
 
 const inGame = (hp: bigint): Status =>
-  ({ atTable: { id: 1n, view: { awaitingRematch: { openSeat: { p1: null }, gen: hp } } } }) as Status;
+  ({
+    atTable: {
+      id: 1n,
+      view: { awaitingRematch: { openSeat: { p1: null }, gen: hp } },
+    },
+  }) as Status;
 
 test("the first status links: onopen fires once and the view is delivered", async () => {
   const canister = new FakeCanister();
@@ -48,7 +72,8 @@ test("the first status links: onopen fires once and the view is delivered", asyn
 test("request() resolves with its own reply, straight from the update call", async () => {
   const canister = new FakeCanister();
   const ws = connect(canister);
-  canister.respond = (req) => ("rematch" in req ? { view: inGame(7n) } : { view: ENDED });
+  canister.respond = (req) =>
+    "rematch" in req ? { view: inGame(7n) } : { view: ENDED };
   const reply = await ws.request(SID, { rematch: null });
   assert.deepEqual(reply, { view: inGame(7n) });
   ws.close();
@@ -58,7 +83,9 @@ test("an engine error comes back as the reply, not a rejection", async () => {
   const canister = new FakeCanister();
   const ws = connect(canister);
   canister.respond = () => ({ err: { notSeated: null } });
-  assert.deepEqual(await ws.request(SID, { rematch: null }), { err: { notSeated: null } });
+  assert.deepEqual(await ws.request(SID, { rematch: null }), {
+    err: { notSeated: null },
+  });
   ws.close();
 });
 
@@ -107,8 +134,14 @@ test("a resend rejected as #stale settles with a fresh status instead", async ()
     if ("status" in req) return { view: BROWSING };
     return calls++ === 0 ? { view: BROWSING } : { err: { stale: null } };
   };
-  assert.deepEqual(await ws.request(SID, { leave: { gen: 1n } }), { view: BROWSING });
-  assert.deepEqual(canister.sent, [{ leave: { gen: 1n } }, { leave: { gen: 1n } }, { status: null }]);
+  assert.deepEqual(await ws.request(SID, { leave: { gen: 1n } }), {
+    view: BROWSING,
+  });
+  assert.deepEqual(canister.sent, [
+    { leave: { gen: 1n } },
+    { leave: { gen: 1n } },
+    { status: null },
+  ]);
   ws.close();
 });
 
@@ -148,6 +181,40 @@ test("two failed polls in a row presume the link lost, then it recovers", async 
   ws.onopen = () => opens++;
   await ws.request(SID, { status: null });
   canister.pollBehavior = "err";
+  await until(() => connecting === 1, "onconnecting");
+  canister.pollBehavior = "ok";
+  await until(() => opens === 2, "the relink");
+  ws.close();
+});
+
+test("a poll that never answers is abandoned and the next one delivers", async () => {
+  const canister = new FakeCanister();
+  const ws = connect(canister, 60000, 30);
+  const seen: WsPayload[] = [];
+  let connecting = 0;
+  ws.onmessage = (ev) => seen.push(ev.data);
+  ws.onconnecting = () => connecting++;
+  await ws.request(SID, { status: null });
+  canister.pollBehavior = "hang";
+  const polls = canister.polls;
+  await until(() => canister.polls > polls, "the hanging poll");
+  canister.pollBehavior = "ok";
+  canister.push(BROWSING);
+  await until(() => seen.length === 2, "the polled view");
+  assert.deepEqual(seen[1], { view: BROWSING });
+  assert.equal(connecting, 0, "a lone stall does not drop the link");
+  ws.close();
+});
+
+test("polls that keep hanging presume the link lost, then it recovers", async () => {
+  const canister = new FakeCanister();
+  const ws = connect(canister, 60000, 20);
+  let connecting = 0;
+  let opens = 0;
+  ws.onconnecting = () => connecting++;
+  ws.onopen = () => opens++;
+  await ws.request(SID, { status: null });
+  canister.pollBehavior = "hang";
   await until(() => connecting === 1, "onconnecting");
   canister.pollBehavior = "ok";
   await until(() => opens === 2, "the relink");

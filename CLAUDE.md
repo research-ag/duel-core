@@ -79,7 +79,7 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   `#screen` (delegated clicks, spinner, countdowns, header controls,
   error banner, overlays) and returns the client. Also session identity,
   the `DuelTransport` client (`transport.js`: serialized
-  `duel_request`s, a 500 ms `duel_poll` loop, a `#status` heartbeat
+  `duel_request`s, a 500 ms `duel_poll` loop with a 3 s per-poll timeout, a `#status` heartbeat
   after 120 s of quiet), and Candid IDL scaffolding (`idl.js`, which also declares
   `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots`
   unconditionally, and `buildBotPlayIdlFactory` for calling a discovered
