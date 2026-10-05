@@ -1,20 +1,7 @@
-// Optional helpers for an ICP asset-canister deployment; `start()` never
-// calls them.
-
-/// Decodes the `ic_env` cookie the asset canister sets.
-export function readIcEnv(): Record<string, string> {
-  const m = document.cookie.match(/(?:^|;\s*)ic_env=([^;]+)/);
-  if (!m) return {};
-  const out: Record<string, string> = {};
-  for (const part of decodeURIComponent(m[1]).split("&")) {
-    const eq = part.indexOf("=");
-    if (eq > 0) out[part.slice(0, eq)] = part.slice(eq + 1);
-  }
-  return out;
-}
+// Optional helper for an ICP-hosted frontend; `start()` never calls it.
 
 /// The `HttpAgent` host for the page's location. Calls must stay same-site
-/// (CORS and the asset canister's CSP `connect-src`): on icp0.io/ic0.app
+/// (CORS and the frontend canister's CSP `connect-src`): on icp0.io/ic0.app
 /// the bare parent domain is the API host, so the canister-id subdomain
 /// is stripped; on icp.net the parent domain is not an API host, but the
 /// page's own origin proxies `/api`, so it is kept as-is. `icp-api.io` is

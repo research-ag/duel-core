@@ -5,20 +5,6 @@
 // `duel-game-core` npm package, since the aggregator is a standalone
 // product built on this repo's tooling, not a game on its engine.
 
-/// Reads the `ic_env` cookie the asset canister sets, e.g.
-/// `PUBLIC_CANISTER_ID:backend=<id>&ic_root_key=<hex>&...`, decoded as a
-/// plain object.
-export function readIcEnv(): Record<string, string> {
-  const m = document.cookie.match(/(?:^|;\s*)ic_env=([^;]+)/);
-  if (!m) return {};
-  const out: Record<string, string> = {};
-  for (const part of decodeURIComponent(m[1]).split("&")) {
-    const eq = part.indexOf("=");
-    if (eq > 0) out[part.slice(0, eq)] = part.slice(eq + 1);
-  }
-  return out;
-}
-
 /// Derives the right `HttpAgent` host for the page's current location:
 /// localhost during local development, the parent domain on icp0.io /
 /// ic0.app, the page's own origin unchanged on icp.net, or the dedicated

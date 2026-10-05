@@ -446,10 +446,12 @@ icp deploy                 # local; `icp network start` must be running
 icp deploy --network ic    # mainnet — spends cycles
 ```
 
-The asset-canister recipe must be v2.3.0 or newer (v2.1.0's sync step is
-rejected by icp-cli 1.x). Its `build` step runs `npm run build`, so
-deploys always bundle current source; `npm install` remains a manual
-step.
+The frontend deploys through the `@dfinity/static-site` recipe. Its
+`build` step runs `npm run build`, so deploys always bundle current
+source; `npm install` remains a manual step. The canister sends no
+headers of its own: to add a CSP or `Cache-Control`, put a `_headers`
+file in `frontend/src/` and copy it into `dist/` from `build.js` (see
+`examples/tic-tac-toe/frontend/src/_headers`).
 
 Then play both seats in two browser tabs: create a table in one, join
 from the other, and confirm a round resolves and the debrief/rematch loop

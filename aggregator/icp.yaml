@@ -8,7 +8,7 @@ canisters:
         main: src/Main.mo
   - name: frontend
     recipe:
-      type: "@dfinity/asset-canister@v2.3.0"
+      type: "@dfinity/static-site@v0.4.0"
       configuration:
         dir: frontend/dist
         build:

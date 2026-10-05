@@ -2,7 +2,7 @@
  * serif display face over a quiet grotesk, banners doing the talking,
  * gold as the single accent (the same lineage as duel-game-core's own
  * style.css, so a game's client still reads as family). Fonts are
- * vendored in fonts/ because the asset canister's CSP (.ic-assets.json5)
+ * vendored in fonts/ because the frontend canister's CSP (_headers)
  * only allows same-origin sources. */
 
 @font-face {

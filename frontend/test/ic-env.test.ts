@@ -1,37 +1,17 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
-// ic-env.ts reads `document.cookie`/`window.location` at call time (not
-// module-load time), so stubbing these globals before each call is enough
+// ic-env.ts reads `window.location` at call time (not module-load time),
+// so stubbing the global before each call is enough
 
 afterEach(() => {
-  delete (globalThis as { document?: unknown }).document;
   delete (globalThis as { window?: unknown }).window;
 });
-
-function withCookie<T>(cookie: string, fn: () => T): T {
-  (globalThis as unknown as { document: { cookie: string } }).document = { cookie };
-  return fn();
-}
 
 function withLocation<T>(location: { protocol: string; hostname: string; port: string }, fn: () => T): T {
   (globalThis as unknown as { window: { location: typeof location } }).window = { location };
   return fn();
 }
-
-test("readIcEnv: no cookie at all returns {}", async () => {
-  const { readIcEnv } = await import("../src/ic-env.js");
-  assert.deepEqual(withCookie("other=1", () => readIcEnv()), {});
-});
-
-test("readIcEnv: decodes the ic_env cookie into a plain object", async () => {
-  const { readIcEnv } = await import("../src/ic-env.js");
-  const cookie = "foo=bar; ic_env=" + encodeURIComponent("PUBLIC_CANISTER_ID:backend=abc123&ic_root_key=deadbeef");
-  assert.deepEqual(withCookie(cookie, () => readIcEnv()), {
-    "PUBLIC_CANISTER_ID:backend": "abc123",
-    ic_root_key: "deadbeef",
-  });
-});
 
 test("deriveHost: localhost keeps the port, drops any subdomain", async () => {
   const { deriveHost } = await import("../src/ic-env.js");

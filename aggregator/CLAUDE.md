@@ -64,7 +64,7 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   gate). `style.css` is the whole design system (tokens at `:root`,
   dark only); the display serif (Instrument Serif) and text face
   (Manrope) are vendored as woff2 in `src/fonts/` and copied by
-  `build.js`, because `.ic-assets.json5`'s CSP allows only same-origin
+  `build.js`, because `_headers`' CSP allows only same-origin
   fonts.
 
 ## Toolchain
