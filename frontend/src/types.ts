@@ -169,7 +169,7 @@ export interface GamePlugin<S = unknown> {
   formatVariant?(variant: string): string;
 }
 
-/// Mirrors `Ws.Request<M>`. `submit`/`leave`/`reset`/`claimWin` carry the
+/// Mirrors `Transport.Request<M>`. `submit`/`leave`/`reset`/`claimWin` carry the
 /// last-seen `gen` (and `turn`); a stale value is rejected as `#stale`.
 export type WsRequest<A = unknown> =
   | { createTable: { seat: Seat; visibility: Visibility; variant: string } }
@@ -180,18 +180,19 @@ export type WsRequest<A = unknown> =
   | { reset: { gen: bigint } }
   | { claimWin: { gen: bigint } }
   | { ackEnded: null }
-  | { status: null };
+  | { status: null }
+  | { bye: null };
 
 export type WsPayload<S = unknown> = { view: Status<S> } | { err: EngineErr };
 
 /// The WebSocket-like surface `start()` requires. `request()` is optional;
-/// when present (`GatewayWs`), `start()` correlates each call's own reply.
-/// `send()` must accept a message before the connection is open (the
-/// client asks for its first status at construction); `onopen` fires on
-/// every confirmed (re)open, and a reopen makes the client ask again.
-/// `onconnecting` (optional) fires when an open connection is lost and
-/// being redone; `onclose` only when it is over for good. `queryStatus()`
-/// (optional) answers a status without the connection, for a first paint.
+/// when present (`DuelTransport`), `start()` settles each call off its own
+/// reply. `send()` must accept a message at any time (the client asks for
+/// its first status at construction); `onopen` fires on every confirmed
+/// (re)link, and a relink makes the client ask again. `onconnecting`
+/// (optional) fires when the link is lost and being redone; `onclose`
+/// only when it is over for good. `queryStatus()` (optional) answers a
+/// status without the link, for a first paint.
 export interface DuelWs<S = unknown, A = unknown> {
   onopen: (() => void) | null;
   onmessage: ((ev: { data: WsPayload<S> }) => void) | null;

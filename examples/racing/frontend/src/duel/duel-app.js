@@ -8,7 +8,7 @@ import { Actor, HttpAgent } from '@icp-sdk/core/agent';
 import { Principal } from '@icp-sdk/core/principal';
 import { makeIdlFactory, buildBotPlayIdlFactory } from 'duel-game-core/idl.js';
 import { start } from 'duel-game-core/app.js';
-import { connectWs } from 'duel-game-core/ws.js';
+import { connectTransport } from 'duel-game-core/transport.js';
 import { resolveIdentity } from 'duel-game-core/identity.js';
 import { readIcEnv, deriveHost } from 'duel-game-core/ic-env.js';
 import { errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag } from 'duel-game-core/render.js';
@@ -33,9 +33,9 @@ if (!canisterId) {
 const host = deriveHost();
 
 // An Internet Identity login if active, else a persisted anonymous keypair
-// (the CDK rejects the anonymous principal outright). The keypair is
+// (the backend rejects the anonymous principal outright). The keypair is
 // stable across a reload and `sid` derives from it, as `isAuthorizedSid`
-// requires; the vendored CDK's `remove_client` fix makes that safe.
+// requires.
 const session = await resolveIdentity();
 const agent = await HttpAgent.create({
   host,
@@ -49,7 +49,7 @@ window.__resolveDuelActor(actor);
 
 // Shared with lobby-connection.service.ts via window.duelWsReady, so the
 // race runs over this one connection instead of a second poller.
-const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
+const ws = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 window.__resolveDuelWs(ws);
 
 start({ plugin, ws, session });

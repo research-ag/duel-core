@@ -22,22 +22,23 @@ knows any particular game.
     opaque `variant : Text` picked by their creator and read only by
     the game's own `Spec.init(variant)`. No game logic is reimplemented
     here.
-  - `ws.mo` — MANDATORY real-time push over the vendored
-    `ic-websocket-cdk` (`src/ic-websocket-cdk/src`). It is the only
-    transport that can mutate game state: no `Registry` mutating
-    operation is a plain Candid method on a host; `status` is the one
-    plain `query`. Also drives disappearance handling (a cooperative
-    `ws_close` implicitly leaves; a keep-alive eviction only unbinds the
-    transport, the client reconnects) and offers optional hooks
-    `onSettled`/`onGameEnded`/`onGameStarted`.
-  - `actor_mixin.mo` — `include ActorMixin<system>(ws, sweepFunc)`:
-    the four `ws_*` Candid methods plus the 5-minute idle-sweep timer.
+  - `transport.mo` — MANDATORY. One update (`duel_request`, whose reply
+    is the caller's fresh status) and one polled query (`duel_poll`,
+    answering from a per-session `rev` in the transient `Hub`; nothing
+    is queued). It is the only transport that can mutate game state: no
+    `Registry` mutating operation is a plain Candid method on a host;
+    `status` is the one plain `query`. Also drives disappearance
+    handling (a `#bye` implicitly leaves after a grace; silence only
+    ends presence, checked lazily against `PRESENCE_TTL_NS`) and offers
+    optional hooks `onSettled`/`onGameEnded`/`onGameStarted`.
+  - `actor_mixin.mo` — `include ActorMixin<system>(endpoint, sweepFunc)`:
+    `duel_request`/`duel_poll` plus the 5-minute idle-sweep timer.
   - `canister_players.mo` — OPTIONAL. Lets a canister take a seat under a
     third sid namespace `cp:<principal>:<tableId>:<complexity>`
     (`sidForCanister`), one session per board, derived from
     `msg.caller` so nothing is spoofable. The game canister calls the
     bot's `make_move` and treats the reply as the move (`registry.submit`
-    via the same `afterMutation` fan-out `ws.mo` uses); silence, a trap,
+    via the same `afterMutation` fan-out `transport.mo` uses); silence, a trap,
     or a still-illegal move after one retry leaves the ordinary timeout
     machinery to act. `settle(now, id)` asks a due seat, claims a win for
     an overdue WAITING seat, or acks a finished debrief once no live
@@ -58,7 +59,7 @@ CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard)`:
     game-agnostic. A top-N highest-first `Board` (`new(keep,
 defaultScore)`, `setScore`, `recordIfBetter`, `scoreOf`, `top`), the
     pure chess-ELO `update`, and `include LeaderboardActorMixin(board,
-n)` supplying `get_leaderboard`. Filled from `Ws.attach`'s
+n)` supplying `get_leaderboard`. Filled from `Transport.attach`'s
     `onGameEnded`/`onGameStarted` hooks. A lower-is-better metric is
     converted to higher-is-better by the game before storing.
     See `backend/README.md` for the `Spec<S, M>` contract and full wiring.
@@ -77,9 +78,9 @@ n)` supplying `get_leaderboard`. Filled from `Ws.attach`'s
 session, screens?, confirm?, promptCode? })` binds client to screens in
   `#screen` (delegated clicks, spinner, countdowns, header controls,
   error banner, overlays) and returns the client. Also session identity,
-  the `GatewayWs` push client (`ws.js` + `ws/gateway-*.js`, speaking
-  `ws.mo`'s CDK protocol with each tab self-registered as its own
-  Gateway), and Candid IDL scaffolding (`idl.js`, which also declares
+  the `DuelTransport` client (`transport.js`: serialized
+  `duel_request`s, a 500 ms `duel_poll` loop, a `#status` heartbeat
+  after 120 s of quiet), and Candid IDL scaffolding (`idl.js`, which also declares
   `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots`
   unconditionally, and `buildBotPlayIdlFactory` for calling a discovered
   bot's `play`). See `frontend/README.md` for the `GamePlugin` contract,
@@ -88,9 +89,8 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   discovers the `.test.mo` suffix only). `Engine`/`Lifecycle` cover
   `table.mo`; `Lobby`/`LobbyLifecycle` cover `registry.mo` (including
   `createTableReserving`); `Alternating` covers `#alternating` mode;
-  `Hub`/`WsBroadcast`/`CdkClientKeyMap` cover `ws.mo`'s pure helpers and
-  the vendored CDK's fixes (the full CDK actor machinery is not
-  exercisable in the interpreter); `CanisterPlayers` covers
+  `Hub`/`TransportBroadcast` cover `transport.mo`'s pure helpers
+  (`attach` itself needs a real actor); `CanisterPlayers` covers
   `canister_players.mo` with stubbed `afterMutation`/`armClaimCheck`;
   `Leaderboard`/`Elo` cover their modules directly. `FakeGame.mo`/
   `FakeTurnGame.mo` are throwaway specs for these suites.
@@ -127,14 +127,12 @@ game on the engine. See `aggregator/CLAUDE.md`.
   in this repo, `mixin` declarations included.
 - Engine code is `mo:core` only — never `mo:base`. `types.mo`/
   `registry.mo` import `promtracker` (opt-in wiring, always-compiled
-  dependency); `ws.mo` alone imports `ic-websocket-cdk` (mandatory
-  wiring, confined dependency), which in turn uses the third-party
-  `ic-certification` (still on `mo:base`, outside this repo's control).
+  dependency); nothing else has a third-party dependency.
   Any new module needs the same "why not in lib.mo" scrutiny before
   growing a dependency.
 - `bench-helper`, `pocket-ic`, `wasm-opt` are dev-only, for `mops bench`.
 - Frontend: `app.js`, `render.js`, `idl.js`, `ic-env.js` have zero npm
-  dependencies. `ws/gateway-*.js` depends on `@icp-sdk/core` and `cborg`;
+  dependencies. `transport.js` depends on `@icp-sdk/core/candid`;
   `identity.js` on `@icp-sdk/auth` + `@icp-sdk/core/identity`;
   `anon-identity.js` on `@icp-sdk/core/identity` only. Nothing else may
   grow a dependency.
@@ -152,7 +150,7 @@ mops bench
 
 ```bash
 cd frontend && npm install --legacy-peer-deps && npm run build && npm test
-node --check dist/app.js dist/render.js dist/idl.js dist/ic-env.js dist/ws.js dist/identity.js dist/anon-identity.js dist/ws/gateway-client.js dist/ws/gateway-transport.js dist/ws/gateway-protocol.js
+node --check dist/app.js dist/render.js dist/idl.js dist/ic-env.js dist/transport.js dist/identity.js dist/anon-identity.js
 ```
 
 `--legacy-peer-deps` is needed everywhere `duel-game-core` is installed:
@@ -195,7 +193,7 @@ deploys all of them to the IC.
    stable; every engine entry point takes `spec` as a parameter.
 2. **The engine owns time.** `now : Int` (ns) is a parameter everywhere;
    `lib.mo`/`types.mo`/`table.mo`/`registry.mo` never import `Time`.
-   `ws.mo`, `actor_mixin.mo`, `canister_players.mo`, and the mixins play
+   `transport.mo`, `actor_mixin.mo`, `canister_players.mo`, and the mixins play
    the host's role and call `Time.now()` themselves.
 3. **Rules stay pure.** `init`/`validate`/`resolve` build new records,
    never mutate.
@@ -223,12 +221,12 @@ deploys all of them to the IC.
 10. **The frontend never assumes an agent-loading strategy.** `start()`
     and `createDuelClient()` take a required WebSocket-shaped `ws` and a
     required `session` built by the game; they import no agent, no CDN,
-    and have no polling fallback.
-11. **`ws.mo` is the sole mutation entry point and reimplements no game
+    and know no other transport.
+11. **`transport.mo` is the sole mutation entry point and reimplements no game
     logic.** Every request dispatches to `Registry`'s operations; none
     is also a plain Candid method. The `*_as_canister` methods are the
     one deliberate exception, reachable only under the `cp:` namespace
-    `ws.mo` never authenticates, and `submit` is never exposed even
+    `transport.mo` never authenticates, and `submit` is never exposed even
     there.
 12. **Leave means left.** `status`/`join`/`rematch` use
     `activeDebriefSeat` so a session that acked its debrief stops being

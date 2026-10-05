@@ -76,7 +76,7 @@ depth`, live-hands heuristic — depth-limited because the position graph
   carries the bot's answer too still replays it as its own ply; a
   rejected move drops the local ply from the history. The W/L/D record strip is per
   identity in `localStorage` (the backend keeps ELO only). `app.js`
-  builds the actor, `connectWs()`, the client, and a `services` object
+  builds the actor, `connectTransport()`, the client, and a `services` object
   (`get_leaderboard`, `list_bots`, the bot's `play`) the UI reads
   through.
 

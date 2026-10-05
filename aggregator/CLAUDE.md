@@ -4,7 +4,7 @@ A standalone product on this repo's Motoko/TypeScript tooling — not part
 of either `duel-game-core` package and not a game on the engine: Internet
 Identity login, a developer's editable display name, and a public,
 filterable grid of registered games. Two canisters (`icp.yaml`, Motoko
-backend, bundled static frontend), its own Candid interface, no `ws.mo`.
+backend, bundled static frontend), its own Candid interface, no `transport.mo`.
 
 - **`src/Types.mo`** — `Profile`, `Game`/`GameView` (stored record vs.
   returned view, banner blob excluded), `GameInput`/`GameEdit`, `Err`.

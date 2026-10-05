@@ -11,7 +11,7 @@
 ///
 /// `notifyAndApply` is the protocol: build a `MoveRequest` from the
 /// table's own status, `await` the host's `callBot`, re-read `gen`/`turn`
-/// fresh, `registry.submit`, then the same push fan-out `ws.mo` runs. An
+/// fresh, `registry.submit`, then the same fan-out `transport.mo` runs. An
 /// illegal reply is retried once with `retryReason`; a trap or any other
 /// rejection is treated as silence and left to the engine's timeouts.
 /// `settle(now, id)` asks a due seat, claims a win for an overdue waiting
@@ -20,7 +20,7 @@
 /// the slow full-registry fallback.
 ///
 /// See `../README.md`, "Canister players", for the host wiring (the
-/// `settle` indirection between `Ws.attach` and `attach` here) and bot
+/// `settle` indirection between `Transport.attach` and `attach` here) and bot
 /// discovery.
 
 import Array "mo:core/Array";
@@ -48,8 +48,8 @@ module {
 
   public func normalizeComplexity(complexity : Text) : Text = if (complexity == "") DEFAULT_COMPLEXITY else complexity;
 
-  /// Duplicates `Ws.sidFor`'s shape rather than importing `ws.mo`, to keep
-  /// this module free of the CDK dependency. `complexity` may itself
+  /// Duplicates `Transport.sidFor`'s shape rather than importing
+  /// `transport.mo`. `complexity` may itself
   /// contain `:` (it is the last segment).
   public func sidForCanister(p : Principal.Principal, tableId : T.TableId, complexity : Text) : T.SessionId {
     CP_SID_PREFIX # p.toText() # ":" # tableId.toText() # ":" # normalizeComplexity(complexity);
@@ -182,10 +182,15 @@ module {
   /// generic `M`): the host calls `k(?move)` on success, `k(null)` on a
   /// trap. `armClaimCheck(id, secs)` schedules one future `settle` — a
   /// host hook because only an actor holds `Timer.setTimer`'s `<system>`.
+  /// `afterMutationSettles` says who owns settlement after a mutation
+  /// made here: `true` when `afterMutation` itself ends in this module's
+  /// `settle` (`Transport.Attached.afterMutation` with `onSettled` wired
+  /// to it); `false` makes this module settle the table itself.
   public func attach<S, M>(
     spec : T.Spec<S, M>,
     registry : T.Registry<S, M>,
-    afterMutation : (Int, T.SessionId, ?Nat64, ?T.TableId, Bool) -> async* (),
+    afterMutation : (Int, T.SessionId, ?T.TableId, Bool) -> async* (),
+    afterMutationSettles : Bool,
     callBot : (T.SessionId, T.MoveRequest<S, M>, (?M) -> async* ()) -> async* (),
     armClaimCheck : (T.TableId, Nat) -> async* (),
 
@@ -254,8 +259,8 @@ module {
                   case null {};
                   case (?fresh) switch (registry.submit(spec, now, session, fresh.gen, fresh.turn, move)) {
                     case (#ok _) {
-                      await* afterMutation(now, session, null, ?id, false);
-                      await* maybeSettleBoth(now, id);
+                      await* afterMutation(now, session, ?id, false);
+                      await* settleUnlessOwned(now, id);
                     };
                     case (#err(#illegalMove reason)) {
                       if (triesLeft > 0) {
@@ -290,7 +295,7 @@ module {
             };
           } else if (ig.claimWinAvailable) {
             switch (registry.claimWin(spec, now, session, ig.gen)) {
-              case (#ok _) await* afterMutation(now, session, null, ?id, true);
+              case (#ok _) await* afterMutation(now, session, ?id, true);
               case (#err _) {};
             };
           } else {
@@ -311,7 +316,7 @@ module {
       let partnerGoneOrCanister = isCanisterSession(partner) or t.activeDebriefSeat(d, partner) == null;
       if (not partnerGoneOrCanister) return;
       switch (registry.leave(now, session, t.gen)) {
-        case (#ok _) await* afterMutation(now, session, null, ?id, true);
+        case (#ok _) await* afterMutation(now, session, ?id, true);
         case (#err _) {};
       };
     };
@@ -331,6 +336,10 @@ module {
           case (_) {};
         };
       };
+    };
+
+    func settleUnlessOwned(now : Int, id : T.TableId) : async* () {
+      if (not afterMutationSettles) await* maybeSettleBoth(now, id);
     };
 
     /// The session `caller` holds at board `id`, read off the phase record
@@ -360,7 +369,7 @@ module {
         let session = sidForCanister(caller, id, complexity);
         switch (registry.createTable(spec, now, session, seat, visibility, variant)) {
           case (#ok gotId) {
-            await* afterMutation(now, session, null, ?gotId, true);
+            await* afterMutation(now, session, ?gotId, true);
             #ok(gotId);
           };
           case (#err e) #err(e);
@@ -372,8 +381,8 @@ module {
         let now = Time.now();
         switch (registry.joinTable(spec, now, session, id, seat, code)) {
           case (#ok j) {
-            await* afterMutation(now, session, null, ?id, true);
-            await* maybeSettleBoth(Time.now(), id);
+            await* afterMutation(now, session, ?id, true);
+            await* settleUnlessOwned(Time.now(), id);
             #ok(j);
           };
           case (#err e) #err(e);
@@ -387,7 +396,7 @@ module {
             let now = Time.now();
             switch (registry.leave(now, session, gen)) {
               case (#ok _) {
-                await* afterMutation(now, session, null, ?tableId, true);
+                await* afterMutation(now, session, ?tableId, true);
                 #ok(());
               };
               case (#err e) #err(e);
@@ -402,7 +411,7 @@ module {
           case (?session) {
             let now = Time.now();
             registry.ackEnded(session);
-            await* afterMutation(now, session, null, ?tableId, true);
+            await* afterMutation(now, session, ?tableId, true);
           };
         };
       };
@@ -414,7 +423,7 @@ module {
             let now = Time.now();
             switch (registry.claimWin(spec, now, session, gen)) {
               case (#ok _) {
-                await* afterMutation(now, session, null, ?tableId, true);
+                await* afterMutation(now, session, ?tableId, true);
                 #ok(());
               };
               case (#err e) #err(e);
@@ -430,7 +439,7 @@ module {
             let now = Time.now();
             switch (registry.reset(now, session, gen)) {
               case (#ok _) {
-                await* afterMutation(now, session, null, ?tableId, true);
+                await* afterMutation(now, session, ?tableId, true);
                 #ok(());
               };
               case (#err e) #err(e);

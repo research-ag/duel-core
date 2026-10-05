@@ -28,25 +28,14 @@ export interface EngineTypes {
   Status: IDLNS.Type;
   LeaderboardEntry: IDLNS.Type;
   BotInfo: IDLNS.Type;
-  ClientKey: IDLNS.Type;
-  WsResult: IDLNS.Type;
-  CanisterWsOpenArguments: IDLNS.Type;
-  CanisterWsCloseArguments: IDLNS.Type;
-  WebsocketMessage: IDLNS.Type;
-  CanisterWsMessageArguments: IDLNS.Type;
-  CanisterWsGetMessagesArguments: IDLNS.Type;
-  CanisterOutputMessage: IDLNS.Type;
-  CanisterOutputCertifiedMessages: IDLNS.Type;
-  CanisterWsGetMessagesResult: IDLNS.Type;
-  WebsocketServiceMessageContent: IDLNS.Type;
+  PollResult: IDLNS.Type;
   WsRequest: IDLNS.Type;
   WsMsg: IDLNS.Type;
 }
 
 /// Every named Candid type the service surface uses — `status`'s types
-/// plus the WS protocol's, including `WebsocketServiceMessageContent`,
-/// which only `ws/gateway-protocol.ts` encodes. Exported so the protocol
-/// layer encodes against the exact same descriptions.
+/// plus the transport's. Exported so `transport.ts` encodes against the
+/// exact same descriptions.
 export function buildEngineTypes({
   IDL,
   Action,
@@ -80,7 +69,7 @@ export function buildEngineTypes({
     unauthorized: IDL.Null,
   });
   // No JoinOk/SubmitOk/RematchOk: only a fresh `View` ever crosses the
-  // wire, via a `#view` push.
+  // wire, in a `#view`.
   const Visibility = IDL.Variant({ open: IDL.Null, code: IDL.Text });
   const View = IDL.Variant({
     lobby: IDL.Record({
@@ -154,59 +143,8 @@ export function buildEngineTypes({
     complexities: IDL.Vec(BotComplexity),
   });
 
-  // Fixed `ic-websocket-cdk` shapes.
-  const ClientKey = IDL.Record({
-    client_principal: IDL.Principal,
-    client_nonce: IDL.Nat64,
-  });
-  const WsResult = IDL.Variant({ Ok: IDL.Null, Err: IDL.Text });
-  const CanisterWsOpenArguments = IDL.Record({
-    client_nonce: IDL.Nat64,
-    gateway_principal: IDL.Principal,
-  });
-  const CanisterWsCloseArguments = IDL.Record({ client_key: ClientKey });
-  const WebsocketMessage = IDL.Record({
-    client_key: ClientKey,
-    sequence_num: IDL.Nat64,
-    timestamp: IDL.Nat64,
-    is_service_message: IDL.Bool,
-    content: IDL.Vec(IDL.Nat8),
-  });
-  const CanisterWsMessageArguments = IDL.Record({ msg: WebsocketMessage });
-  const CanisterWsGetMessagesArguments = IDL.Record({ nonce: IDL.Nat64 });
-  const CanisterOutputMessage = IDL.Record({
-    client_key: ClientKey,
-    key: IDL.Text,
-    content: IDL.Vec(IDL.Nat8),
-  });
-  const CanisterOutputCertifiedMessages = IDL.Record({
-    messages: IDL.Vec(CanisterOutputMessage),
-    cert: IDL.Vec(IDL.Nat8),
-    tree: IDL.Vec(IDL.Nat8),
-    is_end_of_queue: IDL.Bool,
-  });
-  const CanisterWsGetMessagesResult = IDL.Variant({
-    Ok: CanisterOutputCertifiedMessages,
-    Err: IDL.Text,
-  });
-
-  // The CDK's service-message envelope inside `content` when
-  // `is_service_message` is true (`Types.WebsocketServiceMessageContent`).
-  const CloseMessageReason = IDL.Variant({
-    WrongSequenceNumber: IDL.Null,
-    InvalidServiceMessage: IDL.Null,
-    KeepAliveTimeout: IDL.Null,
-    ClosedByApplication: IDL.Null,
-  });
-  const WebsocketServiceMessageContent = IDL.Variant({
-    OpenMessage: IDL.Record({ client_key: ClientKey }),
-    AckMessage: IDL.Record({ last_incoming_sequence_num: IDL.Nat64 }),
-    KeepAliveMessage: IDL.Record({ last_incoming_sequence_num: IDL.Nat64 }),
-    CloseMessage: IDL.Record({ reason: CloseMessageReason }),
-  });
-
-  // Mirrors `Ws.Msg<S, M>`. `reqId` is echoed back only on the acting
-  // session's own reply; a push to anyone else carries `null`.
+  // Mirrors `Transport.Msg<S, M>`: `epoch` names the client's current
+  // connection, `rev` orders views.
   const WsRequest = IDL.Variant({
     createTable: IDL.Record({ seat: Seat, visibility: Visibility, variant: IDL.Text }),
     joinTable: IDL.Record({ id: TableId, seat: Seat, code: IDL.Opt(IDL.Text) }),
@@ -217,26 +155,29 @@ export function buildEngineTypes({
     claimWin: IDL.Record({ gen: IDL.Nat }),
     ackEnded: IDL.Null,
     status: IDL.Null,
+    bye: IDL.Null,
   });
   const WsMsg = IDL.Variant({
-    req: IDL.Record({ sid: IDL.Text, req: WsRequest, reqId: IDL.Opt(IDL.Nat64) }),
-    view: IDL.Record({ reqId: IDL.Opt(IDL.Nat64), view: Status }),
-    err: IDL.Record({ reqId: IDL.Opt(IDL.Nat64), err: Err }),
+    req: IDL.Record({ sid: IDL.Text, epoch: IDL.Nat64, req: WsRequest }),
+    view: IDL.Record({ rev: IDL.Nat, view: Status }),
+    err: IDL.Record({ err: Err }),
+  });
+  // `changed` carries an encoded `WsMsg` `#view`.
+  const PollResult = IDL.Variant({
+    unchanged: IDL.Null,
+    changed: IDL.Vec(IDL.Nat8),
+    unknown: IDL.Null,
   });
 
   return {
     Seat, Mode, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
     LeaderboardEntry, BotInfo,
-    ClientKey, WsResult, CanisterWsOpenArguments, CanisterWsCloseArguments,
-    WebsocketMessage, CanisterWsMessageArguments,
-    CanisterWsGetMessagesArguments, CanisterOutputMessage,
-    CanisterOutputCertifiedMessages, CanisterWsGetMessagesResult,
-    WebsocketServiceMessageContent, WsRequest, WsMsg,
+    PollResult, WsRequest, WsMsg,
   };
 }
 
 /// Wraps a game's `{ Action, State }` in the fixed service shape. No
-/// mutating methods: mutation goes exclusively through `ws_message`.
+/// mutating methods: mutation goes exclusively through `duel_request`.
 /// `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots` are
 /// declared unconditionally; a client that never calls them pays nothing.
 export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
@@ -250,30 +191,16 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
       register_bot: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [], []),
       unregister_bot: IDL.Func([], [], []),
       list_bots: IDL.Func([], [IDL.Vec(t.BotInfo)], ["query"]),
-      // The second parameter is an optional encoded `WsMsg` the canister
-      // handles inside the handshake — the client's first request rides
-      // along with `ws_open`.
-      ws_open: IDL.Func([t.CanisterWsOpenArguments, IDL.Opt(IDL.Vec(IDL.Nat8))], [t.WsResult], []),
-      ws_close: IDL.Func([t.CanisterWsCloseArguments], [t.WsResult], []),
-      // The second parameter is a plain `opt blob` the canister ignores;
-      // `content` inside `msg` carries the real message.
-      ws_message: IDL.Func(
-        [t.CanisterWsMessageArguments, IDL.Opt(IDL.Vec(IDL.Nat8))],
-        [t.WsResult],
-        [],
-      ),
-      ws_get_messages: IDL.Func(
-        [t.CanisterWsGetMessagesArguments],
-        [t.CanisterWsGetMessagesResult],
-        ["query"],
-      ),
+      // Both blobs are an encoded `WsMsg`.
+      duel_request: IDL.Func([IDL.Vec(IDL.Nat8)], [IDL.Vec(IDL.Nat8)], []),
+      duel_poll: IDL.Func([IDL.Text, IDL.Nat], [t.PollResult], ["query"]),
     });
   };
 }
 
 /// An `idlFactory` for a discovered bot's own `play(host, tableId, seat,
 /// code, complexity)`, called directly on the bot's canister (never through
-/// `ws.mo`). Reuses `buildEngineTypes` for `Seat`/`TableId`/`Err`.
+/// `transport.mo`). Reuses `buildEngineTypes` for `Seat`/`TableId`/`Err`.
 export function buildBotPlayIdlFactory({ IDL }: { IDL: typeof IDLNS }) {
   const t = buildEngineTypes({ IDL, Action: IDL.Null, State: IDL.Null });
   const JoinOk = IDL.Variant({ staged: t.Seat, started: t.Seat });

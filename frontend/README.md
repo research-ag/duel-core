@@ -28,7 +28,7 @@ types, seat labels, and how to draw the board and action buttons.
 TypeScript, published pre-compiled: `npm run build` produces `dist/`,
 which every import (`duel-game-core/app.js`, ...) resolves to. Consumers
 need no build step. Dependency-free except for three documented files:
-`ws/gateway-*.js` (`@icp-sdk/core`, `cborg`), `identity.js`
+`transport.js` (`@icp-sdk/core/candid`), `identity.js`
 (`@icp-sdk/auth`, `@icp-sdk/core/identity`), and `anon-identity.js`
 (`@icp-sdk/core/identity` only).
 
@@ -121,7 +121,7 @@ Two things a player must always see, whatever the UI:
   `withLocalMove(status, pending, plugin.applyLocal)` while the submit is
   out: the board with your move applied and the seat already waiting
   (for `#alternating`, the opponent on turn and the turn counter
-  advanced). The reply, a later push, or a rejection (which leaves
+  advanced). The reply, a later view, or a rejection (which leaves
   `status` untouched) puts the real view back in the same frame. A
   `#simultaneous` game whose hidden pick changes nothing visible returns
   `gameState` as-is, which still flips the screen to "locked in".
@@ -138,7 +138,7 @@ polling mode):
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { makeIdlFactory } from "duel-game-core/idl.js";
 import { start } from "duel-game-core/app.js";
-import { connectWs } from "duel-game-core/ws.js";
+import { connectTransport } from "duel-game-core/transport.js";
 import { resolveIdentity } from "duel-game-core/identity.js"; // or anon-identity.js
 import { plugin } from "./my-game-plugin.js";
 
@@ -148,11 +148,7 @@ const actor = Actor.createActor(makeIdlFactory(plugin.idlTypes), {
   agent,
   canisterId,
 });
-const ws = connectWs({
-  actor,
-  principal: session.principal,
-  gameIdlTypes: plugin.idlTypes,
-});
+const ws = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 
 const client = start({ plugin, ws, session });
 ```
@@ -258,7 +254,7 @@ client.subscribe((state, prev) => {
 | Field            | Meaning                                                                                                                                                 |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `connection`     | `"connecting"` / `"open"` / `"reconnecting"` (lost, being redone; calls queue) / `"closed"` (terminal: reload)                                          |
-| `status`         | the last `Status` received (the first may be `ws.queryStatus`'s, still `"connecting"`), `null` before one; structurally equal pushes never re-notify    |
+| `status`         | the last `Status` received (the first may be `ws.queryStatus`'s, still `"connecting"`), `null` before one; structurally equal views never re-notify     |
 | `statusAt`       | `Date.now()` when `status` last changed — every `secondsUntilX` is only as fresh as that; `localSecondsLeft(secs, statusAt)` counts down from it        |
 | `pending`        | `{ key, req }` while one call is out (`create:p1`, `jointable:3:p2`, `act:{"pass":null}`, `rematch`, `leave`, `reset`, `claim-win`, `ack`); at most one |
 | `error`          | a transient message (cleared after `errorTtlMs`), or the permanent "Connection closed."                                                                 |
@@ -296,7 +292,7 @@ its `status` in one snapshot, so the board never flashes back to the
 pre-move position. Anything derived from consecutive views (a move log,
 an opponent-move replay) should read the same local status: it then sees
 your move and the opponent's as two steps even when the server delivers
-both in one push.
+both in one view.
 `render.js`'s text helpers (`debriefVerdict`, `opponentStatusText`, the
 warning thresholds and texts) are pure too and free to reuse or ignore.
 
@@ -308,89 +304,75 @@ modal dialogs, an opponent-move replay driven by diffing consecutive
 `view.game`s, a move-history sidebar, all over `withLocalMove`) over the
 same client.
 
-## Real-time push
+## Transport
 
-`connectWs()` builds a `GatewayWs` (`ws/gateway-client.js`) that speaks
-`mo:duel-game-core/ws`'s `ic-websocket-cdk` protocol directly: the tab
-registers itself as its own Gateway via `ws_open`, polls
-`ws_get_messages`, sends via `ws_message`, and says goodbye with
-`ws_close` on `pagehide` (the one goodbye `ws.mo` treats as leaving). A
-tab the CDK evicts for a missed keep-alive — a throttled background
-tab, a sleeping laptop, a phone in another app — keeps its seat and
-reconnects when it is back; genuine absence is the engine's claim and
-idle timeouts' business.
+`connectTransport()` builds a `DuelTransport` (`transport.js`) that
+speaks `mo:duel-game-core/transport`'s two methods. A request is one
+`duel_request` update call whose reply is this session's own fresh
+status. What the other seat causes arrives by polling the `duel_poll`
+query every `intervalMs` (500): the canister answers `unchanged` until
+the session's revision moves, then hands over the current status.
+Nothing is queued on either side, so a client always gets the latest
+snapshot and may skip intermediate ones. The transport drops any view
+whose revision is not newer than the last it applied, which orders a
+reply against a polled view.
+
+**Presence and goodbye.** After `pingMs` (120000) without any other
+request the transport sends a `#status`, which is all the canister needs
+to count the session as present. On `pagehide` it sends `#bye`, the one
+goodbye the canister treats as leaving. A throttled background tab, a
+sleeping laptop, a phone in another app keeps its seat; genuine absence
+is the engine's claim and idle timeouts' business.
 
 **First paint.** `queryStatus(sid)` calls the host's plain `status`
 query (every host declares it, and `makeIdlFactory` includes it).
 `createDuelClient` uses it when the transport offers it, so the first
-screen lands in one query round trip while `ws_open`, an update call,
-is still on its way; whatever the connection then delivers supersedes
-it. Clicks made meanwhile wait in the outbox for the open.
+screen lands in one query round trip while the first `#status`, an
+update call, is still on its way; whatever the transport then delivers
+supersedes it.
 
-**`principal` must be `session.principal`** — the identity that produced
-`session.sid` and signs the `actor`'s calls. The backend rejects a `sid`
-that doesn't match the connection's principal, and the CDK rejects an
-anonymous caller outright, so never build the agent without an identity.
-`resolveIdentity()`/`resolveAnonymousIdentity()` return a matched
-`{ identity, principal, sid }`. A same-principal reconnect (any reload)
-is safe: `Hub.generation`'s deferred close protects `ws.mo`'s
-bookkeeping, and the vendored CDK's `remove_client` is scoped to the
-exact connection.
+**The actor must sign as the session's identity** — the one that
+produced `session.sid`. The backend rejects a `sid` that doesn't match
+the caller's principal, and an anonymous caller outright, so never
+build the agent without an identity. `resolveIdentity()`/
+`resolveAnonymousIdentity()` return a matched `{ identity, principal,
+sid }`. A reload is safe: each page load (and each resume) picks a new
+`epoch`, and the canister ignores a `#bye` from an older one.
 
-**Dependencies.** `ws/gateway-*.js` uses `@icp-sdk/core/candid` and
-`cborg`. Certificate verification of `ws_get_messages`' `cert`/`tree` is
-deliberately skipped: the "gateway" is the player's own tab, so the
-property buys nothing and would cost a BLS dependency.
+**Dependencies.** `transport.js` uses `@icp-sdk/core/candid` only.
+`duel_poll` is an uncertified query; every mutation's reply comes from
+an update call.
 
-**No polling fallback.** A host built on this framework has no plain
-mutating method to poll. The client only needs the four handlers and
-`send(msg)`, so a hand-rolled WebSocket-shaped object (a test mock, a
-real external-Gateway transport) can replace `GatewayWs`.
+**No other transport.** A host built on this framework has no plain
+mutating method. The client only needs the four handlers and
+`send(msg)`, so a hand-rolled object of the same shape (a test mock)
+can replace `DuelTransport`.
 
-**Reconnection.** Only `close()` (and `pagehide` with no return) ends
-a `GatewayWs`; anything else the canister forgets is redone on the next
-tick with no `onclose`: a failed send, two failed polls in a row
-(`ws_get_messages` errors for a gateway the canister no longer knows —
-after an upgrade, or once an eviction's empty gateway expires), a CDK
-`CloseMessage` (keep-alive timeout), or a request with no reply within
-`requestTimeoutMs`. A failing `ws_open` backs off up to 5s. `onconnecting`
-fires when an open connection is lost; `onopen` fires again on every
-confirmed reopen (`client.js` asks for a fresh `#status` on every
-reopen). Every reopen carries a message inside `ws_open` itself — the
-outbox head, or a `#status` — so the sid is re-bound in the same call
-that replaced the old connection and `ws.mo` never mistakes the
-replacement for a departure. Each open reads the gateway's queue from
-nonce 0 (the canister's counter restarts with a re-created gateway) and
-drops envelopes addressed to any other `client_key`: the queue belongs
-to the tab's principal and outlives a connection, page loads included.
-Coming back — the tab visible again after 20s hidden, `online`, or a
-poll loop that slept 20s — polls at once and sends a `#status` that
-reconnects if the registration is gone. Between `pagehide` and
-`pageshow` the loop is suspended, so nothing reopens what the goodbye
-closed; a back/forward-cache restore reconnects.
-`onerror` fires only on a second consecutive failure, since a lone blip
-self-heals within a tick.
+**Relinking.** Only `close()` ends a `DuelTransport`; anything the
+canister forgets is redone with no `onclose`. `duel_poll` answering
+`unknown` (after an upgrade, or once a lapsed link was pruned), two
+failed polls in a row, or an update call that kept failing makes the
+next tick send a `#status` under a new epoch, backing off up to 5 s.
+`onconnecting` fires when the link is lost; `onopen` fires again on
+every confirmed relink (`client.js` asks for a fresh `#status` then,
+coalesced with the transport's own). Coming back — the tab visible
+again, `online`, `pageshow` — ticks at once. Between `pagehide` and
+`pageshow` the loop is suspended, so nothing undoes the goodbye; a
+back/forward-cache restore relinks. `onerror` fires only on a second
+consecutive failure, since a lone blip self-heals within a tick.
 
-**`send()`/`request()` are safe before the connection is open** — a
-message sent while the connection is not open waits in an outbox, and
-the outbox head rides along with `ws_open` itself (the mixin's `ws_open`
-takes an optional encoded message the canister handles inside the
-handshake). `client.js` asks for its first `#status` at construction, so
-a first load is one update call plus one poll: the open confirmation and
-the first view arrive together. Call `start()`/`createDuelClient()`
-right after `connectWs()`, before yielding to the event loop, or the
-handshake may already be in flight without it. **Every outgoing
-`ws_message` is serialized**: the CDK evicts a client on an out-of-order
-sequence number, and two in-flight update calls have no ordering
-guarantee.
+**Requests go out one at a time, in order**: two in-flight update calls
+have no ordering guarantee. `send()`/`request()` are safe at any time; a
+request waits its turn behind earlier ones. An update call that throws
+may or may not have landed, so it is resent (after 0.5 s, then 1.5 s);
+`#stale`/`#alreadySubmitted` on a resend can only mean the original
+landed, and settles with a fresh `#status` instead of an error.
 
-**Sharing one `ws`.** `GatewayWs` extends `EventTarget`; game code can
-`ws.addEventListener("message", ...)` on the same connection instead of
-opening a second one (two independent pollers can deliver out of order).
-`ws.send(msg)` is fire-and-forget; `ws.request(sid, req)` returns a
-Promise of that exact call's `{ view } | { err }`, correlated by a
-`reqId` `ws.mo` echoes back (a broadcast to the other seat carries
-`null`), so any number of requests can be in flight. See
+**Sharing one `ws`.** `DuelTransport` extends `EventTarget`; game code
+can `ws.addEventListener("message", ...)` on the same transport instead
+of opening a second one. `ws.send(msg)` is fire-and-forget;
+`ws.request(sid, req)` returns a Promise of that exact call's `{ view }
+| { err }`. See
 `examples/racing/frontend/src/app/modules/gameplay/game-communication/services/lobby-connection.service.ts`.
 
 ## Logging in with Internet Identity
@@ -432,9 +414,9 @@ panelEl.innerHTML = renderLeaderboard(entries, plugin, {
 `renderLeaderboard` is never wired into `renderStatus` — mount it where
 your layout wants it. All examples use an icon-only 🏆 toggle first in
 `.session` that opens a full-page overlay (`#leaderboard-panel`, styled
-by `style.css`), so live status pushes re-rendering `#screen` never
+by `style.css`), so live status views re-rendering `#screen` never
 clobber it. `opts.yourSid` badges the caller's row ("You", `.you`);
-`playerKeyOf(sid)` mirrors `Ws.playerKey`. A canister player's row shows
+`playerKeyOf(sid)` mirrors `Transport.playerKey`. A canister player's row shows
 🤖 and `"<name or principal> (<complexity>)"` — the key is
 `cp:<principal>:<complexity>` (`isCanisterPlayer`,
 `parseCanisterPlayer`, `botDisplayName`, `displayPlayerId`,
@@ -483,7 +465,7 @@ const res = await ws.request(session.sid, {
 ```
 
 Two entry points, one flow: an "Add Bot" control shown only on the
-staging screen (tracked off the live status push) skips the seat step;
+staging screen (tracked off the live status) skips the seat step;
 the leaderboard's Challenge button, reachable while browsing, goes
 through it.
 
@@ -491,7 +473,7 @@ through it.
 with the seat reserved for the bot's `cp:` session. Nothing asks a bot
 to accept, so the frontend remembers the last bot, complexity, and table
 id of each successful `play` (in `sessionStorage`) and re-issues the
-identical `play` when a `stagingYou` push for that table arrives with
+identical `play` when a `stagingYou` view for that table arrives with
 `reservedForPartner`, showing "Inviting <bot>…" instead of "Waiting for
 an opponent". Principal, table id, and complexity are unchanged on a
 rematch, so the bot lands on the reserved session. Clear the memory the
@@ -508,20 +490,17 @@ on icp.net, `icp-api.io` as a last resort). `start()` never calls them.
 
 ## Modules
 
-| Module                    | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `idl.js`                  | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})`, `buildBotPlayIdlFactory({IDL})`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `render.js`               | `renderStatus(status, plugin, screens?)`, `renderView`, `defaultScreens`, `resolveScreens`, one `render*` per screen (`renderBrowsing`, `renderTableRow`, `renderLobby`, `renderBusy`, `renderStagingYou`, `renderAwaitingRematch`, `renderInGame`, `renderDebrief`, `renderEndedByOther`, `renderConnecting`, `renderTableBadge`), `debriefVerdict`, `opponentStatusText`, `renderLeaderboard(entries, plugin, opts?)`, `renderBotList`, `renderSeatChoice`, `playerKeyOf`, `isCanisterPlayer`, `parseCanisterPlayer`, `botDisplayName`, `displayPlayerId`, `DEFAULT_BOT_COMPLEXITY`, `errText`, `actionAttr`, `tag`, `val`, `esc` |
-| `client.js`               | `createDuelClient({ ws, session, errorTtlMs? })` -> `DuelClient`; `viewTagOf`, `viewOf`, `isSeated`, `genOf`, `turnOf`, `claimRoleOf`, `oppSeatOf`, `localSecondsLeft`, `localSecondsElapsed`, `pendingKeyOf`, `pendingMoveOf`, `withLocalMove`, `deepEqual`, `tag`, `val`, `errText`                                                                                                                                                                                                                                                                                                                                               |
-| `app.js`                  | `start({ plugin, ws, session, screens?, confirm?, promptCode?, errorTtlMs?, ...elIds })` -> `DuelClient`; `buttonKey`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `identity.js`             | `resolveIdentity()`, `sidForPrincipal(principalText)`; depends on `@icp-sdk/auth`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `anon-identity.js`        | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX`; depends only on `@icp-sdk/core/identity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `ic-env.js`               | `readIcEnv()`, `deriveHost()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `ws.js`                   | `connectWs({ actor, principal, gameIdlTypes, intervalMs?, requestTimeoutMs? })`, `GatewayWs`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `ws/gateway-client.js`    | `GatewayWs` — poll loop, reconnect policy, request correlation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `ws/gateway-transport.js` | `SelfGatewayTransport` — moves bytes; swap for a real external-Gateway transport without touching the other two                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `ws/gateway-protocol.js`  | `GatewayProtocol` — Candid encode/decode, sequence bookkeeping, envelope interpretation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `style.css`               | generic layout primitives                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Module             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idl.js`           | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})`, `buildBotPlayIdlFactory({IDL})`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `render.js`        | `renderStatus(status, plugin, screens?)`, `renderView`, `defaultScreens`, `resolveScreens`, one `render*` per screen (`renderBrowsing`, `renderTableRow`, `renderLobby`, `renderBusy`, `renderStagingYou`, `renderAwaitingRematch`, `renderInGame`, `renderDebrief`, `renderEndedByOther`, `renderConnecting`, `renderTableBadge`), `debriefVerdict`, `opponentStatusText`, `renderLeaderboard(entries, plugin, opts?)`, `renderBotList`, `renderSeatChoice`, `playerKeyOf`, `isCanisterPlayer`, `parseCanisterPlayer`, `botDisplayName`, `displayPlayerId`, `DEFAULT_BOT_COMPLEXITY`, `errText`, `actionAttr`, `tag`, `val`, `esc` |
+| `client.js`        | `createDuelClient({ ws, session, errorTtlMs? })` -> `DuelClient`; `viewTagOf`, `viewOf`, `isSeated`, `genOf`, `turnOf`, `claimRoleOf`, `oppSeatOf`, `localSecondsLeft`, `localSecondsElapsed`, `pendingKeyOf`, `pendingMoveOf`, `withLocalMove`, `deepEqual`, `tag`, `val`, `errText`                                                                                                                                                                                                                                                                                                                                               |
+| `app.js`           | `start({ plugin, ws, session, screens?, confirm?, promptCode?, errorTtlMs?, ...elIds })` -> `DuelClient`; `buttonKey`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `identity.js`      | `resolveIdentity()`, `sidForPrincipal(principalText)`; depends on `@icp-sdk/auth`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `anon-identity.js` | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX`; depends only on `@icp-sdk/core/identity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `ic-env.js`        | `readIcEnv()`, `deriveHost()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `transport.js`     | `connectTransport({ actor, gameIdlTypes, intervalMs?, pingMs? })`, `DuelTransport` — serialized requests, poll loop, heartbeat, relink policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `style.css`        | generic layout primitives                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 See [`../backend/README.md`](../backend/README.md) for the `Spec`
 contract.

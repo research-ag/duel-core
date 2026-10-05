@@ -4,14 +4,13 @@ import Timer "mo:core/Timer";
 
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
-import Ws "mo:duel-game-core/ws";
+import Transport "mo:duel-game-core/transport";
 import ActorMixin "mo:duel-game-core/actor_mixin";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
 import Leaderboard "mo:duel-game-core/leaderboard";
 import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
 import Elo "mo:duel-game-core/elo";
-import IcWebSocketCdkTypes "mo:ic-websocket-cdk/Types";
 import PT "mo:promtracker";
 import Http "mo:promtracker/mixins/http";
 import Tracker "mo:promtracker/Tracker";
@@ -43,7 +42,7 @@ persistent actor {
     if (CanisterPlayers.isCanisterSession(sid)) {
       CanisterPlayers.leaderboardKeyOfSession(sid);
     } else {
-      Ws.playerKey(sid);
+      Transport.playerKey(sid);
     };
   };
 
@@ -75,21 +74,19 @@ persistent actor {
     };
   };
 
-  transient let wsHub : Ws.Hub = Ws.createHub();
-  transient let attached = Ws.attach<system, Rules.State, Rules.Action>(
+  transient let hub : Transport.Hub = Transport.createHub();
+  transient let attached = Transport.attach<system, Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
-    wsHub,
+    hub,
     {
-      encode = func(m : Ws.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
-      decode = func(b : Blob) : ?Ws.Msg<Rules.State, Rules.Action> = from_candid (b);
+      encode = func(m : Transport.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
+      decode = func(b : Blob) : ?Transport.Msg<Rules.State, Rules.Action> = from_candid (b);
     },
-    IcWebSocketCdkTypes.WsInitParams(null, ?120_000),
     ?settle,
     ?onGameEnded,
     null,
   );
-  attached.ws.init<system>();
 
   let botDirectory = CanisterPlayers.newBotDirectory();
 
@@ -97,6 +94,7 @@ persistent actor {
     Rules.spec(),
     registry,
     attached.afterMutation,
+    true, // `attached` settles through `onSettled`
     func(session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
       let p = CanisterPlayers.principalOfCanisterSession(session);
       let bot : BotIface.CanisterPlayer = actor (p.toText());
@@ -112,7 +110,7 @@ persistent actor {
     await* attached.sweep(now);
     await* cpAttached.sweep(now);
   };
-  include ActorMixin<system>(attached.ws, combinedSweep);
+  include ActorMixin<system>(attached.endpoint, combinedSweep);
 
   include Http(renderer.renderExposition, "/metrics");
 

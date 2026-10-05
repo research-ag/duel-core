@@ -59,7 +59,7 @@ func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
 };
 
-func noopAfterMutation(_now : Int, _sid : TP.SessionId, _reqId : ?Nat64, _id : ?TP.TableId, _broadcast : Bool) : async* () {};
+func noopAfterMutation(_now : Int, _sid : TP.SessionId, _id : ?TP.TableId, _broadcast : Bool) : async* () {};
 
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
@@ -73,6 +73,7 @@ func playFullMatch(variant : Text) : async* () {
     spec,
     reg,
     noopAfterMutation,
+    false,
     func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
       entropy += 1_000_003;
       await* k(?BotLogic.chooseMove(req, entropy));

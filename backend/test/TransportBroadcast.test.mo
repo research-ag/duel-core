@@ -1,4 +1,4 @@
-// Unit checks for `ws.mo`'s `rematchOpenedLobby`: a rematch left unreserved
+// Unit checks for `transport.mo`'s `rematchOpenedLobby`: a rematch left unreserved
 // by a departed partner must be broadcast to every browsing session.
 import Rules "FakeGame";
 import Debug "mo:core/Debug";
@@ -6,7 +6,7 @@ import Runtime "mo:core/Runtime";
 
 import TP "../src/lib";
 import Registry "../src/registry";
-import Ws "../src/ws";
+import Transport "../src/transport";
 
 type Reg = TP.Registry<Rules.State, Rules.Action>;
 
@@ -52,8 +52,8 @@ func playToDebrief(reg : Reg, id : TP.TableId) {
 // ── 1. no table at all: null id, or an id naming nothing ───────────────────
 do {
   let reg = fresh();
-  assert not Ws.rematchOpenedLobby(reg, null);
-  assert not Ws.rematchOpenedLobby(reg, ?9999);
+  assert not Transport.rematchOpenedLobby(reg, null);
+  assert not Transport.rematchOpenedLobby(reg, ?9999);
   Debug.print("1. no table (null id, or a bogus one) never opens the lobby OK");
 };
 
@@ -64,7 +64,7 @@ do {
   let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
   playToDebrief(reg, id);
   ignore ok(reg.rematch(spec, T0, "a"), "a requests a rematch; b is still right there");
-  assert not Ws.rematchOpenedLobby(reg, ?id);
+  assert not Transport.rematchOpenedLobby(reg, ?id);
   Debug.print("2. a rematch reserved for a still-present partner doesn't open the lobby OK");
 };
 
@@ -76,7 +76,7 @@ do {
   playToDebrief(reg, id);
   ignore ok(reg.leave(T0, "a", genOf(reg, T0, "a")), "a returns to the lobby first");
   ignore ok(reg.rematch(spec, T0, "b"), "b requests a rematch after a already left");
-  assert Ws.rematchOpenedLobby(reg, ?id);
+  assert Transport.rematchOpenedLobby(reg, ?id);
   Debug.print("3. a rematch left unreserved by a departed partner DOES open the lobby OK");
 };
 
@@ -87,7 +87,7 @@ do {
   playToDebrief(reg, id);
   ignore ok(reg.rematch(spec, T0, "a"), "a requests a rematch, reserving b's old seat");
   ignore ok(reg.rematch(spec, T0, "b"), "b accepts; the game starts outright");
-  assert not Ws.rematchOpenedLobby(reg, ?id);
+  assert not Transport.rematchOpenedLobby(reg, ?id);
   Debug.print("4. accepting a live reservation (now #active) doesn't open the lobby OK");
 };
 
@@ -100,8 +100,8 @@ do {
   ignore ok(reg.leave(T0, "a", genOf(reg, T0, "a")), "a returns to the lobby first");
   ignore ok(reg.rematch(spec, T0, "b"), "b requests a rematch after a already left");
   ignore ok(reg.rematch(spec, T0, "b"), "b's own idempotent re-click");
-  assert Ws.rematchOpenedLobby(reg, ?id);
+  assert Transport.rematchOpenedLobby(reg, ?id);
   Debug.print("5. an idempotent re-click on an already-open staging still reads as open OK");
 };
 
-Debug.print("ALL WS BROADCAST CHECKS PASSED");
+Debug.print("ALL TRANSPORT BROADCAST CHECKS PASSED");

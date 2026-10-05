@@ -52,7 +52,7 @@ is forgotten:
 | your move, before the reply                              | `withLocalMove(state.status, state.pending, plugin.applyLocal)` (below)                   |
 | errors, reconnects, and the terminal disconnect          | `state.error`, `state.connection` (`"reconnecting"`, `"closed"`)                          |
 | "new sid" / login / logout enabled                       | `!state.identityLocked`; call `client.regenerateSid()`/`login()`/`logout()`               |
-| countdowns between pushes                                | `localSecondsLeft(view.secondsUntilX, state.statusAt)` on a local 1 s timer               |
+| countdowns between views                                 | `localSecondsLeft(view.secondsUntilX, state.statusAt)` on a local 1 s timer               |
 | who may claim                                            | `claimRoleOf(inGame)`: `"waiting"` may, `"atRisk"` is the mirror                          |
 | submit's `gen`/`turn`                                    | stamped by the client; never send them yourself                                           |
 | a stale view (`#wrongPhase` on join, `#stale` on a move) | handled: the client refreshes silently, `reason: "stale"`; any rejection also refreshes   |
@@ -82,7 +82,7 @@ the same snapshot, and a rejection leaves `status` as it was, so either
 way the next draw is the real view with no flash in between. Feed the
 same shown status to anything that diffs consecutive views (a move log,
 an opponent-move replay): it then sees your ply and the opponent's as
-two steps even when the server sends both in one push.
+two steps even when the server sends both in one view.
 
 The opponent's last move stays visible on every screen that shows the
 board, the debrief included; the move that ended the game is the one

@@ -180,7 +180,7 @@ module {
     #stale; // `gen`/`turn` no longer current — refetch `status`
     #noSuchTable;
     #badCode; // wrong/missing code, or `createTable` with `#code("")`
-    #unauthorized; // `ws.mo`: sid not bound to the caller's principal
+    #unauthorized; // `transport.mo`: sid not bound to the caller's principal
   };
 
   public type Res<T> = { #ok : T; #err : Err };
@@ -221,7 +221,7 @@ module {
       youSubmitted : Bool;
       oppSubmitted : Bool;
       gen : Nat;
-      /// Countdowns are as fresh as the last push; clients tick locally.
+      /// Countdowns are as fresh as the last view; clients tick locally.
       secondsUntilIdleReset : Nat;
       idleTimeoutSecs : Nat;
       claimWinAvailable : Bool;

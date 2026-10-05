@@ -6,7 +6,7 @@ import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { Principal } from "@icp-sdk/core/principal";
 import { makeIdlFactory, buildBotPlayIdlFactory } from "duel-game-core/idl.js";
 import { start } from "duel-game-core/app.js";
-import { connectWs } from "duel-game-core/ws.js";
+import { connectTransport } from "duel-game-core/transport.js";
 import { resolveIdentity } from "duel-game-core/identity.js";
 import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
 import { debriefVerdict, errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag } from "duel-game-core/render.js";
@@ -36,7 +36,7 @@ const agent = await HttpAgent.create({
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
-const ws = connectWs({ actor, principal: session.principal, gameIdlTypes: plugin.idlTypes });
+const ws = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 
 // The debrief is this game's own: a final scoreline and the deciding
 // round instead of the generic board. Every other screen stays the default.

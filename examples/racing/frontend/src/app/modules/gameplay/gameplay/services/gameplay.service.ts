@@ -246,7 +246,7 @@ export class GameplayService {
     // the new round's own ask would render two overlapping arcs.
     const retryIfStillOwed = () => {
       if (this.stepsCount !== roundFence) return;
-      // A closed GatewayWs rejects forever; the chrome shows the banner.
+      // A closed DuelTransport rejects forever; the chrome shows the banner.
       if (!this.lobbyConnectionService.isConnected) return;
       // Cap + back off: a forced skip has no click to pace retries.
       this.moveRetryCount++;

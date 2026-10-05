@@ -137,7 +137,7 @@ func atTableView(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, session
   case (#browsing _) Runtime.trap("expected " # session # " to be at a table");
 };
 
-func noopAfterMutation(_now : Int, _sid : TP.SessionId, _reqId : ?Nat64, _id : ?TP.TableId, _broadcast : Bool) : async* () {};
+func noopAfterMutation(_now : Int, _sid : TP.SessionId, _id : ?TP.TableId, _broadcast : Bool) : async* () {};
 
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
@@ -149,6 +149,7 @@ let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
   spec,
   reg,
   noopAfterMutation,
+  false,
   func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     switch (req.seat) {
       case (#p1) assert req.complexity == "Bear";

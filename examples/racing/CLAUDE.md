@@ -10,7 +10,7 @@ either package.
 - **`src/Track.mo`** — baked geometry for the one "island" map (boundary
   polygons and road centerline), generated from
   `frontend/src/assets/maps/island/scene.meta`.
-- **`src/Host.mo`** — `Registry` (60s/15s), `status`, `Ws.attach` +
+- **`src/Host.mo`** — `Registry` (300s/45s), `status`, `Transport.attach` +
   `ActorMixin`, metrics with a `/metrics` route, canister players (same
   wiring as `examples/checkers`), bot discovery, and a best-lap
   leaderboard: `Leaderboard.new(50, 0)` (the default score is inert),
@@ -44,17 +44,13 @@ either package.
   inverts `scoreFromLapMs` (`m:ss.mmm`; `0n` renders `"--:--.--"`). Keep
   its `3_600_000n` in sync with `Host.mo`'s `ONE_HOUR_MS`. The race
   itself (`src/main.ts`, `lobby-connection.service.ts`) shares the ONE
-  `GatewayWs` via `window.duelWsReady` and has no polling of its own.
-  Sharp edge: the CDK's outgoing queue is keyed by `gateway_principal`,
-  which persists across a reconnect, so `SelfGatewayTransport`'s poll
-  nonce is set once in its constructor and never reset — resetting it
-  replayed the whole queue (cars animating backwards, then teleporting).
+  `DuelTransport` via `window.duelWsReady` and has no polling of its own.
 
 ## Toolchain
 
 moc **1.14.0** (`mops.toml`; nothing here requires more than 1.11.2).
 Motoko dependencies: `duel-game-core` (path to `../../backend`), `core`;
-`ic-websocket-cdk`/`promtracker` transitively. Never import `mo:base`.
+`promtracker` transitively. Never import `mo:base`.
 Frontend: `duel-game-core` (`file:../../../frontend`) and `@icp-sdk/core`
 for `duel-app.js`; `@gg-web-engine/core`, `@gg-web-engine/three`,
 `point-in-polygon`, `rxjs`, `three` for the race. `build.js` runs
