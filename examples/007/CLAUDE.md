@@ -32,7 +32,7 @@ LeaderboardActorMixin(leaderboard, 25)`). Plus canister
   Medium beating Easy over full games, and two canister bots playing real
   matches.
 - **`icp.yaml`** — deploys `src/Host.mo` as `backend`, `bot/Bot.mo` as
-  `bot`, and `frontend/dist` as an asset canister.
+  `bot`, and `frontend/dist` as a static-site canister.
 - **`frontend/`** — vanilla JS bundled with esbuild, and the framework's
   CUSTOM-UI reference: nothing from `duel-game-core/app.js` runs here,
   and the look is its own (light paper, typewriter headings, red stamp
@@ -89,8 +89,9 @@ icp deploy                 # local; `icp network start` must be running
 icp deploy --network ic    # mainnet — spends cycles
 ```
 
-The asset-canister recipe must be v2.3.0 or newer; its `build` step
-rebuilds `frontend/dist/` on every deploy.
+The `@dfinity/static-site` recipe's `build` step rebuilds
+`frontend/dist/` on every deploy; response headers come from
+`frontend/src/_headers`.
 
 ## Architecture rules
 

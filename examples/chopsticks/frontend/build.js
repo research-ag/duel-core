@@ -22,7 +22,7 @@ const buildOptions = {
 const staticAssets = [
   ['src/index.html', `${outdir}/index.html`],
   ['src/style.css', `${outdir}/style.css`],
-  ['src/.ic-assets.json5', `${outdir}/.ic-assets.json5`],
+  ['src/_headers', `${outdir}/_headers`],
   ['src/assets', `${outdir}/assets`],
 ];
 
@@ -45,7 +45,7 @@ if (watch) {
   copyStaticAssets();
   // Static files are outside esbuild's module graph: watch the directory
   // (a per-file watch dies on an atomic rename) and debounce.
-  const staticNames = ['index.html', 'style.css', '.ic-assets.json5'];
+  const staticNames = ['index.html', 'style.css', '_headers'];
   let debounceTimer;
   watchFile('src', (_event, filename) => {
     if (filename && !staticNames.includes(filename)) return;

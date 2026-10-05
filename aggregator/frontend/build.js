@@ -1,6 +1,6 @@
 // The only "build" this frontend needs: bundle src/main.tsx (React + every
 // @icp-sdk import it pulls in) into one dist/app.js, then copy the static
-// assets alongside it. The deployed asset canister carries only this
+// assets alongside it. The deployed frontend canister carries only this
 // dist/ output — no node_modules directory of any kind. Mirrors
 // ../../examples/007/frontend/build.js's own shape.
 import * as esbuild from 'esbuild';
@@ -34,7 +34,7 @@ for (const [from, to] of [
   ['src/index.html', `${outdir}/index.html`],
   ['src/style.css', `${outdir}/style.css`],
   ['src/fonts', `${outdir}/fonts`],
-  ['src/.ic-assets.json5', `${outdir}/.ic-assets.json5`],
+  ['src/_headers', `${outdir}/_headers`],
 ]) {
   cpSync(from, to, { recursive: true });
 }

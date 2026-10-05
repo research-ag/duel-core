@@ -4,22 +4,23 @@
 // here. Bundled by esbuild (../build.js).
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
+import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 import { Principal } from "@icp-sdk/core/principal";
 import { makeIdlFactory, buildBotPlayIdlFactory } from "duel-game-core/idl.js";
 import { createDuelClient } from "duel-game-core/client.js";
 import { connectTransport } from "duel-game-core/transport.js";
 import { resolveIdentity } from "duel-game-core/identity.js";
-import { readIcEnv, deriveHost } from "duel-game-core/ic-env.js";
+import { deriveHost } from "duel-game-core/ic-env.js";
 import { plugin } from "./chopsticks-plugin.js";
 import { mountChopsticksUi } from "./chopsticks-ui.js";
 
-const env = readIcEnv();
-const canisterId = env["PUBLIC_CANISTER_ID:backend"];
+const env = safeGetCanisterEnv();
+const canisterId = env?.["PUBLIC_CANISTER_ID:backend"];
 if (!canisterId) {
   document.body.innerHTML =
     "<p style='color:#ff7b72;padding:2rem'>Could not find " +
     "<code>PUBLIC_CANISTER_ID:backend</code> in the <code>ic_env</code> " +
-    "cookie. Serve this page from the asset canister after " +
+    "cookie. Serve this page from the frontend canister after " +
     "<code>icp deploy</code>.</p>";
   throw new Error("missing canister id");
 }
@@ -32,7 +33,7 @@ const session = await resolveIdentity();
 const agent = await HttpAgent.create({
   host,
   identity: session.identity,
-  shouldFetchRootKey: /localhost|127\.0\.0\.1/.test(host),
+  rootKey: env.IC_ROOT_KEY,
 });
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
