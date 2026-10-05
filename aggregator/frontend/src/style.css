@@ -952,6 +952,37 @@ select:disabled {
   display: none;
 }
 
+.card-own {
+  font: inherit;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(10, 10, 12, 0.35);
+  border: 0;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  transition:
+    color 0.2s var(--ease),
+    background 0.2s var(--ease);
+}
+
+.card-own svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.card-own:hover,
+.card-own:focus-visible {
+  color: var(--gold-2);
+  background: rgba(10, 10, 12, 0.6);
+}
+
 .card-tools {
   position: absolute;
   top: 0.7rem;
@@ -1434,6 +1465,18 @@ input[type="range"] {
   white-space: pre;
   color: var(--ink-2);
   padding-right: 4rem;
+}
+
+.code-block.wrap {
+  padding-top: 2.6rem;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.code-block.wrap pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-right: 0;
 }
 
 .code-block .copy {

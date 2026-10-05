@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { BotTutorialWizard } from "./components/BotTutorialWizard";
+import { FrontendTutorialWizard } from "./components/FrontendTutorialWizard";
 import { GameFormModal } from "./components/GameFormModal";
 import { GameGrid } from "./components/GameGrid";
 import { Header } from "./components/Header";
@@ -22,6 +23,10 @@ export function App() {
   const [modal, setModal] = useState<Modal>(undefined);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [botTutorialOpen, setBotTutorialOpen] = useState(false);
+  /// The frontend guide: closed, open for one game, or open with no game.
+  const [frontendFor, setFrontendFor] = useState<GameView | "any" | undefined>(
+    undefined,
+  );
 
   const developers = useMemo(() => {
     const byId = new Map<string, string>();
@@ -39,6 +44,7 @@ export function App() {
         onRegister={() => setModal("register")}
         onTutorial={() => setTutorialOpen(true)}
         onBotTutorial={() => setBotTutorialOpen(true)}
+        onFrontendTutorial={() => setFrontendFor("any")}
       />
       <Hero
         games={games}
@@ -54,6 +60,7 @@ export function App() {
         developers={developers}
         onEdit={(game) => setModal(game)}
         onDeleted={reload}
+        onOwnFrontend={(game) => setFrontendFor(game)}
       />
       <footer className="footer">
         <div className="wrap">
@@ -102,6 +109,17 @@ export function App() {
           onClose={() => setTutorialOpen(false)}
           onRegister={() => {
             setTutorialOpen(false);
+            setModal("register");
+          }}
+        />
+      )}
+      {frontendFor !== undefined && (
+        <FrontendTutorialWizard
+          game={frontendFor === "any" ? undefined : frontendFor}
+          isLoggedIn={auth.isLoggedIn}
+          onClose={() => setFrontendFor(undefined)}
+          onRegister={() => {
+            setFrontendFor(undefined);
             setModal("register");
           }}
         />

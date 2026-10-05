@@ -5,7 +5,7 @@ import { useBanner } from "../hooks/useBanner";
 import type { AggregatorActor, Err, GameView } from "../types";
 import { errMessage, gameUrl, optToMaybe } from "../types";
 import { avatarStyle } from "./DisplayNameEditor";
-import { ArrowRight, Pencil, Trash } from "./Icons";
+import { ArrowRight, Brush, Pencil, Trash } from "./Icons";
 import { Modal } from "./Modal";
 
 export function GameCard({
@@ -15,6 +15,7 @@ export function GameCard({
   isOwner,
   onEdit,
   onDeleted,
+  onOwnFrontend,
 }: {
   index: number;
   game: GameView;
@@ -22,6 +23,7 @@ export function GameCard({
   isOwner: boolean;
   onEdit: () => void;
   onDeleted: () => void;
+  onOwnFrontend: () => void;
 }) {
   const banner = useBanner(actor, game.frontendCanisterId);
   const developerName =
@@ -84,6 +86,10 @@ export function GameCard({
             <span className="card-desc">{game.description}</span>
           </span>
         </a>
+        <button type="button" className="card-own" onClick={onOwnFrontend}>
+          <Brush />
+          Make own frontend
+        </button>
         {isOwner && (
           <span className="card-tools">
             <button

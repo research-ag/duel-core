@@ -85,6 +85,13 @@ export const Hammer = () => (
   </svg>
 );
 
+export const Brush = () => (
+  <svg {...base}>
+    <path d="m14 4 6 6-8 8H6v-6Z" />
+    <path d="M6 18c-1 2-2 2-3 2 0-2 1-3 3-2Z" />
+  </svg>
+);
+
 export const Bot = () => (
   <svg {...base}>
     <rect x="4" y="8" width="16" height="12" rx="3" />

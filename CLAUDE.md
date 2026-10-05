@@ -55,6 +55,12 @@ CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard)`:
     claim_win/reset — each taking an explicit `tableId`; no
     `submit_as_canister`, no `rematch_as_canister`) plus
     `register_bot(name, complexities)`/`unregister_bot()`/`list_bots()`.
+  - `http.mo`, `http_actor_mixin.mo` — MANDATORY. `include
+HttpActorMixin(routes)` supplies `http_request` over plain-text
+    `(path, () -> Text)` routes; every host routes `/semantics` to its
+    rules module's `SEMANTICS` text (`/metrics` and game data such as
+    racing's `/track` ride the same list). `Http.respond` is the pure
+    router.
   - `leaderboard.mo`, `elo.mo`, `leaderboard_actor_mixin.mo` — OPTIONAL,
     game-agnostic. A top-N highest-first `Board` (`new(keep,
 defaultScore)`, `setScore`, `recordIfBetter`, `scoreOf`, `top`), the
@@ -92,7 +98,7 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   `Hub`/`TransportBroadcast` cover `transport.mo`'s pure helpers
   (`attach` itself needs a real actor); `CanisterPlayers` covers
   `canister_players.mo` with stubbed `afterMutation`/`armClaimCheck`;
-  `Leaderboard`/`Elo` cover their modules directly. `FakeGame.mo`/
+  `Leaderboard`/`Elo`/`Http` cover their modules directly. `FakeGame.mo`/
   `FakeTurnGame.mo` are throwaway specs for these suites.
 - **`backend/bench/engine.bench.mo`** — `mops bench`, engine overhead
   only.
@@ -246,12 +252,26 @@ deploys all of them to the IC.
     further change to either stable type needs an explicit actor
     migration or a reinstall.
 
+15. **Every backend is pullable and self-describing.** Its `icp.yaml`
+    entry carries `settings.snapshot_visibility: public` plus the sync
+    step that re-takes the public snapshot after each deploy, and its
+    host serves `Rules.SEMANTICS` at `/semantics`. That text, the
+    `candid:service` metadata and the snapshot's wasm are all a third
+    party has to build a frontend
+    (`skills/duel-game-core/references/frontend-for-existing-game.md`,
+    which the aggregator's `frontendPrompt.ts` condenses); `Action` is
+    described nowhere else. Any change to a game's `State`, `Action`,
+    `validate` or `resolve` updates its `SEMANTICS` in the same change.
+    See `backend/README.md`, "Semantics over HTTP" and "Pullable
+    backend".
+
 ## Skills (read before editing)
 
 - `skills/duel-game-core/SKILL.md` (tracked, installable via `npx skills
 add research-ag/duel-core --skill duel-game-core`) — building a game
   from a rules description: `Spec` design, templates, and `references/`
-  for canister bots, alternating games, rich UIs, and long-game testing.
+  for canister bots, alternating games, rich UIs, long-game testing, and
+  a new frontend for an already-deployed game.
   Read it first for any game-building task, here or elsewhere.
 - `.agents/skills/` (local, untracked) — general Motoko playbooks:
   `motoko-general-style-guidelines` (2-space indent, 80 cols),

@@ -24,6 +24,48 @@ import Nat "mo:core/Nat";
 
 module {
 
+  /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
+  public let SEMANTICS : Text = "GAME: Ultimate tic-tac-toe
+MODE: alternating
+SEATS: p1 = X (moves first), p2 = O
+VARIANTS: none (the table variant text is ignored)
+
+STATE (Candid)
+  type Seat = variant { p1; p2 };
+  type BoardResult = variant { p1; p2; tie };
+  type State = record {
+    cells : vec opt Seat;
+    results : vec opt BoardResult;
+    activeBoard : opt nat;
+  };
+  A 3x3 meta-board of nine 3x3 local boards. cells has 81 entries:
+  index = board*9 + cell, both 0..8 row-major. results has 9 entries:
+  null = that local board is still open, otherwise who won it or tie.
+  activeBoard = opt b: the next placement must land in local board b;
+  null: any open local board.
+
+ACTION (Candid)
+  type Action = variant { place : record { board : nat; cell : nat } };
+
+RULES
+  The seat on turn places its mark on an empty cell of an open local
+  board: the one activeBoard names, or any open one when it is null.
+  The cell position just played names the next activeBoard; if that
+  local board is already decided, activeBoard becomes null.
+  Three in a line inside a local board wins it; a full local board with
+  no line is a tie. Either way it is decided and takes no more marks.
+  Rejected: board or cell >= 9, a decided local board, a board other
+  than activeBoard, a taken cell.
+
+ENDINGS
+  Three local boards won by one seat in a meta-line: that seat wins.
+  Every local board decided with no meta-line: draw.
+
+CLIENT NOTES
+  State carries no move history; find the opponent's last mark by
+  diffing two consecutive cells arrays.
+";
+
   public type BoardResult = { #p1; #p2; #tie };
 
   public type State = {

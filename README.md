@@ -27,6 +27,17 @@ Tracked in git, so it installs standalone into your own game's repo:
 npx skills add research-ag/duel-core --skill duel-game-core
 ```
 
+## Building your own frontend for a listed game
+
+Every game's backend serves its rules as plain text
+(`https://<backend-id>.raw.icp0.io/semantics`), carries its Candid as
+public metadata, and publishes its wasm as a public snapshot, so a new
+frontend can be built and tested locally from the canister id alone.
+The aggregator's "Make own frontend" button on a game hands you a prompt
+for an AI coding agent;
+[`references/frontend-for-existing-game.md`](skills/duel-game-core/references/frontend-for-existing-game.md)
+is the procedure behind it.
+
 ## Aggregator
 
 [`aggregator/`](aggregator/CLAUDE.md) is a separate product built on

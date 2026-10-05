@@ -77,6 +77,10 @@ variant)` plus `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
   passes its `isPresent` predicate (`Transport.attach`'s `sweep` passes
   "sent a request within `PRESENCE_TTL_NS`"). `attachMetrics(pt)` is optional
   (see Metrics). `peekNextTableId` is a pure read of the id nonce.
+- `src/http.mo` + `src/http_actor_mixin.mo`
+  (`mo:duel-game-core/http_actor_mixin`) — `http_request` over a list of
+  plain-text routes; every host serves its rules at `/semantics` (see
+  "Semantics over HTTP").
 - Every mutating operation takes `spec` and `now : Int` (nanoseconds).
   At the `Registry` layer they are called only from `mo:duel-game-core/transport`
   — never exposed as plain Candid methods. `status` is the exception
@@ -615,7 +619,6 @@ after `Registry.new`. Four metrics, scoped to that registry:
 
 ```motoko
 import PT "mo:promtracker";
-import Http "mo:promtracker/mixins/http";
 
 persistent actor {
   let pt = PT.Tracker.new(); // plain data — stable
@@ -627,10 +630,114 @@ persistent actor {
   registry.setTimeouts(90_000_000_000, 60_000_000_000);
   registry.attachMetrics(pt);
   // ...
-  include Http(renderer.renderExposition, "/metrics");
+  include HttpActorMixin([
+    ("/semantics", func() : Text = Rules.SEMANTICS),
+    ("/metrics", renderer.renderExposition),
+  ]);
 };
 
 ```
+
+### Semantics over HTTP
+
+Every host serves its game's rules as plain text, so a person or an AI
+agent holding nothing but the backend's canister id can learn the game:
+
+```
+curl https://<backend-id>.raw.icp0.io/semantics
+```
+
+`raw` is required: the responses are uncertified. Locally the same path
+answers at `http://<backend-id>.raw.localhost:8000/semantics`.
+
+The rules module owns the text as `public let SEMANTICS : Text` (a text
+literal may span lines), and the host routes it:
+
+```motoko
+import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
+
+persistent actor {
+  // ...
+  include HttpActorMixin([("/semantics", func() : Text = Rules.SEMANTICS)]);
+};
+
+```
+
+`HttpActorMixin(routes)` supplies `http_request`; each `Http.Route` is a
+path and a `() -> Text` answered as `text/plain` on `GET`. An unknown
+path is a 404 listing the routes. A host adds its own routes to the same
+list — `/metrics` above, or data a client cannot recover from `State`
+(`examples/racing` serves its track polygons at `/track`). `http.mo`'s
+`respond` is the pure function behind it.
+
+`SEMANTICS` is the whole contract a frontend author gets besides the
+canister's Candid, and the only place `Action` is described: it travels
+inside `duel_request`'s blob, so it is absent from the Candid service.
+Write it for a reader who cannot see the source, in these sections:
+
+- `GAME`, `MODE` (`simultaneous`/`alternating`), `SEATS` (which seat is
+  which side, who moves first), `VARIANTS` (each table-variant key and
+  what it changes, or `none`).
+- `STATE (Candid)` and `ACTION (Candid)` — the exact Candid types
+  (`Nat` is `nat`, `?T` is `opt T`, `[T]` is `vec T`, a tuple is a
+  positional record), followed by what every field means: indexing,
+  units, what `null` stands for.
+- `RULES` — what each action does, and every condition `validate`
+  rejects.
+- `ENDINGS` — every win, loss and draw.
+- `CLIENT NOTES` — anything a UI must know that the state does not say
+  outright (how to find the opponent's last move, formulas a client must
+  mirror to offer only legal input).
+
+Update `SEMANTICS` in the same change as any edit to `State`, `Action`,
+`validate` or `resolve`.
+
+### Pullable backend
+
+A backend is PULLABLE when anyone can download the exact wasm it runs
+and install a copy on a local network — what lets a third party build
+and test a new frontend against a game without its source. Every backend
+on this engine is deployed pullable. In `icp.yaml`:
+
+```yaml
+- name: backend
+  recipe:
+    type: "@dfinity/motoko@v4.1.0"
+    configuration:
+      main: src/Host.mo
+  settings:
+    snapshot_visibility: public
+  sync:
+    steps:
+      - type: script
+        commands:
+          - sh -c 'c=$ICP_CLI_CID; e=$ICP_CLI_ENVIRONMENT; old=$(icp canister snapshot list $c -e $e -q | head -1); icp canister stop $c -e $e && { icp canister snapshot create $c -e $e ${old:+--replace $old}; r=$?; icp canister start $c -e $e; exit $r; }'
+```
+
+`snapshot_visibility: public` lets any principal list and download the
+canister's snapshots; the sync step takes one after every `icp deploy`
+(stop, snapshot replacing the previous one, start), so the published
+module always equals the installed one. Pulling needs only the id:
+
+```bash
+ID=<backend-id>
+SNAP=$(icp canister snapshot list $ID -n ic -q | head -1)
+icp canister snapshot download $ID $SNAP -n ic -o snapshot
+shasum -a 256 snapshot/wasm_module.bin   # equals `module_hash` at
+# https://ic-api.internetcomputer.org/api/v3/canisters/<backend-id>
+icp canister metadata $ID candid:service -n ic > backend.did
+```
+
+`snapshot/wasm_module.bin` then builds a local copy through a
+`pre-built` step (`path` + `sha256`); the skill's
+`references/frontend-for-existing-game.md` has the whole procedure.
+
+A snapshot is the canister's full state as of the deploy, not just its
+code: a move pending in a round that was open at that instant and the
+access code of a `#code` table alive at that instant are readable by
+anyone until the next deploy replaces the snapshot. Deploy while the
+game is quiet if that matters. The canister is stopped for the few
+seconds the snapshot takes; clients ride it out as a transport hiccup.
 
 ### Build, test, benchmark
 

@@ -1,6 +1,6 @@
 ---
 name: duel-game-core
-description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko Spec<S,M> module, Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, or a game whose ending takes many rounds to reach in a test) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`).
+description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko Spec<S,M> module, Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, or a game whose ending takes many rounds to reach in a test) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants their own frontend for an already-deployed duel-game-core game, given only its canister id (references/frontend-for-existing-game.md).
 ---
 
 # Building a duel-game-core Game From Rules Alone
@@ -35,9 +35,11 @@ A finished game is six pieces of game-specific code:
    `frontend/build.js` — copy the templates, fill in names.
 
 Every template lives in `templates/`; read each one right before adapting
-it. `references/` covers four situations the templates don't:
+it. `references/` covers five situations the templates don't:
 `alternating-turn-games.md`, `canister-player-bots.md`, `rich-ui.md`,
-`testing-deep-dive.md` — read them only when you hit that situation.
+`testing-deep-dive.md`, and `frontend-for-existing-game.md` (a new
+frontend for a game someone else already deployed, from its canister id
+alone) — read them only when you hit that situation.
 
 ## Step 1 — Get the packages into the project
 
@@ -156,6 +158,16 @@ From `templates/Rules.mo.template`, write `src/<YourGame>Rules.mo`:
 - Keep everything pure: no `Time`, no mutation, no storage; `{ me with
 ... }`, never in-place. `Spec` is passed fresh on every call and never
   stored.
+- Write `SEMANTICS` last, once the types and rules are settled. The host
+  serves it at `GET /semantics`, and it is all a third party gets to
+  build their own frontend for your game: `Action` travels inside an
+  opaque blob, so this text is its only public description. Give the
+  exact Candid of `State` and `Action` (`Nat` is `nat`, `?T` is `opt T`,
+  `[T]` is `vec T`, a tuple is a positional record), what each field
+  means, every rejection in `validate`, every ending, and anything a UI
+  must compute itself. The backend README's "Semantics over HTTP" has
+  the section-by-section contract. Change it whenever `State`, `Action`,
+  `validate` or `resolve` change.
 
 ## Step 4 — Write the host actor
 
@@ -175,7 +187,10 @@ before its own claim window even opens. Change nothing else. Do not add plain Ca
 `ackEnded` — `mo:duel-game-core/transport` (`Transport.attach` + `ActorMixin`) is the
 only mutation path; a direct update call reopens the ordering race it
 closes. `status` stays a plain `query`. The template wires a
-`Registry`, so the game gets a multi-table lobby for free.
+`Registry`, so the game gets a multi-table lobby for free, and
+`HttpActorMixin`, whose one route answers `GET /semantics` with
+`Rules.SEMANTICS`; data a client needs but `State` does not carry (a
+fixed map, a deck list) goes in as a further `(path, () -> Text)` route.
 
 **Claim a win.** The generic `#inGame` screen renders a "Claim the win"
 button with its own countdown once `claimWinAvailable` turns true, and
@@ -188,7 +203,6 @@ promtracker` and
 
 ```motoko
 import PT "mo:promtracker";
-import Http "mo:promtracker/mixins/http";
 
 persistent actor {
   let pt = PT.Tracker.new();
@@ -201,7 +215,10 @@ persistent actor {
   registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
 
   // ...status/Transport.attach/ActorMixin as in the template...
-  include Http(renderer.renderExposition, "/metrics");
+  include HttpActorMixin([
+    ("/semantics", func() : Text = Rules.SEMANTICS),
+    ("/metrics", renderer.renderExposition), // one more route on the template's list
+  ]);
 };
 
 ```
@@ -446,6 +463,18 @@ icp deploy                 # local; `icp network start` must be running
 icp deploy --network ic    # mainnet — spends cycles
 ```
 
+The backend deploys PULLABLE, always: the template's `icp.yaml` sets
+`snapshot_visibility: public` and a sync step that takes a fresh
+snapshot after every deploy, so anyone can download the running wasm and
+test a frontend of their own against a local copy (backend README,
+"Pullable backend"). Keep both when adapting the file. After the first
+deploy, check the two public faces of the game:
+
+```bash
+curl http://$(icp canister status backend -i).raw.localhost:8000/semantics
+icp canister snapshot list backend      # one snapshot, taken by the deploy
+```
+
 The frontend deploys through the `@dfinity/static-site` recipe. Its
 `build` step runs `npm run build`, so deploys always bundle current
 source; `npm install` remains a manual step. The canister sends no
@@ -476,3 +505,6 @@ necessary, not sufficient.
   opponent" flag in your state means the design drifted from "just the
   rules".
 - **`null` verdict means continue**, not "no winner ever".
+- **A stale `SEMANTICS` is a broken public contract.** Third-party
+  frontends are generated from that text alone; re-read it after every
+  rules change.

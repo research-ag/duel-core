@@ -20,6 +20,49 @@ import Nat "mo:core/Nat";
 
 module {
 
+  /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
+  public let SEMANTICS : Text = "GAME: Chopsticks
+MODE: alternating
+SEATS: p1 moves first
+VARIANTS (table variant text, picked by the table's creator)
+  classic         Also used for any other text.
+  instructables
+
+STATE (Candid)
+  type Variant = variant { classic; instructables };
+  type Hands = record { l : nat; r : nat };
+  type State = record { variant : Variant; p1 : Hands; p2 : Hands };
+  Each hand holds 0 (out) to 4 fingers; every hand starts at 1.
+
+ACTION (Candid)
+  type HandId = variant { l; r };
+  type Action = variant {
+    attack : record { from : HandId; to : HandId };
+    split : record { l : nat; r : nat };
+  };
+  attack: from is one of your hands, to is one of the opponent's.
+  split: the new finger counts of your own two hands.
+
+RULES
+  attack  The target hand gains the attacking hand's count; the attacker
+          is unchanged. classic: a hand reaching 5 or more is out (0).
+          instructables: the sum wraps mod 5, so exactly 5 is out.
+          Rejected: an attacking or target hand that is out.
+  split   Redistribute your own total across your two hands; l + r must
+          equal your current total, which must not be 0.
+          classic: neither hand above 4, and the result must differ from
+          the current hands and from their swap.
+          instructables: only when one hand is out and the other is
+          even, and l must equal r.
+
+ENDINGS
+  The seat that puts both of the opponent's hands out wins. No draw.
+
+CLIENT NOTES
+  State carries no move history; derive the opponent's last move by
+  diffing two consecutive states.
+";
+
   public type Variant = { #classic; #instructables };
 
   /// Unrecognized text (including `""`) falls back to `#classic`.

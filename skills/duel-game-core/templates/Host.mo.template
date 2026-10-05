@@ -1,6 +1,7 @@
 // Host actor for __GAME_SLUG__. Copy verbatim; only the `Rules` import
-// and the two timeouts change between games. `status` is the only plain
-// Candid method — every mutation goes through `mo:duel-game-core/transport`.
+// and the two timeouts change between games. `status` and `http_request`
+// are the only plain Candid methods — every mutation goes through
+// `mo:duel-game-core/transport`.
 
 import Time "mo:core/Time";
 
@@ -8,6 +9,7 @@ import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
 import Transport "mo:duel-game-core/transport";
 import ActorMixin "mo:duel-game-core/actor_mixin";
+import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
 
 import Rules "__RULES_MODULE__";
 
@@ -34,4 +36,7 @@ persistent actor {
   );
 
   include ActorMixin<system>(attached.endpoint, attached.sweep);
+
+  // GET /semantics — the rules text a third-party frontend is built from.
+  include HttpActorMixin([("/semantics", func() : Text = Rules.SEMANTICS)]);
 };

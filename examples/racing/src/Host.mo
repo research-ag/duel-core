@@ -12,8 +12,8 @@ import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin
 import Registry "mo:duel-game-core/registry";
 import Leaderboard "mo:duel-game-core/leaderboard";
 import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
+import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
 import PT "mo:promtracker";
-import Http "mo:promtracker/mixins/http";
 import Tracker "mo:promtracker/Tracker";
 
 import BotIface "BotIface";
@@ -124,7 +124,11 @@ persistent actor {
   };
   include ActorMixin<system>(attached.endpoint, combinedSweep);
 
-  include Http(renderer.renderExposition, "/metrics");
+  include HttpActorMixin([
+    ("/semantics", func() : Text = Rules.SEMANTICS),
+    ("/metrics", renderer.renderExposition),
+    ("/track", Rules.trackText),
+  ]);
 
   include CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard);
 

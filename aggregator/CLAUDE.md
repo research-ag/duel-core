@@ -56,7 +56,15 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   copy-pasteable steps ending in the register flow) and
   `BotTutorialWizard.tsx` ("Build a bot", 5 steps for a canister player
   against an existing game, no login-gated final step) are built on;
-  both share `CodeBlock.tsx`. `Icons.tsx` holds the inline SVG icons and
+  `FrontendTutorialWizard.tsx` ("Make own frontend", opened from the
+  header or from the `card-own` button on every `GameCard`, which
+  passes its game) walks a player through getting their own client for a
+  listed game and ends in the register flow; its step 2 shows
+  `frontendPrompt.ts`'s prompt for an AI coding agent, filled with the
+  game's title and URL. The prompt condenses
+  `../skills/duel-game-core/references/frontend-for-existing-game.md`;
+  change the two together. All three share `CodeBlock.tsx` (`wrap` for
+  prose). `Icons.tsx` holds the inline SVG icons and
   the brand mark. `GameFormModal.tsx` is the register/edit form; dropping
   or picking a banner opens `ImageCropper.tsx` (`react-easy-crop`), which
   rasterizes to the exact `getBannerRequirements()` size and checks

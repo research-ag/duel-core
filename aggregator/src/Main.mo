@@ -1,14 +1,11 @@
 import Time "mo:core/Time";
 
-import Migration "Migration";
 import Store "Store";
 import T "Types";
 
 /// The aggregator backend: developer profiles and a public game registry.
 /// Plain Candid methods are fine here (no two callers contend on one
 /// record the way two seats do on a table); all logic lives in `Store.mo`.
-// One-off upgrade migration; remove after deploying.
-(with migration = Migration.run)
 persistent actor {
 
   let state : Store.State = Store.empty();

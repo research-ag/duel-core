@@ -13,6 +13,34 @@ import Nat "mo:core/Nat";
 
 module {
 
+  /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
+  public let SEMANTICS : Text = "GAME: Tic-tac-toe
+MODE: alternating
+SEATS: p1 = X (moves first), p2 = O
+VARIANTS: none (the table variant text is ignored)
+
+STATE (Candid)
+  type Seat = variant { p1; p2 };
+  type State = record { board : vec opt Seat };
+  board has 9 cells, row-major: index = row*3 + col. null = empty,
+  opt p1 = X, opt p2 = O.
+
+ACTION (Candid)
+  type Action = variant { place : record { at : nat } };
+
+RULES
+  The seat on turn places its mark on any empty cell (at in 0..8).
+  Rejected: at >= 9, or the cell is taken.
+
+ENDINGS
+  Three of one seat's marks in a row, column or diagonal: that seat wins.
+  Full board with no line: draw.
+
+CLIENT NOTES
+  State carries no move history; find the opponent's last mark by
+  diffing two consecutive boards.
+";
+
   public type Board = [?TP.Seat];
 
   public type Action = { #place : { at : Nat } };

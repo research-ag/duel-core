@@ -19,6 +19,56 @@ import TP "mo:duel-game-core";
 
 module {
 
+  /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
+  public let SEMANTICS : Text = "GAME: 007 duel
+MODE: simultaneous
+SEATS: p1 = BOND, p2 = SILVA
+VARIANTS: none (the table variant text is ignored)
+
+STATE (Candid)
+  type Action = variant { load; shoot; shield; mirror };
+  type AgentStats = record {
+    ammo : nat;
+    shieldHits : nat;
+    mirrors : nat;
+    charge : nat;
+  };
+  type Round = record {
+    p1Action : Action;
+    p2Action : Action;
+    narration : text;
+  };
+  type State = record { p1 : AgentStats; p2 : AgentStats; lastRound : opt Round };
+  ammo: shots available. shieldHits: hits the shield has absorbed, 3 =
+  broken. mirrors: mirror uses left, starts at 3. charge: consecutive
+  loads, 5 = laser ready. lastRound: the round just resolved with an
+  English narration of it, null before the first.
+
+ACTION (Candid)
+  type Action = variant { load; shoot; shield; mirror };
+
+RULES
+  Each round both seats secretly pick one action.
+  load    +1 ammo, +1 charge. Any other action resets charge to 0.
+  shoot   spends 1 ammo. With charge >= 5 it fires the LASER instead:
+          spends the charge and no ammo, and pierces shield and mirror.
+  shield  absorbs a normal shot. The 3rd absorbed hit still saves the
+          seat but breaks the shield.
+  mirror  reflects a normal shot back at the shooter, who dies. Each use
+          consumes one mirror whether or not a shot arrives.
+  A normal shot at a seat that loads kills it.
+  Rejected: shoot with 0 ammo and no laser, shield once it is broken
+  (shieldHits >= 3), mirror with 0 mirrors.
+
+ENDINGS
+  A seat that is shot dies and the other wins.
+  Both shoot in the same round, laser or not: both die, draw.
+
+CLIENT NOTES
+  A seat has the laser when its charge >= 5; shoot is then legal even
+  at 0 ammo.
+";
+
   public type Action = { #load; #shoot; #shield; #mirror };
 
   public type AgentStats = {

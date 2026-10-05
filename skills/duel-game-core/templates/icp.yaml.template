@@ -6,6 +6,13 @@ canisters:
       type: "@dfinity/motoko@v4.1.0"
       configuration:
         main: src/Host.mo
+    settings:
+      snapshot_visibility: public
+    sync:
+      steps:
+        - type: script
+          commands:
+            - sh -c 'c=$ICP_CLI_CID; e=$ICP_CLI_ENVIRONMENT; old=$(icp canister snapshot list $c -e $e -q | head -1); icp canister stop $c -e $e && { icp canister snapshot create $c -e $e ${old:+--replace $old}; r=$?; icp canister start $c -e $e; exit $r; }'
   - name: frontend
     recipe:
       type: "@dfinity/static-site@v0.4.0"

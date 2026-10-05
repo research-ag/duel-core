@@ -20,6 +20,44 @@ import TP "mo:duel-game-core";
 
 module {
 
+  /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
+  public let SEMANTICS : Text = "GAME: Rock-paper-scissors
+MODE: simultaneous
+SEATS: p1 and p2 are symmetric
+VARIANTS (table variant text, picked by the table's creator)
+  classic   rock, paper, scissors. Also used for any other text.
+  well      adds a fourth symbol, well.
+
+STATE (Candid)
+  type Action = variant { rock; paper; scissors; well };
+  type Round = record { p1Action : Action; p2Action : Action };
+  type Variant = variant { classic; well };
+  type State = record {
+    p1Score : nat;
+    p2Score : nat;
+    lastRound : opt Round;
+    variant : Variant;
+  };
+  lastRound is the round just resolved, null before the first.
+
+ACTION (Candid)
+  type Action = variant { rock; paper; scissors; well };
+
+RULES
+  Each round both seats secretly pick a symbol.
+  Scissors beats paper. Paper beats rock. Rock beats scissors.
+  In the well variant: well beats rock and scissors, paper beats well.
+  The same pick from both seats is a tied round and scores nobody;
+  otherwise the winner's score goes up by 1.
+  Rejected: well in the classic variant.
+
+ENDINGS
+  First seat to 3 round wins takes the match. There is no draw.
+
+CLIENT NOTES
+  Offer the well button only when state.variant is well.
+";
+
   public type Variant = { #classic; #well };
 
   /// Unrecognized text (including `""`) falls back to `#classic`.

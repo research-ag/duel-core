@@ -35,6 +35,9 @@ either package.
   the post-script clamp) through the real `validate`/`resolve`, then
   wires `chooseMove` through `canister_players` against a human seat.
 - **`icp.yaml`** — `backend`, `bot`, `frontend/dist`.
+- **HTTP** — besides `/semantics` and `/metrics`, `/track`
+  (`Rules.trackText`) serves the three `Track` polylines a third-party
+  client needs to draw the map.
 - **`frontend/`** — plain TypeScript + Three.js, esbuild-bundled (see
   `frontend/README.md`, `frontend/CLAUDE.md`). `src/duel/duel-app.js` +
   `duel-racing-plugin.js` are the whole `duel-game-core` integration
