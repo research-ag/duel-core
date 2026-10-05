@@ -17,9 +17,8 @@ import T "../src/Types";
 // distinct opaque test values (never actually called).
 let DEV_A = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai");
 let DEV_B = Principal.fromText("rwlgt-iiaaa-aaaaa-aaaaa-cai");
-let BACKEND_1 = Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai");
 let FRONTEND_1 = Principal.fromText("rno2w-sqaaa-aaaaa-aaacq-cai");
-let BACKEND_2 = Principal.fromText("qoctq-giaaa-aaaaa-aaaea-cai");
+let FRONTEND_3 = Principal.fromText("qoctq-giaaa-aaaaa-aaaea-cai");
 let FRONTEND_2 = Principal.fromText("r7inp-6aaaa-aaaaa-aaabq-cai");
 
 let T0 : Int = 1_000_000_000_000;
@@ -50,7 +49,6 @@ let NOT_A_PNG = "\00\01\02\03\04\05\06\07\08\09\10\11\12\13\14\15\16\17\18\19\20
 let baseInput : T.GameInput = {
   title = "Duel 007";
   description = "A tense two-player standoff.";
-  backendCanisterId = BACKEND_1;
   frontendCanisterId = FRONTEND_1;
   customDomain = null;
   banner = VALID_BANNER;
@@ -131,11 +129,11 @@ do {
     "5e",
   );
   let id = ok(s.registerGame(DEV_A, T0, baseInput), "5f");
-  if (id != BACKEND_1) Runtime.trap("5f: the game's id must be its backendCanisterId");
+  if (id != FRONTEND_1) Runtime.trap("5f: the game's id must be its frontendCanisterId");
   expectErr<T.GameId>(
-    s.registerGame(DEV_B, T1, { baseInput with frontendCanisterId = FRONTEND_2 }),
+    s.registerGame(DEV_B, T1, { baseInput with title = "Another" }),
     #gameAlreadyRegistered,
-    "5g: a second registration under the SAME backendCanisterId must be rejected, even from another caller",
+    "5g: a second registration under the SAME frontendCanisterId must be rejected, even from another caller",
   );
 };
 Debug.print("5. registerGame OK");
@@ -147,12 +145,12 @@ do {
   ignore ok(s.registerGame(DEV_A, T0, baseInput), "6 setup");
 
   expectErr<()>(
-    s.updateGame(DEV_A, T1, FRONTEND_1, { title = "x"; description = ""; frontendCanisterId = FRONTEND_1; customDomain = null; banner = null }),
+    s.updateGame(DEV_A, T1, FRONTEND_2, { title = "x"; description = ""; frontendCanisterId = FRONTEND_2; customDomain = null; banner = null }),
     #noSuchGame,
-    "6a: id must be the backendCanisterId, not the frontend one",
+    "6a",
   );
   expectErr<()>(
-    s.updateGame(DEV_B, T1, BACKEND_1, { title = "hijacked"; description = ""; frontendCanisterId = FRONTEND_1; customDomain = null; banner = null }),
+    s.updateGame(DEV_B, T1, FRONTEND_1, { title = "hijacked"; description = ""; frontendCanisterId = FRONTEND_1; customDomain = null; banner = null }),
     #notOwner,
     "6b",
   );
@@ -164,34 +162,43 @@ do {
     customDomain = ?"https://duel007.example.com";
     banner = null; // keep the existing banner
   };
-  ok(s.updateGame(DEV_A, T1, BACKEND_1, edit), "6c");
+  ok(s.updateGame(DEV_A, T1, FRONTEND_1, edit), "6c");
 
-  let view = switch (s.getGame(BACKEND_1)) {
+  if (s.getGame(FRONTEND_1) != null) Runtime.trap("6d: a moved game must leave its old id");
+  let view = switch (s.getGame(FRONTEND_2)) {
     case (?v) v;
     case null Runtime.trap("6d: the game must still exist after editing");
   };
   if (view.title != "Duel 007: Reloaded") Runtime.trap("6e: title must update");
   if (view.frontendCanisterId != FRONTEND_2) Runtime.trap("6f: frontendCanisterId must be editable");
-  if (view.backendCanisterId != BACKEND_1) Runtime.trap("6g: backendCanisterId must stay fixed");
+  if (s.listGames().size() != 1) Runtime.trap("6g: moving a game must not duplicate it");
   if (view.developer != DEV_A) Runtime.trap("6h: developer must stay fixed");
 
-  switch (s.getBanner(BACKEND_1)) {
+  switch (s.getBanner(FRONTEND_2)) {
     case (?b) if (b != VALID_BANNER) Runtime.trap("6i: banner = null on edit must leave the original banner untouched");
     case null Runtime.trap("6i: banner must still exist");
   };
 
   let newBanner = pngWithSize(Store.BANNER_WIDTH, Store.BANNER_HEIGHT);
-  ok(s.updateGame(DEV_A, T1, BACKEND_1, { edit with banner = ?newBanner }), "6j");
-  switch (s.getBanner(BACKEND_1)) {
+  ok(s.updateGame(DEV_A, T1, FRONTEND_2, { edit with banner = ?newBanner }), "6j");
+  switch (s.getBanner(FRONTEND_2)) {
     case (?b) if (b != newBanner) Runtime.trap("6k: a supplied banner must replace the old one");
     case null Runtime.trap("6k: banner must still exist");
   };
 
   expectErr<()>(
-    s.updateGame(DEV_A, T1, BACKEND_1, { edit with banner = ?WRONG_SIZE_BANNER }),
+    s.updateGame(DEV_A, T1, FRONTEND_2, { edit with banner = ?WRONG_SIZE_BANNER }),
     #invalidBanner("banner must be exactly 800x400 pixels (got 100x100)"),
     "6l: an edit's own banner is validated exactly like registration's",
   );
+
+  ignore ok(s.registerGame(DEV_B, T1, { baseInput with frontendCanisterId = FRONTEND_3 }), "6m setup");
+  expectErr<()>(
+    s.updateGame(DEV_A, T1, FRONTEND_2, { edit with frontendCanisterId = FRONTEND_3 }),
+    #gameAlreadyRegistered,
+    "6m: a game must not move onto another game's frontendCanisterId",
+  );
+  if (s.getGame(FRONTEND_2) == null) Runtime.trap("6n: a rejected move must leave the game in place");
 };
 Debug.print("6. updateGame OK");
 
@@ -202,14 +209,14 @@ do {
   ok(s.setDisplayName(DEV_A, "Ada"), "7 setup a");
   ignore ok(s.registerGame(DEV_A, T0, baseInput), "7 setup b");
   ignore ok(
-    s.registerGame(DEV_B, T1, { baseInput with backendCanisterId = BACKEND_2; frontendCanisterId = FRONTEND_2 }),
+    s.registerGame(DEV_B, T1, { baseInput with frontendCanisterId = FRONTEND_2 }),
     "7 setup c",
   );
 
   if (s.listGames().size() != 2) Runtime.trap("7a: both games must be listed");
 
   let byA = s.listGamesByDeveloper(DEV_A);
-  if (byA.size() != 1 or byA[0].backendCanisterId != BACKEND_1) {
+  if (byA.size() != 1 or byA[0].frontendCanisterId != FRONTEND_1) {
     Runtime.trap("7b: filtering by developer must return only that developer's games");
   };
   if (byA[0].developerDisplayName != ?"Ada") {
@@ -229,18 +236,18 @@ do {
   let s = Store.empty();
   ignore ok(s.registerGame(DEV_A, T0, baseInput), "8 setup");
 
-  expectErr<()>(s.deregisterGame(Principal.anonymous(), BACKEND_1), #anonymousCaller, "8a");
-  expectErr<()>(s.deregisterGame(DEV_A, FRONTEND_1), #noSuchGame, "8b: id must be the backendCanisterId");
-  expectErr<()>(s.deregisterGame(DEV_B, BACKEND_1), #notOwner, "8c: only the developer who registered it may remove it");
+  expectErr<()>(s.deregisterGame(Principal.anonymous(), FRONTEND_1), #anonymousCaller, "8a");
+  expectErr<()>(s.deregisterGame(DEV_A, FRONTEND_2), #noSuchGame, "8b");
+  expectErr<()>(s.deregisterGame(DEV_B, FRONTEND_1), #notOwner, "8c: only the developer who registered it may remove it");
 
-  if (s.getGame(BACKEND_1) == null) Runtime.trap("8d: a failed deregister must not remove the game");
+  if (s.getGame(FRONTEND_1) == null) Runtime.trap("8d: a failed deregister must not remove the game");
 
-  ok(s.deregisterGame(DEV_A, BACKEND_1), "8e");
-  if (s.getGame(BACKEND_1) != null) Runtime.trap("8f: the game must be gone after deregistering");
-  if (s.getBanner(BACKEND_1) != null) Runtime.trap("8g: its banner must be gone too");
+  ok(s.deregisterGame(DEV_A, FRONTEND_1), "8e");
+  if (s.getGame(FRONTEND_1) != null) Runtime.trap("8f: the game must be gone after deregistering");
+  if (s.getBanner(FRONTEND_1) != null) Runtime.trap("8g: its banner must be gone too");
   if (s.listGames().size() != 0) Runtime.trap("8h: it must no longer be listed");
 
-  expectErr<()>(s.deregisterGame(DEV_A, BACKEND_1), #noSuchGame, "8i: deregistering an already-removed game must not succeed twice");
+  expectErr<()>(s.deregisterGame(DEV_A, FRONTEND_1), #noSuchGame, "8i: deregistering an already-removed game must not succeed twice");
 };
 Debug.print("8. deregisterGame OK");
 

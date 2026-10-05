@@ -99,7 +99,6 @@ module {
     developerDisplayName = self.getProfile(g.developer).map(func(p) = p.displayName);
     title = g.title;
     description = g.description;
-    backendCanisterId = g.backendCanisterId;
     frontendCanisterId = g.frontendCanisterId;
     customDomain = g.customDomain;
     createdAt = g.createdAt;
@@ -120,22 +119,21 @@ module {
       case (?e) return #err(e);
       case null {};
     };
-    if (self.games.containsKey(input.backendCanisterId)) {
+    if (self.games.containsKey(input.frontendCanisterId)) {
       return #err(#gameAlreadyRegistered);
     };
     let game : T.Game = {
       developer = caller;
       title;
       description = input.description;
-      backendCanisterId = input.backendCanisterId;
       frontendCanisterId = input.frontendCanisterId;
       customDomain = normalizeCustomDomain(input.customDomain);
       banner = input.banner;
       createdAt = now;
       updatedAt = now;
     };
-    self.games.add(input.backendCanisterId, game);
-    #ok(input.backendCanisterId);
+    self.games.add(input.frontendCanisterId, game);
+    #ok(input.frontendCanisterId);
   };
 
   public func updateGame(self : State, caller : Principal, now : Int, id : T.GameId, edit : T.GameEdit) : Res<()> {
@@ -152,6 +150,10 @@ module {
     switch (validateCustomDomain(edit.customDomain)) {
       case (?e) return #err(e);
       case null {};
+    };
+    let moved = edit.frontendCanisterId != id;
+    if (moved and self.games.containsKey(edit.frontendCanisterId)) {
+      return #err(#gameAlreadyRegistered);
     };
     let banner = switch (edit.banner) {
       case null existing.banner;
@@ -172,7 +174,8 @@ module {
       banner;
       updatedAt = now;
     };
-    self.games.add(id, updated);
+    if (moved) self.games.remove(id);
+    self.games.add(edit.frontendCanisterId, updated);
     #ok(());
   };
 

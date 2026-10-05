@@ -141,7 +141,7 @@ export function GameGrid({
         <div className="grid">
           {filtered.map((g, i) => (
             <GameCard
-              key={g.backendCanisterId.toText()}
+              key={g.frontendCanisterId.toText()}
               index={i}
               game={g}
               actor={actor}

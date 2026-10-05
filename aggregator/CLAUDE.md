@@ -13,8 +13,10 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
 - **`src/Store.mo`** — every operation (`setDisplayName`, `registerGame`,
   `updateGame`, `deregisterGame`, reads) over an explicit `State` (two
   `mo:core/Map`s). `now` is a parameter, no `Time`. A game is keyed by its
-  immutable `backendCanisterId` (its `GameId`); registering the same one
-  twice is rejected. `deregisterGame` uses `updateGame`'s ownership gate
+  `frontendCanisterId` (its `GameId`), the only canister id a listing
+  holds; registering the same one twice is rejected, and an edit that
+  changes it re-keys the game (`#gameAlreadyRegistered` if taken).
+  `deregisterGame` uses `updateGame`'s ownership gate
   (`#notOwner`) and removes the record and banner; it never touches the
   game's own canisters.
 - **`src/Main.mo`** — thin host actor: owns the `Store.State`, reads
@@ -24,8 +26,13 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   against the exact numbers `Store.mo` enforces.
 - **`test/Store.test.mo`** — interpreter suite over `Png.dimensions` and
   every `Store.mo` entry point (anonymous rejection, validation,
-  ownership on edit/deregister, immutable fields, display-name
-  resolution, deregistered games gone from every read path).
+  ownership on edit/deregister, re-keying on a frontend change,
+  display-name resolution, deregistered games gone from every read
+  path).
+- **`src/Migration.mo`** + **`test/Migration.test.mo`** — one-off
+  `(with migration = Migration.run)` on `Main.mo`, converting the
+  backend-keyed registry to this shape. Delete both, and the clause,
+  once the live canister is upgraded: it traps on any later upgrade.
 - **`icp.yaml`** — `src/Main.mo` as `backend`, `frontend/dist` as
   `frontend`.
 - **`frontend/`** — React + TypeScript, esbuild. `idl.ts` is a
@@ -75,6 +82,7 @@ mops install
 MOC=$(mops toolchain bin moc)
 "$MOC" --check $(mops sources) src/Main.mo
 "$MOC" -r $(mops sources) test/Store.test.mo
+"$MOC" -r $(mops sources) test/Migration.test.mo
 
 cd frontend
 npm install --legacy-peer-deps

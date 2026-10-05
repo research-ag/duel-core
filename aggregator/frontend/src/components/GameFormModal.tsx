@@ -30,9 +30,6 @@ export function GameFormModal({
 
   const [title, setTitle] = useState(existing?.title ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
-  const [backendCanisterId, setBackendCanisterId] = useState(
-    existing?.backendCanisterId.toText() ?? ""
-  );
   const [frontendCanisterId, setFrontendCanisterId] = useState(
     existing?.frontendCanisterId.toText() ?? ""
   );
@@ -50,7 +47,7 @@ export function GameFormModal({
   const [error, setError] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [over, setOver] = useState(false);
-  const existingBannerUrl = useBanner(actor, existing?.backendCanisterId);
+  const existingBannerUrl = useBanner(actor, existing?.frontendCanisterId);
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -84,13 +81,11 @@ export function GameFormModal({
     e.preventDefault();
     setError(undefined);
 
-    let backendId: Principal;
     let frontendId: Principal;
     try {
-      backendId = Principal.fromText(backendCanisterId.trim());
       frontendId = Principal.fromText(frontendCanisterId.trim());
     } catch {
-      setError("Backend and frontend canister ids must be valid principals.");
+      setError("Frontend canister id must be a valid principal.");
       return;
     }
 
@@ -110,7 +105,7 @@ export function GameFormModal({
     setSaving(true);
     try {
       if (isEdit) {
-        const res = await actor.updateGame(existing.backendCanisterId, {
+        const res = await actor.updateGame(existing.frontendCanisterId, {
           title,
           description,
           frontendCanisterId: frontendId,
@@ -118,12 +113,11 @@ export function GameFormModal({
           banner: maybeToOpt(bannerBytes),
         });
         if ("err" in res) throw res.err;
-        if (bannerBytes) invalidateBanner(existing.backendCanisterId);
+        if (bannerBytes) invalidateBanner(existing.frontendCanisterId);
       } else {
         const res = await actor.registerGame({
           title,
           description,
-          backendCanisterId: backendId,
           frontendCanisterId: frontendId,
           customDomain: maybeToOpt(domain || undefined),
           banner: bannerBytes as Uint8Array,
@@ -229,34 +223,16 @@ export function GameFormModal({
             />
           </div>
 
-          <div className="field-row">
-            <div className="field">
-              <label htmlFor="backend">Backend canister</label>
-              <input
-                id="backend"
-                type="text"
-                value={backendCanisterId}
-                onChange={(e) => setBackendCanisterId(e.target.value)}
-                disabled={isEdit}
-                required
-                placeholder="ryjl3-tyaaa-aaaaa-aaaba-cai"
-              />
-              {isEdit && (
-                <span className="hint">Fixed after registration.</span>
-              )}
-            </div>
-
-            <div className="field">
-              <label htmlFor="frontend">Frontend canister</label>
-              <input
-                id="frontend"
-                type="text"
-                value={frontendCanisterId}
-                onChange={(e) => setFrontendCanisterId(e.target.value)}
-                required
-                placeholder="rno2w-sqaaa-aaaaa-aaacq-cai"
-              />
-            </div>
+          <div className="field">
+            <label htmlFor="frontend">Frontend canister</label>
+            <input
+              id="frontend"
+              type="text"
+              value={frontendCanisterId}
+              onChange={(e) => setFrontendCanisterId(e.target.value)}
+              required
+              placeholder="rno2w-sqaaa-aaaaa-aaacq-cai"
+            />
           </div>
 
           <div className="field">

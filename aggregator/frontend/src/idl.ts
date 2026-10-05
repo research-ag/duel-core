@@ -20,7 +20,6 @@ export const idlFactory: IDL.InterfaceFactory = ({ IDL }) => {
     developerDisplayName: IDL.Opt(IDL.Text),
     title: IDL.Text,
     description: IDL.Text,
-    backendCanisterId: IDL.Principal,
     frontendCanisterId: IDL.Principal,
     customDomain: IDL.Opt(IDL.Text),
     createdAt: IDL.Int,
@@ -30,7 +29,6 @@ export const idlFactory: IDL.InterfaceFactory = ({ IDL }) => {
   const GameInput = IDL.Record({
     title: IDL.Text,
     description: IDL.Text,
-    backendCanisterId: IDL.Principal,
     frontendCanisterId: IDL.Principal,
     customDomain: IDL.Opt(IDL.Text),
     banner: IDL.Vec(IDL.Nat8),

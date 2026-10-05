@@ -16,7 +16,6 @@ export interface GameView {
   developerDisplayName: [] | [string];
   title: string;
   description: string;
-  backendCanisterId: Principal;
   frontendCanisterId: Principal;
   customDomain: [] | [string];
   createdAt: bigint;
@@ -26,7 +25,6 @@ export interface GameView {
 export interface GameInput {
   title: string;
   description: string;
-  backendCanisterId: Principal;
   frontendCanisterId: Principal;
   customDomain: [] | [string];
   banner: Uint8Array;
@@ -104,7 +102,7 @@ export function errMessage(err: Err): string {
   }
   if ("invalidBanner" in err) return err.invalidBanner;
   if ("gameAlreadyRegistered" in err) {
-    return "A game with this backend canister id is already registered.";
+    return "A game with this frontend canister id is already registered.";
   }
   if ("noSuchGame" in err) return "That game no longer exists.";
   if ("notOwner" in err) return "You are not the developer of this game.";

@@ -1150,18 +1150,6 @@ select:disabled {
   color: var(--faint);
 }
 
-.field-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
-@media (max-width: 560px) {
-  .field-row {
-    grid-template-columns: 1fr;
-  }
-}
-
 .error {
   color: var(--red);
   font-size: 0.85rem;

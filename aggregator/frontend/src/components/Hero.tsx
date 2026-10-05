@@ -40,7 +40,7 @@ export function Hero({
       <div className="hero-montage" aria-hidden="true">
         {slides.map((g, i) => (
           <Slide
-            key={g.backendCanisterId.toText()}
+            key={g.frontendCanisterId.toText()}
             game={g}
             actor={actor}
             on={i === active % slides.length}
@@ -52,7 +52,7 @@ export function Hero({
         <div className="hero-dots" aria-hidden="true">
           {slides.map((g, i) => (
             <i
-              key={g.backendCanisterId.toText()}
+              key={g.frontendCanisterId.toText()}
               className={i === active % slides.length ? "on" : ""}
             />
           ))}
@@ -102,7 +102,7 @@ function Slide({
   actor: AggregatorActor | undefined;
   on: boolean;
 }) {
-  const banner = useBanner(actor, game.backendCanisterId);
+  const banner = useBanner(actor, game.frontendCanisterId);
   return (
     <div
       className={`slide${on && banner ? " on" : ""}`}

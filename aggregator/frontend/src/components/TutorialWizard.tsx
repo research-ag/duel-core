@@ -193,10 +193,9 @@ function DeployStep() {
       </p>
       <CodeBlock code="icp deploy -e ic -y" />
       <p>
-        Note <strong>both canister ids</strong> it prints — the registration
-        form in the next step needs the backend AND frontend canister id. The
-        frontend canister id is also what you'll share with players as the
-        game's URL.
+        Note the <strong>frontend canister id</strong> it prints — the
+        registration form in the next step needs it, and it is also what
+        you'll share with players as the game's URL.
       </p>
     </>
   );
@@ -207,8 +206,8 @@ function RegisterStep({ isLoggedIn }: { isLoggedIn: boolean }) {
     <>
       <p>
         Last step — list your game on this dashboard so players can find it.
-        You'll need the backend and frontend canister ids from the previous
-        step, a title, a short description, and a banner image.
+        You'll need the frontend canister id from the previous step, a title,
+        a short description, and a banner image.
       </p>
       {isLoggedIn ? (
         <p>Click "Register your game" below to open the registration form.</p>

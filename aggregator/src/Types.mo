@@ -6,14 +6,13 @@ module {
     displayName : Text;
   };
 
-  /// A game is keyed by its immutable `backendCanisterId`.
+  /// A game is keyed by its `frontendCanisterId`.
   public type GameId = Principal;
 
   public type Game = {
     developer : Principal;
     title : Text;
     description : Text;
-    backendCanisterId : Principal;
     frontendCanisterId : Principal;
     customDomain : ?Text;
     banner : Blob; // PNG, exactly Store.BANNER_WIDTH x Store.BANNER_HEIGHT
@@ -28,7 +27,6 @@ module {
     developerDisplayName : ?Text;
     title : Text;
     description : Text;
-    backendCanisterId : Principal;
     frontendCanisterId : Principal;
     customDomain : ?Text;
     createdAt : Int;
@@ -38,7 +36,6 @@ module {
   public type GameInput = {
     title : Text;
     description : Text;
-    backendCanisterId : Principal;
     frontendCanisterId : Principal;
     customDomain : ?Text;
     banner : Blob;

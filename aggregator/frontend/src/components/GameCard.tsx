@@ -23,7 +23,7 @@ export function GameCard({
   onEdit: () => void;
   onDeleted: () => void;
 }) {
-  const banner = useBanner(actor, game.backendCanisterId);
+  const banner = useBanner(actor, game.frontendCanisterId);
   const developerName =
     optToMaybe(game.developerDisplayName) ?? shortPrincipal(game.developer);
   const [confirming, setConfirming] = useState(false);
@@ -35,7 +35,7 @@ export function GameCard({
     setDeleting(true);
     setError(undefined);
     try {
-      const res = await actor.deregisterGame(game.backendCanisterId);
+      const res = await actor.deregisterGame(game.frontendCanisterId);
       if ("err" in res) throw res.err;
       setConfirming(false);
       onDeleted();
