@@ -58,12 +58,18 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   against an existing game, no login-gated final step) are built on;
   `FrontendTutorialWizard.tsx` ("Make own frontend", opened from the
   header or from the `card-own` button on every `GameCard`, which
-  passes its game) walks a player through getting their own client for a
-  listed game and ends in the register flow; its step 2 shows
-  `frontendPrompt.ts`'s prompt for an AI coding agent, filled with the
-  game's title and URL. The prompt condenses
+  passes its game) is written for a player with no ICP or coding
+  background: two routes, caffeine.ai (chat builder, builds and hosts
+  itself, paid plan) or an AI coding tool on their own computer (icp-cli,
+  identity and cycles only appear in the "Put it online" step), ending in
+  the register flow. Its step 2 shows `frontendPrompt.ts`'s prompt,
+  filled with the game's title and URL, which adapts to what the builder
+  can run (local wasm copy with icp-cli, else the live backend on
+  code-protected tables; client package from npm, else its source files
+  from GitHub). The prompt condenses
   `../skills/duel-game-core/references/frontend-for-existing-game.md`;
-  change the two together. All three share `CodeBlock.tsx` (`wrap` for
+  change the two together. Pricing facts in the wizard are dated "at the
+  time of writing". All three share `CodeBlock.tsx` (`wrap` for
   prose). `Icons.tsx` holds the inline SVG icons and
   the brand mark. `GameFormModal.tsx` is the register/edit form; dropping
   or picking a banner opens `ImageCropper.tsx` (`react-easy-crop`), which

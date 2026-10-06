@@ -25,7 +25,7 @@ export function App() {
   const [botTutorialOpen, setBotTutorialOpen] = useState(false);
   /// The frontend guide: closed, open for one game, or open with no game.
   const [frontendFor, setFrontendFor] = useState<GameView | "any" | undefined>(
-    undefined,
+    undefined
   );
 
   const developers = useMemo(() => {
