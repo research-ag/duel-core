@@ -31,8 +31,9 @@ A finished game is six pieces of game-specific code:
 4. `frontend/src/<game>-plugin.js` — a `GamePlugin`.
 5. `frontend/src/index.html` + `app.js` + `style.css` — copy the
    templates.
-6. `icp.yaml`, `mops.toml`, `frontend/package.json`, `frontend/.npmrc`,
-   `frontend/build.js` — copy the templates, fill in names.
+6. `icp.yaml`, `publish_wasm.sh`, `mops.toml`, `frontend/package.json`,
+   `frontend/.npmrc`, `frontend/build.js` — copy the templates, fill in
+   names.
 
 Every template lives in `templates/`; read each one right before adapting
 it. `references/` covers five situations the templates don't:
@@ -191,6 +192,9 @@ closes. `status` stays a plain `query`. The template wires a
 `HttpActorMixin`, whose one route answers `GET /semantics` with
 `Rules.SEMANTICS`; data a client needs but `State` does not carry (a
 fixed map, a deck list) goes in as a further `(path, () -> Text)` route.
+The same mixin also serves the canister's own module at `GET /wasm` and
+takes it in through the controllers-only `wasm_upload_*` methods that
+`publish_wasm.sh` calls at deploy time (Step 7); nothing to wire.
 
 **Claim a win.** The generic `#inGame` screen renders a "Claim the win"
 button with its own countdown once `claimWinAvailable` turns true, and
@@ -447,13 +451,14 @@ the player most wants to see. If the UI genuinely doesn't fit that
 
 ## Step 7 — Project/deploy config
 
-| Template                | Destination             | Fill in                                 |
-| ----------------------- | ----------------------- | --------------------------------------- |
-| `mops.toml.template`    | `mops.toml`             | `__GAME_SLUG__`                         |
-| `package.json.template` | `frontend/package.json` | `__GAME_SLUG__`                         |
-| `.npmrc.template`       | `frontend/.npmrc`       | —                                       |
-| `build.js.template`     | `frontend/build.js`     | `__PLUGIN_FILE__` (header comment only) |
-| `icp.yaml.template`     | `icp.yaml`              | — (unless renaming canisters)           |
+| Template                   | Destination             | Fill in                                 |
+| -------------------------- | ----------------------- | --------------------------------------- |
+| `mops.toml.template`       | `mops.toml`             | `__GAME_SLUG__`                         |
+| `package.json.template`    | `frontend/package.json` | `__GAME_SLUG__`                         |
+| `.npmrc.template`          | `frontend/.npmrc`       | —                                       |
+| `build.js.template`        | `frontend/build.js`     | `__PLUGIN_FILE__` (header comment only) |
+| `icp.yaml.template`        | `icp.yaml`              | — (unless renaming canisters)           |
+| `publish_wasm.sh.template` | `publish_wasm.sh`       | — (next to `icp.yaml`)                  |
 
 ```bash
 mops install && mops test
@@ -463,16 +468,22 @@ icp deploy                 # local; `icp network start` must be running
 icp deploy --network ic    # mainnet — spends cycles
 ```
 
-The backend deploys PULLABLE, always: the template's `icp.yaml` sets
-`snapshot_visibility: public` and a sync step that takes a fresh
-snapshot after every deploy, so anyone can download the running wasm and
+The backend deploys PULLABLE, always: the template's `icp.yaml` runs
+`sh publish_wasm.sh backend` as the backend's sync step, so every
+install, reinstall and upgrade uploads the module the canister now runs
+to the canister itself, and anyone can download it at `GET /wasm` and
 test a frontend of their own against a local copy (backend README,
-"Pullable backend"). Keep both when adapting the file. After the first
-deploy, check the two public faces of the game:
+"Pullable backend"). Keep the step when adapting the file, and
+never set `snapshot_visibility: public`: a snapshot would publish the
+whole heap, access codes included. If the backend canister is renamed, pass
+the new name to the script. After the first deploy, check the two
+public faces of the game:
 
 ```bash
-curl http://$(icp canister status backend -i).raw.localhost:8000/semantics
-icp canister snapshot list backend      # one snapshot, taken by the deploy
+ID=$(icp canister status backend -i)
+curl http://$ID.raw.localhost:8000/semantics
+curl -s http://$ID.raw.localhost:8000/wasm | shasum -a 256   # equals module_hash in
+icp canister status backend --json
 ```
 
 The frontend deploys through the `@dfinity/static-site` recipe. Its
@@ -491,8 +502,10 @@ necessary, not sufficient.
 
 ## Common pitfalls
 
-- **No plain Candid method for any mutation**, not even "to test with a
-  canister call". Use the frontend or a `ws`-speaking client.
+- **No plain Candid method for any game mutation**, not even "to test
+  with a canister call". Use the frontend or a `ws`-speaking client. (The
+  HTTP mixin's `wasm_upload_*` are the engine's own, controllers-only,
+  and touch no game state.)
 - **Never let a client value stand in for something `resolve` should
   compute** (Step 2, point 2).
 - **`validate` is the only legality gate.** If the plugin's `legal()`

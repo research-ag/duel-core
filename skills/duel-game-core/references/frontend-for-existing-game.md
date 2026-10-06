@@ -15,12 +15,12 @@ Everything you need comes from the backend canister id:
 | ---------------------------- | --------------------------------------------------- |
 | Rules, `State`, `Action`     | `GET /semantics` on the backend                     |
 | Service types (optional)     | the `candid:service` metadata section               |
-| The wasm, for a local copy   | the backend's public snapshot                       |
+| The wasm, for a local copy   | `GET /wasm` on the backend                          |
 | Client library, UI contracts | this skill (`SKILL.md` Steps 1 and 6, `rich-ui.md`) |
 
-Two of these steps need `icp-cli` (fetching the Candid and pulling the
-wasm). Without it — in a browser-based builder — skip them as the steps
-say; the semantics text is sufficient to build from.
+Fetching the Candid and running the local copy need `icp-cli`. Without
+it — in a browser-based builder — skip those steps as they say; the
+semantics text is sufficient to build from.
 
 ## 1. Resolve the backend id
 
@@ -81,24 +81,22 @@ already declares the engine's service, and your plugin supplies `State`
 and `Action`. Without icp-cli, assume both optional features may exist
 and let their calls fail quietly (`.catch(() => [])`).
 
-## 4. Pull the wasm (with icp-cli)
+## 4. Pull the wasm
 
 ```bash
-SNAP=$(icp canister snapshot list $BACKEND -n ic -q | head -1)
-icp canister snapshot download $BACKEND $SNAP -n ic -o snapshot
-cp snapshot/wasm_module.bin backend.wasm
+curl -s https://$BACKEND.raw.icp0.io/wasm -o backend.wasm
 shasum -a 256 backend.wasm
 curl -s https://ic-api.internetcomputer.org/api/v3/canisters/$BACKEND \
   | grep -o '"module_hash":"[0-9a-f]*"'
 ```
 
-The two hashes must be equal: that proves the file is the module the
-canister runs right now. Keep `backend.wasm`; delete `snapshot/` (it
-also holds the canister's memory, which you have no use for).
+(With icp-cli, `icp canister status $BACKEND -n ic -p --json` shows the
+same `module_hash`.) The two hashes must be equal: that proves the file
+is the module the canister runs right now. Keep `backend.wasm`.
 
-No snapshot, a download that is refused, or a hash mismatch means the
-backend is not pullable at the moment. Stop and tell the user; do not
-fall back to the live canister on your own.
+A 404 at `/wasm`, or a hash mismatch, means the backend is not pullable
+at the moment. Stop and tell the user; do not fall back to the live
+canister on your own.
 
 ## 5. Lay out the project
 

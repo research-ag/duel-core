@@ -1,6 +1,7 @@
 // Host actor for __GAME_SLUG__. Copy verbatim; only the `Rules` import
-// and the two timeouts change between games. `status` and `http_request`
-// are the only plain Candid methods — every mutation goes through
+// and the two timeouts change between games. `status`, `http_request` and
+// the HTTP mixin's controllers-only `wasm_upload_*` are the only plain
+// Candid methods — every game mutation goes through
 // `mo:duel-game-core/transport`.
 
 import Time "mo:core/Time";

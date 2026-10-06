@@ -41,15 +41,27 @@ do {
 
 // ── 3. An unknown path is a 404 that lists every route ─────────────────────
 do {
-  expect(get("GET", "/"), 404, "Not found. Available:\n/semantics\n/metrics", "3a: root");
-  expect(get("GET", "/semantics/"), 404, "Not found. Available:\n/semantics\n/metrics", "3b: no prefix match");
-  Debug.print("3. unknown path lists the routes OK");
+  let listing = "Not found. Available:\n/semantics\n/metrics\n/wasm";
+  expect(get("GET", "/"), 404, listing, "3a: root");
+  expect(get("GET", "/semantics/"), 404, listing, "3b: no prefix match");
+  Debug.print("3. unknown path lists the routes and /wasm OK");
 };
 
 // ── 4. Only GET is served ──────────────────────────────────────────────────
 do {
   expect(get("POST", "/semantics"), 405, "GET only", "4a: POST rejected");
   Debug.print("4. non-GET rejected OK");
+};
+
+// ── 5. A plain response never streams; `path` drops the query string ───────
+do {
+  if (get("GET", "/semantics").streaming_strategy != null) {
+    Runtime.trap("5a: a text route must not set a streaming strategy");
+  };
+  if (Http.path({ method = "GET"; url = "/wasm?x=1"; headers = []; body = "" }) != ?"/wasm") {
+    Runtime.trap("5b: path keeps the query string");
+  };
+  Debug.print("5. plain responses and path OK");
 };
 
 Debug.print("ALL HTTP CHECKS PASSED");

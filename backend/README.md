@@ -77,10 +77,11 @@ variant)` plus `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
   passes its `isPresent` predicate (`Transport.attach`'s `sweep` passes
   "sent a request within `PRESENCE_TTL_NS`"). `attachMetrics(pt)` is optional
   (see Metrics). `peekNextTableId` is a pure read of the id nonce.
-- `src/http.mo` + `src/http_actor_mixin.mo`
+- `src/http.mo` + `src/wasm.mo` + `src/http_actor_mixin.mo`
   (`mo:duel-game-core/http_actor_mixin`) — `http_request` over a list of
   plain-text routes; every host serves its rules at `/semantics` (see
-  "Semantics over HTTP").
+  "Semantics over HTTP") and its own module at `/wasm`, uploaded by its
+  deploy (see "Pullable backend").
 - Every mutating operation takes `spec` and `now : Int` (nanoseconds).
   At the `Registry` layer they are called only from `mo:duel-game-core/transport`
   — never exposed as plain Candid methods. `status` is the exception
@@ -665,10 +666,11 @@ persistent actor {
 
 `HttpActorMixin(routes)` supplies `http_request`; each `Http.Route` is a
 path and a `() -> Text` answered as `text/plain` on `GET`. An unknown
-path is a 404 listing the routes. A host adds its own routes to the same
-list — `/metrics` above, or data a client cannot recover from `State`
-(`examples/racing` serves its track polygons at `/track`). `http.mo`'s
-`respond` is the pure function behind it.
+path is a 404 listing the routes and `/wasm`. A host adds its own routes
+to the same list — `/metrics` above, or data a client cannot recover
+from `State` (`examples/racing` serves its track polygons at `/track`).
+`http.mo`'s `respond` is the pure function behind it; `/wasm` is the
+mixin's own (next section).
 
 `SEMANTICS` is the whole contract a frontend author gets besides the
 canister's Candid, and the only place `Action` is described: it travels
@@ -697,7 +699,11 @@ Update `SEMANTICS` in the same change as any edit to `State`, `Action`,
 A backend is PULLABLE when anyone can download the exact wasm it runs
 and install a copy on a local network — what lets a third party build
 and test a new frontend against a game without its source. Every backend
-on this engine is deployed pullable. In `icp.yaml`:
+on this engine is deployed pullable: `HttpActorMixin` keeps a copy of
+the canister's own module in a stable `Wasm.Store` and streams it at
+`GET /wasm` (first chunk in the body, the rest through
+`http_request_streaming_callback`); the deploy puts it there. In
+`icp.yaml`:
 
 ```yaml
 - name: backend
@@ -705,39 +711,47 @@ on this engine is deployed pullable. In `icp.yaml`:
     type: "@dfinity/motoko@v4.1.0"
     configuration:
       main: src/Host.mo
-  settings:
-    snapshot_visibility: public
   sync:
     steps:
       - type: script
         commands:
-          - sh -c 'c=$ICP_CLI_CID; e=$ICP_CLI_ENVIRONMENT; old=$(icp canister snapshot list $c -e $e -q | head -1); icp canister stop $c -e $e && { icp canister snapshot create $c -e $e ${old:+--replace $old}; r=$?; icp canister start $c -e $e; exit $r; }'
+          - sh publish_wasm.sh backend
 ```
 
-`snapshot_visibility: public` lets any principal list and download the
-canister's snapshots; the sync step takes one after every `icp deploy`
-(stop, snapshot replacing the previous one, start), so the published
-module always equals the installed one. Pulling needs only the id:
+`publish_wasm.sh` sits next to `icp.yaml` (the skill's
+`templates/publish_wasm.sh.template`, copied unchanged) and runs after
+every install, reinstall and upgrade. It takes the artifact icp-cli just
+installed (`.icp/cache/artifacts/backend`), refuses to go on unless its
+SHA-256 equals the canister's `module_hash`, and uploads it in 1 MiB
+chunks through the mixin's controllers-only methods:
+`wasm_upload_begin()` discards any staged chunks, `wasm_upload_chunk(blob)`
+appends one, `wasm_upload_commit(size)` swaps the staged chunks in as
+the served module, or traps and keeps the previous one when they do not
+add up to `size` bytes. The methods run `Principal.isController` on the
+caller; the deploying identity is a controller. Only the module is ever
+published: the canister's heap, access codes of `#code` tables and
+pending moves stay where they are. Never set `snapshot_visibility:
+public` on a backend: a snapshot is the whole heap.
+
+Pulling needs only the id and `curl`:
 
 ```bash
 ID=<backend-id>
-SNAP=$(icp canister snapshot list $ID -n ic -q | head -1)
-icp canister snapshot download $ID $SNAP -n ic -o snapshot
-shasum -a 256 snapshot/wasm_module.bin   # equals `module_hash` at
-# https://ic-api.internetcomputer.org/api/v3/canisters/<backend-id>
+curl -s https://$ID.raw.icp0.io/wasm -o backend.wasm
+shasum -a 256 backend.wasm                 # equals `module_hash` from
+icp canister status $ID -n ic -p --json    # (or https://ic-api.internetcomputer.org/api/v3/canisters/$ID)
 icp canister metadata $ID candid:service -n ic > backend.did
 ```
 
-`snapshot/wasm_module.bin` then builds a local copy through a
-`pre-built` step (`path` + `sha256`); the skill's
+`backend.wasm` then builds a local copy through a `pre-built` step
+(`path` + `sha256`); the skill's
 `references/frontend-for-existing-game.md` has the whole procedure.
 
-A snapshot is the canister's full state as of the deploy, not just its
-code: a move pending in a round that was open at that instant and the
-access code of a `#code` table alive at that instant are readable by
-anyone until the next deploy replaces the snapshot. Deploy while the
-game is quiet if that matters. The canister is stopped for the few
-seconds the snapshot takes; clients ride it out as a transport hiccup.
+A 404 at `/wasm` ("No module uploaded yet") means the sync step has not
+run against this install: run `icp sync backend -e <env>`. A hash that
+differs from `module_hash` means the same, after a deploy whose sync
+step failed; the script's own hash check makes that the only way the two
+can disagree.
 
 ### Build, test, benchmark
 

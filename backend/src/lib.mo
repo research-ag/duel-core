@@ -9,7 +9,9 @@
 /// Every mutating `Registry` operation is driven exclusively through
 /// `mo:duel-game-core/transport` — never a plain Candid method — because two
 /// independent update calls have no guaranteed relative processing order.
-/// Only `status` is a plain public `query`.
+/// Only `status` is a plain public `query`; `http_request` and the
+/// controllers-only `wasm_upload_*` of `./http_actor_mixin` touch no
+/// game state.
 ///
 ///   import TP "mo:duel-game-core";
 ///   import Registry "mo:duel-game-core/registry";
