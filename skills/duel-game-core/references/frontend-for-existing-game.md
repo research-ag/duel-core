@@ -31,7 +31,7 @@ its backend has it):
 
 ```bash
 curl -sI <game-url>/ \
-  | grep -o 'ID%3Abackend%3D[a-z0-9%D]*cai' | head -1 \
+  | grep -o 'ID%3Abackend%3D[a-z0-9%D-]*cai' | head -1 \
   | sed 's/.*%3D//; s/%2D/-/g'
 ```
 

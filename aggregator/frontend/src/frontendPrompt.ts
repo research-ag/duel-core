@@ -21,7 +21,7 @@ It runs on the duel-game-core framework (${REPO}). Its backend canister is alrea
 
 Work in this order.
 
-1. Find the game's backend canister id. The game's page publishes it in its ic_env cookie, which ${url} sets and which contains PUBLIC_CANISTER_ID:backend (with a shell: curl -sI ${url}/ | grep -o 'ID%3Abackend%3D[a-z0-9%D]*cai' | head -1 | sed 's/.*%3D//; s/%2D/-/g'). Ask me for it only if the cookie has no such entry. Below, <BACKEND> stands for that id (it looks like xxxxx-xxxxx-xxxxx-xxxxx-cai); replace it everywhere, it is never a literal value.
+1. Find the game's backend canister id. The game's page publishes it in its ic_env cookie, which ${url} sets and which contains PUBLIC_CANISTER_ID:backend (with a shell: curl -sI ${url}/ | grep -o 'ID%3Abackend%3D[a-z0-9%D-]*cai' | head -1 | sed 's/.*%3D//; s/%2D/-/g'). Ask me for it only if the cookie has no such entry. Below, <BACKEND> stands for that id (it looks like xxxxx-xxxxx-xxxxx-xxxxx-cai); replace it everywhere, it is never a literal value.
 
 2. Learn the game from https://<BACKEND>.raw.icp0.io/semantics — plain text with the rules, who moves when, and the exact Candid types of State and Action. This is the whole specification; Action appears nowhere else. Fetch any other path it mentions.
 

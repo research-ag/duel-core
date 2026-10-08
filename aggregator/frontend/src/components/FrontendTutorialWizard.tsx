@@ -113,10 +113,10 @@ function PromptStep({ game }: { game: GameView | undefined }) {
         </p>
       ) : (
         <p>
-          Replace the title and the address in the first lines with the game you
-          picked, or open this guide from the{" "}
-          <strong>Make own frontend</strong> button in a game's info dialog
-          (the ⓘ on its card) to have them filled in.
+          Replace the title with the game you picked, and its address everywhere
+          it appears (including the <code>curl</code> command in step 1), or
+          open this guide from the <strong>Make own frontend</strong> button in
+          a game's info dialog (the ⓘ on its card) to have them filled in.
         </p>
       )}
       <CodeBlock code={frontendPrompt(game)} wrap />
@@ -160,11 +160,11 @@ function BuildStep() {
         to here.
       </p>
       <p className="hint">
-        While you test, the page talks to the real game; the prompt tells the
-        AI to use tables with an access code so other players don't wander in.
-        (If a coding tool finds <code>icp-cli</code> from step 4 already
-        installed, it runs a private copy of the game on your computer instead
-        and leaves the real one alone.)
+        While you test, the page talks to the real game; the prompt tells the AI
+        to use tables with an access code so other players don't wander in. (If
+        a coding tool finds <code>icp-cli</code> from step 4 already installed,
+        it runs a private copy of the game on your computer instead and leaves
+        the real one alone.)
       </p>
     </>
   );
@@ -175,11 +175,11 @@ function GoLiveStep() {
     <>
       <ol className="tutorial-list">
         <li>
-          <strong>In caffeine.ai:</strong> the AI ends with the steps to
-          follow; in short, click <strong>Go live</strong>. It puts the page
-          online at a permanent address and keeps it there as long as your plan
-          is active. Then ask the chat: “What is the address of my live app,
-          and its frontend canister id?” — write both down for the next step.
+          <strong>In caffeine.ai:</strong> the AI ends with the steps to follow;
+          in short, click <strong>Go live</strong>. It puts the page online at a
+          permanent address and keeps it there as long as your plan is active.
+          Then ask the chat: “What is the address of my live app, and its
+          frontend canister id?” — write both down for the next step.
         </li>
         <li>
           <strong>From your own computer</strong>, three one-time things, then
