@@ -5,6 +5,8 @@
 import { IDL } from "@icp-sdk/core/candid";
 import { buildEngineTypes, type EngineTypes } from "../../src/idl.js";
 import type { PollResult, TransportActor } from "../../src/transport.js";
+
+type Reply = { view: { rev: bigint; view: Status } } | { err: EngineErr };
 import type { EngineErr, Status, TransportRequest } from "../../src/types.js";
 
 export function sampleGameTypes({ IDL: I }: { IDL: typeof IDL }) {
@@ -48,9 +50,11 @@ export class FakeCanister implements TransportActor {
     this.types = buildEngineTypes({ IDL, Action, State });
   }
 
-  private _encode(value: unknown): Uint8Array {
-    const buf = IDL.encode([this.types.TransportMsg], [value]);
-    return buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  /// Round-trips `value` through Candid as the agent would, so a shape
+  /// that does not match the IDL fails here too.
+  private _wire<T>(types: IDL.Type[], values: unknown[]): T {
+    const buf = IDL.encode(types, values);
+    return IDL.decode(types, buf instanceof Uint8Array ? buf : new Uint8Array(buf)) as unknown as T;
   }
 
   get sent(): TransportRequest[] {
@@ -68,27 +72,33 @@ export class FakeCanister implements TransportActor {
     this.rev = null;
   }
 
-  private _handle(msg: Uint8Array): Uint8Array {
-    const decoded = IDL.decode([this.types.TransportMsg], msg)[0] as unknown as {
-      req: { sid: string; req: TransportRequest };
-    };
-    this.requests.push(decoded.req);
+  private _handle(sidArg: string, reqArg: TransportRequest): Reply {
+    const [sid, req] = this._wire<[string, TransportRequest]>(
+      [IDL.Text, this.types.TransportRequest],
+      [sidArg, reqArg]
+    );
+    this.requests.push({ sid, req });
     if (this.rev === null) this.rev = this.nextRev++;
-    const reply = this.respond(decoded.req.req);
-    if ("err" in reply) return this._encode({ err: { err: reply.err } });
-    if (!("status" in decoded.req.req)) this.rev = this.nextRev++;
-    this.current = reply.view;
-    return this._encode({ view: { rev: this.rev, view: reply.view } });
+    const reply = this.respond(req);
+    let out: Reply;
+    if ("err" in reply) {
+      out = { err: reply.err };
+    } else {
+      if (!("status" in req)) this.rev = this.nextRev++;
+      this.current = reply.view;
+      out = { view: { rev: this.rev, view: reply.view } };
+    }
+    return this._wire<[Reply]>([this.types.TransportReply], [out])[0];
   }
 
-  async duel_request(msg: Uint8Array): Promise<Uint8Array> {
+  async duel_request(sid: string, req: TransportRequest): Promise<Reply> {
     this.attempts++;
     if (this.failRequests > 0) {
       this.failRequests--;
-      if (this.landsBeforeFailing) this._handle(msg);
+      if (this.landsBeforeFailing) this._handle(sid, req);
       throw new Error("network down");
     }
-    return this._handle(msg);
+    return this._handle(sid, req);
   }
 
   duel_poll(sid: string, rev: bigint): Promise<PollResult> {
@@ -104,9 +114,8 @@ export class FakeCanister implements TransportActor {
       await new Promise((r) => setTimeout(r, this.pollDelayMs));
     if (this.rev === null) return { unknown: null };
     if (this.rev === rev) return { unchanged: null };
-    return {
-      changed: this._encode({ view: { rev: this.rev, view: this.current } }),
-    };
+    const res = { changed: { rev: this.rev, view: this.current } };
+    return this._wire<[PollResult]>([this.types.PollResult], [res])[0];
   }
 
   async status(_sid: string): Promise<Status> {

@@ -183,7 +183,6 @@ right after each of sparring's moves, inside that same call.
 
 ```motoko
 import Principal "mo:core/Principal";
-import Runtime "mo:core/Runtime";
 
 import TP "mo:duel-game-core";
 import Transport "mo:duel-game-core/transport";
@@ -195,23 +194,23 @@ import Game "GameTypes";
 // would, one request per call.
 actor Sparring {
 
-  type Msg = Transport.Msg<Game.State, Game.Action>;
-  type Host = actor { duel_request : (Blob) -> async Blob };
-
-  func send(host : Principal.Principal, req : Transport.Request<Game.Action>) : async Msg {
-    let sid = Transport.sidFor(Transport.ANON_SID_PREFIX, Principal.fromActor(Sparring));
-    let h : Host = actor (host.toText());
-    let msg : Msg = #req { sid; req };
-    let ?reply : ?Msg = from_candid (await h.duel_request(to_candid (msg))) else Runtime.trap("reply does not decode: compare GameTypes.mo with backend.did");
-    reply;
+  type Reply = Transport.Reply<Game.State>;
+  type Host = actor {
+    duel_request : (Text, Transport.DuelRequest<Game.Action>) -> async Reply;
   };
 
-  public func open_table(host : Principal.Principal, seat : TP.Seat, variant : Text) : async Msg {
+  func send(host : Principal.Principal, req : Transport.DuelRequest<Game.Action>) : async Reply {
+    let sid = Transport.sidFor(Transport.ANON_SID_PREFIX, Principal.fromActor(Sparring));
+    let h : Host = actor (host.toText());
+    await h.duel_request(sid, req);
+  };
+
+  public func open_table(host : Principal.Principal, seat : TP.Seat, variant : Text) : async Reply {
     await send(host, #createTable { seat; visibility = #open; variant });
   };
 
   // One move when this seat is due; the fresh status either way.
-  public func step(host : Principal.Principal, complexity : Text) : async Msg {
+  public func step(host : Principal.Principal, complexity : Text) : async Reply {
     let status = await send(host, #status);
     switch status {
       case (#view { view = #atTable { id; view = #inGame g } }) {
@@ -235,7 +234,7 @@ actor Sparring {
     };
   };
 
-  public func ack_ended(host : Principal.Principal) : async Msg {
+  public func ack_ended(host : Principal.Principal) : async Reply {
     await send(host, #ackEnded);
   };
 
@@ -261,8 +260,8 @@ how long it took, `finalGame` the last state. Each `step` reply shows
 bot's) and by one in `#simultaneous`. A `step` that returns the same
 `inGame` view with `youSubmitted = true` means the bot did not reply:
 its move was rejected twice (compare with `RULES`) or did not decode
-(compare `GameTypes.mo` with `backend.did`); a sparring reply that does
-not decode traps with that message. `ack_ended` clears the debrief
+(compare `GameTypes.mo` with `backend.did`); a sparring call whose
+types do not match `backend.did` is rejected by Candid decoding. `ack_ended` clears the debrief
 before the next `open_table`.
 
 Play at least one game per complexity, with the bot in each seat

@@ -30,9 +30,11 @@ knows any particular game.
     `status` is the one plain `query`. There is no goodbye: silence only
     ends presence (checked lazily against `PRESENCE_TTL_NS`); departure
     is `#leave`, `claimWin`, idle takeover and `sweep`. Offers optional
-    hooks `onSettled`/`onGameEnded`/`onGameStarted`.
-  - `actor_mixin.mo` — `include ActorMixin<system>(endpoint, sweepFunc)`:
-    `duel_request`/`duel_poll` plus the 5-minute idle-sweep timer.
+    hooks `onSettled`/`onGameEnded`/`onGameStarted`. A library, not a
+    mixin (a mixin cannot take type parameters): the host declares
+    `duel_request`/`duel_poll` with its own `State`/`Action` and passes
+    them through to `Transport.attach`'s result, and starts the
+    5-minute idle-sweep timer with `Transport.startSweeping<system>`.
   - `canister_players.mo` — OPTIONAL. Lets a canister take a seat under a
     third sid namespace `cp:<principal>:<tableId>:<complexity>`
     (`sidForCanister`), one session per board, derived from
@@ -206,7 +208,7 @@ deploys all of them to the IC.
    stable; every engine entry point takes `spec` as a parameter.
 2. **The engine owns time.** `now : Int` (ns) is a parameter everywhere;
    `lib.mo`/`types.mo`/`table.mo`/`registry.mo` never import `Time`.
-   `transport.mo`, `actor_mixin.mo`, `canister_players.mo`, and the mixins play
+   `transport.mo`, `canister_players.mo`, and the mixins play
    the host's role and call `Time.now()` themselves.
 3. **Rules stay pure.** `init`/`validate`/`resolve` build new records,
    never mutate.

@@ -9,7 +9,6 @@ import Time "mo:core/Time";
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
 import Transport "mo:duel-game-core/transport";
-import ActorMixin "mo:duel-game-core/actor_mixin";
 import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
 import PT "mo:promtracker";
 import Tracker "mo:promtracker/Tracker"; // brings `pt.toValue()` into scope
@@ -37,16 +36,20 @@ actor {
     Rules.spec(),
     registry,
     hub,
-    {
-      encode = func(m : Transport.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
-      decode = func(b : Blob) : ?Transport.Msg<Rules.State, Rules.Action> = from_candid (b);
-    },
     null, // onSettled — canister players
     null, // onGameEnded — leaderboard
     null, // onGameStarted — leaderboard
   );
 
-  include ActorMixin<system>(attached.endpoint, attached.sweep);
+  Transport.startSweeping<system>(attached.sweep);
+
+  public shared ({ caller }) func duel_request(sid : Text, req : Transport.DuelRequest<Rules.Action>) : async Transport.Reply<Rules.State> {
+    attached.reply(sid, await* attached.request(caller, sid, req));
+  };
+
+  public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
+    attached.poll(caller, sid, rev);
+  };
 
   // GET /semantics — the rules text a third-party frontend is built from;
   // GET /metrics — the metrics above. GET /wasm is the mixin's own.

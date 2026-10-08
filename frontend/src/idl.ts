@@ -30,7 +30,7 @@ export interface EngineTypes {
   BotInfo: IDLNS.Type;
   PollResult: IDLNS.Type;
   TransportRequest: IDLNS.Type;
-  TransportMsg: IDLNS.Type;
+  TransportReply: IDLNS.Type;
 }
 
 /// Every named Candid type the service surface uses — `status`'s types
@@ -143,7 +143,8 @@ export function buildEngineTypes({
     complexities: IDL.Vec(BotComplexity),
   });
 
-  // Mirrors `Transport.Msg<S, M>`: `rev` orders views.
+  // Mirrors `Transport.DuelRequest<M>`/`Reply<S>`/`PollResult<S>`: `rev`
+  // orders views.
   const TransportRequest = IDL.Variant({
     createTable: IDL.Record({ seat: Seat, visibility: Visibility, variant: IDL.Text }),
     joinTable: IDL.Record({ id: TableId, seat: Seat, code: IDL.Opt(IDL.Text) }),
@@ -155,22 +156,18 @@ export function buildEngineTypes({
     ackEnded: IDL.Null,
     status: IDL.Null,
   });
-  const TransportMsg = IDL.Variant({
-    req: IDL.Record({ sid: IDL.Text, req: TransportRequest }),
-    view: IDL.Record({ rev: IDL.Nat, view: Status }),
-    err: IDL.Record({ err: Err }),
-  });
-  // `changed` carries an encoded `TransportMsg` `#view`.
+  const TransportView = IDL.Record({ rev: IDL.Nat, view: Status });
+  const TransportReply = IDL.Variant({ view: TransportView, err: Err });
   const PollResult = IDL.Variant({
     unchanged: IDL.Null,
-    changed: IDL.Vec(IDL.Nat8),
+    changed: TransportView,
     unknown: IDL.Null,
   });
 
   return {
     Seat, Mode, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
     LeaderboardEntry, BotInfo,
-    PollResult, TransportRequest, TransportMsg,
+    PollResult, TransportRequest, TransportReply,
   };
 }
 
@@ -189,8 +186,7 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
       register_bot: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [], []),
       unregister_bot: IDL.Func([], [], []),
       list_bots: IDL.Func([], [IDL.Vec(t.BotInfo)], ["query"]),
-      // Both blobs are an encoded `TransportMsg`.
-      duel_request: IDL.Func([IDL.Vec(IDL.Nat8)], [IDL.Vec(IDL.Nat8)], []),
+      duel_request: IDL.Func([IDL.Text, t.TransportRequest], [t.TransportReply], []),
       duel_poll: IDL.Func([IDL.Text, IDL.Nat], [t.PollResult], ["query"]),
     });
   };

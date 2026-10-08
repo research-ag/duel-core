@@ -169,7 +169,7 @@ export interface GamePlugin<S = unknown> {
   formatVariant?(variant: string): string;
 }
 
-/// Mirrors `Transport.Request<M>`. `submit`/`leave`/`reset`/`claimWin` carry the
+/// Mirrors `Transport.DuelRequest<M>`. `submit`/`leave`/`reset`/`claimWin` carry the
 /// last-seen `gen` (and `turn`); a stale value is rejected as `#stale`.
 export type TransportRequest<A = unknown> =
   | { createTable: { seat: Seat; visibility: Visibility; variant: string } }

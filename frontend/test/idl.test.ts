@@ -18,7 +18,7 @@ test("buildEngineTypes builds every named type without throwing", () => {
   const t = buildEngineTypes({ IDL, Action, State });
   for (const key of [
     "Seat", "Verdict", "End", "Err", "View", "LeaderboardEntry",
-    "PollResult", "TransportRequest", "TransportMsg",
+    "PollResult", "TransportRequest", "TransportReply",
   ] as const) {
     assert.ok(t[key], `missing type: ${key}`);
   }

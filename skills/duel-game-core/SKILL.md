@@ -167,8 +167,8 @@ From `templates/Rules.mo.template`, write `src/<YourGame>Rules.mo`:
   stored.
 - Write `SEMANTICS` last, once the types and rules are settled. The host
   serves it at `GET /semantics`, and it is all a third party gets to
-  build their own frontend for your game: `Action` travels inside an
-  opaque blob, so this text is its only public description. Give the
+  build their own frontend for your game: the `.did` gives the types
+  but not what they mean, so this text is its only full description. Give the
   exact Candid of `State` and `Action` (`Nat` is `nat`, `?T` is `opt T`,
   `[T]` is `vec T`, a tuple is a positional record), what each field
   means, every rejection in `validate`, every ending, and anything a UI
@@ -264,7 +264,15 @@ actor {
     await* attached.sweep(now);
     await* cpAttached.sweep(now);
   };
-  include ActorMixin<system>(attached.endpoint, combinedSweep);
+  Transport.startSweeping<system>(combinedSweep);
+
+  public shared ({ caller }) func duel_request(sid : Text, req : Transport.DuelRequest<Rules.Action>) : async Transport.Reply<Rules.State> {
+    attached.reply(sid, await* attached.request(caller, sid, req));
+  };
+
+  public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
+    attached.poll(caller, sid, rev);
+  };
 };
 
 ```

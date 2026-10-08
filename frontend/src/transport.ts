@@ -7,7 +7,9 @@
 //   const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 //   start({ plugin, transport, session });
 //
-// `gameIdlTypes` is the same function passed to `makeIdlFactory()`.
+// `actor` is built from `makeIdlFactory(gameIdlTypes)`; `gameIdlTypes`
+// is the same function, used to reject a malformed request before it is
+// queued.
 //
 // Exposes `onopen`/`onmessage`/`onerror`/`onclose`/`send(msg)` plus
 // `request(sid, req)` (a Promise of this call's own `{view}`/`{err}`),
@@ -50,19 +52,22 @@ const RESEND_DELAYS_MS = [500, 1500];
 /// Ceiling for the back-off between failed relinks.
 const MAX_RETRY_MS = 5000;
 
-export type PollResult =
-  { unchanged: null } | { changed: Uint8Array | number[] } | { unknown: null };
+type View = { rev: bigint; view: Status };
 
-/// The two methods `mo:duel-game-core/actor_mixin` supplies.
+/// Mirrors `Transport.PollResult<S>`.
+export type PollResult =
+  { unchanged: null } | { changed: View } | { unknown: null };
+
+/// Mirrors `Transport.Reply<S>`.
+type Reply = { view: View } | { err: EngineErr };
+
+/// The two methods a host declares over `mo:duel-game-core/transport`.
 export interface TransportActor {
-  duel_request(msg: Uint8Array): Promise<Uint8Array | number[]>;
+  duel_request(sid: string, req: TransportRequest): Promise<Reply>;
   duel_poll(sid: string, rev: bigint): Promise<PollResult>;
   /// The host's plain `status` query, when the actor declares it.
   status?(sid: string): Promise<Status>;
 }
-
-type Reply =
-  { view: { rev: bigint; view: Status } } | { err: { err: EngineErr } };
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
@@ -228,10 +233,10 @@ export class DuelTransport extends EventTarget implements Transport {
     if (this._closed || sid !== this._sid) return;
     this._markAlive();
     if ("changed" in res) {
-      const reply = this._decode(res.changed);
-      if ("view" in reply && reply.view.rev > this._rev) {
-        this._rev = reply.view.rev;
-        this._last = { view: reply.view.view };
+      const { rev, view } = res.changed;
+      if (rev > this._rev) {
+        this._rev = rev;
+        this._last = { view };
         this._deliver(this._last);
       }
     } else if ("unknown" in res && this._linked && epoch === this._epoch) {
@@ -270,14 +275,9 @@ export class DuelTransport extends EventTarget implements Transport {
     this._schedule(delay);
   }
 
-  private _encode(sid: string, req: TransportRequest): Uint8Array {
-    const buf = IDL.encode([this._types.TransportMsg], [{ req: { sid, req } }]);
-    return buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  }
-
-  private _decode(bytes: Uint8Array | number[]): Reply {
-    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    return IDL.decode([this._types.TransportMsg], b)[0] as unknown as Reply;
+  /// Throws on a request the IDL doesn't recognize.
+  private _validate(req: TransportRequest): void {
+    IDL.encode([this._types.TransportRequest], [req]);
   }
 
   /// One update call, resent when it throws: the call may or may not have
@@ -292,10 +292,9 @@ export class DuelTransport extends EventTarget implements Transport {
       // A loss presumed while this attempt was out must not be undone
       // by its reply.
       const epoch = this._epoch;
-      const bytes = this._encode(sid, req);
       try {
         this._lastRequestAt = Date.now();
-        const reply = this._decode(await this._actor.duel_request(bytes));
+        const reply = await this._actor.duel_request(sid, req);
         this._markAlive();
         if ("view" in reply && epoch === this._epoch) this._markLinked();
         return { reply, resent: attempt > 0 };
@@ -313,7 +312,7 @@ export class DuelTransport extends EventTarget implements Transport {
   /// Applies a reply in revision order and returns what the caller should
   /// see: a view older than one already applied yields the newer one.
   private _apply(reply: Reply): { payload: TransportPayload; fresh: boolean } {
-    if ("err" in reply) return { payload: { err: reply.err.err }, fresh: true };
+    if ("err" in reply) return { payload: { err: reply.err }, fresh: true };
     if (reply.view.rev < this._rev && this._last !== null) {
       return { payload: this._last, fresh: false };
     }
@@ -330,7 +329,7 @@ export class DuelTransport extends EventTarget implements Transport {
     if (
       resent &&
       "err" in reply &&
-      ("alreadySubmitted" in reply.err.err || "stale" in reply.err.err)
+      ("alreadySubmitted" in reply.err || "stale" in reply.err)
     ) {
       ({ reply } = await this._call(sid, { status: null }));
     }
@@ -342,7 +341,7 @@ export class DuelTransport extends EventTarget implements Transport {
   private _enqueue(sid: string, req: TransportRequest): Promise<TransportPayload> {
     // Throws on a request the IDL doesn't recognize (a tampered
     // `data-act`), before anything is queued.
-    this._encode(sid, req);
+    this._validate(req);
     this._sid = sid;
     this._inFlight++;
     const result = this._chain.then(() => this._exchange(sid, req));

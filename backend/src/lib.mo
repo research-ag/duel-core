@@ -16,7 +16,6 @@
 ///   import TP "mo:duel-game-core";
 ///   import Registry "mo:duel-game-core/registry";
 ///   import Transport "mo:duel-game-core/transport";
-///   import ActorMixin "mo:duel-game-core/actor_mixin";
 ///
 ///   actor {
 ///     let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
@@ -26,7 +25,8 @@
 ///       registry.status(Rules.spec(), Time.now(), sid);
 ///     };
 ///
-///     // Transport.attach + include ActorMixin<system>(attached.endpoint, attached.sweep)
+///     // Transport.attach + Transport.startSweeping + the typed
+///     // duel_request/duel_poll pass-throughs — see `./transport`
 ///   };
 ///
 /// `Registry<S, M>`/`Table<S, M>` are stable whenever `S`/`M` are; the

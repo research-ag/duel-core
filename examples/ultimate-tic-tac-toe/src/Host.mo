@@ -5,7 +5,6 @@ import Timer "mo:core/Timer";
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
 import Transport "mo:duel-game-core/transport";
-import ActorMixin "mo:duel-game-core/actor_mixin";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
 import Leaderboard "mo:duel-game-core/leaderboard";
@@ -79,10 +78,6 @@ actor {
     Rules.spec(),
     registry,
     hub,
-    {
-      encode = func(m : Transport.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
-      decode = func(b : Blob) : ?Transport.Msg<Rules.State, Rules.Action> = from_candid (b);
-    },
     ?settle,
     ?onGameEnded,
     null,
@@ -110,7 +105,15 @@ actor {
     await* attached.sweep(now);
     await* cpAttached.sweep(now);
   };
-  include ActorMixin<system>(attached.endpoint, combinedSweep);
+  Transport.startSweeping<system>(combinedSweep);
+
+  public shared ({ caller }) func duel_request(sid : Text, req : Transport.DuelRequest<Rules.Action>) : async Transport.Reply<Rules.State> {
+    attached.reply(sid, await* attached.request(caller, sid, req));
+  };
+
+  public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
+    attached.poll(caller, sid, rev);
+  };
 
   include HttpActorMixin([
     ("/semantics", func() : Text = Rules.SEMANTICS),

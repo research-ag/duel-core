@@ -1,5 +1,5 @@
 /// duel-game-core/transport — the REQUIRED client transport: one update
-/// method for requests, one query polled for changes. The only way a
+/// method for requests, one query polled for changes, both fully typed. The only way a
 /// client mutates game state: none of `Registry`'s mutating operations is
 /// a plain Candid method (two independent update calls have no guaranteed
 /// relative order). `status` stays a plain `query`.
@@ -13,15 +13,24 @@
 /// status whenever its `rev` moved. Nothing is queued. Silence only ends
 /// presence; departure is the engine's own business.
 ///
-/// Wiring — see `../README.md`, "Transport":
+/// This is a library, not a mixin (a mixin cannot take type parameters):
+/// the host declares the two methods with its own `State`/`Action` and
+/// passes them through. Wiring — see `../README.md`, "Transport":
 ///
 ///   transient let hub : Transport.Hub = Transport.createHub();
 ///   transient let attached = Transport.attach<Rules.State, Rules.Action>(
 ///     Rules.spec(), registry, hub,
-///     { encode = func(m) = to_candid (m); decode = func(b) = from_candid (b) },
 ///     null, null, null, // onSettled, onGameEnded, onGameStarted
 ///   );
-///   include ActorMixin<system>(attached.endpoint, attached.sweep);
+///   Transport.startSweeping<system>(attached.sweep);
+///
+///   public shared ({ caller }) func duel_request(sid : Text, req : Transport.DuelRequest<Rules.Action>) : async Transport.Reply<Rules.State> {
+///     attached.reply(sid, await* attached.request(caller, sid, req));
+///   };
+///
+///   public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
+///     attached.poll(caller, sid, rev);
+///   };
 
 import Array "mo:core/Array";
 import Int "mo:core/Int";
@@ -29,6 +38,7 @@ import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
+import Timer "mo:core/Timer";
 
 import TP "./lib";
 import Registry "./registry";
@@ -40,7 +50,7 @@ module {
   /// `#leave`/`#reset`/`#claimWin` carry the `gen` (and `#submit` the
   /// `turn`) the client last observed, so a stale replay is rejected as
   /// `#stale`.
-  public type Request<M> = {
+  public type DuelRequest<M> = {
     #createTable : {
       seat : TP.Seat;
       visibility : TP.TableVisibility;
@@ -56,23 +66,17 @@ module {
     #status;
   };
 
-  /// One message type for both directions. `rev` orders views: a client
-  /// drops any view not newer than the last it applied.
-  public type Msg<S, M> = {
-    #req : { sid : TP.SessionId; req : Request<M> };
-    #view : { rev : Nat; view : TP.SessionStatus<S> };
-    #err : { err : TP.Err };
-  };
+  /// The caller's fresh status. `rev` orders views: a client drops any
+  /// view not newer than the last it applied.
+  public type Snapshot<S> = { rev : Nat; view : TP.SessionStatus<S> };
 
-  /// `#unknown`: no link for this session (an upgrade, a pruned or
-  /// departed one) — the client sends `#status` again.
-  public type PollResult = { #unchanged; #changed : Blob; #unknown };
+  /// What `duel_request` returns.
+  public type Reply<S> = { #view : Snapshot<S>; #err : TP.Err };
 
-  /// Built where `S`/`M` are concrete, via `to_candid`/`from_candid`.
-  public type Codec<S, M> = {
-    encode : (Msg<S, M>) -> Blob;
-    decode : (Blob) -> ?Msg<S, M>;
-  };
+  /// What `duel_poll` returns. `#unknown`: no link for this session (an
+  /// upgrade, a pruned or departed one) — the client sends `#status`
+  /// again.
+  public type PollResult<S> = { #unchanged; #changed : Snapshot<S>; #unknown };
 
   public let PRINCIPAL_SID_PREFIX : Text = "ii:";
 
@@ -185,20 +189,19 @@ module {
     };
   };
 
-  /// What `actor_mixin.mo` exposes as `duel_request`/`duel_poll`.
-  public type Endpoint = {
-    request : (Principal, Blob) -> async* Blob;
-    poll : (Principal, TP.SessionId, Nat) -> PollResult;
-  };
-
-  /// `sweep` runs `Registry.sweep`, marks every linked session changed
+  /// `request` runs a request and returns its error, if any; `reply`
+  /// turns that into `duel_request`'s reply (two steps because an
+  /// `async*` result must be a shared type, which the generic `Reply<S>`
+  /// is not). `poll` is `duel_poll`. `sweep` runs `Registry.sweep`, marks every linked session changed
   /// when something was evicted (a bare `registry.sweep` would leave a
   /// polling tab stale), and prunes links that stopped being present.
   /// `afterMutation(now, sid, id, broadcastLobby)` is the fan-out a
   /// request runs, exposed so `canister_players.mo` reuses it for a
   /// canister-driven mutation.
-  public type Attached = {
-    endpoint : Endpoint;
+  public type Attached<S, M> = {
+    request : (Principal, TP.SessionId, DuelRequest<M>) -> async* ?TP.Err;
+    reply : (TP.SessionId, ?TP.Err) -> Reply<S>;
+    poll : (Principal, TP.SessionId, Nat) -> PollResult<S>;
     sweep : (Int) -> async* ();
     afterMutation : (Int, TP.SessionId, ?TP.TableId, Bool) -> async* ();
   };
@@ -249,15 +252,14 @@ module {
     spec : TP.Spec<S, M>,
     registry : TP.Registry<S, M>,
     hub : Hub,
-    codec : Codec<S, M>,
     onSettled : ?OnSettled,
     onGameEnded : ?OnGameEnded<S>,
     onGameStarted : ?OnGameStarted,
-  ) : Attached {
+  ) : Attached<S, M> {
     if (hub.nextRev == 0) hub.nextRev := Int.abs(Time.now());
 
-    func viewOf(now : Int, sid : TP.SessionId) : Blob {
-      codec.encode(#view({ rev = revOf(hub, sid); view = registry.status(spec, now, sid) }));
+    func viewOf(now : Int, sid : TP.SessionId) : Snapshot<S> {
+      { rev = revOf(hub, sid); view = registry.status(spec, now, sid) };
     };
 
     /// Marks changed: `sid`, the table's other occupants — including a
@@ -320,20 +322,15 @@ module {
       };
     };
 
-    func request(caller : Principal, msg : Blob) : async* Blob {
-      let ?#req({ sid; req }) = codec.decode(msg) else {
-        return codec.encode(#err({ err = #unauthorized }));
-      };
-      if (not isAuthorizedSid(sid, caller)) {
-        return codec.encode(#err({ err = #unauthorized }));
-      };
+    func request(caller : Principal, sid : TP.SessionId, req : DuelRequest<M>) : async* ?TP.Err {
+      if (not isAuthorizedSid(sid, caller)) return ?#unauthorized;
       let now = Time.now();
       ignore seen(hub, sid, now);
       // Captured before the request runs: submit/rematch/leave/reset/
       // claimWin/ackEnded return no `TableId` of their own.
       let priorId = registry.bySession.get(sid);
       let res : TP.Res<(?TP.TableId, Bool)> = switch (req) {
-        case (#status) return viewOf(now, sid);
+        case (#status) return null;
         case (#createTable { seat; visibility; variant }) {
           switch (registry.createTable(spec, now, sid, seat, visibility, variant)) {
             case (#ok id) #ok(?id, true);
@@ -382,16 +379,24 @@ module {
         };
       };
       switch (res) {
-        case (#err err) codec.encode(#err({ err }));
+        case (#err err) ?err;
         case (#ok(id, broadcastLobby)) {
           await* afterMutation(now, sid, id, broadcastLobby);
-          // `onSettled` may have awaited a canister player's move.
-          viewOf(Time.now(), sid);
+          null;
         };
       };
     };
 
-    func poll(caller : Principal, sid : TP.SessionId, rev : Nat) : PollResult {
+    // Read at `Time.now()`: `onSettled` may have awaited a canister
+    // player's move.
+    func reply(sid : TP.SessionId, err : ?TP.Err) : Reply<S> {
+      switch (err) {
+        case (?e) #err e;
+        case null #view(viewOf(Time.now(), sid));
+      };
+    };
+
+    func poll(caller : Principal, sid : TP.SessionId, rev : Nat) : PollResult<S> {
       if (not isAuthorizedSid(sid, caller)) return #unknown;
       switch (hub.links.get(sid)) {
         case null #unknown;
@@ -423,6 +428,16 @@ module {
       };
     };
 
-    { endpoint = { request; poll }; sweep; afterMutation };
+    { request; reply; poll; sweep; afterMutation };
+  };
+
+  /// Runs `sweep` (`Attached.sweep`, or a host's combination with
+  /// `CanisterPlayers.Attached.sweep`) every five minutes. Call once from
+  /// the actor body.
+  public func startSweeping<system>(sweep : (Int) -> async* ()) {
+    ignore Timer.recurringTimer<system>(
+      #seconds(300),
+      func() : async () { await* sweep(Time.now()) },
+    );
   };
 };
