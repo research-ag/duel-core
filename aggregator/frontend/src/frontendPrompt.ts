@@ -21,7 +21,7 @@ It runs on the duel-game-core framework (${REPO}). Its backend canister is alrea
 
 Work in this order.
 
-1. Find the game's backend canister id. The game's page publishes it in one of two places: the ic_env cookie that ${url} sets contains PUBLIC_CANISTER_ID:backend (with a shell: curl -sI ${url}/ | grep -o 'ID%3Abackend%3D[a-z0-9%D]*cai' | head -1 | sed 's/.*%3D//; s/%2D/-/g'); if the cookie has no such entry, look for <meta name="duel-backend" content="..."> in the page's HTML. Ask me for it only if both are missing. Below, <BACKEND> stands for that id (it looks like xxxxx-xxxxx-xxxxx-xxxxx-cai); replace it everywhere, it is never a literal value.
+1. Find the game's backend canister id. The game's page publishes it in its ic_env cookie, which ${url} sets and which contains PUBLIC_CANISTER_ID:backend (with a shell: curl -sI ${url}/ | grep -o 'ID%3Abackend%3D[a-z0-9%D]*cai' | head -1 | sed 's/.*%3D//; s/%2D/-/g'). Ask me for it only if the cookie has no such entry. Below, <BACKEND> stands for that id (it looks like xxxxx-xxxxx-xxxxx-xxxxx-cai); replace it everywhere, it is never a literal value.
 
 2. Learn the game from https://<BACKEND>.raw.icp0.io/semantics — plain text with the rules, who moves when, and the exact Candid types of State and Action. This is the whole specification; Action appears nowhere else. Fetch any other path it mentions.
 
@@ -29,7 +29,7 @@ Work in this order.
 
 4. Get the client library: npm package duel-game-core. If it is not on npm, use its source: the files under ${REPO}/tree/main/frontend/src (client.ts, transport.ts, idl.ts, types.ts, anon-identity.ts, render.ts, app.ts, ic-env.ts; each at ${RAW}/frontend/src/<file>) copied into the project as-is; they need only @icp-sdk/core and @icp-sdk/auth. Never rewrite the wire protocol yourself.
 
-5. Wire the backend id into the frontend: use PUBLIC_CANISTER_ID:backend from the ic_env cookie when present, otherwise <BACKEND> hardcoded. When the page talks to the live backend, the agent host is https://icp0.io whatever the page's own address is. Put <meta name="duel-backend" content="<BACKEND>"> (the real id, not the placeholder) in index.html: a page hosted elsewhere has no such cookie, and that tag is how the dashboard finds the game behind my page.
+5. Wire the backend id into the frontend: use PUBLIC_CANISTER_ID:backend from the ic_env cookie when present, otherwise <BACKEND> hardcoded. When the page talks to the live backend, the agent host is https://icp0.io whatever the page's own address is.
 
 6. Test by playing a whole game: both seats in two browser tabs, every kind of move, an illegal move (the backend's rejection text must show, not a crash), an ending, a rematch.
    - If you can run icp-cli: the backend serves its own wasm. Download it (curl -s https://<BACKEND>.raw.icp0.io/wasm -o backend.wasm), check its SHA-256 against the module_hash from icp canister status <BACKEND> -n ic -p --json, declare it as a canister named backend with the @dfinity/prebuilt recipe (path + that sha256), run icp canister link backend <BACKEND> -e ic once (steps 4 and 5 of the reference), and test against the private local copy icp deploy creates; never touch the live backend while developing.

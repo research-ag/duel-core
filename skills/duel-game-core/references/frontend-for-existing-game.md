@@ -25,9 +25,9 @@ semantics text is sufficient to build from.
 ## 1. Resolve the backend id
 
 Given a backend canister id, use it. Given the game's address (what the
-Duel dashboard lists), the page publishes its backend in one of two
-places. First the `ic_env` cookie the page sets (every page deployed
-with icp-cli next to, or linked to, its backend has it):
+Duel dashboard lists), the page publishes its backend in the `ic_env`
+cookie it sets (every page deployed with icp-cli next to, or linked to,
+its backend has it):
 
 ```bash
 curl -sI <game-url>/ \
@@ -35,14 +35,7 @@ curl -sI <game-url>/ \
   | sed 's/.*%3D//; s/%2D/-/g'
 ```
 
-Then, if the cookie has no such entry, the tag a page hosted elsewhere
-carries instead (step 5 puts it there):
-
-```bash
-curl -s <game-url>/ | grep -o 'name="duel-backend" content="[^"]*"'
-```
-
-Both empty means that frontend does not publish its backend; ask the
+Empty output means that frontend does not publish its backend; ask the
 user for the backend canister id.
 
 ```bash
@@ -170,10 +163,7 @@ hosting, caffeine.ai included). Whenever the page talks to the live
 backend, build the `HttpAgent` with `host: "https://icp0.io"` and no
 `rootKey`: `deriveHost()` assumes the backend sits behind the page's
 own origin, which is false for a page served from `localhost` or a
-foreign host. Also put `<meta name="duel-backend" content="BACKEND">`
-(the real id) in `index.html`: a page hosted elsewhere sets no cookie,
-and that tag is how the dashboard, and the next person running this
-procedure, find the game behind your page.
+foreign host.
 
 ## 6. Write the client
 
