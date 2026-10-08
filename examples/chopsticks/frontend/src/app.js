@@ -38,9 +38,9 @@ const agent = await HttpAgent.create({
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
-const ws = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
+const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 
-const client = createDuelClient({ ws, session });
+const client = createDuelClient({ transport, session });
 
 // The plain queries the UI reads and the one call it makes on a
 // discovered bot's own canister (`play`, never through `transport.mo`). See

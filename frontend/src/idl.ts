@@ -29,8 +29,8 @@ export interface EngineTypes {
   LeaderboardEntry: IDLNS.Type;
   BotInfo: IDLNS.Type;
   PollResult: IDLNS.Type;
-  WsRequest: IDLNS.Type;
-  WsMsg: IDLNS.Type;
+  TransportRequest: IDLNS.Type;
+  TransportMsg: IDLNS.Type;
 }
 
 /// Every named Candid type the service surface uses — `status`'s types
@@ -145,7 +145,7 @@ export function buildEngineTypes({
 
   // Mirrors `Transport.Msg<S, M>`: `epoch` names the client's current
   // connection, `rev` orders views.
-  const WsRequest = IDL.Variant({
+  const TransportRequest = IDL.Variant({
     createTable: IDL.Record({ seat: Seat, visibility: Visibility, variant: IDL.Text }),
     joinTable: IDL.Record({ id: TableId, seat: Seat, code: IDL.Opt(IDL.Text) }),
     submit: IDL.Record({ gen: IDL.Nat, turn: IDL.Nat, move: Action }),
@@ -157,12 +157,12 @@ export function buildEngineTypes({
     status: IDL.Null,
     bye: IDL.Null,
   });
-  const WsMsg = IDL.Variant({
-    req: IDL.Record({ sid: IDL.Text, epoch: IDL.Nat64, req: WsRequest }),
+  const TransportMsg = IDL.Variant({
+    req: IDL.Record({ sid: IDL.Text, epoch: IDL.Nat64, req: TransportRequest }),
     view: IDL.Record({ rev: IDL.Nat, view: Status }),
     err: IDL.Record({ err: Err }),
   });
-  // `changed` carries an encoded `WsMsg` `#view`.
+  // `changed` carries an encoded `TransportMsg` `#view`.
   const PollResult = IDL.Variant({
     unchanged: IDL.Null,
     changed: IDL.Vec(IDL.Nat8),
@@ -172,7 +172,7 @@ export function buildEngineTypes({
   return {
     Seat, Mode, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
     LeaderboardEntry, BotInfo,
-    PollResult, WsRequest, WsMsg,
+    PollResult, TransportRequest, TransportMsg,
   };
 }
 
@@ -191,7 +191,7 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
       register_bot: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [], []),
       unregister_bot: IDL.Func([], [], []),
       list_bots: IDL.Func([], [IDL.Vec(t.BotInfo)], ["query"]),
-      // Both blobs are an encoded `WsMsg`.
+      // Both blobs are an encoded `TransportMsg`.
       duel_request: IDL.Func([IDL.Vec(IDL.Nat8)], [IDL.Vec(IDL.Nat8)], []),
       duel_poll: IDL.Func([IDL.Text, IDL.Nat], [t.PollResult], ["query"]),
     });

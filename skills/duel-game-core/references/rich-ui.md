@@ -9,7 +9,7 @@ voice, `start({ screens })` (SKILL.md, Step 6) is enough.
 ## The split that makes this easy
 
 `duel-game-core/client.js` is everything the browser side does except
-drawing: `createDuelClient({ ws, session })` owns the connection, the
+drawing: `createDuelClient({ transport, session })` owns the connection, the
 current `Status`, the one call in flight, error lifetime, the identity
 lock, and the stale-view resync, and hands subscribers an immutable
 `ClientState` after every change. `duel-game-core/app.js`'s `start()` is
@@ -22,7 +22,7 @@ import {
   localSecondsLeft,
 } from "duel-game-core/client.js";
 
-const client = createDuelClient({ ws, session });
+const client = createDuelClient({ transport, session });
 client.subscribe((state, prev) => {
   if (state.status !== prev.status) drawScreen(state);
   toolbar.disabled = state.pending !== null;
@@ -122,7 +122,7 @@ framework component its own region. `start()` replaces
 anything with real state placed inside `#screen` — a mounted framework
 app, a `<canvas>` with a WebGL context — is destroyed and reparsed.
 
-1. Run `const client = start({ plugin, ws, session })` for the chrome.
+1. Run `const client = start({ plugin, transport, session })` for the chrome.
 2. Give your UI its own persistent DOM region, a **sibling** of `#screen`.
 3. Drive it from `client.subscribe(...)`. Never open a second connection
    (two pollers can deliver views out of order); `client.submit(move)` is
@@ -136,7 +136,7 @@ app, a `<canvas>` with a WebGL context — is destroyed and reparsed.
    counter in `State`), not from `renderBoard` being called.
 
 `examples/racing` in the framework repo is the worked example (a Three.js
-scene beside the chrome, sharing one `ws`); its `frontend/CLAUDE.md` and
+scene beside the chrome, sharing one `transport`); its `frontend/CLAUDE.md` and
 `lobby-connection.service.ts` show the shared-connection pattern.
 
 ## Adapting an existing framework-based client

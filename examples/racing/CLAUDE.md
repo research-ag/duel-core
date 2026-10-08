@@ -47,7 +47,7 @@ either package.
   inverts `scoreFromLapMs` (`m:ss.mmm`; `0n` renders `"--:--.--"`). Keep
   its `3_600_000n` in sync with `Host.mo`'s `ONE_HOUR_MS`. The race
   itself (`src/main.ts`, `lobby-connection.service.ts`) shares the ONE
-  `DuelTransport` via `window.duelWsReady` and has no polling of its own.
+  `DuelTransport` via `window.duelTransportReady` and has no polling of its own.
 
 ## Toolchain
 

@@ -1,6 +1,6 @@
 // Bootstrap for the racing duel client: build the actor and push
 // transport, hand off to duel-game-core's generic wiring, publish both on
-// `window.duelActorReady`/`duelWsReady` so main.ts's own bundle drives the
+// `window.duelActorReady`/`duelTransportReady` so main.ts's own bundle drives the
 // 3D race over the same session and connection, and wire the leaderboard
 // and bot-challenge overlays. Bundled by esbuild (../../build.js).
 
@@ -16,8 +16,8 @@ import { errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag }
 import { plugin } from './duel-racing-plugin.js';
 
 // Set up by an inline script in index.html's <head>, before any module runs.
-if (!window.__resolveDuelActor || !window.__resolveDuelWs) {
-  throw new Error("window.__resolveDuelActor/__resolveDuelWs is missing — check index.html's inline bootstrap script");
+if (!window.__resolveDuelActor || !window.__resolveDuelTransport) {
+  throw new Error("window.__resolveDuelActor/__resolveDuelTransport is missing — check index.html's inline bootstrap script");
 }
 
 const env = safeGetCanisterEnv();
@@ -48,12 +48,12 @@ const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
 window.__resolveDuelActor(actor);
 
-// Shared with lobby-connection.service.ts via window.duelWsReady, so the
+// Shared with lobby-connection.service.ts via window.duelTransportReady, so the
 // race runs over this one connection instead of a second poller.
-const ws = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
-window.__resolveDuelWs(ws);
+const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
+window.__resolveDuelTransport(transport);
 
-start({ plugin, ws, session });
+start({ plugin, transport, session });
 
 // Leaderboard: a full-page overlay fetched via plain queries on open;
 // `plugin.formatScore` turns each stored score back into a lap time.
@@ -106,7 +106,7 @@ function setLastBot(bot) {
 // The open seat and code of this session's own staging, tracked off the
 // live status push; `null` on any other screen.
 let staging = null;
-ws.addEventListener('message', (ev) => {
+transport.addEventListener('message', (ev) => {
   const payload = ev.data;
   if (!payload || 'err' in payload) { staging = null; botAddPanel.hidden = true; return; }
   const status = payload.view;
@@ -157,7 +157,7 @@ botBack.addEventListener('click', () => {
 // This session's own staging (`seat === undefined`), or a new table.
 async function stageFor(seat) {
   if (seat === undefined) return staging;
-  const res = await ws.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, variant: "" } });
+  const res = await transport.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, variant: "" } });
   if ('err' in res) throw new Error(errText(res.err));
   const status = res.view;
   if (!('atTable' in status) || tag(status.atTable.view) !== 'stagingYou') {

@@ -7,6 +7,7 @@ description = "__GAME_SLUG__ — a duel-game-core game"
 # `mops add duel-game-core` fills in the line below; if the package isn't
 # on mops.one yet: duel-game-core = "../duel-core/backend"
 core = "2.6.1"
+promtracker = "1.0.1" # metrics at GET /metrics, wired by the Host template
 
 [toolchain]
 moc = "1.11.2"

@@ -608,8 +608,11 @@ and keeps a `Map<TableId, Int>` of start times — see the skill's
 
 ### Metrics
 
-Opt-in: `mops add promtracker`, then `registry.attachMetrics(pt)` right
-after `Registry.new`. Four metrics, scoped to that registry:
+Every host built from the skill's template wires these (`promtracker` in
+`mops.toml`, `registry.attachMetrics(pt)` right after `Registry.new`,
+and a `/metrics` route). The engine itself does not require them: a
+registry without `attachMetrics` records nothing. Four metrics, scoped
+to that registry:
 
 - `games_started` (counter) — each `#staging -> #active` transition.
 - `active_games` (gauge) — recomputed after any call that can change it.
@@ -620,6 +623,7 @@ after `Registry.new`. Four metrics, scoped to that registry:
 
 ```motoko
 import PT "mo:promtracker";
+import Tracker "mo:promtracker/Tracker"; // brings `pt.toValue()` into scope
 
 persistent actor {
   let pt = PT.Tracker.new(); // plain data — stable
