@@ -3,7 +3,8 @@
 // Internet Computer or coding. Two ways through: caffeine.ai (chat,
 // builds and hosts the app itself, paid plan) or an AI coding agent on
 // their own computer (free tools, pays hosting directly). `game` is the
-// card the wizard was opened from, or undefined from the header.
+// listing whose info dialog opened the wizard, or undefined from the
+// header.
 
 import type { GameView } from "../types";
 import { frontendPrompt } from "../frontendPrompt";
@@ -113,8 +114,9 @@ function PromptStep({ game }: { game: GameView | undefined }) {
       ) : (
         <p>
           Replace the title and the address in the first lines with the game you
-          picked, or open this guide from a game's own{" "}
-          <strong>Make own frontend</strong> button to have them filled in.
+          picked, or open this guide from the{" "}
+          <strong>Make own frontend</strong> button in a game's info dialog
+          (the ⓘ on its card) to have them filled in.
         </p>
       )}
       <CodeBlock code={frontendPrompt(game)} wrap />

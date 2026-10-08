@@ -13,7 +13,7 @@ export function GameGrid({
   developers,
   onEdit,
   onDeleted,
-  onOwnFrontend,
+  onInfo,
 }: {
   games: GameView[];
   loading: boolean;
@@ -23,7 +23,7 @@ export function GameGrid({
   developers: [string, string][];
   onEdit: (game: GameView) => void;
   onDeleted: () => void;
-  onOwnFrontend: (game: GameView) => void;
+  onInfo: (game: GameView) => void;
 }) {
   const [search, setSearch] = useState("");
   const [developer, setDeveloper] = useState<string>("all");
@@ -153,7 +153,7 @@ export function GameGrid({
               }
               onEdit={() => onEdit(g)}
               onDeleted={onDeleted}
-              onOwnFrontend={() => onOwnFrontend(g)}
+              onInfo={() => onInfo(g)}
             />
           ))}
         </div>

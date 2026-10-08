@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 
 import { BotTutorialWizard } from "./components/BotTutorialWizard";
 import { FrontendTutorialWizard } from "./components/FrontendTutorialWizard";
+import { GameInfoModal } from "./components/GameInfoModal";
 import { GameFormModal } from "./components/GameFormModal";
 import { GameGrid } from "./components/GameGrid";
 import { Header } from "./components/Header";
@@ -27,6 +28,7 @@ export function App() {
   const [frontendFor, setFrontendFor] = useState<GameView | "any" | undefined>(
     undefined
   );
+  const [infoFor, setInfoFor] = useState<GameView | undefined>(undefined);
 
   const developers = useMemo(() => {
     const byId = new Map<string, string>();
@@ -60,7 +62,7 @@ export function App() {
         developers={developers}
         onEdit={(game) => setModal(game)}
         onDeleted={reload}
-        onOwnFrontend={(game) => setFrontendFor(game)}
+        onInfo={(game) => setInfoFor(game)}
       />
       <footer className="footer">
         <div className="wrap">
@@ -121,6 +123,17 @@ export function App() {
           onRegister={() => {
             setFrontendFor(undefined);
             setModal("register");
+          }}
+        />
+      )}
+      {infoFor !== undefined && (
+        <GameInfoModal
+          game={infoFor}
+          games={games}
+          onClose={() => setInfoFor(undefined)}
+          onOwnFrontend={() => {
+            setInfoFor(undefined);
+            setFrontendFor(infoFor);
           }}
         />
       )}

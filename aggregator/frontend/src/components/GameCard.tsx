@@ -5,7 +5,7 @@ import { useBanner } from "../hooks/useBanner";
 import type { AggregatorActor, Err, GameView } from "../types";
 import { errMessage, gameUrl, optToMaybe } from "../types";
 import { avatarStyle } from "./DisplayNameEditor";
-import { ArrowRight, Brush, Pencil, Trash } from "./Icons";
+import { ArrowRight, Info, Pencil, Trash } from "./Icons";
 import { Modal } from "./Modal";
 
 export function GameCard({
@@ -15,7 +15,7 @@ export function GameCard({
   isOwner,
   onEdit,
   onDeleted,
-  onOwnFrontend,
+  onInfo,
 }: {
   index: number;
   game: GameView;
@@ -23,7 +23,7 @@ export function GameCard({
   isOwner: boolean;
   onEdit: () => void;
   onDeleted: () => void;
-  onOwnFrontend: () => void;
+  onInfo: () => void;
 }) {
   const banner = useBanner(actor, game.frontendCanisterId);
   const developerName =
@@ -86,35 +86,42 @@ export function GameCard({
             <span className="card-desc">{game.description}</span>
           </span>
         </a>
-        <button type="button" className="card-own" onClick={onOwnFrontend}>
-          <Brush />
-          Make own frontend
-        </button>
-        {isOwner && (
-          <span className="card-tools">
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={onEdit}
-              aria-label="Edit"
-              title="Edit"
-            >
-              <Pencil />
-            </button>
-            <button
-              type="button"
-              className="icon-btn danger"
-              onClick={() => {
-                setError(undefined);
-                setConfirming(true);
-              }}
-              aria-label="Deregister"
-              title="Deregister"
-            >
-              <Trash />
-            </button>
-          </span>
-        )}
+        <span className="card-tools">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onInfo}
+            aria-label="Info"
+            title="Info"
+          >
+            <Info />
+          </button>
+          {isOwner && (
+            <>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={onEdit}
+                aria-label="Edit"
+                title="Edit"
+              >
+                <Pencil />
+              </button>
+              <button
+                type="button"
+                className="icon-btn danger"
+                onClick={() => {
+                  setError(undefined);
+                  setConfirming(true);
+                }}
+                aria-label="Deregister"
+                title="Deregister"
+              >
+                <Trash />
+              </button>
+            </>
+          )}
+        </span>
       </article>
 
       {confirming && (

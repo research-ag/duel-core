@@ -49,16 +49,17 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   under `prefers-reduced-motion`), `GameGrid.tsx` (search with a `/`
   shortcut, developer chips, skeleton cards while loading) and a footer.
   `GameCard.tsx` is a banner-led card whose body glows with a blurred
-  copy of its own banner; owners get Edit/Deregister icon buttons (the
-  deregister confirm is a `Modal`). `Modal.tsx` is the one dialog shell
+  copy of its own banner; an info icon button opens `GameInfoModal.tsx`,
+  and owners also get Edit/Deregister (the deregister confirm is a
+  `Modal`). `Modal.tsx` is the one dialog shell
   (blurred backdrop, Escape/backdrop close, scroll lock) and `Wizard.tsx`
   the two-pane stepper `TutorialWizard.tsx` ("Build a new game", 5
   copy-pasteable steps ending in the register flow) and
   `BotTutorialWizard.tsx` ("Build a bot", 5 steps for a canister player
   against an existing game, no login-gated final step) are built on;
   `FrontendTutorialWizard.tsx` ("Make own frontend", opened from the
-  header or from the `card-own` button on every `GameCard`, which
-  passes its game) is written for a player with no ICP or coding
+  header or from the button in `GameInfoModal.tsx`'s frontend view,
+  which passes its game) is written for a player with no ICP or coding
   background: two routes, caffeine.ai (chat builder, builds and hosts
   itself, paid plan) or an AI coding tool on their own computer (icp-cli,
   identity and cycles only appear in the "Put it online" step), ending in
@@ -69,7 +70,18 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   from GitHub). The prompt condenses
   `../skills/duel-game-core/references/frontend-for-existing-game.md`;
   change the two together. Pricing facts in the wizard are dated "at the
-  time of writing". All three share `CodeBlock.tsx` (`wrap` for
+  time of writing". `GameInfoModal.tsx` (the card's info button) shows a
+  listing's details and, one click further, its backend: `/metrics` and
+  `/semantics` links, its Grafana dashboard, the semantics text, and
+  every listed frontend playing the same backend. `grafana.ts` asks the
+  promtracker dashboard registry (`iu7kc-saaaa-aaaao-bbama-cai`, the
+  openapi-scraper project) with `getDashboard`; with none yet, and only
+  for a backend serving `/metrics`, it calls `requestRegisterDashboard`
+  and asks once more after 12 s. Nothing about the backend is stored:
+  `canisterHttp.ts` calls other canisters' `http_request` as an
+  anonymous Candid query (no CORS, no cookie filtering), reading each
+  frontend's `PUBLIC_CANISTER_ID:backend` from its asset canister's
+  `ic_env` cookie, cached per page load. All three share `CodeBlock.tsx` (`wrap` for
   prose). `Icons.tsx` holds the inline SVG icons and
   the brand mark. `GameFormModal.tsx` is the register/edit form; dropping
   or picking a banner opens `ImageCropper.tsx` (`react-easy-crop`), which
