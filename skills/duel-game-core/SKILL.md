@@ -65,7 +65,7 @@ git clone https://github.com/research-ag/duel-core.git ../duel-core
 ```toml
 [dependencies]
 duel-game-core = "../duel-core/backend"
-core = "2.6.1"
+core = "2.6.2"
 promtracker = "1.0.1"
 ```
 
