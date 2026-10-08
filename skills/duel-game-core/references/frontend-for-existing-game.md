@@ -54,7 +54,7 @@ seat on turn submits), `SEATS`, `VARIANTS`, the exact Candid of `State`
 and `Action` with every field explained, `RULES` (what each action does
 and what gets it rejected), `ENDINGS`, and `CLIENT NOTES`. Treat it as
 the specification. The Candid service (step 3) names `State` and
-`Action` in `duel_request`/`duel_poll`, but only `/semantics` says what
+`Action` in `duel_submit`/`duel_poll`, but only `/semantics` says what
 they mean.
 
 A 404 lists the paths the backend does serve; fetch any that

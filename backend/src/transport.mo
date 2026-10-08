@@ -1,31 +1,42 @@
-/// duel-game-core/transport — the REQUIRED client transport: one update
-/// method for requests, one query polled for changes, both fully typed. The only way a
-/// client mutates game state: none of `Registry`'s mutating operations is
-/// a plain Candid method (two independent update calls have no guaranteed
-/// relative order). `status` stays a plain `query`.
+/// duel-game-core/transport — the REQUIRED client transport: typed
+/// update methods for requests, one query polled for changes. The only
+/// way a client mutates game state: none of `Registry`'s mutating
+/// operations is a plain Candid method. The client sends one request at
+/// a time and waits for its reply before the next, which is what orders
+/// them. `status` stays a plain `query`.
 ///
 /// Every legal `sid` is principal-bound: `PRINCIPAL_SID_PREFIX` (`"ii:"`,
 /// Internet Identity) or `ANON_SID_PREFIX` (`"an:"`, a persisted local
 /// keypair), both `sidFor(prefix, p)`; anything else is `#unauthorized`.
-/// A request reuses `Registry`'s operations with `Time.now()`, replies
-/// with the caller's fresh `SessionStatus`, and bumps the `rev` of every
-/// other session whose status changed; `duel_poll` hands a session its
-/// status whenever its `rev` moved. Nothing is queued. Silence only ends
-/// presence; departure is the engine's own business.
+/// A request reuses `Registry`'s operations with `Time.now()` and bumps
+/// the `rev` of every session whose status changed; `duel_poll` hands a
+/// session its status whenever its `rev` moved. Nothing is queued.
+/// Silence only ends presence; departure is the engine's own business.
 ///
-/// This is a library, not a mixin (a mixin cannot take type parameters):
-/// the host declares the two methods with its own `State`/`Action` and
-/// passes them through. Wiring — see `../README.md`, "Transport":
+/// Two kinds of method:
+///   - `Lobby`: create/join/rematch/leave/reset/claimWin/ackEnded and the
+///     `ping` heartbeat. Their replies carry no game state, only the
+///     caller's `rev` after the call (`Ack`); the client fetches the view
+///     with `duel_poll`. None of them names `S`/`M`, so
+///     `./transport_actor_mixin` supplies them.
+///   - `submit` and `poll`, which carry `M` and `S`. A mixin cannot take
+///     type parameters, so the host declares these two with its own
+///     `State`/`Action` and passes them through. `submit` replies with
+///     the fresh view: in `#alternating` that is the board after the
+///     move (and after a canister player's answer); in `#simultaneous`
+///     it is the resolved round for the second seat to submit.
+///
+/// Wiring — see `../README.md`, "Transport":
 ///
 ///   transient let hub : Transport.Hub = Transport.createHub();
 ///   transient let attached = Transport.attach<Rules.State, Rules.Action>(
 ///     Rules.spec(), registry, hub,
 ///     null, null, null, // onSettled, onGameEnded, onGameStarted
 ///   );
-///   Transport.startSweeping<system>(attached.sweep);
+///   include TransportActorMixin<system>(attached.lobby, attached.sweep);
 ///
-///   public shared ({ caller }) func duel_request(sid : Text, req : Transport.DuelRequest<Rules.Action>) : async Transport.Reply<Rules.State> {
-///     attached.reply(sid, await* attached.request(caller, sid, req));
+///   public shared ({ caller }) func duel_submit(sid : Text, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
+///     attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
 ///   };
 ///
 ///   public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
@@ -38,44 +49,26 @@ import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
-import Timer "mo:core/Timer";
 
 import TP "./lib";
 import Registry "./registry";
 
 module {
 
-  /// Mirrors `Registry`'s operations plus `#status` (a resync, the
-  /// first request of a connection, and the heartbeat). `#submit`/
-  /// `#leave`/`#reset`/`#claimWin` carry the `gen` (and `#submit` the
-  /// `turn`) the client last observed, so a stale replay is rejected as
-  /// `#stale`.
-  public type DuelRequest<M> = {
-    #createTable : {
-      seat : TP.Seat;
-      visibility : TP.TableVisibility;
-      variant : Text;
-    };
-    #joinTable : { id : TP.TableId; seat : TP.Seat; code : ?Text };
-    #submit : { gen : Nat; turn : Nat; move : M };
-    #rematch;
-    #leave : { gen : Nat };
-    #reset : { gen : Nat };
-    #claimWin : { gen : Nat };
-    #ackEnded;
-    #status;
-  };
+  /// A `Lobby` method's reply: the caller's `rev` after the call. The
+  /// client polls until it sees a view at least that new.
+  public type Ack = TP.Res<{ rev : Nat }>;
 
   /// The caller's fresh status. `rev` orders views: a client drops any
   /// view not newer than the last it applied.
   public type Snapshot<S> = { rev : Nat; view : TP.SessionStatus<S> };
 
-  /// What `duel_request` returns.
+  /// What `duel_submit` returns.
   public type Reply<S> = { #view : Snapshot<S>; #err : TP.Err };
 
   /// What `duel_poll` returns. `#unknown`: no link for this session (an
-  /// upgrade, a pruned or departed one) — the client sends `#status`
-  /// again.
+  /// upgrade, a pruned or departed one) — the client sends `duel_ping`
+  /// again. Polling with `rev = 0` always returns the current view.
   public type PollResult<S> = { #unchanged; #changed : Snapshot<S>; #unknown };
 
   public let PRINCIPAL_SID_PREFIX : Text = "ii:";
@@ -118,7 +111,7 @@ module {
   };
 
   /// How long after its last request a session still counts as present.
-  /// The client sends a `#status` after 120s without any other request.
+  /// The client sends a `duel_ping` after 120s without any other request.
   public let PRESENCE_TTL_NS : Int = 180_000_000_000;
 
   /// One connected session: `rev` changes whenever its status may have,
@@ -189,17 +182,35 @@ module {
     };
   };
 
-  /// `request` runs a request and returns its error, if any; `reply`
-  /// turns that into `duel_request`'s reply (two steps because an
-  /// `async*` result must be a shared type, which the generic `Reply<S>`
-  /// is not). `poll` is `duel_poll`. `sweep` runs `Registry.sweep`, marks every linked session changed
+  /// The non-generic methods, as `./transport_actor_mixin` exposes them.
+  /// `#leave`/`#reset`/`#claimWin` carry the `gen` the client last
+  /// observed, so a stale replay is rejected as `#stale`. `ping` is the
+  /// first request of a connection, the relink, and the heartbeat.
+  public type Lobby = {
+    createTable : (Principal, TP.SessionId, TP.Seat, TP.TableVisibility, Text) -> async* Ack;
+    joinTable : (Principal, TP.SessionId, TP.TableId, TP.Seat, ?Text) -> async* Ack;
+    rematch : (Principal, TP.SessionId) -> async* Ack;
+    leave : (Principal, TP.SessionId, Nat) -> async* Ack;
+    reset : (Principal, TP.SessionId, Nat) -> async* Ack;
+    claimWin : (Principal, TP.SessionId, Nat) -> async* Ack;
+    ackEnded : (Principal, TP.SessionId) -> async* Ack;
+    ping : (Principal, TP.SessionId) -> Ack;
+  };
+
+  /// `submit(caller, sid, gen, turn, move)` runs a move and returns its
+  /// error, if any; `reply` turns that into `duel_submit`'s reply (two
+  /// steps because an `async*` result must be a shared type, which the
+  /// generic `Reply<S>` is not). `gen`/`turn` are what the client last
+  /// observed (a stale replay is `#stale`). `poll` is `duel_poll`.
+  /// `sweep` runs `Registry.sweep`, marks every linked session changed
   /// when something was evicted (a bare `registry.sweep` would leave a
   /// polling tab stale), and prunes links that stopped being present.
   /// `afterMutation(now, sid, id, broadcastLobby)` is the fan-out a
   /// request runs, exposed so `canister_players.mo` reuses it for a
   /// canister-driven mutation.
   public type Attached<S, M> = {
-    request : (Principal, TP.SessionId, DuelRequest<M>) -> async* ?TP.Err;
+    lobby : Lobby;
+    submit : (Principal, TP.SessionId, Nat, Nat, M) -> async* ?TP.Err;
     reply : (TP.SessionId, ?TP.Err) -> Reply<S>;
     poll : (Principal, TP.SessionId, Nat) -> PollResult<S>;
     sweep : (Int) -> async* ();
@@ -322,69 +333,119 @@ module {
       };
     };
 
-    func request(caller : Principal, sid : TP.SessionId, req : DuelRequest<M>) : async* ?TP.Err {
+    /// The shared path of every mutation: authorize, record presence,
+    /// run `op(now, priorId)`, fan out. `priorId` is captured before `op`
+    /// runs: submit/rematch/leave/reset/claimWin/ackEnded return no
+    /// `TableId` of their own. `op` returns the table to fan out from
+    /// and whether the open-table list may have changed.
+    func mutate(
+      caller : Principal,
+      sid : TP.SessionId,
+      op : (Int, ?TP.TableId) -> TP.Res<(?TP.TableId, Bool)>,
+    ) : async* ?TP.Err {
       if (not isAuthorizedSid(sid, caller)) return ?#unauthorized;
       let now = Time.now();
       ignore seen(hub, sid, now);
-      // Captured before the request runs: submit/rematch/leave/reset/
-      // claimWin/ackEnded return no `TableId` of their own.
-      let priorId = registry.bySession.get(sid);
-      let res : TP.Res<(?TP.TableId, Bool)> = switch (req) {
-        case (#status) return null;
-        case (#createTable { seat; visibility; variant }) {
-          switch (registry.createTable(spec, now, sid, seat, visibility, variant)) {
-            case (#ok id) #ok(?id, true);
-            case (#err e) #err e;
-          };
-        };
-        case (#joinTable { id; seat; code }) {
-          switch (registry.joinTable(spec, now, sid, id, seat, code)) {
-            case (#ok _) #ok(?id, true);
-            case (#err e) #err e;
-          };
-        };
-        case (#submit { gen; turn; move }) {
-          switch (registry.submit(spec, now, sid, gen, turn, move)) {
-            case (#ok _) #ok(priorId, false);
-            case (#err e) #err e;
-          };
-        };
-        case (#claimWin { gen }) {
-          switch (registry.claimWin(spec, now, sid, gen)) {
-            case (#ok _) #ok(priorId, false);
-            case (#err e) #err e;
-          };
-        };
-        case (#rematch) {
-          switch (registry.rematch(spec, now, sid)) {
-            case (#ok _) #ok(priorId, rematchOpenedLobby(registry, priorId));
-            case (#err e) #err e;
-          };
-        };
-        case (#leave { gen }) {
-          switch (registry.leave(now, sid, gen)) {
-            case (#ok _) #ok(priorId, true);
-            case (#err e) #err e;
-          };
-        };
-        case (#reset { gen }) {
-          switch (registry.reset(now, sid, gen)) {
-            case (#ok _) #ok(priorId, true);
-            case (#err e) #err e;
-          };
-        };
-        case (#ackEnded) {
-          registry.ackEnded(sid);
-          #ok(priorId, true);
-        };
-      };
-      switch (res) {
+      switch (op(now, registry.bySession.get(sid))) {
         case (#err err) ?err;
         case (#ok(id, broadcastLobby)) {
           await* afterMutation(now, sid, id, broadcastLobby);
           null;
         };
       };
+    };
+
+    func ack(sid : TP.SessionId, err : ?TP.Err) : Ack {
+      switch (err) {
+        case (?e) #err e;
+        case null #ok { rev = revOf(hub, sid) };
+      };
+    };
+
+    func ignoreOk<T>(r : TP.Res<T>, id : ?TP.TableId, broadcastLobby : Bool) : TP.Res<(?TP.TableId, Bool)> {
+      switch (r) {
+        case (#ok _) #ok(id, broadcastLobby);
+        case (#err e) #err e;
+      };
+    };
+
+    func createTable(caller : Principal, sid : TP.SessionId, seat : TP.Seat, visibility : TP.TableVisibility, variant : Text) : async* Ack {
+      ack(
+        sid,
+        await* mutate(
+          caller,
+          sid,
+          func(now : Int, _ : ?TP.TableId) : TP.Res<(?TP.TableId, Bool)> = switch (registry.createTable(spec, now, sid, seat, visibility, variant)) {
+            case (#ok id) #ok(?id, true);
+            case (#err e) #err e;
+          },
+        ),
+      );
+    };
+
+    func joinTable(caller : Principal, sid : TP.SessionId, id : TP.TableId, seat : TP.Seat, code : ?Text) : async* Ack {
+      ack(sid, await* mutate(caller, sid, func(now : Int, _ : ?TP.TableId) : TP.Res<(?TP.TableId, Bool)> = ignoreOk(registry.joinTable(spec, now, sid, id, seat, code), ?id, true)));
+    };
+
+    func rematch(caller : Principal, sid : TP.SessionId) : async* Ack {
+      ack(
+        sid,
+        await* mutate(
+          caller,
+          sid,
+          func(now : Int, priorId : ?TP.TableId) : TP.Res<(?TP.TableId, Bool)> = switch (registry.rematch(spec, now, sid)) {
+            case (#ok _) #ok(priorId, rematchOpenedLobby(registry, priorId));
+            case (#err e) #err e;
+          },
+        ),
+      );
+    };
+
+    func leave(caller : Principal, sid : TP.SessionId, gen : Nat) : async* Ack {
+      ack(sid, await* mutate(caller, sid, func(now : Int, priorId : ?TP.TableId) : TP.Res<(?TP.TableId, Bool)> = ignoreOk(registry.leave(now, sid, gen), priorId, true)));
+    };
+
+    func reset(caller : Principal, sid : TP.SessionId, gen : Nat) : async* Ack {
+      ack(sid, await* mutate(caller, sid, func(now : Int, priorId : ?TP.TableId) : TP.Res<(?TP.TableId, Bool)> = ignoreOk(registry.reset(now, sid, gen), priorId, true)));
+    };
+
+    func claimWin(caller : Principal, sid : TP.SessionId, gen : Nat) : async* Ack {
+      ack(sid, await* mutate(caller, sid, func(now : Int, priorId : ?TP.TableId) : TP.Res<(?TP.TableId, Bool)> = ignoreOk(registry.claimWin(spec, now, sid, gen), priorId, false)));
+    };
+
+    func ackEnded(caller : Principal, sid : TP.SessionId) : async* Ack {
+      ack(
+        sid,
+        await* mutate(
+          caller,
+          sid,
+          func(_ : Int, priorId : ?TP.TableId) : TP.Res<(?TP.TableId, Bool)> {
+            registry.ackEnded(sid);
+            #ok(priorId, true);
+          },
+        ),
+      );
+    };
+
+    func ping(caller : Principal, sid : TP.SessionId) : Ack {
+      if (not isAuthorizedSid(sid, caller)) return #err(#unauthorized);
+      ignore seen(hub, sid, Time.now());
+      #ok { rev = revOf(hub, sid) };
+    };
+
+    let lobby : Lobby = {
+      createTable;
+      joinTable;
+      rematch;
+      leave;
+      reset;
+      claimWin;
+      ackEnded;
+      ping;
+    };
+
+    func submit(caller : Principal, sid : TP.SessionId, gen : Nat, turn : Nat, move : M) : async* ?TP.Err {
+      await* mutate(caller, sid, func(now : Int, priorId : ?TP.TableId) : TP.Res<(?TP.TableId, Bool)> = ignoreOk(registry.submit(spec, now, sid, gen, turn, move), priorId, false));
     };
 
     // Read at `Time.now()`: `onSettled` may have awaited a canister
@@ -428,16 +489,6 @@ module {
       };
     };
 
-    { request; reply; poll; sweep; afterMutation };
-  };
-
-  /// Runs `sweep` (`Attached.sweep`, or a host's combination with
-  /// `CanisterPlayers.Attached.sweep`) every five minutes. Call once from
-  /// the actor body.
-  public func startSweeping<system>(sweep : (Int) -> async* ()) {
-    ignore Timer.recurringTimer<system>(
-      #seconds(300),
-      func() : async () { await* sweep(Time.now()) },
-    );
+    { lobby; submit; reply; poll; sweep; afterMutation };
   };
 };

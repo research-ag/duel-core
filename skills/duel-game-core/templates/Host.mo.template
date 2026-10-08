@@ -9,6 +9,7 @@ import Time "mo:core/Time";
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
 import Transport "mo:duel-game-core/transport";
+import TransportActorMixin "mo:duel-game-core/transport_actor_mixin";
 import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
 import PT "mo:promtracker";
 import Tracker "mo:promtracker/Tracker"; // brings `pt.toValue()` into scope
@@ -41,10 +42,10 @@ actor {
     null, // onGameStarted — leaderboard
   );
 
-  Transport.startSweeping<system>(attached.sweep);
+  include TransportActorMixin<system>(attached.lobby, attached.sweep);
 
-  public shared ({ caller }) func duel_request(sid : Text, req : Transport.DuelRequest<Rules.Action>) : async Transport.Reply<Rules.State> {
-    attached.reply(sid, await* attached.request(caller, sid, req));
+  public shared ({ caller }) func duel_submit(sid : Text, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
+    attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
   };
 
   public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {

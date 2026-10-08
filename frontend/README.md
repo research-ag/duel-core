@@ -314,9 +314,12 @@ era; the old names are gone, so a game written against them must be
 renamed.)
 
 `connectTransport()` builds a `DuelTransport` (`transport.js`) that
-speaks `mo:duel-game-core/transport`'s two methods. A request is one
-`duel_request` update call whose reply is this session's own fresh
-status. What the other seat causes arrives by polling the `duel_poll`
+speaks `mo:duel-game-core/transport`'s methods. A move is one
+`duel_submit` update call whose reply is this session's own fresh
+status. Every other request is an update call replying with the
+session's revision (`Ack`); the transport then fetches the view with
+`duel_poll` and accepts it once it is at least that new. `#status`
+maps to `duel_ping`. What the other seat causes arrives by polling the `duel_poll`
 query every `intervalMs` (500): the canister answers `unchanged` until
 the session's revision moves, then hands over the current status.
 Nothing is queued on either side, so a client always gets the latest
@@ -330,7 +333,7 @@ reading as a lost one. At most three polls are ever unanswered at once;
 past that the loop waits on the newest.
 
 **Presence.** After `pingMs` (120000) without any other request the
-transport sends a `#status`, which is all the canister needs to count
+transport sends a `duel_ping`, which is all the canister needs to count
 the session as present. There is no goodbye: a closed tab, a throttled
 background tab, a sleeping laptop, a phone in another app all keep
 their seat, and a player who comes back under the same `sid` continues

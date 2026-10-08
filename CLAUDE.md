@@ -22,19 +22,24 @@ knows any particular game.
     opaque `variant : Text` picked by their creator and read only by
     the game's own `Spec.init(variant)`. No game logic is reimplemented
     here.
-  - `transport.mo` — MANDATORY. One update (`duel_request`, whose reply
-    is the caller's fresh status) and one polled query (`duel_poll`,
-    answering from a per-session `rev` in the transient `Hub`; nothing
-    is queued). It is the only transport that can mutate game state: no
+  - `transport.mo` — MANDATORY. Typed update methods and one polled
+    query (`duel_poll`, answering from a per-session `rev` in the
+    transient `Hub`; nothing is queued). `duel_submit` replies with the
+    caller's fresh status; every other request (`duel_create_table`,
+    `duel_join_table`, `duel_rematch`, `duel_leave`, `duel_reset`,
+    `duel_claim_win`, `duel_ack_ended`, and the `duel_ping` heartbeat)
+    replies with an `Ack` (the caller's `rev`), and the client fetches
+    the view with `duel_poll`. It is the only transport that can mutate game state: no
     `Registry` mutating operation is a plain Candid method on a host;
     `status` is the one plain `query`. There is no goodbye: silence only
     ends presence (checked lazily against `PRESENCE_TTL_NS`); departure
     is `#leave`, `claimWin`, idle takeover and `sweep`. Offers optional
-    hooks `onSettled`/`onGameEnded`/`onGameStarted`. A library, not a
-    mixin (a mixin cannot take type parameters): the host declares
-    `duel_request`/`duel_poll` with its own `State`/`Action` and passes
-    them through to `Transport.attach`'s result, and starts the
-    5-minute idle-sweep timer with `Transport.startSweeping<system>`.
+    hooks `onSettled`/`onGameEnded`/`onGameStarted`. The methods that
+    name neither `State` nor `Action` come from
+    `transport_actor_mixin.mo` (`include TransportActorMixin<system>(
+    attached.lobby, sweepFunc)`, with the 5-minute idle-sweep timer); a
+    mixin cannot take type parameters, so the host declares
+    `duel_submit`/`duel_poll` itself and passes them through.
   - `canister_players.mo` — OPTIONAL. Lets a canister take a seat under a
     third sid namespace `cp:<principal>:<tableId>:<complexity>`
     (`sidForCanister`), one session per board, derived from
@@ -94,7 +99,7 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   `#screen` (delegated clicks, spinner, countdowns, header controls,
   error banner, overlays) and returns the client. Also session identity,
   the `DuelTransport` client (`transport.js`: serialized
-  `duel_request`s, a 500 ms `duel_poll` loop with a 3 s per-poll timeout, a `#status` heartbeat
+  update calls, a 500 ms `duel_poll` loop with a 3 s per-poll timeout, a `duel_ping` heartbeat
   after 120 s of quiet), and Candid IDL scaffolding (`idl.js`, which also declares
   `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots`
   unconditionally, and `buildBotPlayIdlFactory` for calling a discovered

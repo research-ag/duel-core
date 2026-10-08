@@ -264,10 +264,10 @@ actor {
     await* attached.sweep(now);
     await* cpAttached.sweep(now);
   };
-  Transport.startSweeping<system>(combinedSweep);
+  include TransportActorMixin<system>(attached.lobby, combinedSweep);
 
-  public shared ({ caller }) func duel_request(sid : Text, req : Transport.DuelRequest<Rules.Action>) : async Transport.Reply<Rules.State> {
-    attached.reply(sid, await* attached.request(caller, sid, req));
+  public shared ({ caller }) func duel_submit(sid : Text, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
+    attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
   };
 
   public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {

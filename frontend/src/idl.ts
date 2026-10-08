@@ -31,6 +31,7 @@ export interface EngineTypes {
   PollResult: IDLNS.Type;
   TransportRequest: IDLNS.Type;
   TransportReply: IDLNS.Type;
+  Ack: IDLNS.Type;
 }
 
 /// Every named Candid type the service surface uses — `status`'s types
@@ -143,8 +144,9 @@ export function buildEngineTypes({
     complexities: IDL.Vec(BotComplexity),
   });
 
-  // Mirrors `Transport.DuelRequest<M>`/`Reply<S>`/`PollResult<S>`: `rev`
-  // orders views.
+  // The client's own request vocabulary (`DuelTransport` maps each case
+  // to its method); never sent as such, only used to reject a malformed
+  // request before it is queued.
   const TransportRequest = IDL.Variant({
     createTable: IDL.Record({ seat: Seat, visibility: Visibility, variant: IDL.Text }),
     joinTable: IDL.Record({ id: TableId, seat: Seat, code: IDL.Opt(IDL.Text) }),
@@ -156,6 +158,8 @@ export function buildEngineTypes({
     ackEnded: IDL.Null,
     status: IDL.Null,
   });
+  // Mirrors `Transport.Snapshot<S>`/`Reply<S>`/`PollResult<S>`/`Ack`:
+  // `rev` orders views.
   const TransportView = IDL.Record({ rev: IDL.Nat, view: Status });
   const TransportReply = IDL.Variant({ view: TransportView, err: Err });
   const PollResult = IDL.Variant({
@@ -163,16 +167,17 @@ export function buildEngineTypes({
     changed: TransportView,
     unknown: IDL.Null,
   });
+  const Ack = IDL.Variant({ ok: IDL.Record({ rev: IDL.Nat }), err: Err });
 
   return {
     Seat, Mode, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
     LeaderboardEntry, BotInfo,
-    PollResult, TransportRequest, TransportReply,
+    PollResult, TransportRequest, TransportReply, Ack,
   };
 }
 
-/// Wraps a game's `{ Action, State }` in the fixed service shape. No
-/// mutating methods: mutation goes exclusively through `duel_request`.
+/// Wraps a game's `{ Action, State }` in the fixed service shape. Game
+/// state is mutated only through the `duel_*` transport methods.
 /// `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots` are
 /// declared unconditionally; a client that never calls them pays nothing.
 export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
@@ -186,7 +191,15 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
       register_bot: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [], []),
       unregister_bot: IDL.Func([], [], []),
       list_bots: IDL.Func([], [IDL.Vec(t.BotInfo)], ["query"]),
-      duel_request: IDL.Func([IDL.Text, t.TransportRequest], [t.TransportReply], []),
+      duel_create_table: IDL.Func([IDL.Text, t.Seat, t.Visibility, IDL.Text], [t.Ack], []),
+      duel_join_table: IDL.Func([IDL.Text, t.TableId, t.Seat, IDL.Opt(IDL.Text)], [t.Ack], []),
+      duel_rematch: IDL.Func([IDL.Text], [t.Ack], []),
+      duel_leave: IDL.Func([IDL.Text, IDL.Nat], [t.Ack], []),
+      duel_reset: IDL.Func([IDL.Text, IDL.Nat], [t.Ack], []),
+      duel_claim_win: IDL.Func([IDL.Text, IDL.Nat], [t.Ack], []),
+      duel_ack_ended: IDL.Func([IDL.Text], [t.Ack], []),
+      duel_ping: IDL.Func([IDL.Text], [t.Ack], []),
+      duel_submit: IDL.Func([IDL.Text, IDL.Nat, IDL.Nat, Action], [t.TransportReply], []),
       duel_poll: IDL.Func([IDL.Text, IDL.Nat], [t.PollResult], ["query"]),
     });
   };

@@ -177,7 +177,7 @@ mops test
 
 **Whole games against the local copy.** `Sparring.mo` takes the other
 seat the way a player's browser does: as an ordinary `an:` session
-through `duel_request`, one request per call, choosing its moves with
+through the transport's methods, one request per call, choosing its moves with
 your own `BotLogic`. The game asks the bot exactly as it will live:
 right after each of sparring's moves, inside that same call.
 
@@ -196,22 +196,35 @@ actor Sparring {
 
   type Reply = Transport.Reply<Game.State>;
   type Host = actor {
-    duel_request : (Text, Transport.DuelRequest<Game.Action>) -> async Reply;
+    duel_create_table : (Text, TP.Seat, TP.TableVisibility, Text) -> async Transport.Ack;
+    duel_ack_ended : (Text) -> async Transport.Ack;
+    duel_ping : (Text) -> async Transport.Ack;
+    duel_submit : (Text, Nat, Nat, Game.Action) -> async Reply;
+    duel_poll : query (Text, Nat) -> async Transport.PollResult<Game.State>;
   };
 
-  func send(host : Principal.Principal, req : Transport.DuelRequest<Game.Action>) : async Reply {
-    let sid = Transport.sidFor(Transport.ANON_SID_PREFIX, Principal.fromActor(Sparring));
-    let h : Host = actor (host.toText());
-    await h.duel_request(sid, req);
+  func sid() : Text = Transport.sidFor(Transport.ANON_SID_PREFIX, Principal.fromActor(Sparring));
+  func hostOf(host : Principal.Principal) : Host = actor (host.toText());
+
+  // The fresh view after an acked request (`duel_poll` with rev 0 always
+  // answers it).
+  func view(host : Principal.Principal, ack : Transport.Ack) : async Reply {
+    switch ack {
+      case (#err e) #err e;
+      case (#ok _) switch (await hostOf(host).duel_poll(sid(), 0)) {
+        case (#changed v) #view v;
+        case _ #err(#wrongPhase "no link");
+      };
+    };
   };
 
   public func open_table(host : Principal.Principal, seat : TP.Seat, variant : Text) : async Reply {
-    await send(host, #createTable { seat; visibility = #open; variant });
+    await view(host, await hostOf(host).duel_create_table(sid(), seat, #open, variant));
   };
 
   // One move when this seat is due; the fresh status either way.
   public func step(host : Principal.Principal, complexity : Text) : async Reply {
-    let status = await send(host, #status);
+    let status = await view(host, await hostOf(host).duel_ping(sid()));
     switch status {
       case (#view { view = #atTable { id; view = #inGame g } }) {
         if (g.youSubmitted) return status;
@@ -228,14 +241,14 @@ actor Sparring {
           opponentLastMove = null;
           lastRoundDurationNs = null;
         });
-        await send(host, #submit { gen = g.gen; turn = g.turn; move });
+        await hostOf(host).duel_submit(sid(), g.gen, g.turn, move);
       };
       case _ status;
     };
   };
 
   public func ack_ended(host : Principal.Principal) : async Reply {
-    await send(host, #ackEnded);
+    await view(host, await hostOf(host).duel_ack_ended(sid()));
   };
 
 };

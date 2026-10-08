@@ -181,21 +181,37 @@ Frontend: `GamePlugin.variantChoices()`/`formatVariant()` in
 
 `src/transport.mo` (`mo:duel-game-core/transport`) is the only way a
 client mutates game state. Two independent update calls have no
-guaranteed relative processing order once both are in flight, so there
-is no plain Candid method for any mutating operation: everything goes
-through one update method, which the client calls one request at a time.
+guaranteed relative processing order once both are in flight, so the
+client sends one request at a time and waits for its reply before the
+next. There is no plain Candid method for any mutating operation outside
+the transport's own.
 
-The host declares two typed methods and passes them through:
+The methods, all taking the caller's `sid` first:
 
-- `duel_request(sid : Text, req : Request<Action>) : async Reply<State>`
-  — an update. The reply is the caller's own fresh status
-  (`#view { rev; view }`) or the engine's rejection (`#err`).
+- `duel_submit(sid, gen, turn, move : Action) : async Reply<State>` — an
+  update. The reply is the caller's own fresh status
+  (`#view { rev; view }`) or the engine's rejection (`#err`). In
+  `#alternating` that is the board after the move, including a canister
+  player's answer; in `#simultaneous` the second seat to submit gets the
+  resolved round.
+- `duel_create_table(sid, seat, visibility, variant)`,
+  `duel_join_table(sid, id, seat, code)`, `duel_rematch(sid)`,
+  `duel_leave(sid, gen)`, `duel_reset(sid, gen)`,
+  `duel_claim_win(sid, gen)`, `duel_ack_ended(sid)`, `duel_ping(sid)` —
+  updates replying `Ack = Res<{ rev }>`: the caller's revision after the
+  call, or the rejection. None of them names `State`/`Action`, so
+  `transport_actor_mixin.mo` supplies them. The client then fetches the
+  view with `duel_poll`, accepting it once its `rev` has reached the
+  ack's (a replica answering the query may lag the update). Starting a
+  game costs one extra poll; a move costs none. `duel_ping` changes
+  nothing but presence (below): it is the first request of a
+  connection, the relink, and the heartbeat.
 - `duel_poll(sid : Text, rev : Nat) : async PollResult<State>` — a
   query the client calls every 500 ms. `#unchanged` while the session's
-  revision is still `rev`; `#changed { rev; view }` once it moved; `#unknown`
-  when the canister holds no link for the session (an upgrade wiped the
-  `transient` hub, or the link was pruned), which tells the client to
-  send `#status` again.
+  revision is still `rev`; `#changed { rev; view }` once it moved
+  (always for `rev = 0`); `#unknown` when the canister holds no link for
+  the session (an upgrade wiped the `transient` hub, or the link was
+  pruned), which tells the client to send `duel_ping` again.
 
 Nothing is queued. `Hub` keeps one `Link { rev; lastSeen }` per
 connected session. After each successful mutation the module gives a
@@ -210,7 +226,7 @@ upgrade; a client drops any view not newer than the last it applied,
 which orders a direct reply against a polled view.
 
 **Presence.** A session is present while its last request is younger
-than `PRESENCE_TTL_NS` (180 s). The client sends a `#status` after 120 s
+than `PRESENCE_TTL_NS` (180 s). The client sends a `duel_ping` after 120 s
 without any other request; there is no handshake and no keep-alive
 timer. Presence is evaluated when asked (`sweep`); lapsed links are
 pruned by the idle-sweep timer.
@@ -233,13 +249,11 @@ The acting session's `rev` is bumped before that await, so its poll
 delivers its own move while the bot is still thinking; the update's
 reply is built afterwards and carries the latest state.
 
-**Wire protocol.** Plain Candid, typed with the game's own `State` and
-`Action`: `DuelRequest<M>` mirrors `Registry`'s operations plus `#status`;
-`Reply<S>` is `#view { rev; view }` or `#err`, and `PollResult<S>`'s
-`#changed` carries the same `{ rev; view }` (`view` is a
-`SessionStatus<S>`). `#status` is the first request of a connection, the
-resync, and the heartbeat. The service's `.did` therefore names `State`
-and `Action` in full.
+**Wire protocol.** Plain Candid: `Reply<S>` is `#view { rev; view }` or
+`#err`, and `PollResult<S>`'s `#changed` carries the same `{ rev; view }`
+(`view` is a `SessionStatus<S>`, as `Snapshot<S>`). The service's `.did`
+names `State` (in `duel_poll`/`duel_submit`) and `Action` (in
+`duel_submit`) in full.
 
 **Player identity.** `Table`/`Registry` only compare `SessionId`s for
 equality, so anonymous and logged-in players share tables with no
@@ -263,6 +277,7 @@ client refetches `status`. `#createTable`/`#joinTable`/`#rematch`/
 
 ```motoko
 import Transport "mo:duel-game-core/transport";
+import TransportActorMixin "mo:duel-game-core/transport_actor_mixin";
 
 actor {
   let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
@@ -281,13 +296,13 @@ actor {
     null, // onGameStarted — see "Leaderboard"
   );
 
-  // The idle-sweep timer. `attached.sweep` (not a bare
-  // `registry.sweep`) marks the sessions the sweep just evicted as
-  // changed and prunes lapsed links.
-  Transport.startSweeping<system>(attached.sweep);
+  // The non-generic methods and the idle-sweep timer. `attached.sweep`
+  // (not a bare `registry.sweep`) marks the sessions the sweep just
+  // evicted as changed and prunes lapsed links.
+  include TransportActorMixin<system>(attached.lobby, attached.sweep);
 
-  public shared ({ caller }) func duel_request(sid : Text, req : Transport.DuelRequest<Rules.Action>) : async Transport.Reply<Rules.State> {
-    attached.reply(sid, await* attached.request(caller, sid, req));
+  public shared ({ caller }) func duel_submit(sid : Text, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
+    attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
   };
 
   public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
@@ -297,11 +312,11 @@ actor {
 
 ```
 
-`transport.mo` is a library, not a mixin: a mixin cannot take type
-parameters, and the methods' Candid types depend on `State`/`Action`.
-`request` returns only the error (an `async*` result must be a shared
-type, which the generic `Reply<S>` is not); `reply` builds the reply
-from it synchronously.
+A mixin cannot take type parameters, so the two methods whose Candid
+types depend on `State`/`Action` are the host's own one-line
+pass-throughs. `submit` returns only the error (an `async*` result must
+be a shared type, which the generic `Reply<S>` is not); `reply` builds
+the reply from it synchronously.
 
 The frontend's `makeIdlFactory` already declares both methods;
 `connectTransport()` calls them. See `examples/*/src/Host.mo` for this
@@ -425,10 +440,10 @@ actor {
     await* attached.sweep(now);
     await* cpAttached.sweep(now);
   };
-  Transport.startSweeping<system>(combinedSweep);
+  include TransportActorMixin<system>(attached.lobby, combinedSweep);
 
-  public shared ({ caller }) func duel_request(sid : Text, req : Transport.DuelRequest<Rules.Action>) : async Transport.Reply<Rules.State> {
-    attached.reply(sid, await* attached.request(caller, sid, req));
+  public shared ({ caller }) func duel_submit(sid : Text, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
+    attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
   };
 
   public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
@@ -692,8 +707,8 @@ from `State` (`examples/racing` serves its track polygons at `/track`).
 mixin's own (next section).
 
 `SEMANTICS` is the whole contract a frontend author gets besides the
-canister's Candid, and the only place `Action` is described: it travels
-inside `duel_request`'s blob, so it is absent from the Candid service.
+canister's Candid, and the only place `Action` is explained: the Candid
+gives its type (in `duel_submit`), not what it means.
 Write it for a reader who cannot see the source, in these sections:
 
 - `GAME`, `MODE` (`simultaneous`/`alternating`), `SEATS` (which seat is
@@ -834,8 +849,9 @@ hold at both the `Table` and `Registry` layer):
 - **Pending moves are hidden by construction.** `status` exposes only
   Booleans about the opponent's pending move.
 - **Module layout.** `lib.mo` is the type surface; `table.mo`/
-  `registry.mo` the operations; `transport.mo` the mandatory
-  transport (a library the host's two methods pass through to);
+  `registry.mo` the operations; `transport.mo` +
+  `transport_actor_mixin.mo` the mandatory transport (plus the host's
+  own `duel_submit`/`duel_poll`);
   `canister_players.mo` + `canister_players_actor_mixin.mo`,
   `leaderboard.mo` + `elo.mo` + `leaderboard_actor_mixin.mo` are
   optional.

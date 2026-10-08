@@ -25,8 +25,8 @@
 ///       registry.status(Rules.spec(), Time.now(), sid);
 ///     };
 ///
-///     // Transport.attach + Transport.startSweeping + the typed
-///     // duel_request/duel_poll pass-throughs — see `./transport`
+///     // Transport.attach + include TransportActorMixin + the typed
+///     // duel_submit/duel_poll pass-throughs — see `./transport`
 ///   };
 ///
 /// `Registry<S, M>`/`Table<S, M>` are stable whenever `S`/`M` are; the

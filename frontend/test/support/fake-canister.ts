@@ -1,13 +1,14 @@
 // A tiny in-memory stand-in for a canister wired with
-// `mo:duel-game-core/transport`: answers each `duel_request` with a view
-// or an error, and `duel_poll` from the session's current revision.
+// `mo:duel-game-core/transport`: answers `duel_submit` with a view or an
+// error, every other request with an `Ack` or an error, and `duel_poll`
+// from the session's current revision.
 
 import { IDL } from "@icp-sdk/core/candid";
 import { buildEngineTypes, type EngineTypes } from "../../src/idl.js";
-import type { PollResult, TransportActor } from "../../src/transport.js";
+import type { Ack, PollResult, TransportActor } from "../../src/transport.js";
 
 type Reply = { view: { rev: bigint; view: Status } } | { err: EngineErr };
-import type { EngineErr, Status, TransportRequest } from "../../src/types.js";
+import type { EngineErr, Seat, Status, TransportRequest, Visibility } from "../../src/types.js";
 
 export function sampleGameTypes({ IDL: I }: { IDL: typeof IDL }) {
   return {
@@ -32,9 +33,9 @@ export class FakeCanister implements TransportActor {
   respond: (req: TransportRequest) => { view: Status } | { err: EngineErr } = () => ({
     view: this.current,
   });
-  /// How many upcoming `duel_request` calls throw before one lands.
+  /// How many upcoming update calls throw before one lands.
   failRequests = 0;
-  /// Whether a throwing `duel_request` still applies the request.
+  /// Whether a throwing update call still applies the request.
   landsBeforeFailing = false;
   pollBehavior: "ok" | "err" | "hang" | "throw" = "ok";
   /// How long each `duel_poll` takes to answer.
@@ -42,7 +43,7 @@ export class FakeCanister implements TransportActor {
   /// Every decoded request, in arrival order.
   requests: Array<{ sid: string; req: TransportRequest }> = [];
   polls = 0;
-  /// Every `duel_request` call, thrown ones included.
+  /// Every update call, thrown ones included.
   attempts = 0;
 
   constructor() {
@@ -72,11 +73,7 @@ export class FakeCanister implements TransportActor {
     this.rev = null;
   }
 
-  private _handle(sidArg: string, reqArg: TransportRequest): Reply {
-    const [sid, req] = this._wire<[string, TransportRequest]>(
-      [IDL.Text, this.types.TransportRequest],
-      [sidArg, reqArg]
-    );
+  private _handle(sid: string, req: TransportRequest): Reply {
     this.requests.push({ sid, req });
     if (this.rev === null) this.rev = this.nextRev++;
     const reply = this.respond(req);
@@ -91,7 +88,7 @@ export class FakeCanister implements TransportActor {
     return this._wire<[Reply]>([this.types.TransportReply], [out])[0];
   }
 
-  async duel_request(sid: string, req: TransportRequest): Promise<Reply> {
+  private _update(sid: string, req: TransportRequest): Reply {
     this.attempts++;
     if (this.failRequests > 0) {
       this.failRequests--;
@@ -99,6 +96,44 @@ export class FakeCanister implements TransportActor {
       throw new Error("network down");
     }
     return this._handle(sid, req);
+  }
+
+  private async _acked(sid: string, req: TransportRequest): Promise<Ack> {
+    const reply = this._update(sid, req);
+    const ack: Ack = "err" in reply ? { err: reply.err } : { ok: { rev: reply.view.rev } };
+    return this._wire<[Ack]>([this.types.Ack], [ack])[0];
+  }
+
+  async duel_submit(sid: string, gen: bigint, turn: bigint, move: unknown): Promise<Reply> {
+    const [s, g, t, m] = this._wire<[string, bigint, bigint, unknown]>(
+      [IDL.Text, IDL.Nat, IDL.Nat, sampleGameTypes({ IDL }).Action],
+      [sid, gen, turn, move]
+    );
+    return this._update(s, { submit: { gen: g, turn: t, move: m } });
+  }
+  duel_create_table(sid: string, seat: Seat, visibility: Visibility, variant: string): Promise<Ack> {
+    return this._acked(sid, { createTable: { seat, visibility, variant } });
+  }
+  duel_join_table(sid: string, id: bigint, seat: Seat, code: [] | [string]): Promise<Ack> {
+    return this._acked(sid, { joinTable: { id, seat, code } });
+  }
+  duel_rematch(sid: string): Promise<Ack> {
+    return this._acked(sid, { rematch: null });
+  }
+  duel_leave(sid: string, gen: bigint): Promise<Ack> {
+    return this._acked(sid, { leave: { gen } });
+  }
+  duel_reset(sid: string, gen: bigint): Promise<Ack> {
+    return this._acked(sid, { reset: { gen } });
+  }
+  duel_claim_win(sid: string, gen: bigint): Promise<Ack> {
+    return this._acked(sid, { claimWin: { gen } });
+  }
+  duel_ack_ended(sid: string): Promise<Ack> {
+    return this._acked(sid, { ackEnded: null });
+  }
+  duel_ping(sid: string): Promise<Ack> {
+    return this._acked(sid, { status: null });
   }
 
   duel_poll(sid: string, rev: bigint): Promise<PollResult> {

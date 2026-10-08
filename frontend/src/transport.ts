@@ -1,8 +1,11 @@
 // The transport `start()` requires: a `DuelTransport` speaking
-// `mo:duel-game-core/transport`'s two methods. A request is one
-// `duel_request` update call whose reply is this session's fresh status;
-// everything the other seat causes arrives by polling the `duel_poll`
-// query. There is no other transport.
+// `mo:duel-game-core/transport`'s methods. A move is one `duel_submit`
+// update call whose reply is this session's fresh status. Every other
+// request (`duel_create_table`, ..., `duel_ping` for `#status`) replies
+// with an `Ack` carrying the session's `rev` after the call, and the view
+// is then fetched with `duel_poll(sid, 0)`, accepted once its `rev` has
+// caught up. Everything the other seat causes arrives by polling
+// `duel_poll`. There is no other transport.
 //
 //   const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 //   start({ plugin, transport, session });
@@ -27,9 +30,11 @@ import {
 import type {
   Transport,
   EngineErr,
+  Seat,
   Status,
   TransportPayload,
   TransportRequest,
+  Visibility,
 } from "./types.js";
 
 const DEFAULT_INTERVAL_MS = 500;
@@ -49,6 +54,10 @@ const MAX_OPEN_POLLS = 3;
 /// Delays before resending a request whose update call threw.
 const RESEND_DELAYS_MS = [500, 1500];
 
+/// Delays between `duel_poll`s fetching an acked request's view while the
+/// answering replica has not caught up with the ack's `rev` yet.
+const FETCH_DELAYS_MS = [0, 100, 250, 500, 1000, 0];
+
 /// Ceiling for the back-off between failed relinks.
 const MAX_RETRY_MS = 5000;
 
@@ -61,9 +70,22 @@ export type PollResult =
 /// Mirrors `Transport.Reply<S>`.
 type Reply = { view: View } | { err: EngineErr };
 
-/// The two methods a host declares over `mo:duel-game-core/transport`.
+/// Mirrors `Transport.Ack`.
+export type Ack = { ok: { rev: bigint } } | { err: EngineErr };
+
+/// The methods of a host wired with `mo:duel-game-core/transport`:
+/// `duel_submit`/`duel_poll` declared by the host, the rest from
+/// `transport_actor_mixin`.
 export interface TransportActor {
-  duel_request(sid: string, req: TransportRequest): Promise<Reply>;
+  duel_create_table(sid: string, seat: Seat, visibility: Visibility, variant: string): Promise<Ack>;
+  duel_join_table(sid: string, id: bigint, seat: Seat, code: [] | [string]): Promise<Ack>;
+  duel_rematch(sid: string): Promise<Ack>;
+  duel_leave(sid: string, gen: bigint): Promise<Ack>;
+  duel_reset(sid: string, gen: bigint): Promise<Ack>;
+  duel_claim_win(sid: string, gen: bigint): Promise<Ack>;
+  duel_ack_ended(sid: string): Promise<Ack>;
+  duel_ping(sid: string): Promise<Ack>;
+  duel_submit(sid: string, gen: bigint, turn: bigint, move: unknown): Promise<Reply>;
   duel_poll(sid: string, rev: bigint): Promise<PollResult>;
   /// The host's plain `status` query, when the actor declares it.
   status?(sid: string): Promise<Status>;
@@ -90,7 +112,7 @@ export class DuelTransport extends EventTarget implements Transport {
   // A reply arrived under the current epoch and nothing invalidated it.
   private _linked: boolean;
   private _closed: boolean;
-  private _chain: Promise<void>; // serializes every duel_request
+  private _chain: Promise<void>; // serializes every update call
   private _inFlight: number;
   private _statusQueued: boolean;
   private _lastRequestAt: number;
@@ -280,9 +302,49 @@ export class DuelTransport extends EventTarget implements Transport {
     IDL.encode([this._types.TransportRequest], [req]);
   }
 
+  /// The update call `req` maps to.
+  private _dispatch(sid: string, req: TransportRequest): Promise<Reply | Ack> {
+    const a = this._actor;
+    if ("submit" in req) {
+      const { gen, turn, move } = req.submit;
+      return a.duel_submit(sid, gen, turn, move);
+    }
+    if ("createTable" in req) {
+      const { seat, visibility, variant } = req.createTable;
+      return a.duel_create_table(sid, seat, visibility, variant);
+    }
+    if ("joinTable" in req) {
+      const { id, seat, code } = req.joinTable;
+      return a.duel_join_table(sid, id, seat, code);
+    }
+    if ("rematch" in req) return a.duel_rematch(sid);
+    if ("leave" in req) return a.duel_leave(sid, req.leave.gen);
+    if ("reset" in req) return a.duel_reset(sid, req.reset.gen);
+    if ("claimWin" in req) return a.duel_claim_win(sid, req.claimWin.gen);
+    if ("ackEnded" in req) return a.duel_ack_ended(sid);
+    return a.duel_ping(sid);
+  }
+
+  /// An acked request's view: the one already applied when it is at
+  /// least `minRev` new, else whatever the regular poll (same timeout,
+  /// same cap on unanswered polls) brings in. A replica that has not
+  /// caught up with `minRev` yet is asked again.
+  private async _fetchView(sid: string, minRev: bigint): Promise<View> {
+    for (const delay of FETCH_DELAYS_MS) {
+      if (this._closed) throw new Error("DuelTransport: closed");
+      if (this._rev >= minRev && this._last !== null && "view" in this._last) {
+        return { rev: this._rev, view: this._last.view };
+      }
+      if (delay > 0) await sleep(delay);
+      await this._poll(sid);
+    }
+    throw new Error("DuelTransport: no view at the acked revision");
+  }
+
   /// One update call, resent when it throws: the call may or may not have
   /// landed, and every mutation is gated by the engine's own
-  /// legality/idempotency checks.
+  /// legality/idempotency checks. An `Ack` is followed by fetching the
+  /// view it promises, which is not resent with the call.
   private async _call(
     sid: string,
     req: TransportRequest
@@ -292,12 +354,10 @@ export class DuelTransport extends EventTarget implements Transport {
       // A loss presumed while this attempt was out must not be undone
       // by its reply.
       const epoch = this._epoch;
+      let res: Reply | Ack;
       try {
         this._lastRequestAt = Date.now();
-        const reply = await this._actor.duel_request(sid, req);
-        this._markAlive();
-        if ("view" in reply && epoch === this._epoch) this._markLinked();
-        return { reply, resent: attempt > 0 };
+        res = await this._dispatch(sid, req);
       } catch (e) {
         this._reportError(e as Error);
         if (attempt >= RESEND_DELAYS_MS.length) {
@@ -305,15 +365,32 @@ export class DuelTransport extends EventTarget implements Transport {
           throw e;
         }
         await sleep(RESEND_DELAYS_MS[attempt]);
+        continue;
       }
+      this._markAlive();
+      let reply: Reply;
+      if ("ok" in res) {
+        try {
+          reply = { view: await this._fetchView(sid, res.ok.rev) };
+        } catch (e) {
+          this._reportError(e as Error);
+          this._lose();
+          throw e;
+        }
+      } else {
+        reply = res;
+      }
+      if ("view" in reply && epoch === this._epoch) this._markLinked();
+      return { reply, resent: attempt > 0 };
     }
   }
 
   /// Applies a reply in revision order and returns what the caller should
-  /// see: a view older than one already applied yields the newer one.
+  /// see: a view not newer than one already applied yields that one,
+  /// undelivered again (an acked request's view arrives through the poll).
   private _apply(reply: Reply): { payload: TransportPayload; fresh: boolean } {
     if ("err" in reply) return { payload: { err: reply.err }, fresh: true };
-    if (reply.view.rev < this._rev && this._last !== null) {
+    if (reply.view.rev <= this._rev && this._last !== null) {
       return { payload: this._last, fresh: false };
     }
     this._rev = reply.view.rev;
