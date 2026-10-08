@@ -60,7 +60,7 @@ export function GamePicker({
           />
         </label>
       )}
-      <div className="picker" role="list">
+      <div className="picker">
         {shown.map((g) => (
           <PickerRow
             key={g.frontendCanisterId.toText()}
@@ -105,7 +105,6 @@ function PickerRow({
   return (
     <button
       type="button"
-      role="listitem"
       className={`pick${on ? " on" : ""}`}
       disabled={!ready}
       onClick={() => backend && onPick({ game, backend })}
