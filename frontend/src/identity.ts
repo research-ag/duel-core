@@ -30,7 +30,7 @@ export interface ResolvedIdentity {
   /// For `start({ session, ... })`.
   sid: string;
   isLoggedIn: boolean;
-  /// Opens the login flow, then reloads (nothing rebuilds actor/ws in
+  /// Opens the login flow, then reloads (nothing rebuilds actor/transport in
   /// place). Rejects without reloading if the flow fails.
   login(opts?: { maxTimeToLive?: bigint; targets?: Principal[] }): Promise<void>;
   /// Signs out, then reloads.
@@ -39,7 +39,7 @@ export interface ResolvedIdentity {
   regenerate(): Promise<void>;
 }
 
-/// Call once, early, before building the agent/actor/ws.
+/// Call once, early, before building the agent/actor/transport.
 export async function resolveIdentity(opts?: ResolveIdentityOptions): Promise<ResolvedIdentity> {
   const authClient = new AuthClient(
     opts?.identityProvider !== undefined ? { identityProvider: opts.identityProvider } : undefined,

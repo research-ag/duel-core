@@ -12,7 +12,7 @@ canister session:
   modules under `src/app/modules/gameplay/`.
   `game-communication/services/lobby-connection.service.ts` bridges the
   two: it shares `duel-app.js`'s connection (`window.duelActorReady`/
-  `duelWsReady`, set up inline in `index.html`) and turns each view into
+  `duelTransportReady`, set up inline in `index.html`) and turns each view into
   the `{ slot, step }[]` events the gameplay code expects.
 
 ## Build

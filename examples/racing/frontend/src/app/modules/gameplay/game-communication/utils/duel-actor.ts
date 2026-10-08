@@ -4,7 +4,7 @@
 declare global {
   interface Window {
     duelActorReady?: Promise<unknown>;
-    duelWsReady?: Promise<unknown>;
+    duelTransportReady?: Promise<unknown>;
   }
 }
 
@@ -15,11 +15,11 @@ export async function getDuelActor(): Promise<any> {
   return window.duelActorReady;
 }
 
-export async function getDuelWs(): Promise<any> {
-  if (!window.duelWsReady) {
-    throw new Error('window.duelWsReady is missing — check index.html\'s inline bootstrap script');
+export async function getDuelTransport(): Promise<any> {
+  if (!window.duelTransportReady) {
+    throw new Error('window.duelTransportReady is missing — check index.html\'s inline bootstrap script');
   }
-  return window.duelWsReady;
+  return window.duelTransportReady;
 }
 
 // Written by duel-app.js's start().

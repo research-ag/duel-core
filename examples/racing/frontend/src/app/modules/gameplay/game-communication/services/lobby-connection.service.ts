@@ -6,7 +6,7 @@ import CarPositioningModel from '../../gameplay/models/gameplay/world/car-positi
 import LobbyRuntimeDataModel from '../../gameplay/models/gameplay/lobby/lobby-runtime-data.model';
 import PlayerModel from '../../gameplay/models/gameplay/entities/player.model';
 import { CarData } from '../../../api/interfaces/car.interfaces';
-import { getDuelWs, getSid } from '../utils/duel-actor';
+import { getDuelTransport, getSid } from '../utils/duel-actor';
 import { RacingAction, RacingCarState, RacingState } from '../interfaces/racing-state.interfaces';
 import { GameStateService } from '../../game-shared/services/game-state.service';
 import { CinematicUtils } from '../../../../../utils/cinematic.utils';
@@ -56,7 +56,7 @@ export class LobbyConnectionService {
   // its View.youSubmitted, so startRace() can seed itself correctly.
   public raceStarted: Subject<{ resumedAtStep: number, youAlreadySubmitted: boolean }> = new Subject();
 
-  private ws: any; // shared DuelTransport — see duel-game-core/transport.js
+  private transport: any; // shared DuelTransport — see duel-game-core/transport.js
   private mySlot: number = -1;
   private wasInGame: boolean = false;
   private prevGame: RacingState | null = null;
@@ -83,7 +83,7 @@ export class LobbyConnectionService {
 
   /// False once the shared `DuelTransport` has closed for good.
   public get isConnected(): boolean {
-    return !!this.ws && !this.ws.closed;
+    return !!this.transport && !this.transport.closed;
   }
 
   /// Subscribes to the shared connection; returns `raceStarted`.
@@ -93,7 +93,7 @@ export class LobbyConnectionService {
   }
 
   public disconnectFromLobby(): void {
-    if (this.ws) this.ws.removeEventListener('message', this.onMessage);
+    if (this.transport) this.transport.removeEventListener('message', this.onMessage);
   }
 
   emitLoadingStateChanged(isLoading: boolean): Observable<any> {
@@ -114,7 +114,7 @@ export class LobbyConnectionService {
     const trajectory = data.trajectory || new StepTrajectoryModel(0, 0);
     const action: RacingAction = { l: trajectory.l, c: trajectory.c };
     // `request()` resolves this call's own reply; the caller checks `err`.
-    return from(this.ws.request(this.sid, { submit: { gen: this.currentGen, turn: this.currentTurn, move: action } }));
+    return from(this.transport.request(this.sid, { submit: { gen: this.currentGen, turn: this.currentTurn, move: action } }));
   }
 
   emitFinished(stepsCount?: number): Observable<any> {
@@ -124,26 +124,26 @@ export class LobbyConnectionService {
   /// The same `leave` the Forfeit button sends; used when the track fails
   /// to load, so both seats get a shared `#aborted` debrief.
   public async forfeit(): Promise<void> {
-    if (!this.ws) return;
+    if (!this.transport) return;
     try {
-      await this.ws.request(this.sid, { leave: { gen: this.currentGen } });
+      await this.transport.request(this.sid, { leave: { gen: this.currentGen } });
     } catch (err) {
       console.error('duel: auto-forfeit request failed', err);
     }
   }
 
   private async init(): Promise<void> {
-    this.ws = await getDuelWs();
-    this.ws.addEventListener('message', this.onMessage);
+    this.transport = await getDuelTransport();
+    this.transport.addEventListener('message', this.onMessage);
     // Immediate status fetch; the reply arrives through onMessage.
     this.refreshStatus();
   }
 
   /// Fires a `#status` request; the view still arrives via onMessage.
   public async refreshStatus(): Promise<void> {
-    if (!this.ws) return;
+    if (!this.transport) return;
     try {
-      await this.ws.request(this.sid, { status: null });
+      await this.transport.request(this.sid, { status: null });
     } catch (e: unknown) {
       console.error('duel status refresh failed', e);
     }

@@ -5,7 +5,7 @@
 import { IDL } from "@icp-sdk/core/candid";
 import { buildEngineTypes, type EngineTypes } from "../../src/idl.js";
 import type { PollResult, TransportActor } from "../../src/transport.js";
-import type { EngineErr, Status, WsRequest } from "../../src/types.js";
+import type { EngineErr, Status, TransportRequest } from "../../src/types.js";
 
 export function sampleGameTypes({ IDL: I }: { IDL: typeof IDL }) {
   return {
@@ -27,7 +27,7 @@ export class FakeCanister implements TransportActor {
   private nextRev = 100n;
 
   /// What to reply with for the next decoded request. Override per test.
-  respond: (req: WsRequest) => { view: Status } | { err: EngineErr } = () => ({
+  respond: (req: TransportRequest) => { view: Status } | { err: EngineErr } = () => ({
     view: this.current,
   });
   /// How many upcoming `duel_request` calls throw before one lands.
@@ -38,7 +38,7 @@ export class FakeCanister implements TransportActor {
   /// How long each `duel_poll` takes to answer.
   pollDelayMs = 0;
   /// Every decoded request, in arrival order, with the epoch it carried.
-  requests: Array<{ sid: string; epoch: bigint; req: WsRequest }> = [];
+  requests: Array<{ sid: string; epoch: bigint; req: TransportRequest }> = [];
   polls = 0;
   /// Every `duel_request` call, thrown ones included.
   attempts = 0;
@@ -49,11 +49,11 @@ export class FakeCanister implements TransportActor {
   }
 
   private _encode(value: unknown): Uint8Array {
-    const buf = IDL.encode([this.types.WsMsg], [value]);
+    const buf = IDL.encode([this.types.TransportMsg], [value]);
     return buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   }
 
-  get sent(): WsRequest[] {
+  get sent(): TransportRequest[] {
     return this.requests.map((r) => r.req);
   }
 
@@ -69,8 +69,8 @@ export class FakeCanister implements TransportActor {
   }
 
   private _handle(msg: Uint8Array): Uint8Array {
-    const decoded = IDL.decode([this.types.WsMsg], msg)[0] as unknown as {
-      req: { sid: string; epoch: bigint; req: WsRequest };
+    const decoded = IDL.decode([this.types.TransportMsg], msg)[0] as unknown as {
+      req: { sid: string; epoch: bigint; req: TransportRequest };
     };
     this.requests.push(decoded.req);
     if ("bye" in decoded.req.req)

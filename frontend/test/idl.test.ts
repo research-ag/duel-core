@@ -18,7 +18,7 @@ test("buildEngineTypes builds every named type without throwing", () => {
   const t = buildEngineTypes({ IDL, Action, State });
   for (const key of [
     "Seat", "Verdict", "End", "Err", "View", "LeaderboardEntry",
-    "PollResult", "WsRequest", "WsMsg",
+    "PollResult", "TransportRequest", "TransportMsg",
   ] as const) {
     assert.ok(t[key], `missing type: ${key}`);
   }
@@ -69,27 +69,27 @@ test("View round-trips through Candid encode/decode for a game's own State shape
   assert.deepEqual(decoded, view);
 });
 
-test("WsRequest round-trips a game's own Action through the submit variant", () => {
+test("TransportRequest round-trips a game's own Action through the submit variant", () => {
   const { Action, State } = sampleGameTypes({ IDL });
   const t = buildEngineTypes({ IDL, Action, State });
 
   const req = { submit: { gen: 1n, turn: 2n, move: { shoot: 5n } } };
-  const bytes = IDL.encode([t.WsRequest], [req]);
+  const bytes = IDL.encode([t.TransportRequest], [req]);
   const [decoded] = IDL.decode(
-    [t.WsRequest],
+    [t.TransportRequest],
     bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes),
   );
   assert.deepEqual(decoded, req);
 });
 
-test("WsRequest round-trips the claimWin variant", () => {
+test("TransportRequest round-trips the claimWin variant", () => {
   const { Action, State } = sampleGameTypes({ IDL });
   const t = buildEngineTypes({ IDL, Action, State });
 
   const req = { claimWin: { gen: 1n } };
-  const bytes = IDL.encode([t.WsRequest], [req]);
+  const bytes = IDL.encode([t.TransportRequest], [req]);
   const [decoded] = IDL.decode(
-    [t.WsRequest],
+    [t.TransportRequest],
     bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes),
   );
   assert.deepEqual(decoded, req);

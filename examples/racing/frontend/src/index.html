@@ -13,7 +13,7 @@
        other's result regardless of load order (see duel-actor.ts). -->
   <script>
     window.duelActorReady = new Promise((resolve) => { window.__resolveDuelActor = resolve; });
-    window.duelWsReady = new Promise((resolve) => { window.__resolveDuelWs = resolve; });
+    window.duelTransportReady = new Promise((resolve) => { window.__resolveDuelTransport = resolve; });
   </script>
 </head>
 <body>

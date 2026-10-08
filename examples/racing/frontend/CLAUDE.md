@@ -16,7 +16,7 @@ Plain TypeScript, no framework, one track and one car:
 - duel-game-core's generic screens (`#screen`, driven by
   `src/duel/duel-app.js` + `duel-racing-plugin.js`) own everything before
   and after a race. `duel-app.js` also wires, by hand and off the shared
-  `ws`/`session`/`actor`, the `#leaderboard-toggle`/`#leaderboard-panel`
+  `transport`/`session`/`actor`, the `#leaderboard-toggle`/`#leaderboard-panel`
   and `#bot-challenge-toggle`/`#bot-challenge-panel` overlays (both
   styled by the shared `duel-game-core/style.css`, hidden during a race
   via `body.in-race`). The only per-challenge actor is the chosen bot's
@@ -26,10 +26,10 @@ Plain TypeScript, no framework, one track and one car:
   lobby stuck on loading). The keypair persists in `sessionStorage` and
   `sid` derives from its principal.
 - `lobby-connection.service.ts` fires a `status` `request()` the moment
-  `getDuelWs()` resolves. Safe because `DuelTransport`'s `send()`/
+  `getDuelTransport()` resolves. Safe because `DuelTransport`'s `send()`/
   `request()` work at any time. Don't add a wait-for-onopen here.
 - `lobby-connection.service.ts` shares the ONE `DuelTransport` via
-  `window.duelWsReady` (an `EventTarget` listener, not `ws.onmessage`),
+  `window.duelTransportReady` (an `EventTarget` listener, not `transport.onmessage`),
   submits via `request(sid, req)` for its own reply, and has NO poll
   loop of its own. Views arrive as snapshots in revision order; two
   rounds resolved within one poll interval show up as one view.

@@ -66,7 +66,12 @@ git clone https://github.com/research-ag/duel-core.git ../duel-core
 [dependencies]
 duel-game-core = "../duel-core/backend"
 core = "2.6.1"
+promtracker = "1.0.1"
 ```
+
+`promtracker` is always needed: the Host template serves metrics at
+`GET /metrics` (Step 4). With `mops add duel-game-core` working, also
+run `mops add promtracker`.
 
 Frontend: `npm view duel-game-core version`. If it resolves, keep
 `"duel-game-core": "*"` and `npm install duel-game-core --save-exact`.
@@ -190,9 +195,10 @@ before its own claim window even opens. Change nothing else. Do not add plain Ca
 only mutation path; a direct update call reopens the ordering race it
 closes. `status` stays a plain `query`. The template wires a
 `Registry`, so the game gets a multi-table lobby for free, and
-`HttpActorMixin`, whose one route answers `GET /semantics` with
-`Rules.SEMANTICS`; data a client needs but `State` does not carry (a
-fixed map, a deck list) goes in as a further `(path, () -> Text)` route.
+promtracker metrics, and `HttpActorMixin`, whose routes answer
+`GET /semantics` with `Rules.SEMANTICS` and `GET /metrics` with the
+metrics; data a client needs but `State` does not carry (a fixed map, a
+deck list) goes in as a further `(path, () -> Text)` route.
 The same mixin also serves the canister's own module at `GET /wasm` and
 takes it in through the controllers-only `wasm_upload_*` methods that
 `publish_wasm.sh` calls at deploy time (Step 7); nothing to wire.
@@ -203,32 +209,19 @@ shows the deciding opponent the mirror warning. Nothing in `GamePlugin`
 is involved. In an `#alternating` game only the seat NOT on turn ever
 sees the control.
 
-**Metrics (optional).** Only if asked for observability: `mops add
-promtracker` and
+**Metrics.** The template wires promtracker for every game:
+`registry.attachMetrics(pt)` records `games_started`, `active_games`,
+`rounds_per_game` and `matchmaking_wait_seconds` (the backend README's
+"Metrics"), next to promtracker's system metrics (memory, cycles,
+instructions), all served at `GET /metrics` in Prometheus format. Keep
+the `import Tracker "mo:promtracker/Tracker"` line: it is what brings
+`pt.toValue()` into scope, and without it the host does not compile.
+A game with its own counters adds them to the same `pt`
+(`pt.newCounter(name, labels)`, `pt.newGauge(...)`; see promtracker's README). Check after a deploy:
 
-```motoko
-import PT "mo:promtracker";
-
-persistent actor {
-  let pt = PT.Tracker.new();
-  transient let renderer = PT.Renderer();
-  renderer.addValue(PT.allSystemMetrics);
-  renderer.addValue(pt.toValue());
-
-  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
-  registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__);
-  registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
-
-  // ...status/Transport.attach/ActorMixin as in the template...
-  include HttpActorMixin([
-    ("/semantics", func() : Text = Rules.SEMANTICS),
-    ("/metrics", renderer.renderExposition), // one more route on the template's list
-  ]);
-};
-
+```bash
+curl http://$ID.raw.localhost:8000/metrics
 ```
-
-See the backend README's "Metrics" and `examples/racing/src/Host.mo`.
 
 **Canister players (optional).** Only if asked for a bot/AI opponent.
 Nothing to add to `mops.toml`. Extend `Host.mo`:
@@ -433,7 +426,7 @@ Copy `index.html.template`, `app.js.template`, `style.css.template` into
 `__IDLE_TIMEOUT_SECONDS__`. `style.css` may stay empty but must exist
 (`build.js` copies it). `app.js` resolves a non-spoofable anonymous
 identity, builds the actor, connects the transport, and calls
-`start({ plugin, ws, session })`; esbuild inlines every dependency, so
+`start({ plugin, transport, session })`; esbuild inlines every dependency, so
 no CDN or import map. For Internet Identity login, swap
 `resolveAnonymousIdentity()` for `identity.js`'s `resolveIdentity()`
 (`frontend/README.md`, "Logging in with Internet Identity").
@@ -504,7 +497,7 @@ necessary, not sufficient.
 ## Common pitfalls
 
 - **No plain Candid method for any game mutation**, not even "to test
-  with a canister call". Use the frontend or a `ws`-speaking client. (The
+  with a canister call". Use the frontend or a `transport`-speaking client. (The
   HTTP mixin's `wasm_upload_*` are the engine's own, controllers-only,
   and touch no game state.)
 - **Never let a client value stand in for something `resolve` should

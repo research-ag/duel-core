@@ -39,9 +39,9 @@ const agent = await HttpAgent.create({
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
-const ws = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
+const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 
-const client = createDuelClient({ ws, session });
+const client = createDuelClient({ transport, session });
 
 const $ = (id) => document.getElementById(id);
 
