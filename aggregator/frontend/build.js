@@ -35,6 +35,7 @@ for (const [from, to] of [
   ['src/style.css', `${outdir}/style.css`],
   ['src/fonts', `${outdir}/fonts`],
   ['src/_headers', `${outdir}/_headers`],
+  ['src/.well-known', `${outdir}/.well-known`],
 ]) {
   cpSync(from, to, { recursive: true });
 }

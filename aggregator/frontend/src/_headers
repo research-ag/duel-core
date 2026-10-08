@@ -5,7 +5,7 @@
 # TutorialWizard.tsx's "Copy" buttons need.
 /*
   Cache-Control: public, max-age=0, must-revalidate
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://ic0.app https://*.ic0.app https://icp0.io https://*.icp0.io http://localhost:* http://127.0.0.1:*; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none';
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://ic0.app https://*.ic0.app https://icp0.io https://*.icp0.io https://icp-api.io http://localhost:* http://127.0.0.1:*; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none';
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
