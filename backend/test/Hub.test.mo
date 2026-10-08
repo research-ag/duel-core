@@ -22,21 +22,20 @@ do {
   let hub = Transport.createHub();
   check(Transport.revOf(hub, "sid-1") == 0, "1a: an unknown sid has rev 0");
   check(not Transport.isPresent(hub, "sid-1", T0), "1b: and is not present");
-  ignore Transport.seen(hub, "sid-1", T0, 7);
+  ignore Transport.seen(hub, "sid-1", T0);
   check(Transport.revOf(hub, "sid-1") != 0, "1c: a link starts at a fresh rev");
   check(Transport.isPresent(hub, "sid-1", T0), "1d: and is present");
   Debug.print("1. seen() creates a link OK");
 };
 
-// ── 2. seen() again refreshes lastSeen/epoch but leaves rev alone ──────────
+// ── 2. seen() again refreshes lastSeen but leaves rev alone ────────────────
 do {
   let hub = Transport.createHub();
-  ignore Transport.seen(hub, "sid-1", T0, 7);
+  ignore Transport.seen(hub, "sid-1", T0);
   let rev = Transport.revOf(hub, "sid-1");
-  let l = Transport.seen(hub, "sid-1", T0 + SEC, 8);
+  let l = Transport.seen(hub, "sid-1", T0 + SEC);
   check(l.rev == rev, "2a: a request alone is not a status change");
   check(l.lastSeen == T0 + SEC, "2b");
-  check(l.epoch == 8, "2c");
   Debug.print("2. seen() on a known sid keeps its rev OK");
 };
 
@@ -44,8 +43,8 @@ do {
 //      hub-wide and strictly increasing ─────────────────────────────────────
 do {
   let hub = Transport.createHub();
-  ignore Transport.seen(hub, "sid-1", T0, 1);
-  ignore Transport.seen(hub, "sid-2", T0, 1);
+  ignore Transport.seen(hub, "sid-1", T0);
+  ignore Transport.seen(hub, "sid-2", T0);
   let r1 = Transport.revOf(hub, "sid-1");
   let r2 = Transport.revOf(hub, "sid-2");
   check(r2 > r1, "3a: a later link gets a higher rev");
@@ -60,10 +59,10 @@ do {
 // ── 4. presence lapses after PRESENCE_TTL_NS without a request ─────────────
 do {
   let hub = Transport.createHub();
-  ignore Transport.seen(hub, "sid-1", T0, 1);
+  ignore Transport.seen(hub, "sid-1", T0);
   check(Transport.isPresent(hub, "sid-1", T0 + TTL - 1), "4a: still present just inside the TTL");
   check(not Transport.isPresent(hub, "sid-1", T0 + TTL), "4b: absent at the TTL");
-  ignore Transport.seen(hub, "sid-1", T0 + TTL, 1);
+  ignore Transport.seen(hub, "sid-1", T0 + TTL);
   check(Transport.isPresent(hub, "sid-1", T0 + TTL + SEC), "4c: a request restores presence");
   Debug.print("4. presence follows the last request OK");
 };
@@ -71,47 +70,12 @@ do {
 // ── 5. prune(): drops exactly the links that stopped being present ─────────
 do {
   let hub = Transport.createHub();
-  ignore Transport.seen(hub, "old", T0, 1);
-  ignore Transport.seen(hub, "new", T0 + 100 * SEC, 1);
+  ignore Transport.seen(hub, "old", T0);
+  ignore Transport.seen(hub, "new", T0 + 100 * SEC);
   Transport.prune(hub, T0 + TTL);
   check(Transport.revOf(hub, "old") == 0, "5a: the lapsed link is gone");
   check(Transport.revOf(hub, "new") != 0, "5b: the live one stays");
   Debug.print("5. prune() drops lapsed links only OK");
-};
-
-// ── 6. byeStands(): a genuine departure — nothing follows the goodbye ──────
-do {
-  let hub = Transport.createHub();
-  ignore Transport.seen(hub, "sid-1", T0, 5);
-  check(Transport.byeStands(hub, "sid-1", 5, T0), "6: with no later request the goodbye must stand");
-  Debug.print("6. a goodbye nobody follows up stands OK");
-};
-
-// ── 7. a reload: the new page's first request (a new epoch) lands inside
-//      the grace window ─────────────────────────────────────────────────────
-do {
-  let hub = Transport.createHub();
-  ignore Transport.seen(hub, "sid-1", T0, 5);
-  ignore Transport.seen(hub, "sid-1", T0 + SEC, 6);
-  check(not Transport.byeStands(hub, "sid-1", 5, T0), "7: a newer connection must cancel the old one's goodbye");
-  Debug.print("7. a reconnect inside the grace cancels the goodbye OK");
-};
-
-// ── 8. the same connection speaking again after its goodbye (a `pagehide`
-//      the page survived) ───────────────────────────────────────────────────
-do {
-  let hub = Transport.createHub();
-  ignore Transport.seen(hub, "sid-1", T0, 5);
-  ignore Transport.seen(hub, "sid-1", T0 + SEC, 5);
-  check(not Transport.byeStands(hub, "sid-1", 5, T0), "8: a later request under the same epoch must cancel too");
-  Debug.print("8. a later request under the same epoch cancels the goodbye OK");
-};
-
-// ── 9. a goodbye for a session with no link never stands ───────────────────
-do {
-  let hub = Transport.createHub();
-  check(not Transport.byeStands(hub, "sid-1", 5, T0), "9");
-  Debug.print("9. a goodbye for an unlinked session is ignored OK");
 };
 
 // ── 13. sidForPrincipal(): a pure, deterministic mapping ───────────────────

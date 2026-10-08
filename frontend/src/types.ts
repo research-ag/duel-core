@@ -180,8 +180,7 @@ export type TransportRequest<A = unknown> =
   | { reset: { gen: bigint } }
   | { claimWin: { gen: bigint } }
   | { ackEnded: null }
-  | { status: null }
-  | { bye: null };
+  | { status: null };
 
 export type TransportPayload<S = unknown> = { view: Status<S> } | { err: EngineErr };
 

@@ -329,12 +329,14 @@ answer still applies if it arrives late, which keeps a slow link from
 reading as a lost one. At most three polls are ever unanswered at once;
 past that the loop waits on the newest.
 
-**Presence and goodbye.** After `pingMs` (120000) without any other
-request the transport sends a `#status`, which is all the canister needs
-to count the session as present. On `pagehide` it sends `#bye`, the one
-goodbye the canister treats as leaving. A throttled background tab, a
-sleeping laptop, a phone in another app keeps its seat; genuine absence
-is the engine's claim and idle timeouts' business.
+**Presence.** After `pingMs` (120000) without any other request the
+transport sends a `#status`, which is all the canister needs to count
+the session as present. There is no goodbye: a closed tab, a throttled
+background tab, a sleeping laptop, a phone in another app all keep
+their seat, and a player who comes back under the same `sid` continues
+where they were. Genuine absence is the engine's claim and idle
+timeouts' business; the only explicit departure is the player's own
+`leave`.
 
 **First paint.** `queryStatus(sid)` calls the host's plain `status`
 query (every host declares it, and `makeIdlFactory` includes it).
@@ -348,8 +350,8 @@ produced `session.sid`. The backend rejects a `sid` that doesn't match
 the caller's principal, and an anonymous caller outright, so never
 build the agent without an identity. `resolveIdentity()`/
 `resolveAnonymousIdentity()` return a matched `{ identity, principal,
-sid }`. A reload is safe: each page load (and each resume) picks a new
-`epoch`, and the canister ignores a `#bye` from an older one.
+sid }`. A reload is safe: the canister sees the same `sid` again and
+nothing in between.
 
 **Dependencies.** `transport.js` uses `@icp-sdk/core/candid` only.
 `duel_poll` is an uncertified query; every mutation's reply comes from
@@ -364,13 +366,11 @@ can replace `DuelTransport`.
 canister forgets is redone with no `onclose`. `duel_poll` answering
 `unknown` (after an upgrade, or once a lapsed link was pruned), two
 failed polls in a row, or an update call that kept failing makes the
-next tick send a `#status` under a new epoch, backing off up to 5 s.
-`onconnecting` fires when the link is lost; `onopen` fires again on
-every confirmed relink (`client.js` asks for a fresh `#status` then,
-coalesced with the transport's own). Coming back — the tab visible
-again, `online`, `pageshow` — ticks at once. Between `pagehide` and
-`pageshow` the loop is suspended, so nothing undoes the goodbye; a
-back/forward-cache restore relinks. `onerror` fires only on a second
+next tick send a `#status`, backing off up to 5 s. `onconnecting` fires
+when the link is lost; `onopen` fires again on every confirmed relink
+(`client.js` asks for a fresh `#status` then, coalesced with the
+transport's own). Coming back — the tab visible again, `online`,
+`pageshow` — ticks at once. `onerror` fires only on a second
 consecutive failure, since a lone blip self-heals within a tick.
 
 **Requests go out one at a time, in order**: two in-flight update calls

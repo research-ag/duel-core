@@ -10,13 +10,13 @@
 /// A request reuses `Registry`'s operations with `Time.now()`, replies
 /// with the caller's fresh `SessionStatus`, and bumps the `rev` of every
 /// other session whose status changed; `duel_poll` hands a session its
-/// status whenever its `rev` moved. Nothing is queued. A `#bye` drives an
-/// implicit `Registry.leave`; silence only ends presence.
+/// status whenever its `rev` moved. Nothing is queued. Silence only ends
+/// presence; departure is the engine's own business.
 ///
 /// Wiring — see `../README.md`, "Transport":
 ///
 ///   transient let hub : Transport.Hub = Transport.createHub();
-///   transient let attached = Transport.attach<system, Rules.State, Rules.Action>(
+///   transient let attached = Transport.attach<Rules.State, Rules.Action>(
 ///     Rules.spec(), registry, hub,
 ///     { encode = func(m) = to_candid (m); decode = func(b) = from_candid (b) },
 ///     null, null, null, // onSettled, onGameEnded, onGameStarted
@@ -29,7 +29,6 @@ import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
-import Timer "mo:core/Timer";
 
 import TP "./lib";
 import Registry "./registry";
@@ -37,10 +36,10 @@ import Registry "./registry";
 module {
 
   /// Mirrors `Registry`'s operations plus `#status` (a resync, the
-  /// first request of a connection, and the heartbeat) and `#bye` (the
-  /// cooperative goodbye). `#submit`/`#leave`/`#reset`/`#claimWin` carry
-  /// the `gen` (and `#submit` the `turn`) the client last observed, so a
-  /// stale replay is rejected as `#stale`.
+  /// first request of a connection, and the heartbeat). `#submit`/
+  /// `#leave`/`#reset`/`#claimWin` carry the `gen` (and `#submit` the
+  /// `turn`) the client last observed, so a stale replay is rejected as
+  /// `#stale`.
   public type Request<M> = {
     #createTable : {
       seat : TP.Seat;
@@ -55,15 +54,12 @@ module {
     #claimWin : { gen : Nat };
     #ackEnded;
     #status;
-    #bye;
   };
 
-  /// One message type for both directions. `epoch` is a token the client
-  /// picks per connection (page load or resume), so a late `#bye` from a
-  /// superseded one is ignored. `rev` orders views: a client drops any
-  /// view not newer than the last it applied.
+  /// One message type for both directions. `rev` orders views: a client
+  /// drops any view not newer than the last it applied.
   public type Msg<S, M> = {
-    #req : { sid : TP.SessionId; epoch : Nat64; req : Request<M> };
+    #req : { sid : TP.SessionId; req : Request<M> };
     #view : { rev : Nat; view : TP.SessionStatus<S> };
     #err : { err : TP.Err };
   };
@@ -122,8 +118,8 @@ module {
   public let PRESENCE_TTL_NS : Int = 180_000_000_000;
 
   /// One connected session: `rev` changes whenever its status may have,
-  /// `lastSeen` is its last request, `epoch` its current connection.
-  public type Link = { var rev : Nat; var lastSeen : Int; var epoch : Nat64 };
+  /// `lastSeen` is its last request.
+  public type Link = { var rev : Nat; var lastSeen : Int };
 
   /// `nextRev` is seeded from the clock by `attach`, so revisions keep
   /// increasing across an upgrade that wipes this transient state.
@@ -143,18 +139,16 @@ module {
   };
 
   /// Records a request from `sid`, creating its link on first contact.
-  public func seen(hub : Hub, sid : TP.SessionId, now : Int, epoch : Nat64) : Link {
+  public func seen(hub : Hub, sid : TP.SessionId, now : Int) : Link {
     switch (hub.links.get(sid)) {
       case (?l) {
         l.lastSeen := now;
-        l.epoch := epoch;
         l;
       };
       case null {
         let l : Link = {
           var rev = freshRev(hub);
           var lastSeen = now;
-          var epoch;
         };
         hub.links.add(sid, l);
         l;
@@ -180,15 +174,6 @@ module {
   public func isPresent(hub : Hub, sid : TP.SessionId, now : Int) : Bool {
     switch (hub.links.get(sid)) {
       case (?l) now - l.lastSeen < PRESENCE_TTL_NS;
-      case null false;
-    };
-  };
-
-  /// Whether a `#bye` taken at `at` under `epoch` still stands: no later
-  /// request, no newer connection.
-  public func byeStands(hub : Hub, sid : TP.SessionId, epoch : Nat64, at : Int) : Bool {
-    switch (hub.links.get(sid)) {
-      case (?l) l.epoch == epoch and l.lastSeen <= at;
       case null false;
     };
   };
@@ -231,10 +216,6 @@ module {
   /// `isFreshMatch`. Synchronous. For a host that needs real elapsed time.
   public type OnGameStarted = (TP.TableId, TP.SessionId, TP.SessionId) -> ();
 
-  /// Grace before a `#bye` counts as a genuine departure: a reload's new
-  /// page may land its first request just after the old page's goodbye.
-  let BYE_GRACE : Time.Duration = #seconds(3);
-
   /// Whether a just-succeeded `#rematch` opened an unreserved staging
   /// (the partner had already acked), which every browsing session must
   /// hear about — otherwise a lobby tab shows "No open tables" for the
@@ -263,9 +244,8 @@ module {
     g.turn == 0 and noPending and g.lastActivity == now;
   };
 
-  /// Binds the transport to one game's `Spec`/`Registry`. Needs
-  /// `<system>` because `#bye` schedules a deferred check.
-  public func attach<system, S, M>(
+  /// Binds the transport to one game's `Spec`/`Registry`.
+  public func attach<S, M>(
     spec : TP.Spec<S, M>,
     registry : TP.Registry<S, M>,
     hub : Hub,
@@ -340,94 +320,20 @@ module {
       };
     };
 
-    /// The table's own current `gen` — this leave is driven by a goodbye,
-    /// not by a stamped client request, so it must always go through.
-    func genOfSessionsTable(sid : TP.SessionId) : ?Nat = switch (registry.bySession.get(sid)) {
-      case null null;
-      case (?id) switch (registry.tables.get(id)) {
-        case null null;
-        case (?t) ?t.gen;
-      };
-    };
-
-    /// Two `leave`s, each re-resolving the current table: the first does
-    /// whatever `leave` means in the current phase (an abort does not
-    /// auto-ack the leaver), the second acks that debrief, since a
-    /// departed session will never click "leave" again.
-    func disconnectSession(now : Int, sid : TP.SessionId) {
-      switch (genOfSessionsTable(sid)) {
-        case (?g) ignore registry.leave(now, sid, g);
-        case null {};
-      };
-      switch (genOfSessionsTable(sid)) {
-        case (?g) ignore registry.leave(now, sid, g);
-        case null {};
-      };
-    };
-
-    /// The deferred departure; backs off if the session came back. Also
-    /// frees a table whose partner is no longer present.
-    func finishBye(sid : TP.SessionId, epoch : Nat64, at : Int) : async* () {
-      if (not byeStands(hub, sid, epoch, at)) return;
-      hub.links.remove(sid);
-      let now = Time.now();
-      let priorId = registry.bySession.get(sid);
-      disconnectSession(now, sid);
-      switch (priorId) {
-        case null {};
-        case (?id) switch (registry.tables.get(id)) {
-          case null {};
-          case (?t) switch (t.phase) {
-            case (#debrief d) {
-              if (d.p1 == sid or d.p2 == sid) {
-                let partner = if (d.p1 == sid) d.p2 else d.p1;
-                if (not isPresent(hub, partner, now)) disconnectSession(now, partner);
-              };
-            };
-            case (_) {};
-          };
-        };
-      };
-      await* afterMutation(now, sid, priorId, true);
-    };
-
-    /// See `../README.md`, "Disappearance handling". Not counted as a
-    /// request: a goodbye must not refresh presence or adopt its epoch.
-    func bye<system>(sid : TP.SessionId, epoch : Nat64) {
-      switch (hub.links.get(sid)) {
-        case (?l) {
-          if (l.epoch != epoch) return;
-          let at = l.lastSeen;
-          ignore Timer.setTimer<system>(
-            BYE_GRACE,
-            func() : async () { await* finishBye(sid, epoch, at) },
-          );
-        };
-        case null {};
-      };
-    };
-
     func request(caller : Principal, msg : Blob) : async* Blob {
-      let ?#req({ sid; epoch; req }) = codec.decode(msg) else {
+      let ?#req({ sid; req }) = codec.decode(msg) else {
         return codec.encode(#err({ err = #unauthorized }));
       };
       if (not isAuthorizedSid(sid, caller)) {
         return codec.encode(#err({ err = #unauthorized }));
       };
       let now = Time.now();
-      switch (req) {
-        case (#bye) {
-          bye<system>(sid, epoch);
-          return viewOf(now, sid);
-        };
-        case (_) {};
-      };
-      ignore seen(hub, sid, now, epoch);
+      ignore seen(hub, sid, now);
       // Captured before the request runs: submit/rematch/leave/reset/
       // claimWin/ackEnded return no `TableId` of their own.
       let priorId = registry.bySession.get(sid);
       let res : TP.Res<(?TP.TableId, Bool)> = switch (req) {
-        case (#status or #bye) return viewOf(now, sid);
+        case (#status) return viewOf(now, sid);
         case (#createTable { seat; visibility; variant }) {
           switch (registry.createTable(spec, now, sid, seat, visibility, variant)) {
             case (#ok id) #ok(?id, true);

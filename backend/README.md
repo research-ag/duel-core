@@ -197,7 +197,7 @@ through one update method, which the client calls one request at a time.
   `transient` hub, or the link was pruned), which tells the client to
   send `#status` again.
 
-Nothing is queued. `Hub` keeps one `Link { rev; lastSeen; epoch }` per
+Nothing is queued. `Hub` keeps one `Link { rev; lastSeen }` per
 connected session. After each successful mutation the module gives a
 fresh `rev` to the acting session, the table's other occupants
 (including a rematch reservation's named partner), and — when the
@@ -212,23 +212,20 @@ which orders a direct reply against a polled view.
 **Presence.** A session is present while its last request is younger
 than `PRESENCE_TTL_NS` (180 s). The client sends a `#status` after 120 s
 without any other request; there is no handshake and no keep-alive
-timer. Presence is evaluated when asked (`sweep`, a goodbye's partner
-check); lapsed links are pruned by the idle-sweep timer.
+timer. Presence is evaluated when asked (`sweep`); lapsed links are
+pruned by the idle-sweep timer.
 
-**Disappearance handling.** A cooperative goodbye — the client's `#bye`,
-sent on `pagehide` — drives an implicit `Registry.leave` for that
-session after a 3 s grace: a live game ends in a shared debrief; if the
-partner is no longer present, their side is acked too and the table
-frees immediately. `epoch` is a token the client picks per connection
-(page load or resume): a `#bye` under an older epoch, or one followed by
-any later request, is ignored, so a reload or a page restored from the
-back/forward cache keeps its seat. Silence is not a departure:
-background tabs are throttled and phones freeze pages, so a player who
-glances away must not forfeit. Genuine absence is the engine's own
-business: `claimWin` after `claimTimeoutNs`, idle takeover, and
-`Registry.sweep`. A session that stopped being present no longer keeps
-its staging alive, so the next sweep frees a seat its occupant staged
-and then went idle on.
+**Departure.** The transport has no goodbye: a closed tab, a reload, a
+throttled background tab, a sleeping laptop, a phone in another app all
+look the same to the canister — silence — and silence is not a
+departure, so a player who glances away, or closes and reopens the
+page, keeps their seat. (A browser drops a request issued during
+unload, so a goodbye sent then would never land anyway.) Genuine
+absence is the engine's own business: `claimWin` after
+`claimTimeoutNs`, idle takeover, and `Registry.sweep`. A session that
+stopped being present no longer keeps its staging alive, so the next
+sweep frees a seat its occupant staged and then went idle on. The one
+explicit departure is the player's own `#leave`.
 
 **One commit point per request.** `afterMutation` is synchronous except
 for `onSettled`, the canister-player hook, which may await a bot's move.
@@ -237,8 +234,8 @@ delivers its own move while the bot is still thinking; the update's
 reply is built afterwards and carries the latest state.
 
 **Wire protocol.** `Transport.Msg<S, M>` is one variant for both
-directions: `#req { sid; epoch; req }` (client→canister; `req` mirrors
-`Registry`'s operations plus `#status` and `#bye`) and `#view { rev;
+directions: `#req { sid; req }` (client→canister; `req` mirrors
+`Registry`'s operations plus `#status`) and `#view { rev;
 view }`/`#err { err }` (canister→client; `view` is a
 `SessionStatus<S>`). `#status` is the first request of a connection, the
 resync, and the heartbeat.
@@ -275,7 +272,7 @@ persistent actor {
   // Not stable — rebuilt on every upgrade; `registry` is untouched and
   // browsers relink on their own.
   transient let hub : Transport.Hub = Transport.createHub();
-  transient let attached = Transport.attach<system, Rules.State, Rules.Action>(
+  transient let attached = Transport.attach<Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
     hub,
@@ -390,7 +387,7 @@ persistent actor {
   };
 
   transient let hub : Transport.Hub = Transport.createHub();
-  transient let attached = Transport.attach<system, Rules.State, Rules.Action>(
+  transient let attached = Transport.attach<Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
     hub,

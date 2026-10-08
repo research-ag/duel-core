@@ -64,9 +64,6 @@ export interface TransportActor {
 type Reply =
   { view: { rev: bigint; view: Status } } | { err: { err: EngineErr } };
 
-const newEpoch = (): bigint =>
-  BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER));
-
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
@@ -79,16 +76,15 @@ export class DuelTransport extends EventTarget implements Transport {
   private _pingMs: number;
   private _pollTimeoutMs: number;
   private _sid: string | null;
-  private _epoch: bigint;
+  // Bumped on every presumed loss, so a reply or poll from before it
+  // cannot mark the new link up or down.
+  private _epoch: number;
   // The newest revision applied, and the payload it carried.
   private _rev: bigint;
   private _last: TransportPayload | null;
   // A reply arrived under the current epoch and nothing invalidated it.
   private _linked: boolean;
-  private _everLinked: boolean;
   private _closed: boolean;
-  // Between `pagehide` and `pageshow`: nothing may undo the goodbye.
-  private _suspended: boolean;
   private _chain: Promise<void>; // serializes every duel_request
   private _inFlight: number;
   private _statusQueued: boolean;
@@ -132,13 +128,11 @@ export class DuelTransport extends EventTarget implements Transport {
     this._pingMs = pingMs;
     this._pollTimeoutMs = pollTimeoutMs;
     this._sid = null;
-    this._epoch = newEpoch();
+    this._epoch = 0;
     this._rev = 0n;
     this._last = null;
     this._linked = false;
-    this._everLinked = false;
     this._closed = false;
-    this._suspended = false;
     this._chain = Promise.resolve();
     this._inFlight = 0;
     this._statusQueued = false;
@@ -159,16 +153,8 @@ export class DuelTransport extends EventTarget implements Transport {
 
     this._schedule(0);
 
-    // Cooperative goodbye on `pagehide` only — NOT `visibilitychange`,
-    // which fires on plain backgrounding and would abort a live game. A
-    // page restored from the back/forward cache relinks.
-    this._listen(globalThis, "pagehide", () => {
-      if (this._closed) return;
-      this._suspended = true;
-      if (this._pollTimer != null) clearTimeout(this._pollTimer);
-      this._bye();
-      this._lose();
-    });
+    // Nothing is sent on `pagehide`: a request issued during unload is
+    // dropped by the browser, and silence is not a departure anyway.
     this._listen(globalThis, "pageshow", () => this._resume());
     this._listen(globalThis, "online", () => this._resume());
     if (typeof document !== "undefined") {
@@ -188,18 +174,17 @@ export class DuelTransport extends EventTarget implements Transport {
     this._unlisten.push(() => target.removeEventListener(type, fn));
   }
 
-  /// Back from a gap: a `pagehide` the page survived ends here too. The
-  /// next tick relinks, pings or polls, whichever is due.
+  /// Back from a gap: the next tick relinks, pings or polls, whichever
+  /// is due.
   private _resume(): void {
     if (this._closed) return;
-    this._suspended = false;
     this._schedule(0);
   }
 
   /// The link is gone, or presumed gone: the next tick sends a `#status`
   /// under a new epoch, and a caller that saw it open hears `onconnecting`.
   private _lose(): void {
-    this._epoch = newEpoch();
+    this._epoch++;
     if (!this._linked) return;
     this._linked = false;
     if (this.onconnecting) this.onconnecting();
@@ -207,7 +192,7 @@ export class DuelTransport extends EventTarget implements Transport {
   }
 
   private _schedule(delay: number): void {
-    if (this._closed || this._suspended) return;
+    if (this._closed) return;
     if (this._pollTimer != null) clearTimeout(this._pollTimer);
     this._pollTimer = setTimeout(() => this._tick(), delay);
   }
@@ -239,7 +224,7 @@ export class DuelTransport extends EventTarget implements Transport {
     );
   }
 
-  private _applyPoll(sid: string, epoch: bigint, res: PollResult): void {
+  private _applyPoll(sid: string, epoch: number, res: PollResult): void {
     if (this._closed || sid !== this._sid) return;
     this._markAlive();
     if ("changed" in res) {
@@ -257,7 +242,7 @@ export class DuelTransport extends EventTarget implements Transport {
   /// The one loop: relink if needed, ping if due, else poll. Two failed
   /// or expired waits in a row presume the link lost.
   private async _tick(): Promise<void> {
-    if (this._closed || this._suspended || this._ticking) return;
+    if (this._closed || this._ticking) return;
     this._ticking = true;
     let delay = this._intervalMs;
     const sid = this._sid;
@@ -286,10 +271,7 @@ export class DuelTransport extends EventTarget implements Transport {
   }
 
   private _encode(sid: string, req: TransportRequest): Uint8Array {
-    const buf = IDL.encode(
-      [this._types.TransportMsg],
-      [{ req: { sid, epoch: this._epoch, req } }]
-    );
+    const buf = IDL.encode([this._types.TransportMsg], [{ req: { sid, req } }]);
     return buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   }
 
@@ -307,7 +289,8 @@ export class DuelTransport extends EventTarget implements Transport {
   ): Promise<{ reply: Reply; resent: boolean }> {
     for (let attempt = 0; ; attempt++) {
       if (this._closed) throw new Error("DuelTransport: closed");
-      // Encoded per attempt: a relink in between changed the epoch.
+      // A loss presumed while this attempt was out must not be undone
+      // by its reply.
       const epoch = this._epoch;
       const bytes = this._encode(sid, req);
       try {
@@ -389,22 +372,10 @@ export class DuelTransport extends EventTarget implements Transport {
   private _markLinked(): void {
     if (this._linked) return;
     this._linked = true;
-    this._everLinked = true;
     // Fires on EVERY confirmed (re)link — `onopen` is the caller's only
     // hook to resync after a gap.
     if (this.onopen) this.onopen();
     this.dispatchEvent(new Event("open"));
-  }
-
-  private _bye(): void {
-    if (this._sid === null || !this._everLinked) return;
-    try {
-      void this._actor
-        .duel_request(this._encode(this._sid, { bye: null }))
-        .catch(() => {});
-    } catch {
-      // already gone
-    }
   }
 
   /// Fire-and-forget: the result only ever surfaces as a `message`/`error`
@@ -456,7 +427,6 @@ export class DuelTransport extends EventTarget implements Transport {
 
   close(): void {
     if (this._closed) return;
-    this._bye();
     this._closed = true;
     if (this._pollTimer != null) clearTimeout(this._pollTimer);
     for (const off of this._unlisten) off();
