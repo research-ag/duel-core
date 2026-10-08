@@ -219,7 +219,7 @@ function GoLiveStep() {
               the project folder:
               <CodeBlock
                 code={
-                  "icp canister link backend <game-backend-id> -e ic\nicp deploy frontend -e ic"
+                  "icp canister link backend <game-backend-id> -e ic --force\nicp deploy frontend -e ic"
                 }
               />
               The first line points your page at the real game. Then get your

@@ -81,26 +81,26 @@ already declares the engine's service, and your plugin supplies `State`
 and `Action`. Without icp-cli, assume both optional features may exist
 and let their calls fail quietly (`.catch(() => [])`).
 
-## 4. Pull the wasm
+## 4. Download the wasm (with icp-cli)
 
 ```bash
 curl -s https://$BACKEND.raw.icp0.io/wasm -o backend.wasm
 shasum -a 256 backend.wasm
-curl -s https://ic-api.internetcomputer.org/api/v3/canisters/$BACKEND \
-  | grep -o '"module_hash":"[0-9a-f]*"'
+icp canister status $BACKEND -n ic -p --json   # "module_hash":"0x<hash>"
 ```
 
-(With icp-cli, `icp canister status $BACKEND -n ic -p --json` shows the
-same `module_hash`.) The two hashes must be equal: that proves the file
-is the module the canister runs right now. Keep `backend.wasm`.
+The two hashes must be equal (drop the `0x`): that proves the file is
+the module the canister runs right now. Keep `backend.wasm` and the
+hash. Without icp-cli there is no local copy to run: skip this step
+and the `icp.yaml` half of step 5.
 
-A 404 at `/wasm`, or a hash mismatch, means the backend is not pullable
-at the moment. Stop and tell the user; do not fall back to the live
-canister on your own.
+A 404 at `/wasm`, or a hash mismatch, means the backend does not serve
+its current wasm at the moment. Stop and tell the user; do not fall
+back to the live canister on your own.
 
 ## 5. Lay out the project
 
-With icp-cli, the pulled wasm becomes a `pre-built` canister named
+With icp-cli, the downloaded wasm becomes a `prebuilt` canister named
 `backend` beside your frontend:
 
 ```
@@ -115,11 +115,11 @@ frontend/
 ```yaml
 canisters:
   - name: backend
-    build:
-      steps:
-        - type: pre-built
-          path: backend.wasm
-          sha256: <the hash from step 4>
+    recipe:
+      type: "@dfinity/prebuilt@v2.1.0"
+      configuration:
+        path: backend.wasm
+        sha256: <the hash from step 4, without 0x>
   - name: frontend
     recipe:
       type: "@dfinity/static-site@v0.4.0"
@@ -128,6 +128,23 @@ canisters:
         build:
           - cd frontend && npm run build
 ```
+
+icp-cli checks `backend.wasm` against `sha256` on every build and
+refuses a file that does not match. Then, once, from the project root:
+
+```bash
+icp canister link backend $BACKEND -e ic
+```
+
+It records the live backend's id under the name `backend` for the `ic`
+environment only. A local `icp deploy` still creates a fresh copy of
+its own; `icp deploy frontend -e ic` later gives the deployed frontend
+the live id; and a mistaken bare `icp deploy -e ic` tries to install
+into the live canister and fails, since the user is not its controller,
+instead of creating a second backend on mainnet. The id lands in
+`.icp/data/mappings/ic.ids.json`: keep it in version control (only
+`.icp/cache` is build output). Running `link` again is an error
+("already registered") unless it carries `--force`.
 
 The canister must be named `backend`: the frontend then finds the local
 copy as `PUBLIC_CANISTER_ID:backend` in its own `ic_env` cookie.
@@ -223,16 +240,16 @@ next. With icp-cli, that is these commands, left in the project's
 `README.md` and in your final message:
 
 ```bash
-icp canister link backend <backend-id> -e ic   # once: the live game, not a copy
-icp deploy frontend -e ic                      # the frontend only
-icp canister status frontend -e ic -i          # the new frontend's canister id
+icp canister link backend <backend-id> -e ic --force   # step 5's link
+icp deploy frontend -e ic                              # the frontend only
+icp canister status frontend -e ic -i                  # its canister id
 ```
 
-`link` records the live backend's id for the `ic` environment, so the
-deployed frontend's cookie points at the real game. Always name
-`frontend` on the deploy line: a bare `icp deploy -e ic` would also try
-to install `backend.wasm` over the live backend, which the user does not
-control.
+The `link` line repeats step 5 (`--force` makes it a no-op when it
+already ran, and covers a project built without icp-cli), so the
+deployed frontend's cookie names the live backend. Always name `frontend` on the deploy line: a bare
+`icp deploy -e ic` also attempts `backend`, which fails on a canister
+the user does not control.
 
 In a builder with its own "go live" action, tell the user to trigger
 it, and how to read the live page's address and its frontend canister

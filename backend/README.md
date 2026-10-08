@@ -81,7 +81,7 @@ variant)` plus `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
   (`mo:duel-game-core/http_actor_mixin`) — `http_request` over a list of
   plain-text routes; every host serves its rules at `/semantics` (see
   "Semantics over HTTP") and its own module at `/wasm`, uploaded by its
-  deploy (see "Pullable backend").
+  deploy (see "Downloadable wasm").
 - Every mutating operation takes `spec` and `now : Int` (nanoseconds).
   At the `Registry` layer they are called only from `mo:duel-game-core/transport`
   — never exposed as plain Candid methods. `status` is the exception
@@ -694,12 +694,13 @@ Write it for a reader who cannot see the source, in these sections:
 Update `SEMANTICS` in the same change as any edit to `State`, `Action`,
 `validate` or `resolve`.
 
-### Pullable backend
+### Downloadable wasm
 
-A backend is PULLABLE when anyone can download the exact wasm it runs
-and install a copy on a local network — what lets a third party build
-and test a new frontend against a game without its source. Every backend
-on this engine is deployed pullable: `HttpActorMixin` keeps a copy of
+Anyone can download the exact wasm a backend runs and install a copy on
+a local network — what lets a third party build and test a new frontend
+against a game without its source. The IC itself hands out only a
+canister's `module_hash`, never its module, so every backend on this
+engine serves the module itself: `HttpActorMixin` keeps a copy of
 the canister's own module in a stable `Wasm.Store` and streams it at
 `GET /wasm` (first chunk in the body, the rest through
 `http_request_streaming_callback`); the deploy puts it there. In
@@ -733,18 +734,21 @@ published: the canister's heap, access codes of `#code` tables and
 pending moves stay where they are. Never set `snapshot_visibility:
 public` on a backend: a snapshot is the whole heap.
 
-Pulling needs only the id and `curl`:
+Downloading needs only the id; `icp-cli` supplies the hash to check
+it against:
 
 ```bash
 ID=<backend-id>
 curl -s https://$ID.raw.icp0.io/wasm -o backend.wasm
-shasum -a 256 backend.wasm                 # equals `module_hash` from
-icp canister status $ID -n ic -p --json    # (or https://ic-api.internetcomputer.org/api/v3/canisters/$ID)
+shasum -a 256 backend.wasm                 # equals `module_hash` (without 0x) from
+icp canister status $ID -n ic -p --json
 icp canister metadata $ID candid:service -n ic > backend.did
 ```
 
-`backend.wasm` then builds a local copy through a `pre-built` step
-(`path` + `sha256`); the skill's
+`backend.wasm` then becomes a local copy through the
+`@dfinity/prebuilt` recipe (`path` + `sha256`, which icp-cli verifies
+on every build), with `icp canister link backend $ID -e ic` tying the
+name to the live canister for the `ic` environment only; the skill's
 `references/frontend-for-existing-game.md` has the whole procedure.
 
 A 404 at `/wasm` ("No module uploaded yet") means the sync step has not

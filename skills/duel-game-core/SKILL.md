@@ -468,12 +468,12 @@ icp deploy                 # local; `icp network start` must be running
 icp deploy --network ic    # mainnet — spends cycles
 ```
 
-The backend deploys PULLABLE, always: the template's `icp.yaml` runs
+The backend always serves its own wasm: the template's `icp.yaml` runs
 `sh publish_wasm.sh backend` as the backend's sync step, so every
 install, reinstall and upgrade uploads the module the canister now runs
 to the canister itself, and anyone can download it at `GET /wasm` and
 test a frontend of their own against a local copy (backend README,
-"Pullable backend"). Keep the step when adapting the file, and
+"Downloadable wasm"). Keep the step when adapting the file, and
 never set `snapshot_visibility: public`: a snapshot would publish the
 whole heap, access codes included. If the backend canister is renamed, pass
 the new name to the script. After the first deploy, check the two

@@ -1,6 +1,6 @@
 /// Plain-text HTTP routing for a host's `http_request`, plus the types a
 /// streamed response needs (`GET /wasm`, see `wasm.mo`). See README,
-/// "Semantics over HTTP" and "Pullable backend".
+/// "Semantics over HTTP" and "Downloadable wasm".
 import Text "mo:core/Text";
 
 module {

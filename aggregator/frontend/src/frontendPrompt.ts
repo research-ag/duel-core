@@ -32,11 +32,11 @@ Work in this order.
 5. Wire the backend id into the frontend: use PUBLIC_CANISTER_ID:backend from the ic_env cookie when present, otherwise <BACKEND> hardcoded. When the page talks to the live backend, the agent host is https://icp0.io whatever the page's own address is. Put <meta name="duel-backend" content="<BACKEND>"> (the real id, not the placeholder) in index.html: a page hosted elsewhere has no such cookie, and that tag is how the dashboard finds the game behind my page.
 
 6. Test by playing a whole game: both seats in two browser tabs, every kind of move, an illegal move (the backend's rejection text must show, not a crash), an ending, a rematch.
-   - If you can run icp-cli: the backend is pullable. Download its wasm (curl -s https://<BACKEND>.raw.icp0.io/wasm -o backend.wasm; step 4 of the reference has the hash check against the canister's module_hash), run it as a private copy on a local network, and test against that; never touch the live backend while developing.
+   - If you can run icp-cli: the backend serves its own wasm. Download it (curl -s https://<BACKEND>.raw.icp0.io/wasm -o backend.wasm), check its SHA-256 against the module_hash from icp canister status <BACKEND> -n ic -p --json, declare it as a canister named backend with the @dfinity/prebuilt recipe (path + that sha256), run icp canister link backend <BACKEND> -e ic once (steps 4 and 5 of the reference), and test against the private local copy icp deploy creates; never touch the live backend while developing.
    - If you cannot: serve the page from a local web server, or this tool's preview, and test against the live backend, always on a table with an access code (never an open one), so real players are not disturbed.
 
 7. Do not put anything online yourself. Finish by telling me, step by step, what to do next: where the page is now, how to take it live from here, and how to find the live page's address and its canister id afterwards. If you worked on my computer, also write those steps into a README.md, with these commands, <BACKEND> filled in:
-     icp canister link backend <BACKEND> -e ic
+     icp canister link backend <BACKEND> -e ic --force
      icp deploy frontend -e ic
      icp canister status frontend -e ic -i
 

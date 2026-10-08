@@ -60,7 +60,7 @@ HttpActorMixin(routes)` supplies `http_request` over plain-text
     `(path, () -> Text)` routes; every host routes `/semantics` to its
     rules module's `SEMANTICS` text (`/metrics` and game data such as
     racing's `/track` ride the same list). `Http.respond` is the pure
-    router. The same mixin makes the backend pullable: a stable
+    router. The same mixin serves the canister's own wasm: a stable
     `Wasm.Store` holds the canister's own module, filled by the
     controllers-only `wasm_upload_begin`/`wasm_upload_chunk`/
     `wasm_upload_commit(size)` that `publish_wasm.sh` calls from the
@@ -258,7 +258,7 @@ deploys all of them to the IC.
     further change to either stable type needs an explicit actor
     migration or a reinstall.
 
-15. **Every backend is pullable and self-describing.** Its `icp.yaml`
+15. **Every backend serves its own wasm and describes itself.** Its `icp.yaml`
     entry carries the sync step `sh publish_wasm.sh backend` (the script
     sits next to `icp.yaml`, copied from the skill's template), which
     after every install/reinstall/upgrade uploads the module the
@@ -272,8 +272,8 @@ deploys all of them to the IC.
     which the aggregator's `frontendPrompt.ts` condenses); `Action` is
     described nowhere else. Any change to a game's `State`, `Action`,
     `validate` or `resolve` updates its `SEMANTICS` in the same change.
-    See `backend/README.md`, "Semantics over HTTP" and "Pullable
-    backend".
+    See `backend/README.md`, "Semantics over HTTP" and
+    "Downloadable wasm".
 
 ## Skills (read before editing)
 

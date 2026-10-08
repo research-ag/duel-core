@@ -1,9 +1,9 @@
 /// Supplies `http_request` over `mo:duel-game-core/http` routes (every
-/// host serves its rules text at `Http.SEMANTICS_PATH`) and makes the
-/// backend pullable: controllers upload the running module with
+/// host serves its rules text at `Http.SEMANTICS_PATH`) and serves the
+/// canister's own module: controllers upload the running module with
 /// `wasm_upload_begin`/`wasm_upload_chunk`/`wasm_upload_commit`, and
-/// anyone downloads it at `Http.WASM_PATH`. See README, "Pullable
-/// backend".
+/// anyone downloads it at `Http.WASM_PATH`. See README, "Downloadable
+/// wasm".
 import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
 

@@ -1,7 +1,7 @@
 /// The module a backend serves of itself at `GET /wasm`: uploaded in
 /// chunks by its own deploy (`publish_wasm.sh`), kept in stable memory,
-/// streamed back through the HTTP gateway. See README, "Pullable
-/// backend".
+/// streamed back through the HTTP gateway. See README, "Downloadable
+/// wasm".
 import List "mo:core/List";
 
 import Http "./http";

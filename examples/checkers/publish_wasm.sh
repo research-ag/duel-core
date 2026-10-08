@@ -1,7 +1,7 @@
 #!/bin/sh
 # icp.yaml sync step for the backend: uploads the module the canister now
 # runs to the canister itself, so anyone can download it at GET /wasm.
-# See the duel-game-core backend README, "Pullable backend".
+# See the duel-game-core backend README, "Downloadable wasm".
 set -eu
 
 cid=$ICP_CLI_CID
