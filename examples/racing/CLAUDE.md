@@ -51,7 +51,7 @@ either package.
 
 ## Toolchain
 
-moc **1.14.0** (`mops.toml`; nothing here requires more than 1.11.2).
+moc **1.16.1** (`mops.toml`).
 Motoko dependencies: `duel-game-core` (path to `../../backend`), `core`;
 `promtracker` transitively. Never import `mo:base`.
 Frontend: `duel-game-core` (`file:../../../frontend`) and `@icp-sdk/core`

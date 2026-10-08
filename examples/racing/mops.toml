@@ -8,4 +8,4 @@ duel-game-core = "../../backend"
 core = "2.6.1"
 
 [toolchain]
-moc = "1.14.0"
+moc = "1.16.1"

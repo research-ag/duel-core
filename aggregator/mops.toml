@@ -7,4 +7,4 @@ description = "Game aggregator — Internet Identity login, developer profiles, 
 core = "2.6.1"
 
 [toolchain]
-moc = "1.11.2"
+moc = "1.16.1"

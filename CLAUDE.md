@@ -135,9 +135,9 @@ game on the engine. See `aggregator/CLAUDE.md`.
 
 ## Toolchain
 
-- moc **1.11.2** (pinned in `backend/mops.toml` and every example but
-  `examples/racing`, which pins 1.14.0) type-checks and tests everything
-  in this repo, `mixin` declarations included.
+- moc **1.16.1** (pinned in `backend/mops.toml`, `aggregator/mops.toml`,
+  every example and the skill's `mops.toml.template`) type-checks and
+  tests everything in this repo, `mixin` declarations included.
 - Engine code is `mo:core` only — never `mo:base`. `types.mo`/
   `registry.mo` import `promtracker` (opt-in wiring, always-compiled
   dependency); nothing else has a third-party dependency.

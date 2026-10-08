@@ -66,7 +66,7 @@ yourSid })`. Bots are `app.js`'s too: the 🤖 toggle opens
 
 ## Toolchain
 
-moc 1.11.2 (`mops.toml`). Dependencies: `duel-game-core` (path to
+moc 1.16.1 (`mops.toml`). Dependencies: `duel-game-core` (path to
 `../../backend`), `core`; `promtracker` arrives transitively. Never import `mo:base`. The frontend depends on
 `duel-game-core` (`file:../../../frontend`, copied via `install-links`)
 and `@icp-sdk/core`; see `../../CLAUDE.md`'s "After touching anything

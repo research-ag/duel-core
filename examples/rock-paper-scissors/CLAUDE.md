@@ -37,7 +37,7 @@ purely in `validate`. Not part of either package.
 
 ## Toolchain / Build & test
 
-Same as `examples/checkers` (moc 1.11.2; `mops test`; build
+Same as `examples/checkers` (moc 1.16.1; `mops test`; build
 `../../frontend` first; `npm install --legacy-peer-deps && npm run build`
 in `frontend/`; `icp deploy`). Play both seats in two tabs, trying both
 variants and confirming the Well button appears only in a Well table.
