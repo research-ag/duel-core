@@ -162,7 +162,7 @@ switch (atTableView(reg, T0, "q")) {
 Debug.print("5. submit routes to the acting session's own table only OK");
 
 // ── 6. leave returns the session to browsing and GCs an empty table ────────
-ignore ok(reg.leave(T0, "z", genOf(reg, T0, "z")), "z (alone, staging id2) leaves");
+ok(reg.leave(T0, "z", genOf(reg, T0, "z")), "z (alone, staging id2) leaves");
 switch (reg.status(spec, T0, "z")) {
   case (#browsing _) {};
   case (_) Runtime.trap("z should be back to browsing");
@@ -213,9 +213,9 @@ ignore ok(reg8.joinTable(spec, VANISH, "c", idG, #p1, null), "c joins the freed 
 ignore ok(reg8.joinTable(spec, VANISH, "d", idG, #p2, null), "d joins; game live");
 let cGen = genOf(reg8, VANISH, "c");
 let dGen = genOf(reg8, VANISH, "d");
-ignore ok(reg8.leave(VANISH, "c", cGen), "c forfeits (leave from the live game)");
-ignore ok(reg8.leave(VANISH, "c", cGen), "c also acks their own shared debrief");
-ignore ok(reg8.leave(VANISH, "d", dGen), "d acks the shared debrief too");
+ok(reg8.leave(VANISH, "c", cGen), "c forfeits (leave from the live game)");
+ok(reg8.leave(VANISH, "c", cGen), "c also acks their own shared debrief");
+ok(reg8.leave(VANISH, "d", dGen), "d acks the shared debrief too");
 ghostSeen := false;
 for (r in reg8.listTables(VANISH).values()) {
   if (r.id == idG) ghostSeen := true;
@@ -240,7 +240,7 @@ ignore ok(reg9.submit(spec, T0, "a", genOf(reg9, T0, "a"), turnOf(reg9, T0, "a")
 ignore ok(reg9.submit(spec, T0, "b", genOf(reg9, T0, "b"), turnOf(reg9, T0, "b"), #gather), "b gathers");
 ignore ok(reg9.submit(spec, T0, "a", genOf(reg9, T0, "a"), turnOf(reg9, T0, "a"), #attack), "a attacks");
 ignore ok(reg9.submit(spec, T0, "b", genOf(reg9, T0, "b"), turnOf(reg9, T0, "b"), #gather), "b gathers again; a wins, both land in debrief");
-ignore ok(reg9.leave(T0, "a", genOf(reg9, T0, "a")), "a returns to the lobby first");
+ok(reg9.leave(T0, "a", genOf(reg9, T0, "a")), "a returns to the lobby first");
 switch (reg9.status(spec, T0, "a")) {
   case (#browsing _) {};
   case (_) Runtime.trap("a should be back to browsing after their own leave");
@@ -273,7 +273,7 @@ let declineGen = switch (atTableView(reg10, T0, "b")) {
   case (#awaitingRematch v) v.gen;
   case (_) Runtime.trap("b should see the invitation");
 };
-ignore ok(reg10.leave(T0, "b", declineGen), "b declines");
+ok(reg10.leave(T0, "b", declineGen), "b declines");
 switch (reg10.status(spec, T0, "b")) {
   case (#browsing _) {};
   case (_) Runtime.trap("declining should return b to browsing, not strand them either");
@@ -294,7 +294,7 @@ let reg11a = fresh();
 let idA = ok(reg11a.createTable(spec, T0, "a", #p1, #open, ""), "a stages, alone");
 expectErr(reg11a.createTable(spec, LATER, "a", #p1, #open, ""), "a still holds their idle staging");
 expectErr(reg11a.joinTable(spec, LATER, "b", idA, #p1, null), "nobody takes a's idle staged seat");
-ignore ok(reg11a.leave(LATER, "a", genOf(reg11a, LATER, "a")), "a leaves their staging");
+ok(reg11a.leave(LATER, "a", genOf(reg11a, LATER, "a")), "a leaves their staging");
 ignore ok(reg11a.createTable(spec, LATER, "a", #p1, #open, ""), "a can create again after leaving");
 Debug.print("11a. an idle staging stays its occupant's until they leave OK");
 
@@ -375,7 +375,7 @@ Debug.print("13. claimWin routes per-table and is gated per-table OK");
 
 // ── 14. createTableReserving: Flow 2's atomic dual-seat assignment ─────────
 let reg14 = fresh();
-let id14 = ok(reg14.createTableReserving(spec, T0, "a", #p1, #open, "b", ""), "a creates a table reserving b for the other seat");
+ignore ok(reg14.createTableReserving(spec, T0, "a", #p1, #open, "b", ""), "a creates a table reserving b for the other seat");
 switch (atTableView(reg14, T0, "a"), atTableView(reg14, T0, "b")) {
   case (#inGame va, #inGame vb) { assert va.seat == #p1; assert vb.seat == #p2 };
   case (_, _) Runtime.trap("both a and b should already be #inGame — no second join call needed");

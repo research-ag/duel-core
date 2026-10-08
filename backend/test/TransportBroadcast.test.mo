@@ -74,7 +74,7 @@ do {
   let reg = fresh();
   let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
   playToDebrief(reg, id);
-  ignore ok(reg.leave(T0, "a", genOf(reg, T0, "a")), "a returns to the lobby first");
+  ok(reg.leave(T0, "a", genOf(reg, T0, "a")), "a returns to the lobby first");
   ignore ok(reg.rematch(spec, T0, "b"), "b requests a rematch after a already left");
   assert Transport.rematchOpenedLobby(reg, ?id);
   Debug.print("3. a rematch left unreserved by a departed partner DOES open the lobby OK");
@@ -97,7 +97,7 @@ do {
   let reg = fresh();
   let id = ok(reg.createTable(spec, T0, "a", #p1, #open, ""), "a creates a table");
   playToDebrief(reg, id);
-  ignore ok(reg.leave(T0, "a", genOf(reg, T0, "a")), "a returns to the lobby first");
+  ok(reg.leave(T0, "a", genOf(reg, T0, "a")), "a returns to the lobby first");
   ignore ok(reg.rematch(spec, T0, "b"), "b requests a rematch after a already left");
   ignore ok(reg.rematch(spec, T0, "b"), "b's own idempotent re-click");
   assert Transport.rematchOpenedLobby(reg, ?id);

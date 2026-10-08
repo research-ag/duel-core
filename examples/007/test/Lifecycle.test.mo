@@ -100,7 +100,7 @@ switch (t.status(spec, now, "bob")) {
 Debug.print("4b. a stale cross-match leave is rejected, not replayed OK");
 
 // ── 5. Leave mid-game → BOTH get the special aborted debrief ───────────────
-ignore ok(t.leave(tick(), "bob", genOf(now, "bob")), "bob leaves");
+ok(t.leave(tick(), "bob", genOf(now, "bob")), "bob leaves");
 switch (t.status(spec, now, "alice")) {
   case (#debrief d) {
     switch (d.end) {
@@ -125,7 +125,7 @@ Debug.print("5. shared abort debrief OK");
 //      their debrief already) ───────────────────────────────────────────────
 expectErr(t.join(spec, tick(), "carol", #p1), "carol during debrief precedence");
 now += 61_000_000_000; // 61s pass
-ignore ok(t.reset(now, "carol", 0), "carol reset after idle"); // outsider path
+ok(t.reset(now, "carol", 0), "carol reset after idle"); // outsider path
 ignore ok(t.join(spec, now, "carol", #p1), "carol joins after idle");
 switch (t.status(spec, now, "alice")) {
   case (#endedByOther _) Runtime.trap("alice already saw her debrief - no ghost notice due");
@@ -137,7 +137,7 @@ Debug.print("6. debrief takeover: clean lobby fallback OK");
 // ── 7. Idle takeover of an ACTIVE game → #endedByOther until acked ─────────
 ignore ok(t.join(spec, tick(), "dave", #p2), "dave joins carol");
 now += 61_000_000_000; // both idle mid-game
-ignore ok(t.reset(now, "eve", 0), "eve reset over dead active game"); // outsider path
+ok(t.reset(now, "eve", 0), "eve reset over dead active game"); // outsider path
 ignore ok(t.join(spec, now, "eve", #p1), "eve joins after takeover");
 switch (t.status(spec, now, "carol")) {
   case (#endedByOther _) {};

@@ -47,7 +47,6 @@ CLIENT NOTES
 
   public type State = { board : Board };
 
-  let SIZE : Nat = 3;
   let CELLS : Nat = 9;
 
   let LINES : [[Nat]] = [

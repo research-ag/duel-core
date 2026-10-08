@@ -37,11 +37,11 @@ module {
 
     let p1 = switch (a1) {
       case (#gather) s.p1 + 1;
-      case (#attack) if (s.p1 > 0) s.p1 - 1 else 0;
+      case (#attack) if (s.p1 > 0) (s.p1 - 1 : Nat) else 0;
     };
     let p2 = switch (a2) {
       case (#gather) s.p2 + 1;
-      case (#attack) if (s.p2 > 0) s.p2 - 1 else 0;
+      case (#attack) if (s.p2 > 0) (s.p2 - 1 : Nat) else 0;
     };
 
     let verdict : ?TP.Verdict = if (attacked1 and attacked2) ?#draw else if (attacked1) ?#p1Wins else if (attacked2) ?#p2Wins else null;

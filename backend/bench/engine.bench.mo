@@ -2,9 +2,7 @@
 import Bench "mo:bench-helper";
 import Runtime "mo:core/Runtime";
 
-import TP "../src/lib";
 import Registry "../src/registry";
-import Table "../src/table";
 
 import Rules "../test/FakeGame";
 

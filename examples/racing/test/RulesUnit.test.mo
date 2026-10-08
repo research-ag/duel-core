@@ -6,7 +6,7 @@ import Float "mo:core/Float";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
-let PI : Float = 3.14159265358979323846;
+let PI : Float = Float.pi;
 let STILL : R.Action = { l = 0.0; c = 0.0 };
 
 // Same spot on Track.roadPath's wrap segment Rules.test.mo uses

@@ -615,7 +615,7 @@ Debug.print("20. a stale cross-match leave is rejected, not replayed OK");
 // ── 21. rematch/join-veteran never reserves a seat for a partner who already
 //      acked (left) THIS debrief ────────────────────────────────────────────
 t := debriefOf(T0);
-ignore ok(t.leave(T0, "a", genOf(t, T0, "a")), "a returns to the lobby, acking their debrief");
+ok(t.leave(T0, "a", genOf(t, T0, "a")), "a returns to the lobby, acking their debrief");
 switch (ok(t.rematch(spec, T0, "b"), "b requests a rematch after a already left")) {
   case (#awaitingPartner) {};
   case (_) Runtime.trap("b's rematch should still stage, just unreserved");
@@ -637,7 +637,7 @@ let declineGen = switch (t.status(spec, SOON, "b")) {
   case (#awaitingRematch v) { assert v.openSeat == #p2; v.gen };
   case (_) Runtime.trap("b should see the invitation, gen and all");
 };
-ignore ok(t.leave(SOON, "b", declineGen), "b declines the rematch");
+ok(t.leave(SOON, "b", declineGen), "b declines the rematch");
 switch (t.status(spec, SOON, "b")) {
   case (#lobby v) { assert not v.p1Open; assert v.p2Open }; // a's seat still held
   case (_) Runtime.trap("declining should return b to a plain, unseated lobby view");

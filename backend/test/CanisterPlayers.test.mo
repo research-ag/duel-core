@@ -414,7 +414,7 @@ switch (reg13.status(spec, T0, sidBot1)) {
   case (#atTable { view = #debrief _ }) {};
   case (other) Runtime.trap("bot1 should stay pinned while its human partner could still rematch, got " # debug_show (other));
 };
-ignore ok(reg13.leave(T0, "human", genAbort13), "human acks their own debrief too (idempotent gen, same as leave's own doc) — no rematch coming");
+ok(reg13.leave(T0, "human", genAbort13), "human acks their own debrief too (idempotent gen, same as leave's own doc) — no rematch coming");
 await* cp13.sweep(T0);
 // Freed — nothing's left for bot1 to wait on, no idle-timeout wait needed.
 switch (reg13.status(spec, T0, sidBot1)) {

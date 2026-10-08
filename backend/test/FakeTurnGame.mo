@@ -14,7 +14,7 @@ module {
     count = if (variant == "headStart") 1 else 0;
   };
 
-  public func validate(s : State, seat : TP.Seat, a : Action) : ?Text {
+  public func validate(s : State, _seat : TP.Seat, a : Action) : ?Text {
     switch (a) {
       case (#inc) null;
       case (#winNow) if (s.count == 0) ?"Nothing to win with yet — INC first." else null;

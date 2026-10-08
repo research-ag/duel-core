@@ -46,7 +46,7 @@ do {
   if (s1.body != b or s1.token != ?{ index = 2 }) Runtime.trap("2g: chunk 1 points at chunk 2");
   let s2 = Wasm.stream(s, { index = 2 });
   if (s2.body != c or s2.token != null) Runtime.trap("2h: the last chunk ends the stream");
-  if (Wasm.stream(s, { index = 3 }).body != Blob.fromArray([])) Runtime.trap("2i: past the end is empty");
+  if (Wasm.stream(s, { index = 3 }).body != Blob.empty()) Runtime.trap("2i: past the end is empty");
   Debug.print("2. upload served and streamed OK");
 };
 

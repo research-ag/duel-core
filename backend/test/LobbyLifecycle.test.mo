@@ -101,7 +101,7 @@ switch (atTableView("carol")) {
 Debug.print("3. a finish + rematch on A leaves B's own live game completely untouched OK");
 
 // ── 4. table B ends early (a mid-game leave) ───────────────────────────────
-ignore ok(reg.leave(tick(), "carol", genOf("carol")), "carol forfeits table B mid-game");
+ok(reg.leave(tick(), "carol", genOf("carol")), "carol forfeits table B mid-game");
 switch (atTableView("carol")) {
   case (#debrief d) switch (d.end) {
     case (#aborted(#p1)) {};
@@ -121,12 +121,12 @@ switch (atTableView("alice")) {
   case (#inGame _) {};
   case (_) Runtime.trap("A should still be live, untouched by B's abort");
 };
-ignore ok(reg.leave(tick(), "carol", genOf("carol")), "carol acks her own debrief");
+ok(reg.leave(tick(), "carol", genOf("carol")), "carol acks her own debrief");
 switch (reg.status(spec, now, "carol")) {
   case (#browsing _) {};
   case (_) Runtime.trap("carol should now be back to browsing");
 };
-ignore ok(reg.leave(tick(), "dave", genOf("dave")), "dave acks too — table B is now fully quiesced");
+ok(reg.leave(tick(), "dave", genOf("dave")), "dave acks too — table B is now fully quiesced");
 switch (reg.status(spec, now, "dave")) {
   case (#browsing _) {};
   case (_) Runtime.trap("dave should now be back to browsing");
