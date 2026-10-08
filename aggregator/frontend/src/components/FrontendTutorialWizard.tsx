@@ -1,17 +1,21 @@
-// "Make own frontend": a player's route to their own client for a game
-// already listed here, written for someone who knows nothing about the
-// Internet Computer or coding. Two ways through: caffeine.ai (chat,
+// "Make your own frontend": a player's route to their own client for a
+// game already listed here, written for someone who knows nothing about
+// the Internet Computer or coding. Two ways through: caffeine.ai (chat,
 // builds and hosts the app itself, paid plan) or an AI coding agent on
-// their own computer (free tools, pays hosting directly). `game` is the
-// listing whose info dialog opened the wizard, or undefined from the
-// header.
+// their own computer (free tools, pays hosting directly). Opened from a
+// game's info dialog it starts filled in for that game; from the header
+// it starts by picking one.
 
-import type { GameView } from "../types";
+import { useState } from "react";
+
 import { frontendPrompt } from "../frontendPrompt";
+import type { AggregatorActor, GameView, Target } from "../types";
 import { CodeBlock } from "./CodeBlock";
+import { GamePicker } from "./GamePicker";
 import { Wizard } from "./Wizard";
 
 const STEPS = [
+  "Pick a game",
   "How it works",
   "Copy the prompt",
   "Describe and build",
@@ -20,38 +24,66 @@ const STEPS = [
 ] as const;
 
 export function FrontendTutorialWizard({
-  game,
+  initial,
+  games,
+  loading,
+  actor,
   isLoggedIn,
   onClose,
   onRegister,
 }: {
-  game: GameView | undefined;
+  initial: Target | undefined;
+  games: GameView[];
+  loading: boolean;
+  actor: AggregatorActor | undefined;
   isLoggedIn: boolean;
   onClose: () => void;
   onRegister: () => void;
 }) {
+  const [target, setTarget] = useState(initial);
   return (
     <Wizard
-      kicker="Make own frontend"
+      kicker="Make your own frontend"
       title={
-        game
-          ? `Your own look for “${game.title}”.`
-          : "Your own look for any listed game."
+        target
+          ? `Your own look for “${target.game.title}”.`
+          : "Your own look for a listed game."
       }
       steps={STEPS}
+      initialStep={initial ? 1 : 0}
+      reachable={target ? STEPS.length - 1 : 0}
       onClose={onClose}
       finish={{
         label: "Register your frontend",
         onClick: onRegister,
         disabled: !isLoggedIn,
       }}
-      render={(step) => (
+      render={(step, next) => (
         <>
-          {step === 0 && <HowItWorksStep />}
-          {step === 1 && <PromptStep game={game} />}
-          {step === 2 && <BuildStep />}
-          {step === 3 && <GoLiveStep />}
-          {step === 4 && <RegisterStep isLoggedIn={isLoggedIn} />}
+          {step === 0 && (
+            <>
+              <p>
+                Which game do you want your own frontend for? It keeps that
+                game's rules and its players; only the look is yours.
+              </p>
+              <GamePicker
+                games={games}
+                loading={loading}
+                actor={actor}
+                purpose="frontend"
+                picked={target}
+                onPick={(t) => {
+                  setTarget(t);
+                  next();
+                }}
+              />
+            </>
+          )}
+          {target && step === 1 && <HowItWorksStep />}
+          {target && step === 2 && <PromptStep target={target} />}
+          {target && step === 3 && <BuildStep />}
+          {target && step === 4 && <GoLiveStep backend={target.backend} />}
+          {target && step === 5 && <RegisterStep isLoggedIn={isLoggedIn} />}
         </>
       )}
     />
@@ -91,7 +123,7 @@ function HowItWorksStep() {
           <strong>An AI coding tool on your own computer</strong> — Claude Code,
           Cursor, Codex and the like. Free to build with (beyond the tool's own
           subscription); putting the page online then takes a few one-time
-          steps, explained in step 4. Choose this if you already use one of
+          steps, explained in step 5. Choose this if you already use one of
           these tools.
         </li>
       </ol>
@@ -103,23 +135,14 @@ function HowItWorksStep() {
   );
 }
 
-function PromptStep({ game }: { game: GameView | undefined }) {
+function PromptStep({ target }: { target: Target }) {
   return (
     <>
-      {game ? (
-        <p>
-          This prompt is filled in for <strong>{game.title}</strong>. Copy it as
-          it is.
-        </p>
-      ) : (
-        <p>
-          Replace the title with the game you picked, and its address everywhere
-          it appears (including the <code>curl</code> command in step 1), or
-          open this guide from the <strong>Make own frontend</strong> button in
-          a game's info dialog (the ⓘ on its card) to have them filled in.
-        </p>
-      )}
-      <CodeBlock code={frontendPrompt(game)} wrap />
+      <p>
+        This prompt is filled in for <strong>{target.game.title}</strong>. Copy
+        it as it is.
+      </p>
+      <CodeBlock code={frontendPrompt(target)} wrap />
       <p className="hint">
         You don't need to understand it. It tells the AI where to find the
         game's rules, how to talk to the game, how to test, and what not to
@@ -162,7 +185,7 @@ function BuildStep() {
       <p className="hint">
         While you test, the page talks to the real game; the prompt tells the AI
         to use tables with an access code so other players don't wander in. (If
-        a coding tool finds <code>icp-cli</code> from step 4 already installed,
+        a coding tool finds <code>icp-cli</code> from step 5 already installed,
         it runs a private copy of the game on your computer instead and leaves
         the real one alone.)
       </p>
@@ -170,7 +193,7 @@ function BuildStep() {
   );
 }
 
-function GoLiveStep() {
+function GoLiveStep({ backend }: { backend: string }) {
   return (
     <>
       <ol className="tutorial-list">
@@ -217,12 +240,9 @@ function GoLiveStep() {
             </li>
             <li>
               Publish. The AI left these commands in the project's{" "}
-              <code>README.md</code> with the game's id filled in; run them in
-              the project folder:
+              <code>README.md</code> too; run them in the project folder:
               <CodeBlock
-                code={
-                  "icp canister link backend <game-backend-id> -e ic --force\nicp deploy frontend -e ic"
-                }
+                code={`icp canister link backend ${backend} -e ic --force\nicp deploy frontend -e ic`}
               />
               The first line points your page at the real game. Then get your
               page's canister id for the next step:

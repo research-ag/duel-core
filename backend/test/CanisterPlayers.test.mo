@@ -11,6 +11,7 @@ import TP "../src/lib";
 import CanisterPlayers "../src/canister_players";
 import Registry "../src/registry";
 import Rules "FakeGame";
+import TurnRules "FakeTurnGame";
 
 type Reg = TP.Registry<Rules.State, Rules.Action>;
 
@@ -560,11 +561,11 @@ let cp18 = CanisterPlayers.attach<Rules.State, Rules.Action>(
   noopArm,
 );
 let id18 = ok(await* cp18.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
-// FakeGame's own #gather never ends the match on its own, so this eager join-
-// trigger keeps eagerly settling further rounds
-ignore ok(await* cp18.joinTable(bot2, id18, #p2, null, ""), "bot2 joins; game starts — the eager join-trigger settles two rounds for both sides in one call");
-assert reqLog18a.reqs.size() == 2;
-assert reqLog18b.reqs.size() == 2;
+// The join asks both seats for round 0; round 1, due inside bot2's own
+// reply, is left to a wakeup (test 28)
+ignore ok(await* cp18.joinTable(bot2, id18, #p2, null, ""), "bot2 joins; game starts — the join settles round 0 for both sides");
+assert reqLog18a.reqs.size() == 1;
+assert reqLog18b.reqs.size() == 1;
 assert reqLog18a.reqs[0].opponent == CanisterPlayers.sidForCanister(bot2, id18, ""); // bot1 sees bot2's own identity...
 assert reqLog18b.reqs[0].opponent == CanisterPlayers.sidForCanister(bot1, id18, ""); // ...and bot2 sees bot1's — never its own
 Debug.print("18. each seat's own MoveRequest.opponent names the OTHER seat, never itself OK");
@@ -773,5 +774,53 @@ switch (atTableView(reg27, T0, sidBot1)) {
 };
 assert armLog27.calls == [(id27, CLAIM_TIMEOUT.toNat() / 1_000_000_000)];
 Debug.print("27. a settling afterMutation owns settlement: one claim check armed, not two OK");
+
+// ── 28. bot-vs-bot never chains inside one call: a canister seat due
+//      inside the other's reply is asked from a fresh wakeup
+//      (`armClaimCheck(id, 0)`), one bot call per message, to the real
+//      ending ──────────────────────────────────────────────────────────────
+let turnSpec = TurnRules.spec();
+let reg28 = Registry.new<TurnRules.State, TurnRules.Action>();
+reg28.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
+let armLog28 = newArmLog();
+var settle28 : ?((Int, TP.TableId) -> async* ()) = null;
+var asked28 = 0;
+let cp28 = CanisterPlayers.attach<TurnRules.State, TurnRules.Action>(
+  turnSpec,
+  reg28,
+  func(now : Int, _sid : TP.SessionId, id : ?TP.TableId, _broadcast : Bool) : async* () {
+    switch (settle28, id) {
+      case (?f, ?id) await* f(now, id);
+      case (_, _) {};
+    };
+  },
+  true,
+  func(_session : TP.SessionId, req : TP.MoveRequest<TurnRules.State, TurnRules.Action>, k : (?TurnRules.Action) -> async* ()) : async* () {
+    asked28 += 1;
+    await* k(?(if (req.game.count >= 6) #winNow else #inc));
+  },
+  spyArmClaimCheck(armLog28),
+);
+settle28 := ?cp28.settle;
+let id28 = ok(await* cp28.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
+ignore ok(await* cp28.joinTable(bot2, id28, #p2, null, ""), "bot2 joins; game starts");
+assert asked28 == 1; // bot1 only; bot2's turn is left to a wakeup
+var wakeups28 = 0;
+label play loop {
+  let immediate = armLog28.calls.filter(func((_, secs) : (TP.TableId, Nat)) : Bool = secs == 0);
+  if (immediate.size() == 0) break play;
+  armLog28.calls := [];
+  let before = asked28;
+  await* cp28.settle(T0, id28); // stands in for the zero-second Timer
+  assert asked28 == before + 1;
+  wakeups28 += 1;
+  assert wakeups28 < 20;
+};
+assert asked28 == 7; // six INCs, then bot1's WINNOW: played out, not claimed
+switch (reg28.status(turnSpec, T0, sidBot1), reg28.status(turnSpec, T0, sidBot2)) {
+  case (#browsing _, #browsing _) {}; // finished, both debriefs acked
+  case (_, _) Runtime.trap("the match should have reached its ending");
+};
+Debug.print("28. bot-vs-bot takes one bot call per message, through zero-second wakeups, to the real ending OK");
 
 Debug.print("ALL CANISTER-PLAYERS CHECKS PASSED");

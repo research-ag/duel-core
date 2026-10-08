@@ -1,7 +1,8 @@
-// The two-pane step-by-step shell shared by TutorialWizard.tsx and
-// BotTutorialWizard.tsx: a rail of numbered steps on the left (a row of
-// numbers on narrow screens), the current step's content on the right,
-// Back/Next below. The last step's primary action is the caller's.
+// The two-pane step-by-step shell every guide is built on: a rail of
+// numbered steps on the left (a row of numbers on narrow screens), the
+// current step's content on the right, Back/Next below. The last step's
+// primary action is the caller's. Steps past `reachable` are locked
+// (the game-picking guides lock everything until a game is picked).
 
 import { useState } from "react";
 import type { ReactNode } from "react";
@@ -16,17 +17,22 @@ export function Wizard({
   render,
   onClose,
   finish,
+  initialStep = 0,
+  reachable = steps.length - 1,
 }: {
   kicker: string;
   title: string;
   steps: readonly string[];
-  render: (step: number) => ReactNode;
+  render: (step: number, next: () => void) => ReactNode;
   onClose: () => void;
   /// The primary button on the last step.
   finish: { label: string; onClick: () => void; disabled?: boolean };
+  initialStep?: number;
+  reachable?: number;
 }) {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(initialStep);
   const last = step === steps.length - 1;
+  const next = () => setStep((s) => s + 1);
 
   return (
     <Modal onClose={onClose} className="wizard">
@@ -39,6 +45,7 @@ export function Wizard({
             type="button"
             className={`step-btn${i === step ? " on" : i < step ? " done" : ""}`}
             onClick={() => setStep(i)}
+            disabled={i > reachable}
           >
             <span className="n">{i + 1}</span>
             <span className="t">{s}</span>
@@ -48,7 +55,7 @@ export function Wizard({
       <div className="wizard-main">
         <div className="wizard-body">
           <h3>{steps[step]}</h3>
-          {render(step)}
+          {render(step, next)}
         </div>
         <div className="wizard-progress">
           <i style={{ width: `${((step + 1) / steps.length) * 100}%` }} />
@@ -71,7 +78,8 @@ export function Wizard({
             <button
               type="button"
               className="btn primary"
-              onClick={() => setStep((s) => s + 1)}
+              onClick={next}
+              disabled={step >= reachable}
             >
               Next <ArrowRight />
             </button>

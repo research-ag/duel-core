@@ -6,7 +6,9 @@ stateless randomness from `Time.now()`), and a bot that remembers a
 match's history or models an opponent across games. Don't reach for the
 stateful shape unless the strategy actually needs memory. Making a bot
 challengeable (self-registration) is covered in
-`SKILL.md`'s "Canister players" step.
+`SKILL.md`'s "Canister players" step. A bot for a game whose source you
+don't have is set up by `bot-for-existing-game.md`; read `Rules.State`/
+`Rules.Action` below as its `Game.State`/`Game.Action`.
 
 ## What `make_move` receives
 

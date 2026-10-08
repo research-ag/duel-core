@@ -16,7 +16,9 @@
 /// rejection is treated as silence and left to the engine's timeouts.
 /// `settle(now, id)` asks a due seat, claims a win for an overdue waiting
 /// seat, arms `armClaimCheck` for one not yet overdue, and acks a finished
-/// debrief once the other seat is gone or is itself a canister. `sweep` is
+/// debrief once the other seat is gone or is itself a canister. A seat
+/// that becomes due inside another canister's reply is asked from a fresh
+/// message (`armClaimCheck(id, 0)`), never in the same call. `sweep` is
 /// the slow full-registry fallback.
 ///
 /// See `../README.md`, "Canister players", for the host wiring (the
@@ -181,7 +183,9 @@ module {
   /// `callBot` is continuation-passing (Motoko rejects `async M` for a
   /// generic `M`): the host calls `k(?move)` on success, `k(null)` on a
   /// trap. `armClaimCheck(id, secs)` schedules one future `settle` — a
-  /// host hook because only an actor holds `Timer.setTimer`'s `<system>`.
+  /// host hook because only an actor holds `Timer.setTimer`'s `<system>`;
+  /// `secs` is `0` for a canister seat that became due inside another
+  /// canister's reply.
   /// `afterMutationSettles` says who owns settlement after a mutation
   /// made here: `true` when `afterMutation` itself ends in this module's
   /// `settle` (`Transport.Attached.afterMutation` with `onSettled` wired
@@ -200,6 +204,18 @@ module {
     let inFlight = Map.empty<Text, ()>();
     func flightKey(id : T.TableId, seat : T.Seat) : Text {
       id.toText() # (switch (seat) { case (#p1) "/p1"; case (#p2) "/p2" });
+    };
+
+    // Tables settling inside a canister's own reply, counted per reply.
+    let replying = Map.empty<T.TableId, Nat>();
+    func enterReply(id : T.TableId) {
+      replying.add(id, (switch (replying.get(id)) { case (?n) n; case null 0 }) + 1);
+    };
+    func exitReply(id : T.TableId) {
+      switch (replying.get(id)) {
+        case (?n) if (n > 1) replying.add(id, n - 1 : Nat) else replying.remove(id);
+        case null {};
+      };
     };
 
     /// `null` unless `session` is seated in-game and due to move
@@ -259,8 +275,10 @@ module {
                   case null {};
                   case (?fresh) switch (registry.submit(spec, now, session, fresh.gen, fresh.turn, move)) {
                     case (#ok _) {
+                      enterReply(id);
                       await* afterMutation(now, session, ?id, false);
                       await* settleUnlessOwned(now, id);
+                      exitReply(id);
                     };
                     case (#err(#illegalMove reason)) {
                       if (triesLeft > 0) {
@@ -280,14 +298,28 @@ module {
       inFlight.remove(key);
     };
 
-    /// Due: ask. Waiting and overdue: claim. Waiting, not yet overdue: arm
-    /// one wakeup. No-op outside `#active`.
-    func maybeNotify(now : Int, id : T.TableId, session : T.SessionId) : async* () {
+    func isDue(now : Int, session : T.SessionId) : Bool {
+      switch (registry.status(spec, now, session)) {
+        case (#atTable { view = #inGame ig }) not ig.youSubmitted;
+        case (_) false;
+      };
+    };
+
+    /// Due when this settle began (`dueAtStart`): ask, or, inside another
+    /// canister's reply, arm an immediate wakeup that asks from a fresh
+    /// message. A seat that became due since was made due by a mutation
+    /// whose own settle covers it. So a canister-vs-canister match
+    /// advances one move per message, never inside one call. Waiting and
+    /// overdue: claim. Waiting, not yet overdue: arm one wakeup. No-op
+    /// outside `#active`.
+    func maybeNotify(now : Int, id : T.TableId, session : T.SessionId, dueAtStart : Bool) : async* () {
       if (not isCanisterSession(session)) return;
       switch (registry.status(spec, now, session)) {
         case (#atTable { view = #inGame ig }) {
           if (not ig.youSubmitted) {
-            if (inFlight.get(flightKey(id, ig.seat)) == null) {
+            if (not dueAtStart) {} else if (replying.get(id) != null) {
+              await* armClaimCheck(id, 0);
+            } else if (inFlight.get(flightKey(id, ig.seat)) == null) {
               switch (dueRequest(now, id, session)) {
                 case (?req) await* notifyAndApply(id, session, req);
                 case null {};
@@ -326,8 +358,10 @@ module {
         case null {};
         case (?t) switch (t.phase) {
           case (#active g) {
-            await* maybeNotify(now, id, g.p1);
-            await* maybeNotify(now, id, g.p2);
+            let due1 = isDue(now, g.p1);
+            let due2 = isDue(now, g.p2);
+            await* maybeNotify(now, id, g.p1, due1);
+            await* maybeNotify(now, id, g.p2, due2);
           };
           case (#debrief d) {
             await* maybeAckDebrief(now, id, t, d, d.p1);

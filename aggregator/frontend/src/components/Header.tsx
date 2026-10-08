@@ -63,11 +63,11 @@ export function Header({
             type="button"
             className="btn ghost"
             onClick={onFrontendTutorial}
-            aria-label="Make own frontend"
-            title="Make own frontend"
+            aria-label="Make your own frontend"
+            title="Make your own frontend"
           >
             <Brush />
-            <span className="label">Make own frontend</span>
+            <span className="label">Make a frontend</span>
           </button>
           <span className="sep" />
           {auth.loading ? null : auth.isLoggedIn ? (
