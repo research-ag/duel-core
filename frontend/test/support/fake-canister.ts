@@ -37,8 +37,8 @@ export class FakeCanister implements TransportActor {
   pollBehavior: "ok" | "err" | "hang" | "throw" = "ok";
   /// How long each `duel_poll` takes to answer.
   pollDelayMs = 0;
-  /// Every decoded request, in arrival order, with the epoch it carried.
-  requests: Array<{ sid: string; epoch: bigint; req: TransportRequest }> = [];
+  /// Every decoded request, in arrival order.
+  requests: Array<{ sid: string; req: TransportRequest }> = [];
   polls = 0;
   /// Every `duel_request` call, thrown ones included.
   attempts = 0;
@@ -70,13 +70,9 @@ export class FakeCanister implements TransportActor {
 
   private _handle(msg: Uint8Array): Uint8Array {
     const decoded = IDL.decode([this.types.TransportMsg], msg)[0] as unknown as {
-      req: { sid: string; epoch: bigint; req: TransportRequest };
+      req: { sid: string; req: TransportRequest };
     };
     this.requests.push(decoded.req);
-    if ("bye" in decoded.req.req)
-      return this._encode({
-        view: { rev: this.rev ?? 0n, view: this.current },
-      });
     if (this.rev === null) this.rev = this.nextRev++;
     const reply = this.respond(decoded.req.req);
     if ("err" in reply) return this._encode({ err: { err: reply.err } });

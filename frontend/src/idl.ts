@@ -143,8 +143,7 @@ export function buildEngineTypes({
     complexities: IDL.Vec(BotComplexity),
   });
 
-  // Mirrors `Transport.Msg<S, M>`: `epoch` names the client's current
-  // connection, `rev` orders views.
+  // Mirrors `Transport.Msg<S, M>`: `rev` orders views.
   const TransportRequest = IDL.Variant({
     createTable: IDL.Record({ seat: Seat, visibility: Visibility, variant: IDL.Text }),
     joinTable: IDL.Record({ id: TableId, seat: Seat, code: IDL.Opt(IDL.Text) }),
@@ -155,10 +154,9 @@ export function buildEngineTypes({
     claimWin: IDL.Record({ gen: IDL.Nat }),
     ackEnded: IDL.Null,
     status: IDL.Null,
-    bye: IDL.Null,
   });
   const TransportMsg = IDL.Variant({
-    req: IDL.Record({ sid: IDL.Text, epoch: IDL.Nat64, req: TransportRequest }),
+    req: IDL.Record({ sid: IDL.Text, req: TransportRequest }),
     view: IDL.Record({ rev: IDL.Nat, view: Status }),
     err: IDL.Record({ err: Err }),
   });

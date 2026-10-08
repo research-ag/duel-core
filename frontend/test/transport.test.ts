@@ -156,7 +156,7 @@ test("an update call that keeps failing rejects and fires onerror", async () => 
   transport.close();
 });
 
-test("a forgotten link is redone under a new epoch", async () => {
+test("a forgotten link is redone", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister);
   let opens = 0;
@@ -168,7 +168,6 @@ test("a forgotten link is redone under a new epoch", async () => {
   await until(() => opens === 2, "the relink");
   assert.equal(connecting, 1);
   assert.deepEqual(canister.sent, [{ status: null }, { status: null }]);
-  assert.notEqual(canister.requests[0].epoch, canister.requests[1].epoch);
   transport.close();
 });
 
@@ -294,16 +293,15 @@ test("concurrent status sends are coalesced", async () => {
   transport.close();
 });
 
-test("close() says goodbye under the current epoch and rejects later requests", async () => {
+test("close() sends nothing and rejects later requests", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister);
   let closes = 0;
   transport.onclose = () => closes++;
   await transport.request(SID, { status: null });
   transport.close();
-  await until(() => canister.sent.length === 2, "the goodbye");
-  assert.deepEqual(canister.sent[1], { bye: null });
-  assert.equal(canister.requests[1].epoch, canister.requests[0].epoch);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(canister.sent.length, 1);
   assert.equal(closes, 1);
   await assert.rejects(transport.request(SID, { status: null }), /closed/);
 });

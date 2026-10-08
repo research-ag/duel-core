@@ -201,7 +201,7 @@ persistent actor Sparring {
   func send(host : Principal.Principal, req : Transport.Request<Game.Action>) : async Msg {
     let sid = Transport.sidFor(Transport.ANON_SID_PREFIX, Principal.fromActor(Sparring));
     let h : Host = actor (host.toText());
-    let msg : Msg = #req { sid; epoch = 0 : Nat64; req };
+    let msg : Msg = #req { sid; req };
     let ?reply : ?Msg = from_candid (await h.duel_request(to_candid (msg))) else Runtime.trap("reply does not decode: compare GameTypes.mo with backend.did");
     reply;
   };

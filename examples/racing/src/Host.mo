@@ -87,7 +87,7 @@ persistent actor {
   };
 
   transient let hub : Transport.Hub = Transport.createHub();
-  transient let attached = Transport.attach<system, Rules.State, Rules.Action>(
+  transient let attached = Transport.attach<Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
     hub,

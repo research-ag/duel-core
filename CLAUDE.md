@@ -27,10 +27,10 @@ knows any particular game.
     answering from a per-session `rev` in the transient `Hub`; nothing
     is queued). It is the only transport that can mutate game state: no
     `Registry` mutating operation is a plain Candid method on a host;
-    `status` is the one plain `query`. Also drives disappearance
-    handling (a `#bye` implicitly leaves after a grace; silence only
-    ends presence, checked lazily against `PRESENCE_TTL_NS`) and offers
-    optional hooks `onSettled`/`onGameEnded`/`onGameStarted`.
+    `status` is the one plain `query`. There is no goodbye: silence only
+    ends presence (checked lazily against `PRESENCE_TTL_NS`); departure
+    is `#leave`, `claimWin`, idle takeover and `sweep`. Offers optional
+    hooks `onSettled`/`onGameEnded`/`onGameStarted`.
   - `actor_mixin.mo` — `include ActorMixin<system>(endpoint, sweepFunc)`:
     `duel_request`/`duel_poll` plus the 5-minute idle-sweep timer.
   - `canister_players.mo` — OPTIONAL. Lets a canister take a seat under a
