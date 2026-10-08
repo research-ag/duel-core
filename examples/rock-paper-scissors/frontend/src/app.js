@@ -37,7 +37,7 @@ const agent = await HttpAgent.create({
 const idlFactory = makeIdlFactory(plugin.idlTypes);
 const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
-const ws = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
+const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 
 // The debrief is this game's own: a final scoreline and the deciding
 // round instead of the generic board. Every other screen stays the default.
@@ -61,7 +61,7 @@ function renderRpsDebrief(v, p) {
     </p>`;
 }
 
-start({ plugin, ws, session, screens: { debrief: renderRpsDebrief } });
+start({ plugin, transport, session, screens: { debrief: renderRpsDebrief } });
 
 // Leaderboard: a full-page overlay fetched via plain queries on open.
 const leaderboardToggle = document.getElementById("leaderboard-toggle");
@@ -113,7 +113,7 @@ function setLastBot(bot) {
 // The open seat and code of this session's own staging, tracked off the
 // live status push; `null` on any other screen.
 let staging = null;
-ws.addEventListener("message", (ev) => {
+transport.addEventListener("message", (ev) => {
   const payload = ev.data;
   if (!payload || "err" in payload) {
     staging = null;
@@ -168,7 +168,7 @@ botBack.addEventListener("click", () => {
 // This session's own staging (`seat === undefined`), or a new table.
 async function stageFor(seat) {
   if (seat === undefined) return staging;
-  const res = await ws.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, variant: "" } });
+  const res = await transport.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, variant: "" } });
   if ("err" in res) throw new Error(errText(res.err));
   const status = res.view;
   if (!("atTable" in status) || tag(status.atTable.view) !== "stagingYou") {

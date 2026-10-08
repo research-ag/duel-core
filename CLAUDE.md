@@ -76,7 +76,7 @@ n)` supplying `get_leaderboard`. Filled from `Transport.attach`'s
     See `backend/README.md` for the `Spec<S, M>` contract and full wiring.
 - **`frontend/`** — the npm package (TypeScript in `src/`, ships
   compiled `dist/`), in three layers. `client.js` is the headless
-  client: `createDuelClient({ ws, session })` owns the transport, the
+  client: `createDuelClient({ transport, session })` owns the transport, the
   current `Status`, the one call in flight, error lifetime, the identity
   lock, and the stale-view resync, and publishes immutable `ClientState`
   snapshots; no DOM, no HTML. Its pure `withLocalMove` overlays a
@@ -85,7 +85,7 @@ n)` supplying `get_leaderboard`. Filled from `Transport.attach`'s
   `view -> HTML` function per generic screen (lobby/staging/rematch/
   busy/debrief/...), collected in `defaultScreens`, plus
   `renderLeaderboard`/`renderBotList`/`renderSeatChoice`, which a game
-  mounts itself. `app.js` is the default shell: `start({ plugin, ws,
+  mounts itself. `app.js` is the default shell: `start({ plugin, transport,
 session, screens?, confirm?, promptCode? })` binds client to screens in
   `#screen` (delegated clicks, spinner, countdowns, header controls,
   error banner, overlays) and returns the client. Also session identity,
@@ -230,8 +230,8 @@ deploys all of them to the IC.
 9. **Pending moves are hidden by construction**: `status` exposes only
    Booleans about the opponent's pending move.
 10. **The frontend never assumes an agent-loading strategy.** `start()`
-    and `createDuelClient()` take a required WebSocket-shaped `ws` and a
-    required `session` built by the game; they import no agent, no CDN,
+    and `createDuelClient()` take a required `transport` (the polling link from
+    `connectTransport()`) and a required `session` built by the game; they import no agent, no CDN,
     and know no other transport.
 11. **`transport.mo` is the sole mutation entry point and reimplements no game
     logic.** Every request dispatches to `Registry`'s operations; none

@@ -171,7 +171,7 @@ export interface GamePlugin<S = unknown> {
 
 /// Mirrors `Transport.Request<M>`. `submit`/`leave`/`reset`/`claimWin` carry the
 /// last-seen `gen` (and `turn`); a stale value is rejected as `#stale`.
-export type WsRequest<A = unknown> =
+export type TransportRequest<A = unknown> =
   | { createTable: { seat: Seat; visibility: Visibility; variant: string } }
   | { joinTable: { id: TableId; seat: Seat; code: [] | [string] } }
   | { submit: { gen: bigint; turn: bigint; move: A } }
@@ -183,9 +183,12 @@ export type WsRequest<A = unknown> =
   | { status: null }
   | { bye: null };
 
-export type WsPayload<S = unknown> = { view: Status<S> } | { err: EngineErr };
+export type TransportPayload<S = unknown> = { view: Status<S> } | { err: EngineErr };
 
-/// The WebSocket-like surface `start()` requires. `request()` is optional;
+/// The transport surface `start()` and `createDuelClient()` require
+/// (`DuelTransport` from `connectTransport()`, or a test double of the same
+/// shape): a polling link with no message queue on either side, whose
+/// handlers mirror a socket's for familiarity. `request()` is optional;
 /// when present (`DuelTransport`), `start()` settles each call off its own
 /// reply. `send()` must accept a message at any time (the client asks for
 /// its first status at construction); `onopen` fires on every confirmed
@@ -193,13 +196,13 @@ export type WsPayload<S = unknown> = { view: Status<S> } | { err: EngineErr };
 /// (optional) fires when the link is lost and being redone; `onclose`
 /// only when it is over for good. `queryStatus()` (optional) answers a
 /// status without the link, for a first paint.
-export interface DuelWs<S = unknown, A = unknown> {
+export interface Transport<S = unknown, A = unknown> {
   onopen: (() => void) | null;
-  onmessage: ((ev: { data: WsPayload<S> }) => void) | null;
+  onmessage: ((ev: { data: TransportPayload<S> }) => void) | null;
   onerror: ((ev: { error?: Error }) => void) | null;
   onclose: (() => void) | null;
   onconnecting?: (() => void) | null;
-  send(msg: { req: { sid: string; req: WsRequest<A> } }): void;
-  request?(sid: string, req: WsRequest<A>): Promise<WsPayload<S>>;
+  send(msg: { req: { sid: string; req: TransportRequest<A> } }): void;
+  request?(sid: string, req: TransportRequest<A>): Promise<TransportPayload<S>>;
   queryStatus?(sid: string): Promise<Status<S>>;
 }

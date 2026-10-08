@@ -8,7 +8,7 @@ A deployable `#simultaneous` example on `../../backend` and
 - **`src/Host.mo`** — the host actor: a `Registry` (90s idle timeout, 60s
   claim window), `status` as the only plain query, `Transport.attach` +
   `include ActorMixin`, Prometheus metrics (`attachMetrics` + a
-  `/metrics` route via `mo:promtracker/mixins/http`), and an ELO
+  `/metrics` route on `HttpActorMixin`), and an ELO
   leaderboard (`Leaderboard.new(50, 1200)`, re-rated in `onGameEnded`
   with `Elo.update` at k=32 for every ending, read via `include
 LeaderboardActorMixin(leaderboard, 25)`). Plus canister

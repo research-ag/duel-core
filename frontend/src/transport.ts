@@ -4,8 +4,8 @@
 // everything the other seat causes arrives by polling the `duel_poll`
 // query. There is no other transport.
 //
-//   const ws = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
-//   start({ plugin, ws, session });
+//   const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
+//   start({ plugin, transport, session });
 //
 // `gameIdlTypes` is the same function passed to `makeIdlFactory()`.
 //
@@ -23,11 +23,11 @@ import {
   type EngineTypes,
 } from "./idl.js";
 import type {
-  DuelWs,
+  Transport,
   EngineErr,
   Status,
-  WsPayload,
-  WsRequest,
+  TransportPayload,
+  TransportRequest,
 } from "./types.js";
 
 const DEFAULT_INTERVAL_MS = 500;
@@ -70,9 +70,9 @@ const newEpoch = (): bigint =>
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
-const isStatus = (req: WsRequest): boolean => "status" in req;
+const isStatus = (req: TransportRequest): boolean => "status" in req;
 
-export class DuelTransport extends EventTarget implements DuelWs {
+export class DuelTransport extends EventTarget implements Transport {
   private _actor: TransportActor;
   private _types: EngineTypes;
   private _intervalMs: number;
@@ -82,7 +82,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
   private _epoch: bigint;
   // The newest revision applied, and the payload it carried.
   private _rev: bigint;
-  private _last: WsPayload | null;
+  private _last: TransportPayload | null;
   // A reply arrived under the current epoch and nothing invalidated it.
   private _linked: boolean;
   private _everLinked: boolean;
@@ -103,7 +103,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
 
   onopen: (() => void) | null;
   onconnecting: (() => void) | null;
-  onmessage: ((ev: { data: WsPayload }) => void) | null;
+  onmessage: ((ev: { data: TransportPayload }) => void) | null;
   onerror: ((ev: { error?: Error }) => void) | null;
   onclose: (() => void) | null;
 
@@ -285,9 +285,9 @@ export class DuelTransport extends EventTarget implements DuelWs {
     this._schedule(delay);
   }
 
-  private _encode(sid: string, req: WsRequest): Uint8Array {
+  private _encode(sid: string, req: TransportRequest): Uint8Array {
     const buf = IDL.encode(
-      [this._types.WsMsg],
+      [this._types.TransportMsg],
       [{ req: { sid, epoch: this._epoch, req } }]
     );
     return buf instanceof Uint8Array ? buf : new Uint8Array(buf);
@@ -295,7 +295,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
 
   private _decode(bytes: Uint8Array | number[]): Reply {
     const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    return IDL.decode([this._types.WsMsg], b)[0] as unknown as Reply;
+    return IDL.decode([this._types.TransportMsg], b)[0] as unknown as Reply;
   }
 
   /// One update call, resent when it throws: the call may or may not have
@@ -303,7 +303,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
   /// legality/idempotency checks.
   private async _call(
     sid: string,
-    req: WsRequest
+    req: TransportRequest
   ): Promise<{ reply: Reply; resent: boolean }> {
     for (let attempt = 0; ; attempt++) {
       if (this._closed) throw new Error("DuelTransport: closed");
@@ -329,7 +329,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
 
   /// Applies a reply in revision order and returns what the caller should
   /// see: a view older than one already applied yields the newer one.
-  private _apply(reply: Reply): { payload: WsPayload; fresh: boolean } {
+  private _apply(reply: Reply): { payload: TransportPayload; fresh: boolean } {
     if ("err" in reply) return { payload: { err: reply.err.err }, fresh: true };
     if (reply.view.rev < this._rev && this._last !== null) {
       return { payload: this._last, fresh: false };
@@ -342,7 +342,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
   /// `#alreadySubmitted`/`#stale` on a resent mutation can only mean the
   /// original already landed; settle with a fresh `#status` instead of an
   /// error that would make a successful click look failed.
-  private async _exchange(sid: string, req: WsRequest): Promise<WsPayload> {
+  private async _exchange(sid: string, req: TransportRequest): Promise<TransportPayload> {
     let { reply, resent } = await this._call(sid, req);
     if (
       resent &&
@@ -356,7 +356,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
     return payload;
   }
 
-  private _enqueue(sid: string, req: WsRequest): Promise<WsPayload> {
+  private _enqueue(sid: string, req: TransportRequest): Promise<TransportPayload> {
     // Throws on a request the IDL doesn't recognize (a tampered
     // `data-act`), before anything is queued.
     this._encode(sid, req);
@@ -409,7 +409,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
 
   /// Fire-and-forget: the result only ever surfaces as a `message`/`error`
   /// event. Safe at any time; it waits its turn behind earlier requests.
-  send(msg: { req?: { sid: string; req: WsRequest } }): void {
+  send(msg: { req?: { sid: string; req: TransportRequest } }): void {
     if (this._closed) return;
     const envelope = msg?.req;
     if (!envelope) return;
@@ -430,7 +430,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
 
   /// Resolves with THIS call's own `{view}`/`{err}`; rejects when the
   /// update call kept failing.
-  request(sid: string, req: WsRequest): Promise<WsPayload> {
+  request(sid: string, req: TransportRequest): Promise<TransportPayload> {
     if (this._closed) return Promise.reject(new Error("DuelTransport: closed"));
     try {
       return this._enqueue(sid, req);
@@ -465,7 +465,7 @@ export class DuelTransport extends EventTarget implements DuelWs {
     this.dispatchEvent(new Event("close"));
   }
 
-  private _deliver(data: WsPayload): void {
+  private _deliver(data: TransportPayload): void {
     if (this._closed) return;
     if (this.onmessage) this.onmessage({ data });
     this.dispatchEvent(new MessageEvent("message", { data }));

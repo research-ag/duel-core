@@ -23,7 +23,7 @@ import {
   waitingText,
 } from "./render.js";
 import type { Screens } from "./render.js";
-import type { DuelWs, GamePlugin, InGameView, SeatTag, Status, Visibility } from "./types.js";
+import type { Transport, GamePlugin, InGameView, SeatTag, Status, Visibility } from "./types.js";
 
 export type { SessionIdentity } from "./client.js";
 
@@ -233,7 +233,7 @@ function makeCodePrompt(): PromptCode {
 
 export interface StartOptions<S = unknown> {
   plugin: GamePlugin<S>;
-  ws: DuelWs<S>;
+  transport: Transport<S>;
   /// Required: every legal `sid` is principal-bound.
   session: SessionIdentity;
   /// Any subset of the default screens, replaced.
@@ -269,7 +269,7 @@ export function buttonKey(b: HTMLButtonElement): string {
 
 export function start<S>({
   plugin,
-  ws,
+  transport,
   session,
   screens,
   confirm,
@@ -282,7 +282,7 @@ export function start<S>({
   authBtnId = "duel-auth-btn",
 }: StartOptions<S>): DuelClient<S> {
   if (!plugin) throw new Error("start(): `plugin` is required");
-  if (!ws) throw new Error("start(): `ws` is required");
+  if (!transport) throw new Error("start(): `transport` is required");
   if (!session) throw new Error("start(): `session` is required");
 
   const screenEl = $(screenElId);
@@ -294,7 +294,7 @@ export function start<S>({
   const sidEl = $(sidElId);
   if (sidEl) sidEl.textContent = session.sid;
 
-  const client = createDuelClient<S>({ ws, session, errorTtlMs });
+  const client = createDuelClient<S>({ transport, session, errorTtlMs });
   const sc = resolveScreens(screens);
   const askConfirm: Confirm = confirm ? (msg, then) => void confirm(msg).then(then) : makeConfirmOverlay();
   const askCode: PromptCode = promptCode ? (then) => void promptCode().then(then) : makeCodePrompt();

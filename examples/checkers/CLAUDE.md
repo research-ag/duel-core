@@ -51,7 +51,7 @@ data-act>` while intermediate clicks are local `<div data-sq>` state
   leaderboard overlay (fetching `list_bots()` alongside for bot names),
   and the 🤖 Bots overlay: `list_bots()` → `renderBotList`; picking a bot
   fills the player's own staged table or shows `renderSeatChoice` and
-  creates one via `ws.request(createTable)`, then calls the bot's `play`
+  creates one via `transport.request(createTable)`, then calls the bot's `play`
   via `buildBotPlayIdlFactory`; a Rematch re-issues the same `play` when
   the reserved `stagingYou` lands (remembered in `sessionStorage`).
 

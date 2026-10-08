@@ -1,5 +1,5 @@
 // The headless client: everything a duel-game-core game client does that
-// is not drawing. It owns the `ws`, the current `Status`, the one call in
+// is not drawing. It owns the `transport`, the current `Status`, the one call in
 // flight, error lifetime, the session-identity lock, and the stale-view
 // resync, and publishes an immutable `ClientState` snapshot to subscribers.
 // No DOM, no storage, no HTML; `app.ts`'s `start()` is one UI over it and
@@ -7,7 +7,7 @@
 // "The headless client".
 
 import type {
-  DuelWs,
+  Transport,
   EngineErr,
   InGameView,
   Seat,
@@ -16,8 +16,8 @@ import type {
   Status,
   View,
   Visibility,
-  WsPayload,
-  WsRequest,
+  TransportPayload,
+  TransportRequest,
 } from "./types.js";
 
 export function tag(v: object): string {
@@ -170,7 +170,7 @@ export type Connection = "connecting" | "open" | "reconnecting" | "closed";
 /// `claim-win`, `ack`) so a UI can mark the control that issued it.
 export interface PendingCall {
   key: string;
-  req: WsRequest;
+  req: TransportRequest;
 }
 
 /// The move a pending `submit` carries, or null for any other call.
@@ -212,7 +212,7 @@ export function withLocalMove<S, A = unknown>(
 
 export interface ClientState<S = unknown> {
   connection: Connection;
-  /// The last status received (the first may come from `ws.queryStatus`
+  /// The last status received (the first may come from `transport.queryStatus`
   /// while still `"connecting"`); `null` until one lands.
   status: Status<S> | null;
   /// `Date.now()` when `status` last changed. Every `secondsUntilX` field
@@ -275,12 +275,12 @@ export interface DuelClient<S = unknown, A = unknown> {
   logout(): Promise<void>;
   regenerateSid(): Promise<void>;
 
-  /// Detaches from `ws` and stops the error timer.
+  /// Detaches from `transport` and stops the error timer.
   dispose(): void;
 }
 
 export interface ClientOptions<S = unknown> {
-  ws: DuelWs<S>;
+  transport: Transport<S>;
   session: SessionIdentity;
   /// How long a transient error stays in `state.error`; default 5000, 0
   /// keeps it until `clearError()` or the next error.
@@ -297,7 +297,7 @@ function safeJson(v: unknown): string {
 
 /// The `PendingCall.key` a request gets. Stable across a redraw, so a UI
 /// can find the equivalent control on brand-new DOM nodes.
-export function pendingKeyOf(req: WsRequest): string {
+export function pendingKeyOf(req: TransportRequest): string {
   if ("createTable" in req) return `create:${tag(req.createTable.seat)}`;
   if ("joinTable" in req) return `jointable:${req.joinTable.id}:${tag(req.joinTable.seat)}`;
   if ("submit" in req) return `act:${safeJson(req.submit.move)}`;
@@ -311,13 +311,13 @@ export function pendingKeyOf(req: WsRequest): string {
 
 // A `#wrongPhase` on create/join means this tab's view is stale (it
 // showed `browsing` before learning the sid is seated elsewhere).
-function isStaleJoin(req: WsRequest | null, err: EngineErr): boolean {
+function isStaleJoin(req: TransportRequest | null, err: EngineErr): boolean {
   return req !== null && ("createTable" in req || "joinTable" in req) && "wrongPhase" in err;
 }
 
 // `#stale` on submit/leave/reset/claimWin: the stamped gen/turn moved on
 // (typically a resend whose original landed).
-function isStaleMutation(req: WsRequest | null, err: EngineErr): boolean {
+function isStaleMutation(req: TransportRequest | null, err: EngineErr): boolean {
   return (
     req !== null &&
     ("submit" in req || "leave" in req || "reset" in req || "claimWin" in req) &&
@@ -332,11 +332,11 @@ export const CONNECTION_CLOSED_MESSAGE = "Connection closed.";
 export const ENDED_WHILE_AWAY_MESSAGE = "Your game ended while you were away.";
 
 export function createDuelClient<S = unknown, A = unknown>({
-  ws,
+  transport,
   session,
   errorTtlMs = 5000,
 }: ClientOptions<S>): DuelClient<S, A> {
-  if (!ws) throw new Error("createDuelClient(): `ws` is required");
+  if (!transport) throw new Error("createDuelClient(): `transport` is required");
   if (!session) throw new Error("createDuelClient(): `session` is required");
   const sid = session.sid;
 
@@ -404,7 +404,7 @@ export function createDuelClient<S = unknown, A = unknown>({
     setState({ error: null });
   }
 
-  // Set for good once `ws.onclose` fires: the transport never revives.
+  // Set for good once `transport.onclose` fires: the transport never revives.
   function closed(): void {
     if (state.connection === "closed") return;
     clearErrorTimer();
@@ -416,11 +416,11 @@ export function createDuelClient<S = unknown, A = unknown>({
   // settles off its own reply; otherwise off the next `onmessage`, the
   // best a plain socket allows.
 
-  const canCorrelate = typeof ws.request === "function";
+  const canCorrelate = typeof transport.request === "function";
 
   // The last dispatched request, so the `onmessage` error branch can tell
   // which request a pushed error answers.
-  let lastReq: WsRequest | null = null;
+  let lastReq: TransportRequest | null = null;
 
   // The fallback transport's in-flight call, resolved by `onmessage`.
   let fallbackResolve: ((o: CallOutcome<S>) => void) | null = null;
@@ -450,10 +450,10 @@ export function createDuelClient<S = unknown, A = unknown>({
     noteResync(status);
   }
 
-  function sendWs(req: WsRequest): boolean {
+  function sendTransport(req: TransportRequest): boolean {
     lastReq = req;
     try {
-      ws.send({ req: { sid, req } });
+      transport.send({ req: { sid, req } });
       return true;
     } catch (e) {
       showError(`Send failed: ${(e as Error).message ?? e}`);
@@ -463,10 +463,10 @@ export function createDuelClient<S = unknown, A = unknown>({
 
   function refresh(): void {
     if (state.pending !== null) return;
-    sendWs({ status: null });
+    sendTransport({ status: null });
   }
 
-  function outcomeOf(req: WsRequest, payload: WsPayload<S>): CallOutcome<S> {
+  function outcomeOf(req: TransportRequest, payload: TransportPayload<S>): CallOutcome<S> {
     if ("err" in payload) {
       if (isStaleJoin(req, payload.err) || isStaleMutation(req, payload.err)) {
         return { ok: false, reason: "stale" };
@@ -476,7 +476,7 @@ export function createDuelClient<S = unknown, A = unknown>({
     return { ok: true, view: payload.view };
   }
 
-  function settleCall(req: WsRequest, payload: WsPayload<S>): CallOutcome<S> {
+  function settleCall(req: TransportRequest, payload: TransportPayload<S>): CallOutcome<S> {
     const outcome = outcomeOf(req, payload);
     const isCurrent = state.pending !== null && state.pending.req === req;
     // One snapshot: a board drawn with the move applied locally goes
@@ -503,7 +503,7 @@ export function createDuelClient<S = unknown, A = unknown>({
     return outcome;
   }
 
-  function call(req: WsRequest): Promise<CallOutcome<S>> {
+  function call(req: TransportRequest): Promise<CallOutcome<S>> {
     if (state.connection === "closed") return Promise.resolve({ ok: false, reason: "closed" });
     if (state.pending !== null) return Promise.resolve({ ok: false, reason: "inFlight" });
     lastReq = req;
@@ -522,14 +522,14 @@ export function createDuelClient<S = unknown, A = unknown>({
       };
       // `request()` is caller-supplied, so guard a synchronous throw too.
       try {
-        return ws.request!(sid, req).then((payload) => settleCall(req, payload), onRejected);
+        return transport.request!(sid, req).then((payload) => settleCall(req, payload), onRejected);
       } catch (e) {
         return Promise.resolve(onRejected(e as Error));
       }
     }
     return new Promise<CallOutcome<S>>((resolve) => {
       fallbackResolve = resolve;
-      if (!sendWs(req)) {
+      if (!sendTransport(req)) {
         fallbackResolve = null;
         setState({ pending: null });
         resolve({ ok: false, reason: "failed", message: state.error ?? "Send failed" });
@@ -555,22 +555,22 @@ export function createDuelClient<S = unknown, A = unknown>({
 
   // Transport. The first status is requested right away, and again on
   // every relink after a gap.
-  // `ws.queryStatus`, when offered, paints sooner still; whatever the
+  // `transport.queryStatus`, when offered, paints sooner still; whatever the
   // connection delivers supersedes it.
 
   let everOpened = false;
-  ws.onopen = () => {
+  transport.onopen = () => {
     const reopen = everOpened;
     everOpened = true;
     setState({ connection: "open" });
     if (reopen) refresh();
   };
-  ws.onconnecting = () => {
+  transport.onconnecting = () => {
     if (state.connection === "closed") return;
     seatedBeforeGap = isSeated(state.status);
     setState({ connection: everOpened ? "reconnecting" : "connecting" });
   };
-  ws.onmessage = (ev) => {
+  transport.onmessage = (ev) => {
     const msg = ev.data;
     const stale =
       "err" in msg && (isStaleJoin(lastReq, msg.err) || isStaleMutation(lastReq, msg.err));
@@ -594,12 +594,12 @@ export function createDuelClient<S = unknown, A = unknown>({
     if ("err" in msg) showError(errText(msg.err));
     else setStatus(msg.view);
   };
-  ws.onerror = (ev) => showError(`Connection error: ${ev?.error?.message ?? ev}`);
-  ws.onclose = () => closed();
+  transport.onerror = (ev) => showError(`Connection error: ${ev?.error?.message ?? ev}`);
+  transport.onclose = () => closed();
   refresh();
-  if (typeof ws.queryStatus === "function") {
+  if (typeof transport.queryStatus === "function") {
     try {
-      ws.queryStatus(sid).then(
+      transport.queryStatus(sid).then(
         (status) => {
           if (state.status === null && state.connection !== "closed") setStatus(status);
         },
@@ -639,11 +639,11 @@ export function createDuelClient<S = unknown, A = unknown>({
     dispose() {
       clearErrorTimer();
       listeners.clear();
-      if (ws.onopen) ws.onopen = null;
-      if (ws.onmessage) ws.onmessage = null;
-      if (ws.onerror) ws.onerror = null;
-      if (ws.onclose) ws.onclose = null;
-      if (ws.onconnecting) ws.onconnecting = null;
+      if (transport.onopen) transport.onopen = null;
+      if (transport.onmessage) transport.onmessage = null;
+      if (transport.onerror) transport.onerror = null;
+      if (transport.onclose) transport.onclose = null;
+      if (transport.onconnecting) transport.onconnecting = null;
     },
   };
 }
