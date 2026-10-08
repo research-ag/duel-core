@@ -355,7 +355,7 @@ or any other rejection is treated as silence and left to
 
 **`settle(now, id)`.** For an `#active` table: a seat due to move
 (`View.#inGame.youSubmitted == false`, which means "due" in either mode)
-is asked; the WAITING seat with `claimWinAvailable` claims the win; a
+when the settle begins is asked; the WAITING seat with `claimWinAvailable` claims the win; a
 waiting seat not yet overdue arms `armClaimCheck(id, secondsUntilClaimable)`
 for one precise wakeup. For a `#debrief`: a canister seat is acked (via
 `registry.leave`) once the other seat is no longer a live participant or
@@ -363,7 +363,12 @@ is itself a canister, so two canister seats never deadlock on each
 other's ack and a deciding human's rematch window is never cut short. A
 one-bit in-flight flag per (table, seat) prevents double asks.
 Canister-driven mutations call `settle` inline; human-driven ones reach
-it through `Transport.attach`'s `onSettled`. `sweep` is the slow full-registry
+it through `Transport.attach`'s `onSettled`. A canister seat that becomes
+due inside another canister's reply is never asked in that call:
+`armClaimCheck(id, 0)` asks it from a fresh message. So a
+canister-vs-canister match advances one move per message, and no call
+carries a whole match (which could run into the instruction limit and
+holds a call context open for the match's length). `sweep` is the slow full-registry
 fallback, folded into the existing idle-sweep timer.
 
 **Wiring** (the two `attach` calls need each other's result, so one
@@ -753,7 +758,8 @@ icp canister metadata $ID candid:service -n ic > backend.did
 `@dfinity/prebuilt` recipe (`path` + `sha256`, which icp-cli verifies
 on every build), with `icp canister link backend $ID -e ic` tying the
 name to the live canister for the `ic` environment only; the skill's
-`references/frontend-for-existing-game.md` has the whole procedure.
+`references/frontend-for-existing-game.md` and
+`references/bot-for-existing-game.md` have the whole procedure.
 
 A 404 at `/wasm` ("No module uploaded yet") means the sync step has not
 run against this install: run `icp sync backend -e <env>`. A hash that

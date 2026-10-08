@@ -43,7 +43,9 @@ knows any particular game.
     machinery to act. `settle(now, id)` asks a due seat, claims a win for
     an overdue WAITING seat, or acks a finished debrief once no live
     human partner is still deciding; `armClaimCheck` (host-supplied,
-    `Timer.setTimer`) schedules the one wakeup nothing else triggers.
+    `Timer.setTimer`) schedules the one wakeup nothing else triggers,
+    and, at 0 s, the ask of a canister seat that became due inside
+    another canister's reply (bot-vs-bot plays one move per message).
     `sweep` is the slow full-registry fallback, folded into the existing
     idle-sweep timer. Also holds bot DISCOVERY: `BotDirectory`,
     `registerBot`/`unregisterBot`/`listBots`/`rankedBots`,
@@ -267,9 +269,10 @@ deploys all of them to the IC.
     is the whole heap, access codes and pending moves included. Its host serves
     `Rules.SEMANTICS` at `/semantics`. That text, the `candid:service`
     metadata and the wasm at `/wasm` are all a third party has to build
-    a frontend
-    (`skills/duel-game-core/references/frontend-for-existing-game.md`,
-    which the aggregator's `frontendPrompt.ts` condenses); `Action` is
+    a frontend or a bot
+    (`skills/duel-game-core/references/frontend-for-existing-game.md`
+    and `bot-for-existing-game.md`, which the aggregator's
+    `frontendPrompt.ts`/`botPrompt.ts` condense); `Action` is
     described nowhere else. Any change to a game's `State`, `Action`,
     `validate` or `resolve` updates its `SEMANTICS` in the same change.
     See `backend/README.md`, "Semantics over HTTP" and
@@ -281,7 +284,7 @@ deploys all of them to the IC.
 add research-ag/duel-core --skill duel-game-core`) — building a game
   from a rules description: `Spec` design, templates, and `references/`
   for canister bots, alternating games, rich UIs, long-game testing, and
-  a new frontend for an already-deployed game.
+  a new frontend or a bot for an already-deployed game.
   Read it first for any game-building task, here or elsewhere.
 - `.agents/skills/` (local, untracked) — general Motoko playbooks:
   `motoko-general-style-guidelines` (2-space indent, 80 cols),

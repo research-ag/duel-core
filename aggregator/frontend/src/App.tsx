@@ -11,23 +11,24 @@ import { BrandMark } from "./components/Icons";
 import { TutorialWizard } from "./components/TutorialWizard";
 import { useAuth } from "./hooks/useAuth";
 import { useGames } from "./hooks/useGames";
-import type { GameView } from "./types";
+import type { GameView, Target } from "./types";
 import { optToMaybe } from "./types";
 
 /// Which modal (if any) is open: "register" for a fresh game, or an
 /// existing `GameView` to edit — `undefined` means closed.
 type Modal = "register" | GameView | undefined;
 
+/// A frontend/bot guide: closed, open on its game picker, or open for
+/// one game.
+type Guide = "pick" | Target | undefined;
+
 export function App() {
   const auth = useAuth();
   const { games, loading, reload } = useGames(auth.actor);
   const [modal, setModal] = useState<Modal>(undefined);
   const [tutorialOpen, setTutorialOpen] = useState(false);
-  const [botTutorialOpen, setBotTutorialOpen] = useState(false);
-  /// The frontend guide: closed, open for one game, or open with no game.
-  const [frontendFor, setFrontendFor] = useState<GameView | "any" | undefined>(
-    undefined
-  );
+  const [frontendGuide, setFrontendGuide] = useState<Guide>(undefined);
+  const [botGuide, setBotGuide] = useState<Guide>(undefined);
   const [infoFor, setInfoFor] = useState<GameView | undefined>(undefined);
 
   const developers = useMemo(() => {
@@ -45,8 +46,8 @@ export function App() {
         auth={auth}
         onRegister={() => setModal("register")}
         onTutorial={() => setTutorialOpen(true)}
-        onBotTutorial={() => setBotTutorialOpen(true)}
-        onFrontendTutorial={() => setFrontendFor("any")}
+        onBotTutorial={() => setBotGuide("pick")}
+        onFrontendTutorial={() => setFrontendGuide("pick")}
       />
       <Hero
         games={games}
@@ -115,15 +116,27 @@ export function App() {
           }}
         />
       )}
-      {frontendFor !== undefined && (
+      {frontendGuide !== undefined && (
         <FrontendTutorialWizard
-          game={frontendFor === "any" ? undefined : frontendFor}
+          initial={frontendGuide === "pick" ? undefined : frontendGuide}
+          games={games}
+          loading={loading}
+          actor={auth.actor}
           isLoggedIn={auth.isLoggedIn}
-          onClose={() => setFrontendFor(undefined)}
+          onClose={() => setFrontendGuide(undefined)}
           onRegister={() => {
-            setFrontendFor(undefined);
+            setFrontendGuide(undefined);
             setModal("register");
           }}
+        />
+      )}
+      {botGuide !== undefined && (
+        <BotTutorialWizard
+          initial={botGuide === "pick" ? undefined : botGuide}
+          games={games}
+          loading={loading}
+          actor={auth.actor}
+          onClose={() => setBotGuide(undefined)}
         />
       )}
       {infoFor !== undefined && (
@@ -131,14 +144,12 @@ export function App() {
           game={infoFor}
           games={games}
           onClose={() => setInfoFor(undefined)}
-          onOwnFrontend={() => {
+          onGuide={(purpose, target) => {
             setInfoFor(undefined);
-            setFrontendFor(infoFor);
+            if (purpose === "bot") setBotGuide(target);
+            else setFrontendGuide(target);
           }}
         />
-      )}
-      {botTutorialOpen && (
-        <BotTutorialWizard onClose={() => setBotTutorialOpen(false)} />
       )}
     </div>
   );

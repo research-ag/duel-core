@@ -53,26 +53,35 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   and owners also get Edit/Deregister (the deregister confirm is a
   `Modal`). `Modal.tsx` is the one dialog shell
   (blurred backdrop, Escape/backdrop close, scroll lock) and `Wizard.tsx`
-  the two-pane stepper `TutorialWizard.tsx` ("Build a new game", 5
-  copy-pasteable steps ending in the register flow) and
-  `BotTutorialWizard.tsx` ("Build a bot", 5 steps for a canister player
-  against an existing game, no login-gated final step) are built on;
-  `FrontendTutorialWizard.tsx` ("Make own frontend", opened from the
-  header or from the button in `GameInfoModal.tsx`'s frontend view,
-  which passes its game) is written for a player with no ICP or coding
-  background: two routes, caffeine.ai (chat builder, builds and hosts
-  itself, paid plan) or an AI coding tool on their own computer (icp-cli,
-  identity and cycles only appear in the "Put it online" step), ending in
-  the register flow. Its step 2 shows `frontendPrompt.ts`'s prompt,
-  filled with the game's title and URL, which adapts to what the builder
-  can run (local wasm copy with icp-cli, else the live backend on
-  code-protected tables; client package from npm, else its source files
-  from GitHub). The prompt condenses
-  `../skills/duel-game-core/references/frontend-for-existing-game.md`;
-  change the two together. Pricing facts in the wizard are dated "at the
-  time of writing". `GameInfoModal.tsx` (the card's info button) shows a
-  listing's details and, one click further, its backend: `/metrics` and
-  `/semantics` links, its Grafana dashboard, the semantics text, and
+  the two-pane stepper every guide is built on (`initialStep`, and
+  `reachable` locking later steps). `TutorialWizard.tsx` ("Build a new
+  game", 5 copy-pasteable steps ending in the register flow) stands
+  alone. The other two guides are about one listed game, opened either
+  from the header on step 0, `GamePicker.tsx` (every listing, each
+  checked by `support.ts` and disabled with its reason when the guide
+  can't be followed for it: no published backend, no `/semantics`, or,
+  for a bot, no `list_bots`), or from `GameInfoModal.tsx`'s two actions
+  already filled in for that game (`Target`: the listing plus its
+  backend id). `FrontendTutorialWizard.tsx` ("Make your own frontend")
+  is written for a player with no ICP or coding background: two routes,
+  caffeine.ai (chat builder, builds and hosts itself, paid plan) or an
+  AI coding tool on their own computer (icp-cli, identity and cycles
+  only appear in the "Put it online" step), ending in the register
+  flow. Its prompt step shows `frontendPrompt.ts`'s prompt, filled with
+  the game's title, URL and backend id, which adapts to what the
+  builder can run (local wasm copy with icp-cli, else the live backend
+  on code-protected tables; client package from npm, else its source
+  files from GitHub). `BotTutorialWizard.tsx` ("Build a bot") has only
+  the coding-tool route, since the bot is tested against a local copy
+  of the game: `botPrompt.ts`'s prompt, then deploy and the bot's own
+  `register` call with the backend id filled in (a bot is never listed
+  on this dashboard). The prompts condense
+  `../skills/duel-game-core/references/frontend-for-existing-game.md`
+  and `bot-for-existing-game.md`; change each pair together. Pricing
+  facts in the wizards are dated "at the time of writing".
+  `GameInfoModal.tsx` (the card's info button) shows a listing's details
+  and, one click further, its backend: `/metrics` and `/semantics`
+  links, its Grafana dashboard, the semantics text, and
   every listed frontend playing the same backend. `grafana.ts` asks the
   promtracker dashboard registry (`iu7kc-saaaa-aaaao-bbama-cai`, the
   openapi-scraper project) with `getDashboard`; with none yet, and only

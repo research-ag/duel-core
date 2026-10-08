@@ -1,6 +1,6 @@
 ---
 name: duel-game-core
-description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko Spec<S,M> module, Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, or a game whose ending takes many rounds to reach in a test) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants their own frontend for an already-deployed duel-game-core game, given only its canister id (references/frontend-for-existing-game.md).
+description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko Spec<S,M> module, Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, or a game whose ending takes many rounds to reach in a test) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
 ---
 
 # Building a duel-game-core Game From Rules Alone
@@ -36,11 +36,12 @@ A finished game is six pieces of game-specific code:
    names.
 
 Every template lives in `templates/`; read each one right before adapting
-it. `references/` covers five situations the templates don't:
+it. `references/` covers six situations the templates don't:
 `alternating-turn-games.md`, `canister-player-bots.md`, `rich-ui.md`,
-`testing-deep-dive.md`, and `frontend-for-existing-game.md` (a new
-frontend for a game someone else already deployed, from its canister id
-alone) — read them only when you hit that situation.
+`testing-deep-dive.md`, and, for a game someone else already deployed,
+from its canister id alone, `frontend-for-existing-game.md` (a new
+frontend) and `bot-for-existing-game.md` (a canister player) — read
+them only when you hit that situation.
 
 ## Step 1 — Get the packages into the project
 

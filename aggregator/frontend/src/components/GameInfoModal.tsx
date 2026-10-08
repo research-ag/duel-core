@@ -8,10 +8,13 @@ import { useEffect, useState } from "react";
 
 import { backendOf, rawUrl, semanticsOf, serves } from "../canisterHttp";
 import { grafanaUrlOf } from "../grafana";
-import type { GameView } from "../types";
+import { useSupport } from "../hooks/useSupport";
+import type { Purpose } from "../support";
+import { blocker } from "../support";
+import type { GameView, Target } from "../types";
 import { gameUrl, optToMaybe } from "../types";
 import { CodeBlock } from "./CodeBlock";
-import { ArrowRight, Brush } from "./Icons";
+import { ArrowRight, Bot, Brush } from "./Icons";
 import { Modal } from "./Modal";
 
 /// `undefined` while the lookup runs, `null` when there is no answer.
@@ -21,12 +24,12 @@ export function GameInfoModal({
   game,
   games,
   onClose,
-  onOwnFrontend,
+  onGuide,
 }: {
   game: GameView;
   games: GameView[];
   onClose: () => void;
-  onOwnFrontend: () => void;
+  onGuide: (purpose: Purpose, target: Target) => void;
 }) {
   const [backend, setBackend] = useState<Lookup<string>>(undefined);
   const [showBackend, setShowBackend] = useState(false);
@@ -55,7 +58,7 @@ export function GameInfoModal({
           game={game}
           backend={backend}
           onBackend={() => setShowBackend(true)}
-          onOwnFrontend={onOwnFrontend}
+          onGuide={onGuide}
         />
       )}
     </Modal>
@@ -66,13 +69,19 @@ function FrontendInfo({
   game,
   backend,
   onBackend,
-  onOwnFrontend,
+  onGuide,
 }: {
   game: GameView;
   backend: Lookup<string>;
   onBackend: () => void;
-  onOwnFrontend: () => void;
+  onGuide: (purpose: Purpose, target: Target) => void;
 }) {
+  const support = useSupport(game);
+  const target = support?.backend
+    ? { game, backend: support.backend }
+    : undefined;
+  const frontendBlocker = support && blocker(support, "frontend");
+  const botBlocker = support && blocker(support, "bot");
   const developer =
     optToMaybe(game.developerDisplayName) ?? game.developer.toText();
   return (
@@ -112,9 +121,30 @@ function FrontendInfo({
         </dd>
       </dl>
       <div className="modal-actions">
-        <button type="button" className="btn primary" onClick={onOwnFrontend}>
+        {(support === undefined || botBlocker) && (
+          <span className="note">
+            {support === undefined
+              ? "Checking what this game supports…"
+              : (frontendBlocker ?? botBlocker)}
+          </span>
+        )}
+        <button
+          type="button"
+          className="btn"
+          disabled={!target || botBlocker !== undefined}
+          onClick={() => target && onGuide("bot", target)}
+        >
+          <Bot />
+          Build a bot
+        </button>
+        <button
+          type="button"
+          className="btn primary"
+          disabled={!target || frontendBlocker !== undefined}
+          onClick={() => target && onGuide("frontend", target)}
+        >
           <Brush />
-          Make own frontend
+          Make your own frontend
         </button>
       </div>
     </>

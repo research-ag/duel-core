@@ -22,6 +22,13 @@ export interface GameView {
   updatedAt: bigint;
 }
 
+/// A listing picked for a frontend or bot guide, with the backend its
+/// `ic_env` cookie names.
+export interface Target {
+  game: GameView;
+  backend: string;
+}
+
 export interface GameInput {
   title: string;
   description: string;
