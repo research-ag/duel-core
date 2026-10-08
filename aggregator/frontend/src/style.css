@@ -1436,6 +1436,18 @@ input[type="range"] {
   padding-right: 4rem;
 }
 
+.code-block.wrap {
+  padding-top: 2.6rem;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.code-block.wrap pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-right: 0;
+}
+
 .code-block .copy {
   position: absolute;
   top: 0.5rem;
@@ -1554,4 +1566,104 @@ input[type="range"] {
   html {
     scroll-behavior: auto;
   }
+}
+
+/* ------------------------------------------------------------ info modal */
+
+.info-modal .mono,
+.info-id {
+  font-family: var(--mono);
+}
+
+.info-id {
+  font-size: 1.15rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.info-rows {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.55rem 1rem;
+  margin: 1rem 0 0;
+  font-size: 0.9rem;
+}
+
+.info-rows dt {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-top: 0.15rem;
+}
+
+.info-rows dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.info-modal a {
+  color: var(--gold-2);
+}
+
+.info-modal .faint {
+  color: var(--faint);
+}
+
+.info-link {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gold-2);
+  cursor: pointer;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.info-link svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+}
+
+.info-link:hover {
+  text-decoration: underline;
+}
+
+.info-back {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0;
+  margin-bottom: 0.9rem;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.info-back:hover {
+  color: var(--ink);
+}
+
+.info-heading {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 1.6rem 0 0.5rem;
+}
+
+.info-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.9rem;
 }

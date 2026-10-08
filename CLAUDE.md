@@ -55,6 +55,17 @@ CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard)`:
     claim_win/reset — each taking an explicit `tableId`; no
     `submit_as_canister`, no `rematch_as_canister`) plus
     `register_bot(name, complexities)`/`unregister_bot()`/`list_bots()`.
+  - `http.mo`, `wasm.mo`, `http_actor_mixin.mo` — MANDATORY. `include
+HttpActorMixin(routes)` supplies `http_request` over plain-text
+    `(path, () -> Text)` routes; every host routes `/semantics` to its
+    rules module's `SEMANTICS` text (`/metrics` and game data such as
+    racing's `/track` ride the same list). `Http.respond` is the pure
+    router. The same mixin serves the canister's own wasm: a stable
+    `Wasm.Store` holds the canister's own module, filled by the
+    controllers-only `wasm_upload_begin`/`wasm_upload_chunk`/
+    `wasm_upload_commit(size)` that `publish_wasm.sh` calls from the
+    `icp.yaml` sync step, and streamed to anyone at `GET /wasm`
+    (`http_request_streaming_callback`).
   - `leaderboard.mo`, `elo.mo`, `leaderboard_actor_mixin.mo` — OPTIONAL,
     game-agnostic. A top-N highest-first `Board` (`new(keep,
 defaultScore)`, `setScore`, `recordIfBetter`, `scoreOf`, `top`), the
@@ -92,7 +103,7 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   `Hub`/`TransportBroadcast` cover `transport.mo`'s pure helpers
   (`attach` itself needs a real actor); `CanisterPlayers` covers
   `canister_players.mo` with stubbed `afterMutation`/`armClaimCheck`;
-  `Leaderboard`/`Elo` cover their modules directly. `FakeGame.mo`/
+  `Leaderboard`/`Elo`/`Http`/`Wasm` cover their modules directly. `FakeGame.mo`/
   `FakeTurnGame.mo` are throwaway specs for these suites.
 - **`backend/bench/engine.bench.mo`** — `mops bench`, engine overhead
   only.
@@ -227,7 +238,8 @@ deploys all of them to the IC.
     is also a plain Candid method. The `*_as_canister` methods are the
     one deliberate exception, reachable only under the `cp:` namespace
     `transport.mo` never authenticates, and `submit` is never exposed even
-    there.
+    there. The `wasm_upload_*` methods touch no game state and are
+    controllers-only.
 12. **Leave means left.** `status`/`join`/`rematch` use
     `activeDebriefSeat` so a session that acked its debrief stops being
     a participant even while the phase lingers for the partner; `leave`
@@ -246,12 +258,30 @@ deploys all of them to the IC.
     further change to either stable type needs an explicit actor
     migration or a reinstall.
 
+15. **Every backend serves its own wasm and describes itself.** Its `icp.yaml`
+    entry carries the sync step `sh publish_wasm.sh backend` (the script
+    sits next to `icp.yaml`, copied from the skill's template), which
+    after every install/reinstall/upgrade uploads the module the
+    canister now runs to the canister itself, so `GET /wasm` serves it;
+    `snapshot_visibility` is never set to `public`, because a snapshot
+    is the whole heap, access codes and pending moves included. Its host serves
+    `Rules.SEMANTICS` at `/semantics`. That text, the `candid:service`
+    metadata and the wasm at `/wasm` are all a third party has to build
+    a frontend
+    (`skills/duel-game-core/references/frontend-for-existing-game.md`,
+    which the aggregator's `frontendPrompt.ts` condenses); `Action` is
+    described nowhere else. Any change to a game's `State`, `Action`,
+    `validate` or `resolve` updates its `SEMANTICS` in the same change.
+    See `backend/README.md`, "Semantics over HTTP" and
+    "Downloadable wasm".
+
 ## Skills (read before editing)
 
 - `skills/duel-game-core/SKILL.md` (tracked, installable via `npx skills
 add research-ag/duel-core --skill duel-game-core`) — building a game
   from a rules description: `Spec` design, templates, and `references/`
-  for canister bots, alternating games, rich UIs, and long-game testing.
+  for canister bots, alternating games, rich UIs, long-game testing, and
+  a new frontend for an already-deployed game.
   Read it first for any game-building task, here or elsewhere.
 - `.agents/skills/` (local, untracked) — general Motoko playbooks:
   `motoko-general-style-guidelines` (2-space indent, 80 cols),

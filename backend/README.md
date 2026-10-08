@@ -77,6 +77,11 @@ variant)` plus `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
   passes its `isPresent` predicate (`Transport.attach`'s `sweep` passes
   "sent a request within `PRESENCE_TTL_NS`"). `attachMetrics(pt)` is optional
   (see Metrics). `peekNextTableId` is a pure read of the id nonce.
+- `src/http.mo` + `src/wasm.mo` + `src/http_actor_mixin.mo`
+  (`mo:duel-game-core/http_actor_mixin`) — `http_request` over a list of
+  plain-text routes; every host serves its rules at `/semantics` (see
+  "Semantics over HTTP") and its own module at `/wasm`, uploaded by its
+  deploy (see "Downloadable wasm").
 - Every mutating operation takes `spec` and `now : Int` (nanoseconds).
   At the `Registry` layer they are called only from `mo:duel-game-core/transport`
   — never exposed as plain Candid methods. `status` is the exception
@@ -615,7 +620,6 @@ after `Registry.new`. Four metrics, scoped to that registry:
 
 ```motoko
 import PT "mo:promtracker";
-import Http "mo:promtracker/mixins/http";
 
 persistent actor {
   let pt = PT.Tracker.new(); // plain data — stable
@@ -627,10 +631,131 @@ persistent actor {
   registry.setTimeouts(90_000_000_000, 60_000_000_000);
   registry.attachMetrics(pt);
   // ...
-  include Http(renderer.renderExposition, "/metrics");
+  include HttpActorMixin([
+    ("/semantics", func() : Text = Rules.SEMANTICS),
+    ("/metrics", renderer.renderExposition),
+  ]);
 };
 
 ```
+
+### Semantics over HTTP
+
+Every host serves its game's rules as plain text, so a person or an AI
+agent holding nothing but the backend's canister id can learn the game:
+
+```
+curl https://<backend-id>.raw.icp0.io/semantics
+```
+
+`raw` is required: the responses are uncertified. Locally the same path
+answers at `http://<backend-id>.raw.localhost:8000/semantics`.
+
+The rules module owns the text as `public let SEMANTICS : Text` (a text
+literal may span lines), and the host routes it:
+
+```motoko
+import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
+
+persistent actor {
+  // ...
+  include HttpActorMixin([("/semantics", func() : Text = Rules.SEMANTICS)]);
+};
+
+```
+
+`HttpActorMixin(routes)` supplies `http_request`; each `Http.Route` is a
+path and a `() -> Text` answered as `text/plain` on `GET`. An unknown
+path is a 404 listing the routes and `/wasm`. A host adds its own routes
+to the same list — `/metrics` above, or data a client cannot recover
+from `State` (`examples/racing` serves its track polygons at `/track`).
+`http.mo`'s `respond` is the pure function behind it; `/wasm` is the
+mixin's own (next section).
+
+`SEMANTICS` is the whole contract a frontend author gets besides the
+canister's Candid, and the only place `Action` is described: it travels
+inside `duel_request`'s blob, so it is absent from the Candid service.
+Write it for a reader who cannot see the source, in these sections:
+
+- `GAME`, `MODE` (`simultaneous`/`alternating`), `SEATS` (which seat is
+  which side, who moves first), `VARIANTS` (each table-variant key and
+  what it changes, or `none`).
+- `STATE (Candid)` and `ACTION (Candid)` — the exact Candid types
+  (`Nat` is `nat`, `?T` is `opt T`, `[T]` is `vec T`, a tuple is a
+  positional record), followed by what every field means: indexing,
+  units, what `null` stands for.
+- `RULES` — what each action does, and every condition `validate`
+  rejects.
+- `ENDINGS` — every win, loss and draw.
+- `CLIENT NOTES` — anything a UI must know that the state does not say
+  outright (how to find the opponent's last move, formulas a client must
+  mirror to offer only legal input).
+
+Update `SEMANTICS` in the same change as any edit to `State`, `Action`,
+`validate` or `resolve`.
+
+### Downloadable wasm
+
+Anyone can download the exact wasm a backend runs and install a copy on
+a local network — what lets a third party build and test a new frontend
+against a game without its source. The IC itself hands out only a
+canister's `module_hash`, never its module, so every backend on this
+engine serves the module itself: `HttpActorMixin` keeps a copy of
+the canister's own module in a stable `Wasm.Store` and streams it at
+`GET /wasm` (first chunk in the body, the rest through
+`http_request_streaming_callback`); the deploy puts it there. In
+`icp.yaml`:
+
+```yaml
+- name: backend
+  recipe:
+    type: "@dfinity/motoko@v4.1.0"
+    configuration:
+      main: src/Host.mo
+  sync:
+    steps:
+      - type: script
+        commands:
+          - sh publish_wasm.sh backend
+```
+
+`publish_wasm.sh` sits next to `icp.yaml` (the skill's
+`templates/publish_wasm.sh.template`, copied unchanged) and runs after
+every install, reinstall and upgrade. It takes the artifact icp-cli just
+installed (`.icp/cache/artifacts/backend`), refuses to go on unless its
+SHA-256 equals the canister's `module_hash`, and uploads it in 1 MiB
+chunks through the mixin's controllers-only methods:
+`wasm_upload_begin()` discards any staged chunks, `wasm_upload_chunk(blob)`
+appends one, `wasm_upload_commit(size)` swaps the staged chunks in as
+the served module, or traps and keeps the previous one when they do not
+add up to `size` bytes. The methods run `Principal.isController` on the
+caller; the deploying identity is a controller. Only the module is ever
+published: the canister's heap, access codes of `#code` tables and
+pending moves stay where they are. Never set `snapshot_visibility:
+public` on a backend: a snapshot is the whole heap.
+
+Downloading needs only the id; `icp-cli` supplies the hash to check
+it against:
+
+```bash
+ID=<backend-id>
+curl -s https://$ID.raw.icp0.io/wasm -o backend.wasm
+shasum -a 256 backend.wasm                 # equals `module_hash` (without 0x) from
+icp canister status $ID -n ic -p --json
+icp canister metadata $ID candid:service -n ic > backend.did
+```
+
+`backend.wasm` then becomes a local copy through the
+`@dfinity/prebuilt` recipe (`path` + `sha256`, which icp-cli verifies
+on every build), with `icp canister link backend $ID -e ic` tying the
+name to the live canister for the `ic` environment only; the skill's
+`references/frontend-for-existing-game.md` has the whole procedure.
+
+A 404 at `/wasm` ("No module uploaded yet") means the sync step has not
+run against this install: run `icp sync backend -e <env>`. A hash that
+differs from `module_hash` means the same, after a deploy whose sync
+step failed; the script's own hash check makes that the only way the two
+can disagree.
 
 ### Build, test, benchmark
 

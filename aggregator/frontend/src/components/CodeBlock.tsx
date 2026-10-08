@@ -8,7 +8,8 @@ import { useState } from "react";
 
 import { Check, Copy } from "./Icons";
 
-export function CodeBlock({ code }: { code: string }) {
+/// `wrap` is for prose (a prompt): long lines fold instead of scrolling.
+export function CodeBlock({ code, wrap }: { code: string; wrap?: boolean }) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -22,7 +23,7 @@ export function CodeBlock({ code }: { code: string }) {
   }
 
   return (
-    <div className="code-block">
+    <div className={`code-block${wrap ? " wrap" : ""}`}>
       <button
         type="button"
         className={`copy${copied ? " done" : ""}`}

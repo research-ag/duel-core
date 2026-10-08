@@ -20,8 +20,80 @@ import Track "Track";
 import Float "mo:core/Float";
 import Nat "mo:core/Nat";
 import Int "mo:core/Int";
+import List "mo:core/List";
+import Text "mo:core/Text";
 
 module {
+
+  /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
+  public let SEMANTICS : Text = "GAME: Racing
+MODE: simultaneous
+SEATS: p1 and p2 are the two cars on the starting grid
+VARIANTS: none (the table variant text is ignored)
+
+STATE (Candid)
+  type Vec2 = record { float64; float64 };
+  type CarState = record {
+    position : Vec2;
+    rotation : float64;
+    speed : float64;
+    lap : nat;
+    distanceFromStart : float64;
+    crashPenaltyRemaining : nat;
+  };
+  type State = record { p1 : CarState; p2 : CarState; step : nat };
+  position: world units (x, y). rotation: heading in radians. speed:
+  world units per step, never negative. lap: crossings of the road
+  path's wrap point; the grid sits just before it, so the first
+  crossing is free. distanceFromStart: arc length along the road path
+  to the point nearest the car. crashPenaltyRemaining: steps still
+  forced to a full stop. step: rounds resolved so far.
+
+ACTION (Candid)
+  type Action = record { l : float64; c : float64 };
+  The arc to drive this step. l: distance in world units, negative =
+  reverse. c: curvature = 1 / turn radius, sign = side, 0 = straight.
+
+TRACK
+  GET /track on this canister answers the geometry as plain text: three
+  sections headed outerPolygon, innerPolygon and roadPath, one point
+  per line as x y. A point is on the track when it is inside
+  outerPolygon and outside innerPolygon (even-odd rule). roadPath is
+  the closed centerline used to measure progress.
+
+RULES
+  Each step both seats submit an arc. From a car at position P with
+  heading R, the arc (l, c) ends at local point
+    c = 0:  (l, 0)
+    else:   (sin(l*c) / c, (1 - cos(l*c)) / c)
+  rotated by R and added to P, with new heading R + l*c.
+  New speed: 0 when l < 0, else speed + 2 * (l - speed).
+  The reachable arc at speed v:
+    accel = (22500 - 0.4257*v^2 - 12.8*v) / 1350
+    decel = min(v, (35000 + 0.4257*v^2 + 12.8*v) / 1350)
+    maxDistance = v + accel / 2
+    minDistance = max(0, v - decel / 2)
+    when v < 0.25: minDistance = -maxDistance + v   (reversing allowed)
+    maxCurvature = 1 / (5.5 + v^2 / 23)
+  Rejected: l outside [minDistance, maxDistance], |c| > maxCurvature,
+  or anything but l = 0, c = 0 while crashPenaltyRemaining > 0.
+  The arc is sampled at ceil(|l| * 2) points. At the first sample off
+  the track the car stops at the boundary with speed 0; when l >= 0
+  this also sets crashPenaltyRemaining to 2.
+  lap goes up by 1 when lap progress (distanceFromStart as a percentage
+  of the road path length) wraps from above 75 to below 25, and down by
+  1 (never below 0) on the opposite wrap.
+
+ENDINGS
+  A car finishes once its lap exceeds 1, that is after one full lap.
+  One car finished: it wins. Both in the same step: more total progress
+  (lap * road length + distanceFromStart) wins; an exact tie is a draw.
+
+CLIENT NOTES
+  Compute the reachable arc with the formulas above to offer only legal
+  inputs. Both cars move in the same step; nothing is hidden once a
+  step resolves.
+";
 
   public type Vec2 = Track.Vec2;
 
@@ -334,6 +406,21 @@ module {
       if (t1 > t2) ?#p1Wins else if (t2 > t1) ?#p2Wins else ?#draw;
     } else if (finished1) ?#p1Wins else if (finished2) ?#p2Wins else null;
     { state = { p1; p2; step = s.step + 1 }; verdict };
+  };
+
+  /// Served at `/track`: the geometry `SEMANTICS` refers to.
+  public func trackText() : Text {
+    let lines = List.empty<Text>();
+    func section(name : Text, points : [Vec2]) {
+      lines.add(name);
+      for ((x, y) in points.values()) {
+        lines.add(x.format(#fix 4) # " " # y.format(#fix 4));
+      };
+    };
+    section("outerPolygon", Track.outerPolygon);
+    section("innerPolygon", Track.innerPolygon);
+    section("roadPath", Track.roadPath);
+    Text.join(lines.values(), "\n");
   };
 
   public func spec() : TP.Spec<State, Action> = #simultaneous {

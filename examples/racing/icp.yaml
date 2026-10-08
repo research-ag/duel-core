@@ -6,6 +6,11 @@ canisters:
       type: "@dfinity/motoko@v4.1.0"
       configuration:
         main: src/Host.mo
+    sync:
+      steps:
+        - type: script
+          commands:
+            - sh publish_wasm.sh backend
   - name: bot
     recipe:
       type: "@dfinity/motoko@v4.1.0"

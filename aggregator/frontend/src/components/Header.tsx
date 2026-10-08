@@ -3,18 +3,20 @@ import { useEffect, useState } from "react";
 import type { Auth } from "../hooks/useAuth";
 import { useProfile } from "../hooks/useProfile";
 import { DisplayNameEditor } from "./DisplayNameEditor";
-import { Bot, BrandMark, Hammer, Key, Plus } from "./Icons";
+import { Bot, BrandMark, Brush, Hammer, Key, Plus } from "./Icons";
 
 export function Header({
   auth,
   onRegister,
   onTutorial,
   onBotTutorial,
+  onFrontendTutorial,
 }: {
   auth: Auth;
   onRegister: () => void;
   onTutorial: () => void;
   onBotTutorial: () => void;
+  onFrontendTutorial: () => void;
 }) {
   const profile = useProfile(auth.actor, auth.principal);
   const [scrolled, setScrolled] = useState(false);
@@ -56,6 +58,16 @@ export function Header({
           >
             <Bot />
             <span className="label">Build a bot</span>
+          </button>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={onFrontendTutorial}
+            aria-label="Make own frontend"
+            title="Make own frontend"
+          >
+            <Brush />
+            <span className="label">Make own frontend</span>
           </button>
           <span className="sep" />
           {auth.loading ? null : auth.isLoggedIn ? (

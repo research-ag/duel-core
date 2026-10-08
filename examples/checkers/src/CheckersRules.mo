@@ -29,6 +29,47 @@ import Runtime "mo:core/Runtime";
 
 module {
 
+  /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
+  public let SEMANTICS : Text = "GAME: Checkers (English draughts)
+MODE: alternating
+SEATS: p1 = Black (moves first), p2 = Red
+VARIANTS: none (the table variant text is ignored)
+
+STATE (Candid)
+  type Piece = variant { manP1; manP2; kingP1; kingP2 };
+  type State = record { board : vec opt Piece };
+  board has 64 squares, row-major: index = row*8 + col. Only dark
+  squares, (row + col) odd, are ever used. p1 starts on rows 5..7 and
+  moves toward row 0; p2 starts on rows 0..2 and moves toward row 7.
+
+ACTION (Candid)
+  type Action = variant {
+    move : record { from : nat; to : nat };
+    jump : record { path : vec nat };
+  };
+  move: one non-capturing step. jump: path[0] is the origin square,
+  then every landing square of the whole capture chain in order.
+
+RULES
+  A man steps one square diagonally forward onto an empty square; a
+  king steps one square diagonally in any direction.
+  A man captures by jumping an adjacent enemy piece, forward only, onto
+  the empty square beyond; a king captures in any direction.
+  Capturing is mandatory: if the seat on turn has any capture, only a
+  jump is legal. Any capture will do, not necessarily the longest, but
+  the chosen chain must be continued until the piece has no further
+  capture.
+  A man whose move ends on the far row becomes a king. There is no
+  promotion in the middle of a chain.
+
+ENDINGS
+  A seat with no legal action on its turn loses. No draw.
+
+CLIENT NOTES
+  State carries no move history; find the opponent's last move by
+  diffing two consecutive boards.
+";
+
   public type Piece = { #manP1; #manP2; #kingP1; #kingP2 };
 
   public type Board = [?Piece];

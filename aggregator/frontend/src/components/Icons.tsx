@@ -44,6 +44,13 @@ export const Trash = () => (
   </svg>
 );
 
+export const Info = () => (
+  <svg {...base}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5M12 8h.01" />
+  </svg>
+);
+
 export const Close = () => (
   <svg {...base}>
     <path d="M6 6l12 12M18 6 6 18" />
@@ -82,6 +89,13 @@ export const Hammer = () => (
   <svg {...base}>
     <path d="m14 4 6 6-3 3-6-6Z" />
     <path d="m11 7-8 8 3 3 8-8" />
+  </svg>
+);
+
+export const Brush = () => (
+  <svg {...base}>
+    <path d="m14 4 6 6-8 8H6v-6Z" />
+    <path d="M6 18c-1 2-2 2-3 2 0-2 1-3 3-2Z" />
   </svg>
 );
 

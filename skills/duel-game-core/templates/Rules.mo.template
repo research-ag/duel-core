@@ -15,6 +15,31 @@ import TP "mo:duel-game-core";
 
 module {
 
+  /// Served at `GET /semantics`: everything a frontend author who cannot
+  /// see this file needs. Keep the section names; replace their bodies
+  /// (SKILL.md step 3). No `"` or `\` inside without escaping.
+  public let SEMANTICS : Text = "GAME: __GAME_TITLE__
+MODE: simultaneous
+SEATS: p1 = __P1_NAME__, p2 = __P2_NAME__
+VARIANTS: none (the table variant text is ignored)
+
+STATE (Candid)
+  type State = record { ... };
+  What every field means: indexing, units, what null stands for.
+
+ACTION (Candid)
+  type Action = variant { ... };
+
+RULES
+  What each action does, and every condition that gets it rejected.
+
+ENDINGS
+  Every way the game is won, lost or drawn.
+
+CLIENT NOTES
+  What a UI must know that the state does not say outright.
+";
+
   /// The raw decision only — never a value the server can derive from
   /// State (SKILL.md step 2).
   ///
