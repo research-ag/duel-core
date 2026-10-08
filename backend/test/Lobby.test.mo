@@ -90,13 +90,13 @@ switch (reg.listTables(T0)) {
     };
   };
 };
-switch (Array.find<TP.TableSummary>(reg.listTables(T0), func(r) = r.id == id1)) {
+switch (reg.listTables(T0).find<TP.TableSummary>(func(r) = r.id == id1)) {
   case (?r) assert r.p1Session == ?"a"; // the taken seat names its occupant
   case null Runtime.trap("id1 should still be listed");
 };
 let idProt = ok(reg.createTable(spec, T0, "q", #p1, #code("secret"), ""), "q creates a protected table");
 // A protected table is listed too, just flagged — never its own code.
-switch (Array.find<TP.TableSummary>(reg.listTables(T0), func(r) = r.id == idProt)) {
+switch (reg.listTables(T0).find<TP.TableSummary>(func(r) = r.id == idProt)) {
   case (?r) {
     assert r.protected;
     assert not r.p1Open;

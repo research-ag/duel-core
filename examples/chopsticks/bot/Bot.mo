@@ -5,7 +5,7 @@ import TP "mo:duel-game-core";
 import BotLogic "BotLogic";
 import Rules "../src/ChopsticksRules";
 
-persistent actor {
+actor {
 
   type Host = actor {
     join_table_as_canister : (TP.TableId, TP.Seat, ?Text, Text) -> async TP.Res<TP.JoinOk>;
@@ -20,13 +20,13 @@ persistent actor {
 
   // Called once by hand after both canisters are deployed.
   public shared ({ caller }) func register(host : Principal.Principal, name : Text) : async () {
-    assert Principal.isController(caller);
+    assert caller.isController();
     let h : Host = actor (host.toText());
     await h.register_bot(name, BotLogic.COMPLEXITIES);
   };
 
   public shared ({ caller }) func unregister(host : Principal.Principal) : async () {
-    assert Principal.isController(caller);
+    assert caller.isController();
     let h : Host = actor (host.toText());
     await h.unregister_bot();
   };

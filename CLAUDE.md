@@ -135,7 +135,7 @@ game on the engine. See `aggregator/CLAUDE.md`.
 
 ## Toolchain
 
-- moc **1.16.1** (pinned in `backend/mops.toml`, `aggregator/mops.toml`,
+- moc **2.0.0** (pinned in `backend/mops.toml`, `aggregator/mops.toml`,
   every example and the skill's `mops.toml.template`) type-checks and
   tests everything in this repo, `mixin` declarations included.
 - Engine code is `mo:core` only — never `mo:base`. `types.mo`/
@@ -251,8 +251,9 @@ deploys all of them to the IC.
     concern lives in `app.js` or the game. Anything a game might want
     to redraw goes through `ClientState` or a `Screens` entry, never a
     private hook in `start()`.
-14. **Timeouts are re-applied after the declaration.** `persistent actor`
-    makes `registry` stable, so `Registry.new()` (argument-free, 90s/60s
+14. **Timeouts are re-applied after the declaration.** Every actor field
+    is stable (moc 2 actors are persistent by default), which makes
+    `registry` stable, so `Registry.new()` (argument-free, 90s/60s
     defaults) runs on first install only; the next line is always
     `registry.setTimeouts(...)` with the host's numbers, and the stored
     `Registry`/`Table` fields stay `var`. A `var` field inside a stable

@@ -26,7 +26,7 @@ module {
     let actions = actionsFor(req.game.variant);
     let seatSalt : Nat64 = switch (req.seat) { case (#p1) 1; case (#p2) 2 };
     let r = mix(Nat64.fromIntWrap(entropy) ^ mix(seatSalt));
-    actions[Nat64.toNat(r % Nat.toNat64(actions.size()))];
+    actions[Nat64.toNat(r % actions.size().toNat64())];
   };
 
 };

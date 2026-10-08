@@ -61,7 +61,7 @@ module {
   func parseSession(session : T.SessionId) : (Text, Text) {
     let parts = session.trimStart(#text CP_SID_PREFIX).split(#char ':');
     switch (parts.next(), parts.next()) {
-      case (?p, ?_) (p, normalizeComplexity(Text.join(parts, ":")));
+      case (?p, ?_) (p, normalizeComplexity(parts.join(":")));
       case (_, _) Runtime.trap("malformed cp: session " # session);
     };
   };

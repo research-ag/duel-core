@@ -57,7 +57,7 @@ data-act>` while intermediate clicks are local `<div data-sq>` state
 
 ## Toolchain
 
-moc 1.16.1. Same dependency notes as `examples/007/CLAUDE.md`; see
+moc 2.0.0. Same dependency notes as `examples/007/CLAUDE.md`; see
 `../../CLAUDE.md` for the frontend refresh procedure.
 
 ## Build & test

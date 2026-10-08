@@ -6,7 +6,7 @@ import T "Types";
 /// The aggregator backend: developer profiles and a public game registry.
 /// Plain Candid methods are fine here (no two callers contend on one
 /// record the way two seats do on a table); all logic lives in `Store.mo`.
-persistent actor {
+actor {
 
   let state : Store.State = Store.empty();
 

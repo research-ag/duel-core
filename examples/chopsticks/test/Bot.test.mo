@@ -37,7 +37,7 @@ func reqFor(s : Rules.State, seat : TP.Seat, turn : Nat, complexity : Text) : TP
   lastRoundDurationNs = null;
 };
 
-func isLegal(s : Rules.State, seat : TP.Seat, a : Rules.Action) : Bool = Array.find<Rules.Action>(Rules.legalActions(s, seat), func(x) = x == a) != null;
+func isLegal(s : Rules.State, seat : TP.Seat, a : Rules.Action) : Bool = Rules.legalActions(s, seat).find<Rules.Action>(func(x) = x == a) != null;
 
 // ── 1. every tier only ever picks a legal move, in both variants ───────────
 do {

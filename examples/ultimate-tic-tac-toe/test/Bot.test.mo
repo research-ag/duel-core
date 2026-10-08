@@ -44,7 +44,7 @@ do {
     };
     let move = BotLogic.chooseMove(req);
     let legal = Rules.legalActions(s0, #p1);
-    assert Array.find<Rules.Action>(legal, func(a) = a == move) != null;
+    assert legal.find<Rules.Action>(func(a) = a == move) != null;
   };
 
   // board 4 down to its last empty cell (cell 8), and the router

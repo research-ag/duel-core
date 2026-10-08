@@ -31,7 +31,7 @@ module {
   /// chunk; `null` if `png` is too short or doesn't start with a valid
   /// PNG signature followed by an `IHDR` chunk.
   public func dimensions(png : Blob) : ?(Nat, Nat) {
-    let bytes : [Nat8] = Iter.toArray<Nat8>(png.values());
+    let bytes : [Nat8] = png.values().toArray<Nat8>();
     if (bytes.size() < 24) {
       null;
     } else if (not hasBytesAt(bytes, 0, SIGNATURE)) {

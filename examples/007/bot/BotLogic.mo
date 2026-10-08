@@ -26,7 +26,7 @@ module {
   /// copies of the bot asked at the same instant pick independently.
   func random(req : TP.MoveRequest<Rules.State, Rules.Action>, entropy : Int) : Nat {
     let seatSalt : Nat64 = switch (req.seat) { case (#p1) 1; case (#p2) 2 };
-    Nat64.toNat(mix(Nat64.fromIntWrap(entropy) ^ mix(seatSalt)));
+    mix(Nat64.fromIntWrap(entropy) ^ mix(seatSalt)).toNat();
   };
 
   func other(seat : TP.Seat) : TP.Seat = switch (seat) {

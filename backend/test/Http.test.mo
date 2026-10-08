@@ -17,8 +17,8 @@ func expect(r : Http.Response, status : Nat16, body : Text, msg : Text) {
   if (r.status_code != status) {
     Runtime.trap(msg # ": got status " # debug_show (r.status_code) # ", want " # debug_show (status));
   };
-  if (Text.decodeUtf8(r.body) != ?body) {
-    Runtime.trap(msg # ": got body " # debug_show (Text.decodeUtf8(r.body)) # ", want " # debug_show (body));
+  if (r.body.decodeUtf8() != ?body) {
+    Runtime.trap(msg # ": got body " # debug_show (r.body.decodeUtf8()) # ", want " # debug_show (body));
   };
 };
 

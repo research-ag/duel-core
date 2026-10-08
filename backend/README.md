@@ -112,7 +112,7 @@ import Registry "mo:duel-game-core/registry";
 import Rules "YourGameRules"; // implements TP.Spec<S, M>
 import Time "mo:core/Time";
 
-persistent actor {
+actor {
   let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
   registry.setTimeouts(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
 
@@ -129,7 +129,7 @@ persistent actor {
 ### Timeouts and upgrades
 
 `Registry.new()` takes no arguments and starts at 90s idle / 60s claim.
-`registry` is a stable variable of a `persistent actor`, so its
+`registry` is a stable actor field (moc 2 actors are persistent), so its
 initializer runs on the first install only: an upgrade keeps the stored
 record, numbers included. The host's own timeouts therefore live in
 `registry.setTimeouts(idle, claim)` on the line after the declaration,
@@ -264,7 +264,7 @@ client refetches `status`. `#createTable`/`#joinTable`/`#rematch`/
 import Transport "mo:duel-game-core/transport";
 import ActorMixin "mo:duel-game-core/actor_mixin";
 
-persistent actor {
+actor {
   let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
   registry.setTimeouts(90_000_000_000, 60_000_000_000);
   // ...status...
@@ -378,7 +378,7 @@ import Principal "mo:core/Principal";
 import Timer "mo:core/Timer";
 import BotIface "BotIface"; // this game's CanisterPlayer actor type
 
-persistent actor {
+actor {
   // ...registry/status...
 
   transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
@@ -627,7 +627,7 @@ to that registry:
 import PT "mo:promtracker";
 import Tracker "mo:promtracker/Tracker"; // brings `pt.toValue()` into scope
 
-persistent actor {
+actor {
   let pt = PT.Tracker.new(); // plain data — stable
   transient let renderer = PT.Renderer(); // closures — rebuilt on upgrade
   renderer.addValue(PT.allSystemMetrics);
@@ -663,7 +663,7 @@ literal may span lines), and the host routes it:
 ```motoko
 import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
 
-persistent actor {
+actor {
   // ...
   include HttpActorMixin([("/semantics", func() : Text = Rules.SEMANTICS)]);
 };

@@ -18,7 +18,7 @@ import Tracker "mo:promtracker/Tracker";
 import BotIface "BotIface";
 import Rules "ChopsticksRules";
 
-persistent actor {
+actor {
   let pt = PT.Tracker.new();
   transient let renderer = PT.Renderer();
   renderer.addValue(PT.allSystemMetrics);

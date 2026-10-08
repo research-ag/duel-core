@@ -103,7 +103,7 @@ func noopArm(_id : TP.TableId, _secs : Nat) : async* () {};
 func newArmLog() : { var calls : [(TP.TableId, Nat)] } = { var calls = [] };
 func spyArmClaimCheck(log : { var calls : [(TP.TableId, Nat)] }) : (TP.TableId, Nat) -> async* () {
   func(id : TP.TableId, secs : Nat) : async* () {
-    log.calls := Array.concat(log.calls, [(id, secs)]);
+    log.calls := log.calls.concat([(id, secs)]);
   };
 };
 
@@ -150,7 +150,7 @@ func newReqLog() : { var reqs : [TP.MoveRequest<Rules.State, Rules.Action>] } = 
 };
 func capturingBot(move : Rules.Action, log : { var reqs : [TP.MoveRequest<Rules.State, Rules.Action>] }) : (TP.SessionId, TP.MoveRequest<Rules.State, Rules.Action>, (?Rules.Action) -> async* ()) -> async* () {
   func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
-    log.reqs := Array.concat(log.reqs, [req]);
+    log.reqs := log.reqs.concat([req]);
     await* k(?move);
   };
 };
@@ -552,9 +552,9 @@ let cp18 = CanisterPlayers.attach<Rules.State, Rules.Action>(
   false,
   func(session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
     if (CanisterPlayers.principalOfCanisterSession(session) == bot1) {
-      reqLog18a.reqs := Array.concat(reqLog18a.reqs, [req]);
+      reqLog18a.reqs := reqLog18a.reqs.concat([req]);
     } else {
-      reqLog18b.reqs := Array.concat(reqLog18b.reqs, [req]);
+      reqLog18b.reqs := reqLog18b.reqs.concat([req]);
     };
     await* k(?#gather);
   },

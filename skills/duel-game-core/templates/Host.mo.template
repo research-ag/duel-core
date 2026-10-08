@@ -16,7 +16,7 @@ import Tracker "mo:promtracker/Tracker"; // brings `pt.toValue()` into scope
 
 import Rules "__RULES_MODULE__";
 
-persistent actor {
+actor {
   // Metrics: the registry's four game metrics plus promtracker's system
   // ones, served at GET /metrics (Prometheus exposition).
   let pt = PT.Tracker.new(); // plain data — stable

@@ -127,7 +127,7 @@ import TP "mo:duel-game-core";
 import BotLogic "BotLogic";
 import Game "GameTypes";
 
-persistent actor {
+actor {
 
   type Host = actor {
     join_table_as_canister : (TP.TableId, TP.Seat, ?Text, Text) -> async TP.Res<TP.JoinOk>;
@@ -193,7 +193,7 @@ import Game "GameTypes";
 
 // Local tests only: takes the bot's opponent seat as a human session
 // would, one request per call.
-persistent actor Sparring {
+actor Sparring {
 
   type Msg = Transport.Msg<Game.State, Game.Action>;
   type Host = actor { duel_request : (Blob) -> async Blob };

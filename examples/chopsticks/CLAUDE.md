@@ -82,7 +82,7 @@ depth`, live-hands heuristic — depth-limited because the position graph
 
 ## Toolchain / Build & test
 
-Same as `examples/tic-tac-toe` (moc 1.16.1; `mops test`; build
+Same as `examples/tic-tac-toe` (moc 2.0.0; `mops test`; build
 `../../frontend` first, then `npm install --legacy-peer-deps && npm run
 build` in `frontend/`; `icp deploy`; then
 `icp canister call bot register ...`). `build.js` also copies

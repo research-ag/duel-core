@@ -165,7 +165,7 @@ for (g in Nat.range(0, 150)) {
     case _ {};
   };
 };
-Debug.print("   Medium wins " # Nat.toText(mediumWins) # ", Easy wins " # Nat.toText(easyWins) # " of 300");
+Debug.print("   Medium wins " # mediumWins.toText() # ", Easy wins " # easyWins.toText() # " of 300");
 assert mediumWins > easyWins * 2;
 Debug.print("4. Medium beats Easy decisively, seated either way OK");
 

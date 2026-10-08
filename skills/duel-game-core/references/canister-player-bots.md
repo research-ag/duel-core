@@ -90,7 +90,7 @@ public func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async R
 `BotIface.CanisterPlayer` never declared `query`, so nothing on the host
 changes. The cost is consensus latency (typically a couple of seconds);
 a host wiring a stateful bot should size `claimTimeoutNs`/`idleTimeoutNs`
-more generously. In a `persistent actor`, a plain `var opponentModels :
+more generously. In an actor (persistent by default in moc 2), a plain `var opponentModels :
 Map.Map<...> = Map.empty()` is automatically stable.
 
 ## Keying your own memory
@@ -120,7 +120,7 @@ import CanisterPlayers "mo:duel-game-core/canister_players";
 
 import Rules "../src/RockPaperScissorsRules";
 
-persistent actor {
+actor {
 
   type OpponentModel = {
     var movesSeen : Nat;

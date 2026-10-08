@@ -134,7 +134,7 @@ CLIENT NOTES
   /// Every legal placement — exactly what `validate` accepts.
   public func legalActions(s : State, _seat : TP.Seat) : [Action] {
     let boards : [Nat] = switch (s.activeBoard) {
-      case (?b) if (s.results[b] == null)[b] else openBoards(s.results);
+      case (?b) if (s.results[b] == null) { [b] } else { openBoards(s.results) };
       case null openBoards(s.results);
     };
     let out = List.empty<Action>();

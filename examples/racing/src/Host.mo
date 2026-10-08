@@ -19,7 +19,7 @@ import Tracker "mo:promtracker/Tracker";
 import BotIface "BotIface";
 import Rules "RacingRules";
 
-persistent actor {
+actor {
 
   let pt = PT.Tracker.new();
   transient let renderer = PT.Renderer();

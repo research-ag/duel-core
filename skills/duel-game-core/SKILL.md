@@ -233,7 +233,7 @@ import CanisterPlayers "mo:duel-game-core/canister_players";
 import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
 import BotIface "BotIface"; // make_move : (TP.MoveRequest<Rules.State, Rules.Action>) -> async Rules.Action
 
-persistent actor {
+actor {
   // ...registry/status; Transport.attach's onSettled argument becomes ?settle...
 
   transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
@@ -311,7 +311,7 @@ import Leaderboard "mo:duel-game-core/leaderboard";
 import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
 import Elo "mo:duel-game-core/elo";
 
-persistent actor {
+actor {
   let STARTING_ELO : Int = 1200; // your call; elo.mo has no opinion
   let leaderboard = Leaderboard.new(50, STARTING_ELO); // keep 50, show 25
 

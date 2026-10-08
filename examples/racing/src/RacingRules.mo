@@ -420,7 +420,7 @@ CLIENT NOTES
     section("outerPolygon", Track.outerPolygon);
     section("innerPolygon", Track.innerPolygon);
     section("roadPath", Track.roadPath);
-    Text.join(lines.values(), "\n");
+    lines.values().join("\n");
   };
 
   public func spec() : TP.Spec<State, Action> = #simultaneous {

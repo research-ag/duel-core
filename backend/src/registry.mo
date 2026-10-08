@@ -41,7 +41,7 @@ module {
     self.idleTimeoutNs := idleTimeoutNs;
     self.claimTimeoutNs := claimTimeoutNs;
     for (t in self.tables.values()) {
-      Table.setTimeouts(t, idleTimeoutNs, claimTimeoutNs);
+      t.setTimeouts(idleTimeoutNs, claimTimeoutNs);
     };
   };
 
@@ -71,7 +71,7 @@ module {
             case (_) {};
           };
         };
-        PT.Gauge.update(g, n);
+        g.update(n);
       };
     };
   };
@@ -79,7 +79,7 @@ module {
   func bumpGamesStarted<S, M>(self : Registry<S, M>) {
     switch (self.gamesStarted) {
       case null {};
-      case (?c) PT.Counter.add(c, 1);
+      case (?c) c.add(1);
     };
   };
 
@@ -87,7 +87,7 @@ module {
     switch (self.roundsPerGame) {
       case null {};
       case (?g) switch (t.phase) {
-        case (#debrief d) PT.Gauge.update(g, d.turns);
+        case (#debrief d) g.update(d.turns);
         case (_) {};
       };
     };
@@ -102,7 +102,7 @@ module {
     switch (self.matchmakingWaitSecs, since) {
       case (?g, ?s) {
         let waited = now - s;
-        PT.Gauge.update(g, if (waited <= 0) { 0 } else { waited.toNat() / 1_000_000_000 });
+        g.update(if (waited <= 0) { 0 } else { waited.toNat() / 1_000_000_000 });
       };
       case (_, _) {};
     };
@@ -235,8 +235,7 @@ module {
   /// Every table with an open seat, protected ones flagged but never
   /// carrying their code.
   public func listTables<S, M>(self : Registry<S, M>, now : Int) : [T.TableSummary] {
-    let withSummaries = Map.filterMap<T.TableId, T.Table<S, M>, T.TableSummary>(
-      self.tables,
+    let withSummaries = self.tables.filterMap<T.TableId, T.Table<S, M>, T.TableSummary>(
       Nat.compare,
       func(id, t) {
         switch (openness(t, now)) {

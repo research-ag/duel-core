@@ -11,7 +11,7 @@ promtracker = "1.0.1"
 [optimize]
 
 [toolchain]
-moc = "1.16.1"
+moc = "2.0.0"
 pocket-ic = "15.0.0"
 wasm-opt = "132"
 

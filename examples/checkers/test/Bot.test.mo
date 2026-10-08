@@ -38,7 +38,7 @@ do {
     };
     let move = BotLogic.chooseMove(req);
     let legal = Rules.legalActions(s0, #p1);
-    assert Array.find<Rules.Action>(legal, func(a) = a == move) != null;
+    assert legal.find<Rules.Action>(func(a) = a == move) != null;
   };
 
   // A position with a mandatory capture available: legalActions returns

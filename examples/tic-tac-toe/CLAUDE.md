@@ -30,7 +30,7 @@ reference for a bot with two complexities. Not part of either package.
 
 ## Toolchain / Build & test
 
-Same as `examples/checkers` (moc 1.16.1; `mops test`; build
+Same as `examples/checkers` (moc 2.0.0; `mops test`; build
 `../../frontend` first; `npm install --legacy-peer-deps && npm run build`
 in `frontend/`; `icp deploy`). Play both seats in two tabs.
 

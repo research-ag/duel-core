@@ -18,7 +18,7 @@
 ///   import Transport "mo:duel-game-core/transport";
 ///   import ActorMixin "mo:duel-game-core/actor_mixin";
 ///
-///   persistent actor {
+///   actor {
 ///     let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
 ///     registry.setTimeouts(90_000_000_000, 60_000_000_000);
 ///
