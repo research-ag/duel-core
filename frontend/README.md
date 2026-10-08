@@ -306,12 +306,12 @@ same client.
 
 ## Transport
 
-**Naming.** The link is called `transport` everywhere: `start({ plugin,
+**Naming.** The link is `transport` everywhere: `start({ plugin,
 transport, session })`, `createDuelClient({ transport, session })`, and
-the `Transport` / `TransportRequest` / `TransportPayload` types. The old
-names from the WebSocket era (`ws`, `DuelWs`, `WsRequest`, `WsPayload`)
-are still accepted as deprecated aliases, so existing games keep
-working; new code should use the new ones.
+the `Transport` / `TransportRequest` / `TransportPayload` types. (These
+replaced `ws`, `DuelWs`, `WsRequest` and `WsPayload` from the WebSocket
+era; the old names are gone, so a game written against them must be
+renamed.)
 
 `connectTransport()` builds a `DuelTransport` (`transport.js`) that
 speaks `mo:duel-game-core/transport`'s two methods. A request is one

@@ -280,10 +280,7 @@ export interface DuelClient<S = unknown, A = unknown> {
 }
 
 export interface ClientOptions<S = unknown> {
-  /// Required: the link from `connectTransport()` (or a test double).
-  transport?: Transport<S>;
-  /** @deprecated Renamed to `transport`; still accepted. */
-  ws?: Transport<S>;
+  transport: Transport<S>;
   session: SessionIdentity;
   /// How long a transient error stays in `state.error`; default 5000, 0
   /// keeps it until `clearError()` or the next error.
@@ -335,14 +332,11 @@ export const CONNECTION_CLOSED_MESSAGE = "Connection closed.";
 export const ENDED_WHILE_AWAY_MESSAGE = "Your game ended while you were away.";
 
 export function createDuelClient<S = unknown, A = unknown>({
-  transport: transportOpt,
-  ws: deprecatedWs,
+  transport,
   session,
   errorTtlMs = 5000,
 }: ClientOptions<S>): DuelClient<S, A> {
-  const given = transportOpt ?? deprecatedWs;
-  if (!given) throw new Error("createDuelClient(): `transport` is required");
-  const transport = given;
+  if (!transport) throw new Error("createDuelClient(): `transport` is required");
   if (!session) throw new Error("createDuelClient(): `session` is required");
   const sid = session.sid;
 

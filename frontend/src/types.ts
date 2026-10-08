@@ -206,10 +206,3 @@ export interface Transport<S = unknown, A = unknown> {
   request?(sid: string, req: TransportRequest<A>): Promise<TransportPayload<S>>;
   queryStatus?(sid: string): Promise<Status<S>>;
 }
-
-/** @deprecated Renamed to `Transport`; kept so existing games compile. */
-export type DuelWs<S = unknown, A = unknown> = Transport<S, A>;
-/** @deprecated Renamed to `TransportRequest`. */
-export type WsRequest<A = unknown> = TransportRequest<A>;
-/** @deprecated Renamed to `TransportPayload`. */
-export type WsPayload<S = unknown> = TransportPayload<S>;

@@ -116,18 +116,6 @@ test("createDuelClient(): throws without transport or session; starts connecting
   assert.equal(client.sid, "an:abc");
 });
 
-test("createDuelClient(): the deprecated `ws` option still wires the transport; `transport` wins when both are given", () => {
-  const legacy = new FakeTransport();
-  createDuelClient({ ws: legacy, session });
-  assert.deepEqual(legacy.sent, [{ sid: "an:abc", req: { status: null } }]);
-
-  const preferred = new FakeTransport();
-  const ignored = new FakeTransport();
-  createDuelClient({ transport: preferred, ws: ignored, session });
-  assert.equal(preferred.sent.length, 1);
-  assert.equal(ignored.sent.length, 0);
-});
-
 test("the first #status goes out at construction; onopen marks the connection open and only a reopen asks again", () => {
   const transport = new FakeTransport();
   const client = createDuelClient({ transport, session });

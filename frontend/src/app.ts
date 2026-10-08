@@ -233,10 +233,7 @@ function makeCodePrompt(): PromptCode {
 
 export interface StartOptions<S = unknown> {
   plugin: GamePlugin<S>;
-  /// Required: the link from `connectTransport()` (or a test double).
-  transport?: Transport<S>;
-  /** @deprecated Renamed to `transport`; still accepted. */
-  ws?: Transport<S>;
+  transport: Transport<S>;
   /// Required: every legal `sid` is principal-bound.
   session: SessionIdentity;
   /// Any subset of the default screens, replaced.
@@ -272,8 +269,7 @@ export function buttonKey(b: HTMLButtonElement): string {
 
 export function start<S>({
   plugin,
-  transport: transportOpt,
-  ws: deprecatedWs,
+  transport,
   session,
   screens,
   confirm,
@@ -286,9 +282,7 @@ export function start<S>({
   authBtnId = "duel-auth-btn",
 }: StartOptions<S>): DuelClient<S> {
   if (!plugin) throw new Error("start(): `plugin` is required");
-  const given = transportOpt ?? deprecatedWs;
-  if (!given) throw new Error("start(): `transport` is required");
-  const transport = given;
+  if (!transport) throw new Error("start(): `transport` is required");
   if (!session) throw new Error("start(): `session` is required");
 
   const screenEl = $(screenElId);
