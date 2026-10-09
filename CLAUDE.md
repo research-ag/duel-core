@@ -136,7 +136,7 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   `CanisterPlayers` covers `canister_players.mo` with a hand-built
   context whose fan-out settles and whose timers are only recorded (the
   interpreter has none);
-  `Leaderboard`/`Elo`/`Http`/`Wasm` cover their modules directly. `FakeGame.mo`/
+  `Leaderboard`/`Elo`/`Http`/`Wasm`/`Rng` cover their modules directly. `FakeGame.mo`/
   `FakeTurnGame.mo` are throwaway specs for these suites.
 - **`backend/bench/engine.bench.mo`** — `mops bench`, engine overhead
   only.

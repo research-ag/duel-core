@@ -21,10 +21,21 @@ module {
   /// A uniform `Nat64`.
   public func next(self : Rng) : Nat64 = Prng.SFC64.next(self.sfc);
 
-  /// A uniform number in `0..n-1`; traps on `n == 0`.
+  /// A uniform number in `0..n-1`; traps on `n == 0` or `n >= 2^64`.
+  ///
+  /// A plain `next() % n` favours the residues below `2^64 mod n` by one
+  /// preimage each. Instead, keep only the bits of `next()` that `n - 1`
+  /// spans and draw again on a value of `n` or more: every survivor is
+  /// equally likely, and fewer than half the draws are rejected.
   public func below(self : Rng, n : Nat) : Nat {
     assert n > 0;
-    (Prng.SFC64.next(self.sfc)).toNat() % n;
+    if (n == 1) return 0;
+    let n64 = n.toNat64(); // traps beyond 2^64 - 1
+    let mask = Nat64.maxValue >> Nat64.bitcountLeadingZero(n64 - 1);
+    loop {
+      let x = Prng.SFC64.next(self.sfc) & mask;
+      if (x < n64) return x.toNat();
+    };
   };
 
   /// `xs` in a uniformly random order (Fisher–Yates).
