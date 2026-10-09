@@ -49,28 +49,33 @@ export const plugin = {
       p2Action: Action,
     });
     const Variant = IDL.Variant({ classic: IDL.Null, well: IDL.Null });
-    const State = IDL.Record({
+    // Nothing is hidden: the view is the whole state.
+    const View = IDL.Record({
       p1Score: IDL.Nat,
       p2Score: IDL.Nat,
       lastRound: IDL.Opt(Round),
       variant: Variant,
+      winsNeeded: IDL.Nat,
     });
-    return { Action, State };
+    const Options = IDL.Record({ variant: Variant, winsNeeded: IDL.Nat });
+    return { Action, View, Options };
   },
 
   seatLabel(seat) {
     return SEAT_NAME[seat];
   },
 
-  variantChoices() {
+  // First to 3 round wins, in either symbol set.
+  optionChoices() {
     return [
-      { key: "classic", label: VARIANT_LABEL.classic },
-      { key: "well", label: VARIANT_LABEL.well },
+      { key: "classic", label: VARIANT_LABEL.classic, options: { variant: { classic: null }, winsNeeded: 3n } },
+      { key: "well", label: VARIANT_LABEL.well, options: { variant: { well: null }, winsNeeded: 3n } },
     ];
   },
 
-  formatVariant(variant) {
-    return VARIANT_LABEL[variant] ?? VARIANT_LABEL.classic;
+  formatOptions(options) {
+    const label = VARIANT_LABEL[Object.keys(options.variant)[0]] ?? VARIANT_LABEL.classic;
+    return `${label} · first to ${options.winsNeeded}`;
   },
 
   renderBoard(gameState, mySeat, oppSeat) {

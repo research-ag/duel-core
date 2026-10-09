@@ -22,23 +22,37 @@ actor {
   renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
-  // The tables — plain data, stable.
-  let state = Transport.new<Rules.State, Rules.Action>();
-  state.registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // re-applied on every upgrade
-  state.registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
+  // All the data — tables, lobby, random-number generator. Stable.
+  let duel = Transport.new<Rules.State, Rules.Action, Rules.Options>();
+  duel.registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // re-applied on every upgrade
+  duel.registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
 
-  // The state plus the rules (functions — rebuilt on upgrade). No bots,
-  // no leaderboard.
-  transient let duel = Transport.Duel<Rules.State, Rules.Action>(state, Rules.spec(), null, null);
-
-  include TransportActorMixin<system>(duel.lobby);
-
-  public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
-    duel.reply(caller, tableId, await* duel.submit<system>(caller, tableId, gen, turn, move));
+  // The function values the framework calls — the game's rules. No bots,
+  // no leaderboard. Rebuilt on every upgrade.
+  transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+    spec = Rules.spec;
+    bots = null;
+    scoring = null;
   };
 
-  public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.State> {
-    duel.table(caller, tableId, rev);
+  // Every method that names none of the game's types, and the sweep timer.
+  include TransportActorMixin<system>(duel.lobby(env));
+
+  // The four methods whose Candid types name the game's own types.
+  public shared ({ caller }) func duel_create_table(seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options) : async Transport.Ack {
+    await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, seat, visibility, options);
+  };
+
+  public shared query ({ caller }) func duel_lobby(rev : Nat) : async Transport.LobbyResult<Rules.Options> {
+    duel.lobbyView(caller, rev);
+  };
+
+  public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, step : Nat, action : Rules.Action) : async Transport.Reply<Rules.View> {
+    duel.reply(env, caller, tableId, await* duel.submit<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, tableId, gen, step, action));
+  };
+
+  public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.View> {
+    duel.table(env, caller, tableId, rev);
   };
 
   // GET /semantics — the rules text a third-party frontend is built from;

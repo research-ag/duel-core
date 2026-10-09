@@ -1,8 +1,11 @@
 // Unit checks for RockPaperScissorsRules' pure functions: init/validate/
 // resolve exercised directly, no engine, no actor.
+import Rng "mo:duel-game-core/rng";
 import R "../src/RockPaperScissorsRules";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
+
+let rng = Rng.new(42);
 
 func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
   let r = R.resolve(s, a1, a2);
@@ -12,19 +15,19 @@ func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
 
 // ── 1. init(variant) picks the right rules, unrecognized text falls back to
 //      classic, and spec() hands out the same rules ─────────────────────────
-let s0 = R.init("");
+let s0 = R.init({ variant = #classic; winsNeeded = 3 }, rng);
 assert s0.p1Score == 0;
 assert s0.p2Score == 0;
 assert s0.lastRound == null;
 assert s0.variant == #classic; // "" (every other example's own call shape) defaults to classic
-let s0Well = R.init("well");
+let s0Well = R.init({ variant = #well; winsNeeded = 3 }, rng);
 assert s0Well.variant == #well;
-assert R.init("garbage-input").variant == #classic; // unrecognized text is a safe default, not a trap
-let sp = switch (R.spec()) {
+assert R.init({ variant = #classic; winsNeeded = 3 }, rng).variant == #classic; // unrecognized text is a safe default, not a trap
+let sp = switch (R.spec) {
   case (#simultaneous s) s;
-  case (#alternating _) Runtime.trap("rock-paper-scissors is a #simultaneous game");
+  case (#turnBased _) Runtime.trap("rock-paper-scissors is a #simultaneous game");
 };
-assert sp.init("") == s0;
+assert sp.init({ variant = #classic; winsNeeded = 3 }, rng) == s0;
 Debug.print("1. init(variant) + spec wiring OK");
 
 // ── 2. validate: well is illegal in classic, legal in well ─────────────────

@@ -9,13 +9,16 @@ import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
 
 import TP "mo:duel-game-core";
+import Rng "mo:duel-game-core/rng";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import Registry "mo:duel-game-core/registry";
 
 import BotLogic "../bot/BotLogic";
 import Rules "../src/TicTacToeRules";
 
-let spec = Rules.spec();
+let rng = Rng.new(42);
+
+let spec = Rules.spec;
 
 func withMarks(marks : [(Nat, TP.Seat)]) : Rules.Board {
   var b = Array.repeat<?TP.Seat>(null, 9);
@@ -27,20 +30,20 @@ func withMarks(marks : [(Nat, TP.Seat)]) : Rules.Board {
 
 // ── 1. chooseMove never strays outside legalActions ────────────────────────
 do {
-  let s0 = Rules.init("");
+  let s0 = Rules.init({}, rng);
   for (turn in Nat.range(0, 9)) {
-    let req : TP.MoveRequest<Rules.State, Rules.Action> = {
+    let req : TP.MoveRequest<Rules.View, Rules.Action> = {
       tableId = 0;
       seat = #p1;
       game = s0;
-      mode = #alternating;
-      turn;
+      mode = #turnBased;
+      step = turn;
       gen = 0;
       complexity = "";
       retryReason = null;
       opponent = "p2";
       opponentLastMove = null;
-      lastRoundDurationNs = null;
+      lastStepDurationNs = null;
     };
     let move = BotLogic.chooseMove(req);
     let legal = Rules.legalActions(s0, #p1);
@@ -60,18 +63,18 @@ do {
     (7, #p1),
   ]);
   for (turn in Nat.range(0, 5)) {
-    let req : TP.MoveRequest<Rules.State, Rules.Action> = {
+    let req : TP.MoveRequest<Rules.View, Rules.Action> = {
       tableId = 0;
       seat = #p1;
       game = { board = almostFull };
-      mode = #alternating;
-      turn;
+      mode = #turnBased;
+      step = turn;
       gen = 0;
       complexity = "";
       retryReason = null;
       opponent = "p2";
       opponentLastMove = null;
-      lastRoundDurationNs = null;
+      lastStepDurationNs = null;
     };
     switch (BotLogic.chooseMove(req)) {
       case (#place { at }) assert at == 8;
@@ -82,18 +85,18 @@ Debug.print("1. BotLogic.chooseMove always picks a Rules.legalActions-listed mov
 
 // ── 2. "Hard" — full minimax: takes an immediate win, blocks an immediate
 //      threat, draws against itself, and never loses to "Easy" ──────────────
-func reqFor(board : Rules.Board, seat : TP.Seat, turn : Nat, complexity : Text) : TP.MoveRequest<Rules.State, Rules.Action> = {
+func reqFor(board : Rules.Board, seat : TP.Seat, turn : Nat, complexity : Text) : TP.MoveRequest<Rules.View, Rules.Action> = {
   tableId = 0;
   seat;
   game = { board };
-  mode = #alternating;
-  turn;
+  mode = #turnBased;
+  step = turn;
   gen = 0;
   complexity;
   retryReason = null;
   opponent = "opp";
   opponentLastMove = null;
-  lastRoundDurationNs = null;
+  lastStepDurationNs = null;
 };
 func cellOf(a : Rules.Action) : Nat = switch (a) { case (#place { at }) at };
 do {
@@ -110,7 +113,7 @@ do {
   // Plays a full game from the empty board with `p1Complexity` on X and
   // `p2Complexity` on O, returning the verdict.
   func playOut(p1Complexity : Text, p2Complexity : Text) : TP.Verdict {
-    var s = Rules.init("");
+    var s = Rules.init({}, rng);
     var seat : TP.Seat = #p1;
     var turn = 0;
     loop {
@@ -135,14 +138,14 @@ do {
 Debug.print("2. Hard wins/blocks immediately, draws itself, never loses to Easy; an undeclared complexity plays Easy OK");
 
 // ── 3. wired live through canister_players.mo, two canister seats play each
-//      other through several real #alternating plies ────────────────────────
+//      other through several real #turnBased plies ────────────────────────
 let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
 
 // The player's first table and their view of it, or `#browsing`.
-func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.PlayerId) : {
-  #atTable : { id : TP.TableId; view : TP.View<Rules.State> };
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action, Rules.Options>, at : Int, p : TP.PlayerId) : {
+  #atTable : { id : TP.TableId; view : TP.TableView<Rules.State> };
   #browsing;
 } {
   let ids = reg.tablesOf(p);
@@ -153,12 +156,25 @@ func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.Pla
   };
 };
 
+// A bot opening a table: seats it directly (bots open no tables
+// themselves through the canister-player methods) and runs the same
+// fan-out a mutation does.
+func botCreates<system>(ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action, Rules.View, Rules.Options>, bot : Principal.Principal, seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options, complexity : Text) : async* TP.Res<TP.TableId> {
+  switch (ctx.registry.createTable(ctx.spec, ctx.rng, T0, CanisterPlayers.idForCanister(bot, complexity), seat, visibility, options)) {
+    case (#ok id) {
+      await* ctx.afterMutation<system>(T0, id, true);
+      #ok id;
+    };
+    case (#err e) #err e;
+  };
+};
+
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
   case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
 };
 
-func atTableView(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, session : Text) : TP.View<Rules.State> = switch (statusOf(reg, at, session)) {
+func atTableView(reg : TP.Registry<Rules.State, Rules.Action, Rules.Options>, at : Int, session : Text) : TP.TableView<Rules.State> = switch (statusOf(reg, at, session)) {
   case (#atTable v) v.view;
   case (#browsing _) Runtime.trap("expected " # session # " to be at a table");
 };
@@ -166,19 +182,20 @@ func atTableView(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, session
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
 
-let reg = Registry.new<Rules.State, Rules.Action>();
+let reg = Registry.new<Rules.State, Rules.Action, Rules.Options>();
 
 reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
 // The bots without the transport: every mutation settles the table
 // right away, and no timers (the interpreter has none).
 func settleAfter<system>(now : Int, id : TP.TableId, _ : Bool) : async* () {
-  await* CanisterPlayers.settle<system, Rules.State, Rules.Action>(ctx, now, id);
+  await* CanisterPlayers.settle<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx, now, id);
 };
-let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action> = {
+let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
   registry = reg;
   spec;
+  rng;
   store = CanisterPlayers.newStore();
-  call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+  call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.View, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
     switch (req.seat) {
       case (#p1) assert req.complexity == "Hard";
       case (#p2) assert req.complexity == CanisterPlayers.DEFAULT_COMPLEXITY;
@@ -192,14 +209,14 @@ let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action> = {
 };
 let cp = CanisterPlayers.endpointOf(ctx);
 
-let id = ok(await* cp.createTable<system>(bot1, #p1, #open, "", "Hard"), "bot1 creates a table, playing Hard");
+let id = ok(await* botCreates<system>(ctx, bot1, #p1, #open, {}, "Hard"), "bot1 creates a table, playing Hard");
 let sidBot1 = CanisterPlayers.idForCanister(bot1, "Hard");
 let sidBot2 = CanisterPlayers.idForCanister(bot2, "");
 // bot2's own joinTable eagerly triggers the opening plies with no sweep at
 // all
 ignore ok(await* cp.joinTable<system>(bot2, id, #p2, null, ""), "bot2 joins; game starts");
 switch (atTableView(reg, T0, sidBot1)) {
-  case (#inGame v) assert v.turn > 0; // #p1's own opening move already resolved
+  case (#inGame v) assert v.step > 0; // #p1's own opening move already resolved
   case (_) Runtime.trap("bot1 should be in-game, at least one ply in");
 };
 
@@ -208,16 +225,16 @@ switch (atTableView(reg, T0, sidBot1)) {
 // TWO plies here (whichever seat is due, then
 var round = 0;
 var lastTurn = switch (atTableView(reg, T0, sidBot1)) {
-  case (#inGame v) v.turn;
+  case (#inGame v) v.step;
   case (_) 0;
 };
 var stalled = false;
 while (round < 9) {
-  await* CanisterPlayers.sweep<system, Rules.State, Rules.Action>(ctx, T0);
+  await* CanisterPlayers.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx, T0);
   switch (statusOf(reg, T0, sidBot1)) {
     case (#atTable { view = #inGame v }) {
-      if (v.turn == lastTurn) stalled := true; // a due seat's sweep produced no progress at all
-      lastTurn := v.turn;
+      if (v.step == lastTurn) stalled := true; // a due seat's sweep produced no progress at all
+      lastTurn := v.step;
     };
     case (_) {}; // the game already ended — see the check right below
   };
@@ -226,8 +243,8 @@ while (round < 9) {
 assert not stalled;
 switch (statusOf(reg, T0, sidBot1), statusOf(reg, T0, sidBot2)) {
   case (#atTable { view = #inGame v1 }, #atTable { view = #inGame v2 }) {
-    assert v1.turn == v2.turn;
-    assert v1.turn > 0; // at least the opening ply, and no sweep call ever stalled
+    assert v1.step == v2.step;
+    assert v1.step > 0; // at least the opening ply, and no sweep call ever stalled
   };
   case (_, _) {
     // the board is small enough that one seat has very plausibly already won
@@ -239,6 +256,6 @@ switch (statusOf(reg, T0, sidBot1), statusOf(reg, T0, sidBot2)) {
     };
   };
 };
-Debug.print("3. two canister-seated bots (Hard vs Default) resolve several real #alternating plies against each other, no stall OK");
+Debug.print("3. two canister-seated bots (Hard vs Default) resolve several real #turnBased plies against each other, no stall OK");
 
 Debug.print("ALL TICTACTOE BOT CHECKS PASSED");

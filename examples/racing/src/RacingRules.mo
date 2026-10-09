@@ -29,7 +29,7 @@ module {
   public let SEMANTICS : Text = "GAME: Racing
 MODE: simultaneous
 SEATS: p1 and p2 are the two cars on the starting grid
-VARIANTS: none (the table variant text is ignored)
+OPTIONS: none (type Options = record {})
 
 STATE (Candid)
   type Vec2 = record { float64; float64 };
@@ -320,7 +320,15 @@ CLIENT NOTES
     crashPenaltyRemaining = 0;
   };
 
-  public func init(_variant : Text) : State = {
+  /// Nothing is hidden: every seat sees the whole state.
+  public type View = State;
+
+  /// No table options.
+  public type Options = {};
+
+  public func checkOptions(_ : Options) : ?Text = null;
+
+  public func init(_ : Options, _ : TP.Rng) : State = {
     p1 = freshCar(Track.startP1Position, Track.startP1Rotation);
     p2 = freshCar(Track.startP2Position, Track.startP2Rotation);
     step = 0;
@@ -423,9 +431,19 @@ CLIENT NOTES
     lines.values().join("\n");
   };
 
-  public func spec() : TP.Spec<State, Action> = #simultaneous {
+  public func view(self : State, _ : TP.Seat, _ : Bool) : View = self;
+
+  /// Both seats' actions, applied together once both are in.
+  public func resolveRound(self : State, a1 : Action, a2 : Action, _ : TP.Rng) : {
+    state : State;
+    verdict : ?TP.Verdict;
+  } = resolve(self, a1, a2);
+
+  public let spec : TP.Spec<State, Action, View, Options> = #simultaneous {
+    checkOptions;
     init;
     validate;
-    resolve;
+    resolve = resolveRound;
+    view;
   };
 };

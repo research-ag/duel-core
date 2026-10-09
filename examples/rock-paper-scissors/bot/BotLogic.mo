@@ -22,7 +22,7 @@ module {
   /// Uniform pick from the current variant's action set, seeded by
   /// `entropy` (`Time.now()` in `Bot.mo`). The seat is mixed in so two
   /// copies of this bot asked at the same instant still pick independently.
-  public func chooseMove(req : TP.MoveRequest<Rules.State, Rules.Action>, entropy : Int) : Rules.Action {
+  public func chooseMove(req : TP.MoveRequest<Rules.View, Rules.Action>, entropy : Int) : Rules.Action {
     let actions = actionsFor(req.game.variant);
     let seatSalt : Nat64 = switch (req.seat) { case (#p1) 1; case (#p2) 2 };
     let r = mix(Nat64.fromIntWrap(entropy) ^ mix(seatSalt));

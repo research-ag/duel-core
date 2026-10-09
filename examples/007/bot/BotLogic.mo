@@ -24,7 +24,7 @@ module {
 
   /// `entropy` is `Time.now()` in `Bot.mo`; the seat is mixed in so two
   /// copies of the bot asked at the same instant pick independently.
-  func random(req : TP.MoveRequest<Rules.State, Rules.Action>, entropy : Int) : Nat {
+  func random(req : TP.MoveRequest<Rules.View, Rules.Action>, entropy : Int) : Nat {
     let seatSalt : Nat64 = switch (req.seat) { case (#p1) 1; case (#p2) 2 };
     mix(Nat64.fromIntWrap(entropy) ^ mix(seatSalt)).toNat();
   };
@@ -47,15 +47,15 @@ module {
 
   /// The one exit for every complexity: `validate` has the last word, and
   /// LOAD is always legal.
-  func checked(req : TP.MoveRequest<Rules.State, Rules.Action>, a : Rules.Action) : Rules.Action {
+  func checked(req : TP.MoveRequest<Rules.View, Rules.Action>, a : Rules.Action) : Rules.Action {
     if (isLegal(req.game, req.seat, a)) a else #load;
   };
 
-  public func chooseMove(req : TP.MoveRequest<Rules.State, Rules.Action>, entropy : Int) : Rules.Action {
+  public func chooseMove(req : TP.MoveRequest<Rules.View, Rules.Action>, entropy : Int) : Rules.Action {
     checked(req, if (req.complexity == "Medium") mediumMove(req, entropy) else easyMove(req, entropy));
   };
 
-  func easyMove(req : TP.MoveRequest<Rules.State, Rules.Action>, entropy : Int) : Rules.Action {
+  func easyMove(req : TP.MoveRequest<Rules.View, Rules.Action>, entropy : Int) : Rules.Action {
     let moves = legalActions(req.game, req.seat);
     moves[random(req, entropy) % moves.size()];
   };
@@ -71,7 +71,7 @@ module {
   //     rare gamble so two turtling bots still make progress; shoot when it cannot lose (own laser, or the opponent
   //     has no defense left) and when the opponent is one load from a
   //     laser. A shooter last round raises the mirror's weight.
-  func weight(req : TP.MoveRequest<Rules.State, Rules.Action>, a : Rules.Action) : Nat {
+  func weight(req : TP.MoveRequest<Rules.View, Rules.Action>, a : Rules.Action) : Nat {
     let s = req.game;
     let opSeat = other(req.seat);
     let me = statsOf(s, req.seat);
@@ -110,7 +110,7 @@ module {
     };
   };
 
-  func mediumMove(req : TP.MoveRequest<Rules.State, Rules.Action>, entropy : Int) : Rules.Action {
+  func mediumMove(req : TP.MoveRequest<Rules.View, Rules.Action>, entropy : Int) : Rules.Action {
     let moves = legalActions(req.game, req.seat);
     let weights = moves.map(func(a : Rules.Action) : Nat { weight(req, a) });
     let total = weights.foldLeft(0, Nat.add);

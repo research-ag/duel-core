@@ -13,7 +13,7 @@
 ///   Every distinct pair has exactly one winner (a complete but
 ///   deliberately unbalanced tournament). WELL is illegal in Classic.
 ///
-///   The same pick from both sides is a tied round. First to WINS_NEEDED
+///   The same pick from both sides is a tied round. First to `winsNeeded`
 ///   round wins takes the match.
 
 import TP "mo:duel-game-core";
@@ -24,9 +24,10 @@ module {
   public let SEMANTICS : Text = "GAME: Rock-paper-scissors
 MODE: simultaneous
 SEATS: p1 and p2 are symmetric
-VARIANTS (table variant text, picked by the table's creator)
-  classic   rock, paper, scissors. Also used for any other text.
-  well      adds a fourth symbol, well.
+OPTIONS (picked by the table's creator)
+  type Options = record { variant : Variant; winsNeeded : nat };
+  variant: classic (rock, paper, scissors) or well (adds a fourth
+  symbol, well). winsNeeded: round wins that take the match, 1 to 9.
 
 STATE (Candid)
   type Action = variant { rock; paper; scissors; well };
@@ -37,6 +38,7 @@ STATE (Candid)
     p2Score : nat;
     lastRound : opt Round;
     variant : Variant;
+    winsNeeded : nat;
   };
   lastRound is the round just resolved, null before the first.
 
@@ -52,7 +54,7 @@ RULES
   Rejected: well in the classic variant.
 
 ENDINGS
-  First seat to 3 round wins takes the match. There is no draw.
+  First seat to winsNeeded round wins takes the match. There is no draw.
 
 CLIENT NOTES
   Offer the well button only when state.variant is well.
@@ -60,10 +62,12 @@ CLIENT NOTES
 
   public type Variant = { #classic; #well };
 
-  /// Unrecognized text (including `""`) falls back to `#classic`.
-  public func parseVariant(raw : Text) : Variant = switch (raw) {
-    case ("well") #well;
-    case (_) #classic;
+  /// The table's options: which symbols, and how many round wins take
+  /// the match.
+  public type Options = { variant : Variant; winsNeeded : Nat };
+
+  public func checkOptions(o : Options) : ?Text {
+    if (o.winsNeeded < 1 or o.winsNeeded > 9) ?"Wins needed must be 1 to 9." else null;
   };
 
   public type Action = { #rock; #paper; #scissors; #well };
@@ -78,15 +82,18 @@ CLIENT NOTES
     p2Score : Nat;
     lastRound : ?Round;
     variant : Variant;
+    winsNeeded : Nat;
   };
 
-  let WINS_NEEDED : Nat = 3;
+  /// Nothing is hidden: every seat sees the whole state.
+  public type View = State;
 
-  public func init(raw : Text) : State = {
+  public func init(o : Options, _ : TP.Rng) : State = {
     p1Score = 0;
     p2Score = 0;
     lastRound = null;
-    variant = parseVariant(raw);
+    variant = o.variant;
+    winsNeeded = o.winsNeeded;
   };
 
   public func validate(s : State, _seat : TP.Seat, a : Action) : ?Text {
@@ -124,7 +131,7 @@ CLIENT NOTES
       case null (s.p1Score, s.p2Score);
     };
 
-    let verdict : ?TP.Verdict = if (p1Score >= WINS_NEEDED) ?#p1Wins else if (p2Score >= WINS_NEEDED) ?#p2Wins else null;
+    let verdict : ?TP.Verdict = if (p1Score >= s.winsNeeded) ?#p1Wins else if (p2Score >= s.winsNeeded) ?#p2Wins else null;
 
     {
       state = {
@@ -132,14 +139,25 @@ CLIENT NOTES
         p2Score;
         lastRound = ?{ p1Action = a1; p2Action = a2 };
         variant = s.variant;
+        winsNeeded = s.winsNeeded;
       };
       verdict;
     };
   };
 
-  public func spec() : TP.Spec<State, Action> = #simultaneous {
+  public func view(self : State, _ : TP.Seat, _ : Bool) : View = self;
+
+  /// Both seats' actions, applied together once both are in.
+  public func resolveRound(self : State, a1 : Action, a2 : Action, _ : TP.Rng) : {
+    state : State;
+    verdict : ?TP.Verdict;
+  } = resolve(self, a1, a2);
+
+  public let spec : TP.Spec<State, Action, View, Options> = #simultaneous {
+    checkOptions;
     init;
     validate;
-    resolve;
+    resolve = resolveRound;
+    view;
   };
 };

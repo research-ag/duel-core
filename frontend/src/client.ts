@@ -123,9 +123,9 @@ export function genOf(status: Status | null): bigint {
   return 0n;
 }
 
-export function turnOf(status: Status | null): bigint {
+export function stepOf(status: Status | null): bigint {
   const inGame = viewOf<InGameView>(status, "inGame");
-  return inGame ? inGame.turn : 0n;
+  return inGame ? inGame.step : 0n;
 }
 
 export function oppSeatOf(seat: SeatTag): SeatTag {
@@ -183,8 +183,10 @@ export function pendingMoveOf<A = unknown>(pending: PendingCall | null): A | nul
 /// `status` as it will look once the pending `submit` lands: the board
 /// through `applyLocal`, and the seat flipped to waiting. Unchanged when
 /// nothing is pending, `applyLocal` returns null, or `status` already moved
-/// past the view the move was stamped against (gen/turn changed, or the
-/// move is already in). Display only — calls keep reading the real status.
+/// past the view the move was stamped against (gen/step changed, or the
+/// move is already in). In `turnBased` the seat is shown as waiting until
+/// the reply says whose turn it is — the rules may keep the mover on
+/// turn. Display only — calls keep reading the real status.
 /// See ../README.md, "Showing moves".
 export function withLocalMove<S, A = unknown>(
   status: Status<S> | null,
@@ -195,17 +197,18 @@ export function withLocalMove<S, A = unknown>(
   const at = atTableOf(status);
   const v = viewOf<InGameView<S>>(status, "inGame");
   if (at === null || v === null || v.youSubmitted) return status;
-  const { gen, turn, move } = pending.req.submit;
-  if (v.gen !== gen || v.turn !== turn) return status;
+  const { gen, step, move } = pending.req.submit;
+  if (v.gen !== gen || v.step !== step) return status;
   const game = applyLocal(v.game, tag(v.seat) as SeatTag, move as A);
   if (game === null) return status;
-  const alternating = "alternating" in v.mode;
+  const turnBased = "turnBased" in v.mode;
   const local: InGameView<S> = {
     ...v,
     game,
-    turn: alternating ? v.turn + 1n : v.turn,
+    step: turnBased ? v.step + 1n : v.step,
+    toMove: turnBased ? [] : v.toMove,
     youSubmitted: true,
-    oppSubmitted: alternating ? false : v.oppSubmitted,
+    oppSubmitted: turnBased ? false : v.oppSubmitted,
     claimWinAvailable: false,
     secondsUntilClaimable: v.claimTimeoutSecs,
   };
@@ -254,7 +257,7 @@ export interface DuelClient<S = unknown, A = unknown> {
   /// snapshots. Returns the unsubscribe function.
   subscribe(listener: Listener<S>): () => void;
 
-  createTable(seat: SeatTag, visibility?: Visibility, variant?: string): Promise<CallOutcome<S>>;
+  createTable(seat: SeatTag, visibility?: Visibility, options?: unknown): Promise<CallOutcome<S>>;
   joinTable(id: bigint, seat: SeatTag, code?: string | null): Promise<CallOutcome<S>>;
   submit(move: A): Promise<CallOutcome<S>>;
   rematch(): Promise<CallOutcome<S>>;
@@ -317,7 +320,7 @@ function isStaleJoin(req: TransportRequest | null, err: EngineErr): boolean {
   return req !== null && ("createTable" in req || "joinTable" in req) && "wrongPhase" in err;
 }
 
-// `#stale` on submit/leave/reset/claimWin: the stamped gen/turn moved on
+// `#stale` on submit/leave/reset/claimWin: the stamped gen/step moved on
 // (typically a resend whose original landed).
 function isStaleMutation(req: TransportRequest | null, err: EngineErr): boolean {
   return (
@@ -622,11 +625,11 @@ export function createDuelClient<S = unknown, A = unknown>({
         listeners.delete(listener);
       };
     },
-    createTable: (seat, visibility = { open: null }, variant = "") =>
-      call({ createTable: { seat: seatOf(seat), visibility, variant } }),
+    createTable: (seat, visibility = { open: null }, options = {}) =>
+      call({ createTable: { seat: seatOf(seat), visibility, options } }),
     joinTable: (id, seat, code) =>
       call({ joinTable: { id, seat: seatOf(seat), code: code ? [code] : [] } }),
-    submit: (move) => call({ submit: { gen: genOf(state.status), turn: turnOf(state.status), move } }),
+    submit: (move) => call({ submit: { gen: genOf(state.status), step: stepOf(state.status), move } }),
     rematch: () => call({ rematch: null }),
     leave: () => call({ leave: { gen: genOf(state.status) } }),
     reset: () => call({ reset: { gen: genOf(state.status) } }),

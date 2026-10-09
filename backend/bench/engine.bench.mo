@@ -3,6 +3,7 @@ import Bench "mo:bench-helper";
 import Runtime "mo:core/Runtime";
 
 import Registry "../src/registry";
+import Rng "../src/rng";
 
 import Rules "../test/FakeGame";
 
@@ -16,17 +17,18 @@ module {
     };
 
     let spec = Rules.spec();
+    let rng = Rng.new(42);
     let timeout : Int = 60_000_000_000;
-    let reg = Registry.new<Rules.State, Rules.Action>();
+    let reg = Registry.new<Rules.State, Rules.Action, Rules.Options>();
     reg.setTimeouts(timeout, timeout);
     let ns : [Nat] = [10, 100, 1000];
 
     func freshGame() : Nat {
-      let tid = switch (reg.createTable(spec, 0, "a", #p1, #open, "")) {
+      let tid = switch (reg.createTable(spec, rng, 0, "a", #p1, #open, "")) {
         case (#ok id) { id };
         case (#err e) Runtime.trap("freshGame: createTable failed: " # debug_show (e));
       };
-      ignore reg.joinTable(spec, 0, "b", tid, #p2, null);
+      ignore reg.joinTable(spec, rng, 0, "b", tid, #p2, null);
       tid;
     };
 
@@ -39,7 +41,7 @@ module {
         // path every lobby click and quick disconnect takes.
         case (0) {
           while (i < n) {
-            let tid = switch (reg.createTable(spec, 0, "c", #p1, #open, "")) {
+            let tid = switch (reg.createTable(spec, rng, 0, "c", #p1, #open, "")) {
               case (#ok id) id;
               case (#err e) Runtime.trap("createTable failed: " # debug_show (e));
             };
@@ -56,8 +58,8 @@ module {
             // `gen` is a fixed `1` for this game's whole lifetime (no
             // rematch ever happens here); `turn` is `i` for both calls in
             // this round — it only advances once BOTH have submitted.
-            ignore reg.submit(spec, 0, "a", tid, 1, i, #gather);
-            ignore reg.submit(spec, 0, "b", tid, 1, i, #gather);
+            ignore reg.submit(spec, rng, 0, "a", tid, 1, i, #gather);
+            ignore reg.submit(spec, rng, 0, "b", tid, 1, i, #gather);
             i += 1;
           };
           // FakeGame's #gather never ends the match, so the table is still

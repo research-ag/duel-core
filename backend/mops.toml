@@ -7,6 +7,7 @@ files = [ "src/**/*.mo" ]
 [dependencies]
 core = "2.6.2"
 promtracker = "1.0.1"
+prng = "0.2.0"
 
 [optimize]
 

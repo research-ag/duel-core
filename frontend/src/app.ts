@@ -420,9 +420,14 @@ export function start<S>({
     return { code: codeEl?.value ?? "" };
   };
 
-  // "" for a game with no `variantChoices` (no picker rendered).
-  const readCreateVariant = (): string =>
-    (screenEl.querySelector('input[name="table-variant"]:checked') as HTMLInputElement | null)?.value ?? "";
+  // The typed options of the checked choice; `{}` for a game with no
+  // `optionChoices` (no picker rendered).
+  const readCreateOptions = (): unknown => {
+    const choices = plugin.optionChoices?.() ?? [];
+    if (choices.length === 0) return {};
+    const key = (screenEl.querySelector('input[name="table-variant"]:checked') as HTMLInputElement | null)?.value;
+    return (choices.find((c) => c.key === key) ?? choices[0]).options;
+  };
 
   // One delegated listener, so re-rendering never leaks handlers.
   screenEl.addEventListener("click", (ev) => {
@@ -440,7 +445,7 @@ export function start<S>({
           client.showError("Enter an access code, or choose Open.");
           return;
         }
-        p = client.createTable(b.dataset.createTable as SeatTag, visibility, readCreateVariant());
+        p = client.createTable(b.dataset.createTable as SeatTag, visibility, readCreateOptions());
       } else if (b.dataset.joinTable && b.dataset.joinTableId) {
         p = client.joinTable(BigInt(b.dataset.joinTableId), b.dataset.joinTable as SeatTag, code);
       } else if (b.dataset.act) p = client.submit(JSON.parse(b.dataset.act));
@@ -510,12 +515,12 @@ export function start<S>({
 
   // The create-table form is live user input a redraw would reset to its
   // defaults: an unrelated push mid-fill must not silently revert
-  // "Protected" to "Open" or a variant pick. Captured before the redraw,
+  // "Protected" to "Open" or an options pick. Captured before the redraw,
   // restored after.
   interface CreateFormState {
     visibility: string; // "open" | "code"
     code: string;
-    variant: string | null; // null when this game has no variant picker
+    variant: string | null; // the picked choice's key; null without a picker
   }
 
   const captureCreateFormState = (): CreateFormState | null => {

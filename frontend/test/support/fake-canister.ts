@@ -19,7 +19,8 @@ import type { EngineErr, Seat, Status, TransportRequest, Visibility } from "../.
 export function sampleGameTypes({ IDL: I }: { IDL: typeof IDL }) {
   return {
     Action: I.Variant({ pass: I.Null }),
-    State: I.Record({ hp: I.Nat }),
+    View: I.Record({ hp: I.Nat }),
+    Options: I.Record({}),
   };
 }
 
@@ -55,8 +56,8 @@ export class FakeCanister implements TransportActor {
   keepAlives = 0;
 
   constructor() {
-    const { Action, State } = sampleGameTypes({ IDL });
-    this.types = buildEngineTypes({ IDL, Action, State });
+    const { Action, View, Options } = sampleGameTypes({ IDL });
+    this.types = buildEngineTypes({ IDL, Action, View, Options });
   }
 
   /// Round-trips `value` through Candid as the agent would, so a shape
@@ -103,12 +104,12 @@ export class FakeCanister implements TransportActor {
     return this._wire<[Ack]>([this.types.Ack], [ack])[0];
   }
 
-  async duel_submit(tableId: bigint, gen: bigint, turn: bigint, move: unknown): Promise<Reply> {
+  async duel_submit(tableId: bigint, gen: bigint, step: bigint, move: unknown): Promise<Reply> {
     const [, g, t, m] = this._wire<[bigint, bigint, bigint, unknown]>(
       [IDL.Nat, IDL.Nat, IDL.Nat, sampleGameTypes({ IDL }).Action],
-      [tableId, gen, turn, move]
+      [tableId, gen, step, move]
     );
-    const r = this._update({ submit: { gen: g, turn: t, move: m } });
+    const r = this._update({ submit: { gen: g, step: t, move: m } });
     const table = this._table();
     const reply: Reply = "err" in r
       ? { err: r.err }
@@ -117,8 +118,8 @@ export class FakeCanister implements TransportActor {
         : { err: { noSuchTable: null } as EngineErr };
     return this._wire<[Reply]>([this.types.TransportReply], [reply])[0];
   }
-  duel_create_table(seat: Seat, visibility: Visibility, variant: string): Promise<Ack> {
-    return this._acked({ createTable: { seat, visibility, variant } }, 1n);
+  duel_create_table(seat: Seat, visibility: Visibility, options: unknown): Promise<Ack> {
+    return this._acked({ createTable: { seat, visibility, options } }, 1n);
   }
   duel_join_table(tableId: bigint, seat: Seat, code: [] | [string]): Promise<Ack> {
     return this._acked({ joinTable: { id: tableId, seat, code } }, tableId);

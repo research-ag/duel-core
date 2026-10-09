@@ -20,20 +20,36 @@ func check(cond : Bool, msg : Text) {
   if (not cond) Runtime.trap(msg);
 };
 
-func fresh() : Transport.Duel<Rules.State, Rules.Action> {
-  let state = Transport.new<Rules.State, Rules.Action>();
-  state.registry.setTimeouts(SEC, SEC);
-  Transport.Duel<Rules.State, Rules.Action>(state, Rules.spec(), null, null);
+type D = Transport.Duel<Rules.State, Rules.Action, Rules.Options>;
+let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+  spec = Rules.spec();
+  bots = null;
+  scoring = null;
 };
+
+func fresh() : D {
+  let duel = Transport.new<Rules.State, Rules.Action, Rules.Options>();
+  duel.registry.setTimeouts(SEC, SEC);
+  duel;
+};
+
+// The calls a host makes, with the env and the type arguments filled in.
+func create<system>(duel : D, caller : Principal.Principal, options : Rules.Options) : async* Transport.Ack {
+  await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, #p1, #open, options);
+};
+func join<system>(duel : D, caller : Principal.Principal, id : TP.TableId) : async* Transport.Ack {
+  await* duel.joinTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, id, #p2, null);
+};
+func tableOf(duel : D, caller : Principal.Principal, id : TP.TableId, rev : Nat) : Transport.TableResult<Rules.View> = duel.table(env, caller, id, rev);
 
 func acked(a : Transport.Ack, msg : Text) : { tableId : TP.TableId; rev : Nat } = switch (a) {
   case (#ok v) v;
   case (#err e) Runtime.trap(msg # " failed: " # debug_show e);
 };
 
-func lobbyOf(r : Transport.LobbyResult) : {
+func lobbyOf(r : Transport.LobbyResult<Rules.Options>) : {
   rev : Nat;
-  tables : [TP.TableSummary];
+  tables : [TP.TableSummary<Rules.Options>];
   yours : [TP.TableId];
 } = switch (r) {
   case (#changed l) l;
@@ -50,72 +66,76 @@ do {
 // ── 2. a table's rev: #changed on rev 0 or a stale rev, else #unchanged ─────
 do {
   let duel = fresh();
-  let { tableId; rev } = acked(await* duel.createTable<system>(PA, #p1, #open, ""), "2: PA creates");
+  let { tableId; rev } = acked(await* create<system>(duel, PA, ""), "2: PA creates");
   check(rev > 0, "2a: a created table has moved off rev 0");
-  switch (duel.table(PA, tableId, 0)) {
+  switch (tableOf(duel, PA, tableId, 0)) {
     case (#changed { rev = r; view = #stagingYou _ }) check(r == rev, "2b: rev 0 gets the view at the acked rev");
     case (other) Runtime.trap("2b: expected PA's staging view, got " # debug_show other);
   };
-  check(duel.table(PA, tableId, rev) == #unchanged, "2c: the same rev is #unchanged");
-  let joined = acked(await* duel.joinTable<system>(PB, tableId, #p2, null), "2: PB joins");
+  check(tableOf(duel, PA, tableId, rev) == #unchanged, "2c: the same rev is #unchanged");
+  let joined = acked(await* join<system>(duel, PB, tableId), "2: PB joins");
   check(joined.rev > rev, "2d: a join moves the table's rev");
-  switch (duel.table(PA, tableId, rev)) {
+  switch (tableOf(duel, PA, tableId, rev)) {
     case (#changed { view = #inGame _ }) {};
     case (other) Runtime.trap("2e: PA's stale rev must get the game, got " # debug_show other);
   };
-  check(duel.table(PA, 999, 0) == #gone, "2f: no such table is #gone");
+  check(tableOf(duel, PA, 999, 0) == #gone, "2f: no such table is #gone");
   Debug.print("2. table revs OK");
 };
 
 // ── 3. the lobby: open tables for everyone, `yours` per caller ──────────────
 do {
   let duel = fresh();
-  let empty = lobbyOf(duel.lobbyOf(PB, 0));
+  let empty = lobbyOf(duel.lobbyView(PB, 0));
   check(empty.tables.size() == 0 and empty.yours.size() == 0, "3a: an empty lobby");
-  let { tableId } = acked(await* duel.createTable<system>(PA, #p1, #open, ""), "3: PA creates");
-  let forB = lobbyOf(duel.lobbyOf(PB, 0));
+  let { tableId } = acked(await* create<system>(duel, PA, ""), "3: PA creates");
+  let forB = lobbyOf(duel.lobbyView(PB, 0));
   check(forB.rev > empty.rev, "3b: creating a table moves the lobby's rev");
   check(forB.tables.size() == 1 and forB.yours.size() == 0, "3c: PB sees the open table, none of its own");
-  check(lobbyOf(duel.lobbyOf(PA, 0)).yours == [tableId], "3d: PA's own table is in `yours`");
-  check(duel.lobbyOf(PB, forB.rev) == #unchanged, "3e: the same lobby rev is #unchanged");
-  ignore await* duel.submit<system>(PA, tableId, 0, 0, #gather); // not in a game: rejected
-  check(duel.lobbyOf(PB, forB.rev) == #unchanged, "3f: a rejected submit moves nothing");
+  check(lobbyOf(duel.lobbyView(PA, 0)).yours == [tableId], "3d: PA's own table is in `yours`");
+  check(duel.lobbyView(PB, forB.rev) == #unchanged, "3e: the same lobby rev is #unchanged");
+  ignore await* duel.submit<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, PA, tableId, 0, 0, #gather); // not in a game: rejected
+  check(duel.lobbyView(PB, forB.rev) == #unchanged, "3f: a rejected submit moves nothing");
   Debug.print("3. lobby revs and `yours` OK");
 };
 
-// ── 4. at most MAX_TABLES_PER_PLAYER tables; the anonymous caller is refused
+// ── 4. the table cap; the anonymous caller and rejected options are refused
 do {
   let duel = fresh();
   for (_ in Nat.range(0, Registry.MAX_TABLES_PER_PLAYER)) {
-    ignore acked(await* duel.createTable<system>(PA, #p1, #open, ""), "4: PA creates up to the cap");
+    ignore acked(await* create<system>(duel, PA, ""), "4: PA creates up to the cap");
   };
-  switch (await* duel.createTable<system>(PA, #p1, #open, "")) {
+  switch (await* create<system>(duel, PA, "")) {
     case (#err(#tooManyTables { max })) check(max == Registry.MAX_TABLES_PER_PLAYER, "4a: the cap is reported");
     case (other) Runtime.trap("4a: one table too many must be refused, got " # debug_show other);
   };
-  check(lobbyOf(duel.lobbyOf(PA, 0)).yours.size() == Registry.MAX_TABLES_PER_PLAYER, "4b: PA holds exactly the cap");
-  switch (await* duel.createTable<system>(Principal.anonymous(), #p1, #open, "")) {
+  check(lobbyOf(duel.lobbyView(PA, 0)).yours.size() == Registry.MAX_TABLES_PER_PLAYER, "4b: PA holds exactly the cap");
+  switch (await* create<system>(duel, Principal.anonymous(), "")) {
     case (#err(#unauthorized)) {};
     case (other) Runtime.trap("4c: the anonymous caller must be refused, got " # debug_show other);
   };
   check(duel.keepAlive(Principal.anonymous()) == #err(#unauthorized), "4d: ...for keepAlive too");
+  switch (await* create<system>(fresh(), PB, "bad")) {
+    case (#err(#badOptions _)) {};
+    case (other) Runtime.trap("4e: options the game rejects must not open a table, got " # debug_show other);
+  };
   Debug.print("4. table cap and anonymous caller OK");
 };
 
 // ── 5. a waiting table: kept through a sweep while kept alive, then gone ────
 do {
   let duel = fresh();
-  let { tableId; rev } = acked(await* duel.createTable<system>(PA, #p1, #open, ""), "5: PA creates");
+  let { tableId; rev } = acked(await* create<system>(duel, PA, ""), "5: PA creates");
   let t0 = Time.now();
   check(duel.keepAlive(PA) == #ok, "5: keepAlive");
   // Past the 1 s idle timeout, still inside the presence TTL.
-  await* duel.sweep<system>(t0 + 5 * SEC);
-  check(duel.table(PA, tableId, rev) == #unchanged, "5a: a kept-alive waiting table survives the sweep");
+  await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, t0 + 5 * SEC);
+  check(tableOf(duel, PA, tableId, rev) == #unchanged, "5a: a kept-alive waiting table survives the sweep");
   // The creator went silent for longer than the presence TTL.
-  let lobbyBefore = lobbyOf(duel.lobbyOf(PB, 0)).rev;
-  await* duel.sweep<system>(t0 + Transport.PRESENCE_TTL_NS + 5 * SEC);
-  check(duel.table(PA, tableId, rev) == #gone, "5b: a silent creator's waiting table is cleared");
-  check(lobbyOf(duel.lobbyOf(PB, 0)).rev > lobbyBefore, "5c: the sweep moved the lobby's rev");
+  let lobbyBefore = lobbyOf(duel.lobbyView(PB, 0)).rev;
+  await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, t0 + Transport.PRESENCE_TTL_NS + 5 * SEC);
+  check(tableOf(duel, PA, tableId, rev) == #gone, "5b: a silent creator's waiting table is cleared");
+  check(lobbyOf(duel.lobbyView(PB, 0)).rev > lobbyBefore, "5c: the sweep moved the lobby's rev");
   Debug.print("5. keep-alive and sweep OK");
 };
 

@@ -1,4 +1,5 @@
-/// The six `*_as_canister` Candid methods plus bot discovery
+/// The five `*_as_canister` Candid methods (join/leave/ack_ended/
+/// claim_win/reset) plus bot discovery
 /// (`register_bot`/`unregister_bot`/`list_bots`) for a host that wires
 /// `mo:duel-game-core/canister_players`. Every method derives the
 /// caller's own `cp:` player id from `caller` and forwards; no game logic
@@ -18,15 +19,6 @@ mixin (endpoint : ?CanisterPlayers.Endpoint, directory : CanisterPlayers.BotDire
   transient let cp : CanisterPlayers.Endpoint = switch (endpoint) {
     case (?e) e;
     case null Runtime.trap("CanisterPlayersActorMixin needs a Duel built with bots");
-  };
-
-  public shared ({ caller }) func create_table_as_canister(
-    seat : T.Seat,
-    visibility : T.TableVisibility,
-    variant : Text,
-    complexity : Text,
-  ) : async T.Res<T.TableId> {
-    await* cp.createTable<system>(caller, seat, visibility, variant, complexity);
   };
 
   public shared ({ caller }) func join_table_as_canister(

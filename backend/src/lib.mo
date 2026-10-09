@@ -23,7 +23,7 @@
 ///     // duel_submit/duel_table pass-throughs — see `./transport`
 ///   };
 ///
-/// `Registry<S, M>`/`Table<S, M>` are stable whenever `S`/`M` are; the
+/// `Registry<S, M, O>`/`Table<S, M, O>` are stable whenever `S`/`M`/`O` are; the
 /// `Spec` is passed on every call and never stored. A stable `state`
 /// skips `Transport.new` on upgrade, so the host re-applies its timeouts
 /// with `state.registry.setTimeouts` on the very next line.
@@ -55,22 +55,23 @@ module {
   public type Seat = T.Seat;
   public type Verdict = T.Verdict;
   public type Mode = T.Mode;
-  public type Registry<S, M> = T.Registry<S, M>;
-  public type TableSummary = T.TableSummary;
-  public type MoveRequest<S, M> = T.MoveRequest<S, M>;
-  public type Spec<S, M> = T.Spec<S, M>;
+  public type Rng = T.Rng;
+  public type Registry<S, M, O> = T.Registry<S, M, O>;
+  public type TableSummary<O> = T.TableSummary<O>;
+  public type MoveRequest<V, M> = T.MoveRequest<V, M>;
+  public type Spec<S, M, V, O> = T.Spec<S, M, V, O>;
   public type Staging = T.Staging;
   public type Active<S, M> = T.Active<S, M>;
   public type End = T.End;
   public type Debrief<S> = T.Debrief<S>;
   public type Phase<S, M> = T.Phase<S, M>;
   public type Ended = T.Ended;
-  public type Table<S, M> = T.Table<S, M>;
+  public type Table<S, M, O> = T.Table<S, M, O>;
   public type Err = T.Err;
   public type Res<T> = T.Res<T>;
   public type JoinOk = T.JoinOk;
   public type SubmitOk = T.SubmitOk;
   public type RematchOk = T.RematchOk;
-  public type View<S> = T.View<S>;
+  public type TableView<V> = T.TableView<V>;
 
 };

@@ -9,13 +9,14 @@ import { buildEngineTypes, makeIdlFactory } from "../src/idl.js";
 function sampleGameTypes({ IDL: I }: { IDL: typeof IDL }) {
   return {
     Action: I.Variant({ pass: I.Null, shoot: I.Nat }),
-    State: I.Record({ hp: I.Nat }),
+    View: I.Record({ hp: I.Nat }),
+    Options: I.Record({}),
   };
 }
 
 test("buildEngineTypes builds every named type without throwing", () => {
-  const { Action, State } = sampleGameTypes({ IDL });
-  const t = buildEngineTypes({ IDL, Action, State });
+  const { Action, View, Options } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, View, Options });
   for (const key of [
     "Seat", "Verdict", "End", "Err", "View", "LeaderboardEntry",
     "TransportRequest", "TransportReply", "Ack", "TableResult", "LobbyResult", "KeepAliveResult",
@@ -47,15 +48,16 @@ test("makeIdlFactory produces a Service with get_leaderboard + bot discovery + t
 });
 
 test("View round-trips through Candid encode/decode for a game's own State shape", () => {
-  const { Action, State } = sampleGameTypes({ IDL });
-  const t = buildEngineTypes({ IDL, Action, State });
+  const { Action, View, Options } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, View, Options });
 
   const view = {
     inGame: {
       mode: { simultaneous: null },
+      toMove: [],
       seat: { p1: null },
       game: { hp: 10n },
-      turn: 3n,
+      step: 3n,
       youSubmitted: true,
       oppSubmitted: false,
       gen: 1n,
@@ -72,10 +74,10 @@ test("View round-trips through Candid encode/decode for a game's own State shape
 });
 
 test("TransportRequest round-trips a game's own Action through the submit variant", () => {
-  const { Action, State } = sampleGameTypes({ IDL });
-  const t = buildEngineTypes({ IDL, Action, State });
+  const { Action, View, Options } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, View, Options });
 
-  const req = { submit: { gen: 1n, turn: 2n, move: { shoot: 5n } } };
+  const req = { submit: { gen: 1n, step: 2n, move: { shoot: 5n } } };
   const bytes = IDL.encode([t.TransportRequest], [req]);
   const [decoded] = IDL.decode(
     [t.TransportRequest],
@@ -85,8 +87,8 @@ test("TransportRequest round-trips a game's own Action through the submit varian
 });
 
 test("TransportRequest round-trips the claimWin variant", () => {
-  const { Action, State } = sampleGameTypes({ IDL });
-  const t = buildEngineTypes({ IDL, Action, State });
+  const { Action, View, Options } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, View, Options });
 
   const req = { claimWin: { gen: 1n } };
   const bytes = IDL.encode([t.TransportRequest], [req]);
@@ -98,8 +100,8 @@ test("TransportRequest round-trips the claimWin variant", () => {
 });
 
 test("Err round-trips every variant shape", () => {
-  const { Action, State } = sampleGameTypes({ IDL });
-  const t = buildEngineTypes({ IDL, Action, State });
+  const { Action, View, Options } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, View, Options });
 
   for (const err of [
     { seatTaken: null },

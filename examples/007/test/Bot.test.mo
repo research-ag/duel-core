@@ -8,13 +8,16 @@ import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
 
 import TP "mo:duel-game-core";
+import Rng "mo:duel-game-core/rng";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import Registry "mo:duel-game-core/registry";
 
 import BotLogic "../bot/BotLogic";
 import Rules "../src/Duel007Rules";
 
-let spec = Rules.spec();
+let rng = Rng.new(42);
+
+let spec = Rules.spec;
 let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
@@ -32,18 +35,18 @@ func stateOf(p1 : Rules.AgentStats, p2 : Rules.AgentStats) : Rules.State = {
   lastRound = null;
 };
 
-func requestFor(s : Rules.State, seat : TP.Seat, complexity : Text, last : ?Rules.Action) : TP.MoveRequest<Rules.State, Rules.Action> = {
+func requestFor(s : Rules.State, seat : TP.Seat, complexity : Text, last : ?Rules.Action) : TP.MoveRequest<Rules.View, Rules.Action> = {
   tableId = 0;
   seat;
   game = s;
   mode = #simultaneous;
-  turn = 0;
+  step = 0;
   gen = 0;
   complexity;
   retryReason = null;
   opponent = "p2";
   opponentLastMove = last;
-  lastRoundDurationNs = null;
+  lastStepDurationNs = null;
 };
 
 func legal(s : Rules.State, seat : TP.Seat, a : Rules.Action) : Bool = Rules.validate(s, seat, a) == null;
@@ -130,7 +133,7 @@ Debug.print("3. Medium: finishing shot, no needless defense, laser draw, rarely 
 
 // ── 4. full games, Medium vs Easy (both seats): Medium out-scores Easy ──────
 func playout(p1c : Text, p2c : Text, seed : Int) : ?TP.Verdict {
-  var s = Rules.init("");
+  var s = Rules.init({}, rng);
   var turn = 0;
   var last1 : ?Rules.Action = null;
   var last2 : ?Rules.Action = null;
@@ -172,8 +175,8 @@ Debug.print("4. Medium beats Easy decisively, seated either way OK");
 // ── 5. wired live through canister_players.mo: two canister seats play a
 //      full real #simultaneous match ──────────────────────────────────────────
 // The player's first table and their view of it, or `#browsing`.
-func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.PlayerId) : {
-  #atTable : { id : TP.TableId; view : TP.View<Rules.State> };
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action, Rules.Options>, at : Int, p : TP.PlayerId) : {
+  #atTable : { id : TP.TableId; view : TP.TableView<Rules.State> };
   #browsing;
 } {
   let ids = reg.tablesOf(p);
@@ -181,6 +184,19 @@ func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.Pla
   switch (reg.view(spec, at, p, ids[0])) {
     case (?v) #atTable { id = ids[0]; view = v };
     case null #browsing;
+  };
+};
+
+// A bot opening a table: seats it directly (bots open no tables
+// themselves through the canister-player methods) and runs the same
+// fan-out a mutation does.
+func botCreates<system>(ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action, Rules.View, Rules.Options>, bot : Principal.Principal, seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options, complexity : Text) : async* TP.Res<TP.TableId> {
+  switch (ctx.registry.createTable(ctx.spec, ctx.rng, T0, CanisterPlayers.idForCanister(bot, complexity), seat, visibility, options)) {
+    case (#ok id) {
+      await* ctx.afterMutation<system>(T0, id, true);
+      #ok id;
+    };
+    case (#err e) #err e;
   };
 };
 
@@ -195,18 +211,19 @@ let bot2 = Principal.fromText("2vxsx-fae");
 var entropy : Int = T0;
 
 func playFullMatch(c1 : Text, c2 : Text) : async* () {
-  let reg = Registry.new<Rules.State, Rules.Action>();
+  let reg = Registry.new<Rules.State, Rules.Action, Rules.Options>();
   reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
   // The bots without the transport: every mutation settles the table
   // right away, and no timers (the interpreter has none).
   func settleAfter<system>(now : Int, id : TP.TableId, _ : Bool) : async* () {
-    await* CanisterPlayers.settle<system, Rules.State, Rules.Action>(ctx, now, id);
+    await* CanisterPlayers.settle<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx, now, id);
   };
-  let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action> = {
+  let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
     registry = reg;
     spec;
+    rng;
     store = CanisterPlayers.newStore();
-    call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+    call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.View, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
       entropy += 1_000_003;
       await* k<system>(?BotLogic.chooseMove(req, entropy));
     };
@@ -217,7 +234,7 @@ func playFullMatch(c1 : Text, c2 : Text) : async* () {
   };
   let cp = CanisterPlayers.endpointOf(ctx);
 
-  let id = ok(await* cp.createTable<system>(bot1, #p1, #open, "", c1), "bot1 creates a table");
+  let id = ok(await* botCreates<system>(ctx, bot1, #p1, #open, {}, c1), "bot1 creates a table");
   let sidBot1 = CanisterPlayers.idForCanister(bot1, c1);
   ignore ok(await* cp.joinTable<system>(bot2, id, #p2, null, c2), "bot2 joins; game starts");
 
@@ -239,7 +256,7 @@ func playFullMatch(c1 : Text, c2 : Text) : async* () {
       };
       case (other) Runtime.trap("unexpected state for bot1: " # debug_show (other));
     };
-    await* CanisterPlayers.sweep<system, Rules.State, Rules.Action>(ctx, T0);
+    await* CanisterPlayers.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx, T0);
     round += 1;
   };
   assert not stalled;

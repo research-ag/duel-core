@@ -1,10 +1,11 @@
 // Candid interface factory for any duel-game-core canister. Every type
-// except `Action`/`State` is fixed by the engine. `IDL` always arrives as
-// a parameter from the caller's own Candid tooling.
+// except the game's `Action`/`View`/`Options` is fixed by the engine.
+// `IDL` always arrives as a parameter from the caller's own Candid tooling.
 //
 //   const idlFactory = makeIdlFactory(({ IDL }) => ({
 //     Action: IDL.Variant({ /* ... */ }),
-//     State: IDL.Record({ /* ... */ }),
+//     View: IDL.Record({ /* ... */ }),     // what one seat sees of the state
+//     Options: IDL.Record({}),             // a table's options
 //   }));
 //   const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
@@ -12,7 +13,8 @@ import type { IDL as IDLNS } from "@icp-sdk/core/candid";
 
 export type BuildGameTypes = (args: { IDL: typeof IDLNS }) => {
   Action: IDLNS.Type;
-  State: IDLNS.Type;
+  View: IDLNS.Type;
+  Options: IDLNS.Type;
 };
 
 export interface EngineTypes {
@@ -42,14 +44,16 @@ export interface EngineTypes {
 export function buildEngineTypes({
   IDL,
   Action,
-  State,
+  View: GameView,
+  Options,
 }: {
   IDL: typeof IDLNS;
   Action: IDLNS.Type;
-  State: IDLNS.Type;
+  View: IDLNS.Type;
+  Options: IDLNS.Type;
 }): EngineTypes {
   const Seat = IDL.Variant({ p1: IDL.Null, p2: IDL.Null });
-  const Mode = IDL.Variant({ simultaneous: IDL.Null, alternating: IDL.Null });
+  const Mode = IDL.Variant({ simultaneous: IDL.Null, turnBased: IDL.Null });
   const Verdict = IDL.Variant({
     p1Wins: IDL.Null,
     p2Wins: IDL.Null,
@@ -91,9 +95,10 @@ export function buildEngineTypes({
     awaitingRematch: IDL.Record({ openSeat: Seat, gen: IDL.Nat }),
     inGame: IDL.Record({
       seat: Seat,
-      game: State,
-      turn: IDL.Nat,
+      game: GameView,
+      step: IDL.Nat,
       mode: Mode,
+      toMove: IDL.Opt(Seat),
       youSubmitted: IDL.Bool,
       oppSubmitted: IDL.Bool,
       gen: IDL.Nat,
@@ -106,8 +111,8 @@ export function buildEngineTypes({
     debrief: IDL.Record({
       seat: Seat,
       end: End,
-      turns: IDL.Nat,
-      finalGame: State,
+      steps: IDL.Nat,
+      finalGame: GameView,
       gen: IDL.Nat,
     }),
     endedByOther: IDL.Null,
@@ -122,7 +127,7 @@ export function buildEngineTypes({
     p2Session: IDL.Opt(IDL.Text),
     protected: IDL.Bool,
     waitingSecs: IDL.Nat,
-    variant: IDL.Text,
+    options: Options,
   });
   const Status = IDL.Variant({
     browsing: IDL.Record({ tables: IDL.Vec(TableSummary) }),
@@ -151,9 +156,9 @@ export function buildEngineTypes({
   // to its method); never sent as such, only used to reject a malformed
   // request before it is queued.
   const TransportRequest = IDL.Variant({
-    createTable: IDL.Record({ seat: Seat, visibility: Visibility, variant: IDL.Text }),
+    createTable: IDL.Record({ seat: Seat, visibility: Visibility, options: Options }),
     joinTable: IDL.Record({ id: TableId, seat: Seat, code: IDL.Opt(IDL.Text) }),
-    submit: IDL.Record({ gen: IDL.Nat, turn: IDL.Nat, move: Action }),
+    submit: IDL.Record({ gen: IDL.Nat, step: IDL.Nat, move: Action }),
     rematch: IDL.Null,
     leave: IDL.Record({ gen: IDL.Nat }),
     reset: IDL.Record({ gen: IDL.Nat }),
@@ -184,21 +189,21 @@ export function buildEngineTypes({
   };
 }
 
-/// Wraps a game's `{ Action, State }` in the fixed service shape. Game
+/// Wraps a game's `{ Action, View, Options }` in the fixed service shape. Game
 /// state is mutated only through the `duel_*` transport methods.
 /// `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots` are
 /// declared unconditionally; a client that never calls them pays nothing.
 export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
   return ({ IDL }: { IDL: typeof IDLNS }) => {
-    const { Action, State } = buildGameTypes({ IDL });
-    const t = buildEngineTypes({ IDL, Action, State });
+    const { Action, View, Options } = buildGameTypes({ IDL });
+    const t = buildEngineTypes({ IDL, Action, View, Options });
 
     return IDL.Service({
       get_leaderboard: IDL.Func([], [IDL.Vec(t.LeaderboardEntry)], ["query"]),
       register_bot: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [], []),
       unregister_bot: IDL.Func([], [], []),
       list_bots: IDL.Func([], [IDL.Vec(t.BotInfo)], ["query"]),
-      duel_create_table: IDL.Func([t.Seat, t.Visibility, IDL.Text], [t.Ack], []),
+      duel_create_table: IDL.Func([t.Seat, t.Visibility, Options], [t.Ack], []),
       duel_join_table: IDL.Func([t.TableId, t.Seat, IDL.Opt(IDL.Text)], [t.Ack], []),
       duel_rematch: IDL.Func([t.TableId], [t.Ack], []),
       duel_leave: IDL.Func([t.TableId, IDL.Nat], [t.Ack], []),
@@ -217,7 +222,7 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
 /// code, complexity)`, called directly on the bot's canister (never through
 /// `transport.mo`). Reuses `buildEngineTypes` for `Seat`/`TableId`/`Err`.
 export function buildBotPlayIdlFactory({ IDL }: { IDL: typeof IDLNS }) {
-  const t = buildEngineTypes({ IDL, Action: IDL.Null, State: IDL.Null });
+  const t = buildEngineTypes({ IDL, Action: IDL.Null, View: IDL.Null, Options: IDL.Null });
   const JoinOk = IDL.Variant({ staged: t.Seat, started: t.Seat });
   const Res = IDL.Variant({ ok: JoinOk, err: t.Err });
   return IDL.Service({

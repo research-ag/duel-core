@@ -54,7 +54,7 @@ function renderRpsDebrief(v, p) {
       <span class="rps-final-opp">${score(opp)}</span>
     </p>
     ${renderLastRound(v.finalGame, me, opp)}
-    <p class="muted">${v.turns} round${v.turns === 1n ? "" : "s"} of ${esc(p.formatVariant(Object.keys(v.finalGame.variant)[0]))}.</p>
+    <p class="muted">${v.steps} round${v.steps === 1n ? "" : "s"} of ${esc(p.formatOptions({ variant: v.finalGame.variant, winsNeeded: v.finalGame.winsNeeded }))}.</p>
     <p>
       <button data-rematch class="primary">Play again</button>
       <button data-leave class="ghost">Back to the lobby</button>
@@ -168,7 +168,7 @@ botBack.addEventListener("click", () => {
 // This session's own staging (`seat === undefined`), or a new table.
 async function stageFor(seat) {
   if (seat === undefined) return staging;
-  const res = await transport.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, variant: "" } });
+  const res = await transport.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, options: { variant: { classic: null }, winsNeeded: 3n } } });
   if ("err" in res) throw new Error(errText(res.err));
   const status = res.view;
   if (!("atTable" in status) || tag(status.atTable.view) !== "stagingYou") {

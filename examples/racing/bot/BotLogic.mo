@@ -130,15 +130,15 @@ module {
     { l = 55.01751287490851; c = 0.005903987969513282 },
   ];
 
-  public func chooseMove(req : TP.MoveRequest<Rules.State, Rules.Action>) : Rules.Action {
+  public func chooseMove(req : TP.MoveRequest<Rules.View, Rules.Action>) : Rules.Action {
     let (state, script) = switch (req.seat) {
       case (#p1) (req.game.p1, SCRIPT_P1);
       case (#p2) (req.game.p2, SCRIPT_P2);
     };
-    if (req.turn >= script.size()) {
+    if (req.step >= script.size()) {
       { l = Float.max(5, state.speed * 0.75); c = 0.0 };
     } else {
-      script[req.turn : Nat];
+      script[req.step : Nat];
     };
   };
 

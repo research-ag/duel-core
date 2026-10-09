@@ -204,20 +204,22 @@ export const plugin = {
       attack: IDL.Record({ from: HandId, to: HandId }),
       split: IDL.Record({ l: IDL.Nat, r: IDL.Nat }),
     });
-    const State = IDL.Record({ variant: Variant, p1: Hands, p2: Hands });
-    return { Action, State };
+    // Nothing is hidden: the view is the whole state.
+    const View = IDL.Record({ variant: Variant, p1: Hands, p2: Hands, toMove: IDL.Variant({ p1: IDL.Null, p2: IDL.Null }) });
+    const Options = Variant;
+    return { Action, View, Options };
   },
 
   seatLabel(seat) {
     return SEAT_NAME[seat];
   },
 
-  variantChoices() {
-    return RULE_SETS.map((r) => ({ key: r.key, label: r.title }));
+  optionChoices() {
+    return RULE_SETS.map((r) => ({ key: r.key, label: r.title, options: { [r.key]: null } }));
   },
 
-  formatVariant(variant) {
-    return ruleSetOf(variant).title;
+  formatOptions(options) {
+    return ruleSetOf(Object.keys(options)[0]).title;
   },
 
   renderBoard(gameState, mySeat, oppSeat) {

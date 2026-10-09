@@ -10,7 +10,7 @@
 /// canister apart at the same table.
 ///
 /// `notifyAndApply` is the protocol: build a `MoveRequest` from the
-/// table's own status, `await` the host's `CallBot`, re-read `gen`/`turn`
+/// table's own status, `await` the host's `CallBot`, re-read `gen`/`step`
 /// fresh, `registry.submit`, then the same fan-out `transport.mo` runs
 /// (which ends in `settle`). An
 /// illegal reply is retried once with `retryReason`; a trap or any other
@@ -164,7 +164,7 @@ module {
   /// since an inter-canister call returning a generic `M` does not
   /// type-check here. Continuation-passing: the host calls `k(?move)` on
   /// a reply, `k(null)` on a trap or rejection.
-  public type CallBot<S, M> = <system>(T.PlayerId, T.MoveRequest<S, M>, <system>(?M) -> async* ()) -> async* ();
+  public type CallBot<V, M> = <system>(T.PlayerId, T.MoveRequest<V, M>, <system>(?M) -> async* ()) -> async* ();
 
   /// Everything kept here. Stable.
   public type Store = {
@@ -184,11 +184,12 @@ module {
   /// What `settle` and friends need from the transport: the registry and
   /// rules, the host's `CallBot`, and the transport's fan-out after a
   /// mutation made here (which itself ends in `settle`).
-  public type Ctx<S, M> = {
-    registry : T.Registry<S, M>;
-    spec : T.Spec<S, M>;
+  public type Ctx<S, M, V, O> = {
+    registry : T.Registry<S, M, O>;
+    spec : T.Spec<S, M, V, O>;
+    rng : T.Rng;
     store : Store;
-    call : CallBot<S, M>;
+    call : CallBot<V, M>;
     afterMutation : <system>(Int, T.TableId, Bool) -> async* ();
     /// Arms a `settle(id)` after `secs` from a fresh message.
     arm : <system>(T.TableId, Nat) -> ();
@@ -209,11 +210,11 @@ module {
     };
   };
 
-  func inGameView<S, M>(ctx : Ctx<S, M>, now : Int, id : T.TableId, player : T.PlayerId) : ?{
+  func inGameView<S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, player : T.PlayerId) : ?{
     seat : T.Seat;
-    game : S;
+    game : V;
     mode : T.Mode;
-    turn : Nat;
+    step : Nat;
     gen : Nat;
     youSubmitted : Bool;
     claimWinAvailable : Bool;
@@ -224,7 +225,7 @@ module {
         seat = ig.seat;
         game = ig.game;
         mode = ig.mode;
-        turn = ig.turn;
+        step = ig.step;
         gen = ig.gen;
         youSubmitted = ig.youSubmitted;
         claimWinAvailable = ig.claimWinAvailable;
@@ -237,7 +238,7 @@ module {
   /// `null` unless `player` is seated in-game at `id` and due to move
   /// (`not youSubmitted` means "due" in either mode). Fields `View`
   /// lacks come from the `Active` record in the same synchronous step.
-  func dueRequest<S, M>(ctx : Ctx<S, M>, now : Int, id : T.TableId, player : T.PlayerId) : ?T.MoveRequest<S, M> {
+  func dueRequest<S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, player : T.PlayerId) : ?T.MoveRequest<V, M> {
     let ?ig = inGameView(ctx, now, id, player) else return null;
     if (ig.youSubmitted) return null;
     switch (ctx.registry.tables.get(id)) {
@@ -252,13 +253,13 @@ module {
             seat = ig.seat;
             game = ig.game;
             mode = ig.mode;
-            turn = ig.turn;
+            step = ig.step;
             gen = ig.gen;
             complexity = complexityOfCanisterSession(player);
             retryReason = null;
             opponent;
             opponentLastMove;
-            lastRoundDurationNs = g.lastRoundDurationNs;
+            lastStepDurationNs = g.lastStepDurationNs;
           };
         };
         case (_) null;
@@ -267,11 +268,11 @@ module {
     };
   };
 
-  func notifyAndApply<system, S, M>(ctx : Ctx<S, M>, id : T.TableId, player : T.PlayerId, req : T.MoveRequest<S, M>) : async* () {
+  func notifyAndApply<system, S, M, V, O>(ctx : Ctx<S, M, V, O>, id : T.TableId, player : T.PlayerId, req : T.MoveRequest<V, M>) : async* () {
     let key = flightKey(id, req.seat);
     ctx.store.inFlight.add(key, ());
 
-    func tryOnce<system>(triesLeft : Nat, thisReq : T.MoveRequest<S, M>) : async* () {
+    func tryOnce<system>(triesLeft : Nat, thisReq : T.MoveRequest<V, M>) : async* () {
       await* ctx.call<system>(
         player,
         thisReq,
@@ -280,11 +281,11 @@ module {
             case null {}; // trapped/errored — silence
             case (?move) {
               let now = Time.now();
-              // Re-read gen/turn fresh: the table may have moved on
+              // Re-read gen/step fresh: the table may have moved on
               // during the bot's await.
               switch (dueRequest(ctx, now, id, player)) {
                 case null {};
-                case (?fresh) switch (ctx.registry.submit(ctx.spec, now, player, id, fresh.gen, fresh.turn, move)) {
+                case (?fresh) switch (ctx.registry.submit(ctx.spec, ctx.rng, now, player, id, fresh.gen, fresh.step, move)) {
                   case (#ok _) {
                     enterReply(ctx.store, id);
                     await* ctx.afterMutation<system>(now, id, false);
@@ -308,7 +309,7 @@ module {
     ctx.store.inFlight.remove(key);
   };
 
-  func isDue<S, M>(ctx : Ctx<S, M>, now : Int, id : T.TableId, player : T.PlayerId) : Bool {
+  func isDue<S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, player : T.PlayerId) : Bool {
     switch (inGameView(ctx, now, id, player)) {
       case (?ig) not ig.youSubmitted;
       case null false;
@@ -322,7 +323,7 @@ module {
   /// advances one move per message, never inside one call. Waiting and
   /// overdue: claim. Waiting, not yet overdue: arm one wakeup. No-op
   /// outside `#active`.
-  func maybeNotify<system, S, M>(ctx : Ctx<S, M>, now : Int, id : T.TableId, player : T.PlayerId, dueAtStart : Bool) : async* () {
+  func maybeNotify<system, S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, player : T.PlayerId, dueAtStart : Bool) : async* () {
     if (not isCanisterSession(player)) return;
     let ?ig = inGameView(ctx, now, id, player) else return;
     if (not ig.youSubmitted) {
@@ -330,7 +331,7 @@ module {
         ctx.arm<system>(id, 0);
       } else if (ctx.store.inFlight.get(flightKey(id, ig.seat)) == null) {
         switch (dueRequest(ctx, now, id, player)) {
-          case (?req) await* notifyAndApply<system, S, M>(ctx, id, player, req);
+          case (?req) await* notifyAndApply<system, S, M, V, O>(ctx, id, player, req);
           case null {};
         };
       };
@@ -347,7 +348,7 @@ module {
   /// Acks a canister seat's debrief once the partner is no longer a live
   /// participant or is itself a canister (two canister seats would
   /// otherwise deadlock on each other's ack).
-  func maybeAckDebrief<system, S, M>(ctx : Ctx<S, M>, now : Int, id : T.TableId, t : T.Table<S, M>, d : T.Debrief<S>, player : T.PlayerId) : async* () {
+  func maybeAckDebrief<system, S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, t : T.Table<S, M, O>, d : T.Debrief<S>, player : T.PlayerId) : async* () {
     if (not isCanisterSession(player)) return;
     if (t.activeDebriefSeat(d, player) == null) return;
     let partner = if (d.p1 == player) { d.p2 } else { d.p1 };
@@ -361,19 +362,19 @@ module {
 
   /// Asks a due canister seat, claims for an overdue one, acks a
   /// finished canister seat's debrief. Run after every mutation.
-  public func settle<system, S, M>(ctx : Ctx<S, M>, now : Int, id : T.TableId) : async* () {
+  public func settle<system, S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId) : async* () {
     switch (ctx.registry.tables.get(id)) {
       case null {};
       case (?t) switch (t.phase) {
         case (#active g) {
           let due1 = isDue(ctx, now, id, g.p1);
           let due2 = isDue(ctx, now, id, g.p2);
-          await* maybeNotify<system, S, M>(ctx, now, id, g.p1, due1);
-          await* maybeNotify<system, S, M>(ctx, now, id, g.p2, due2);
+          await* maybeNotify<system, S, M, V, O>(ctx, now, id, g.p1, due1);
+          await* maybeNotify<system, S, M, V, O>(ctx, now, id, g.p2, due2);
         };
         case (#debrief d) {
-          await* maybeAckDebrief<system, S, M>(ctx, now, id, t, d, d.p1);
-          await* maybeAckDebrief<system, S, M>(ctx, now, id, t, d, d.p2);
+          await* maybeAckDebrief<system, S, M, V, O>(ctx, now, id, t, d, d.p1);
+          await* maybeAckDebrief<system, S, M, V, O>(ctx, now, id, t, d, d.p2);
         };
         case (_) {};
       };
@@ -381,15 +382,15 @@ module {
   };
 
   /// The slow full-registry fallback.
-  public func sweep<system, S, M>(ctx : Ctx<S, M>, now : Int) : async* () {
+  public func sweep<system, S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int) : async* () {
     for ((id, _) in ctx.registry.tables.toArray().values()) {
-      await* settle<system, S, M>(ctx, now, id);
+      await* settle<system, S, M, V, O>(ctx, now, id);
     };
   };
 
   /// The id `caller` holds at table `id`, read off the phase record (and
   /// `lastEnded`, for `ackEnded`) by principal prefix.
-  public func idAt<S, M>(registry : T.Registry<S, M>, caller : Principal.Principal, id : T.TableId) : ?T.PlayerId {
+  public func idAt<S, M, O>(registry : T.Registry<S, M, O>, caller : Principal.Principal, id : T.TableId) : ?T.PlayerId {
     let prefix = CP_ID_PREFIX # caller.toText() # ":";
     switch (registry.tables.get(id)) {
       case null null;
@@ -410,9 +411,8 @@ module {
   /// them. No `submit` (a move is only ever the reply to `make_move`) and
   /// no `rematch` (a canister-vs-canister debrief auto-acks; a human's
   /// rematch against a bot is their frontend re-issuing `play`). The
-  /// trailing `Text` on `createTable`/`joinTable` is the complexity.
+  /// trailing `Text` on `joinTable` is the complexity.
   public type Endpoint = {
-    createTable : <system>(Principal.Principal, T.Seat, T.TableVisibility, Text, Text) -> async* T.Res<T.TableId>;
     joinTable : <system>(Principal.Principal, T.TableId, T.Seat, ?Text, Text) -> async* T.Res<T.JoinOk>;
     leave : <system>(Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
     ackEnded : <system>(Principal.Principal, T.TableId) -> async* ();
@@ -422,20 +422,10 @@ module {
 
   /// `afterMutation(now, id)` here is the transport's full fan-out
   /// (bumping revs, the leaderboard, `settle`).
-  public func endpointOf<S, M>(ctx : Ctx<S, M>) : Endpoint = {
-    createTable = func<system>(caller : Principal.Principal, seat : T.Seat, visibility : T.TableVisibility, variant : Text, complexity : Text) : async* T.Res<T.TableId> {
-      let now = Time.now();
-      switch (ctx.registry.createTable(ctx.spec, now, idForCanister(caller, complexity), seat, visibility, variant)) {
-        case (#ok id) {
-          await* ctx.afterMutation<system>(now, id, true);
-          #ok(id);
-        };
-        case (#err e) #err(e);
-      };
-    };
+  public func endpointOf<S, M, V, O>(ctx : Ctx<S, M, V, O>) : Endpoint = {
     joinTable = func<system>(caller : Principal.Principal, id : T.TableId, seat : T.Seat, code : ?Text, complexity : Text) : async* T.Res<T.JoinOk> {
       let now = Time.now();
-      switch (ctx.registry.joinTable(ctx.spec, now, idForCanister(caller, complexity), id, seat, code)) {
+      switch (ctx.registry.joinTable(ctx.spec, ctx.rng, now, idForCanister(caller, complexity), id, seat, code)) {
         case (#ok j) {
           await* ctx.afterMutation<system>(now, id, true);
           #ok(j);

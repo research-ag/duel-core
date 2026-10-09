@@ -155,9 +155,10 @@ test("onmessage: a pushed status renders via the plugin", async () => {
       view: atTable({
         inGame: {
           mode: { simultaneous: null },
+          toMove: [],
           seat: { p1: null },
           game: { n: 7 },
-          turn: 0n,
+          step: 0n,
           youSubmitted: false,
           oppSubmitted: false,
           gen: 1n,
@@ -204,7 +205,7 @@ test("onmessage: identical consecutive statuses are only rendered once (dedup)",
   transport.onmessage!({ data: view });
   assert.equal(writes, 1);
 
-  transport.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" }]) } });
+  transport.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, options: {} }]) } });
   assert.equal(writes, 2);
 });
 
@@ -215,7 +216,7 @@ test("open-tables list: a row's 'waiting Ns' label counts up locally between pus
     const { els, transport } = setup();
     start({ plugin, transport, session: defaultSession });
 
-    transport.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 5n, variant: "" }]) } });
+    transport.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 5n, options: {} }]) } });
     const row = els.screen.querySelectorAll("[data-wait-base]")[0];
     assert.ok(row, "expected a rendered wait-ticker element");
     assert.equal(row!.textContent, "waiting 5s");
@@ -227,7 +228,7 @@ test("open-tables list: a row's 'waiting Ns' label counts up locally between pus
     // A fresh push with a redrawn (but otherwise identical) row
     // re-baselines the ticker off the NEW node rather than going on
     // patching a stale, now-detached one from the previous render.
-    transport.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 20n, variant: "" }]) } });
+    transport.onmessage!({ data: { view: browsing([{ id: 6n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 20n, options: {} }]) } });
     const freshRow = els.screen.querySelectorAll("[data-wait-base]")[0];
     assert.ok(freshRow, "expected a freshly rendered wait-ticker element");
     assert.equal(freshRow!.textContent, "waiting 20s");
@@ -246,7 +247,7 @@ test("clicking 'create table' calls transport.request with a createTable request
   const btn = makeButton({ createTable: "p1" });
   click(els.screen, btn);
   assert.equal(transport.requests.length, 1);
-  assert.deepEqual(transport.requests[0]!.req, { createTable: { seat: { p1: null }, visibility: { open: null }, variant: "" } });
+  assert.deepEqual(transport.requests[0]!.req, { createTable: { seat: { p1: null }, visibility: { open: null }, options: {} } });
   assert.ok(btn.classList.contains("duel-loading"));
   assert.ok(doc.body.classList.contains("working"));
 
@@ -270,14 +271,14 @@ test("a button's spinner survives an unrelated re-render that arrives before its
   // Player B clicks "start a table as p2".
   click(els.screen, p2Btn!);
   assert.equal(transport.requests.length, 1);
-  assert.deepEqual(transport.requests[0]!.req, { createTable: { seat: { p2: null }, visibility: { open: null }, variant: "" } });
+  assert.deepEqual(transport.requests[0]!.req, { createTable: { seat: { p2: null }, visibility: { open: null }, options: {} } });
   assert.ok(p2Btn!.classList.contains("duel-loading"));
 
   // Before B's own call resolves, an unrelated push tick lands — e.g. a
   // brand new open table someone else just created — and redraws the
   // whole screen. This is exactly the bug report's sequence: B's own
   // call is still in flight when this arrives.
-  transport.onmessage!({ data: { view: browsing([{ id: 7n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" }]) } });
+  transport.onmessage!({ data: { view: browsing([{ id: 7n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, options: {} }]) } });
 
   // The old p2Btn node is gone (the screen was redrawn); the freshly
   // rendered one occupying its slot must still show as busy — not
@@ -318,7 +319,7 @@ test("the create-table form's live input survives an unrelated push mid-fill (re
 
   // An unrelated push lands before the click — e.g. another player
   // opening or leaving a table — while the form is still mid-fill.
-  transport.onmessage!({ data: { view: browsing([{ id: 9n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 3n, variant: "" }]) } });
+  transport.onmessage!({ data: { view: browsing([{ id: 9n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 3n, options: {} }]) } });
 
   const freshRadios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
   assert.equal(freshRadios.find((r) => r.value === "code")!.checked, true, "Protected must still be selected after the redraw");
@@ -332,7 +333,7 @@ test("the create-table form's live input survives an unrelated push mid-fill (re
   const seatBtn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
   click(els.screen, seatBtn!);
   assert.deepEqual(transport.requests[0]!.req, {
-    createTable: { seat: { p1: null }, visibility: { code: "TOP-SECRET" }, variant: "" },
+    createTable: { seat: { p1: null }, visibility: { code: "TOP-SECRET" }, options: {} },
   });
 });
 
@@ -365,7 +366,7 @@ test("clicking an open seat on a protected table row prompts for the access code
   transport.onmessage!({
     data: {
       view: browsing([
-        { id: 9n, p1Open: true, p2Open: false, p1Session: [], p2Session: ["carol"], protected: true, waitingSecs: 3n, variant: "" },
+        { id: 9n, p1Open: true, p2Open: false, p1Session: [], p2Session: ["carol"], protected: true, waitingSecs: 3n, options: {} },
       ]),
     },
   });
@@ -398,7 +399,7 @@ test("cancelling the access-code prompt dispatches nothing", async () => {
   transport.onmessage!({
     data: {
       view: browsing([
-        { id: 9n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: true, waitingSecs: 0n, variant: "" },
+        { id: 9n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: true, waitingSecs: 0n, options: {} },
       ]),
     },
   });
@@ -423,7 +424,7 @@ test("an open table's own seat button (no data-protected) joins directly, withou
   transport.onmessage!({
     data: {
       view: browsing([
-        { id: 4n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
+        { id: 4n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, options: {} },
       ]),
     },
   });
@@ -447,7 +448,7 @@ test("a submit action button round-trips its data-act JSON verbatim", async () =
   const btn = makeButton({ act: JSON.stringify({ shoot: { power: 2 } }) });
   click(els.screen, btn);
   assert.equal(transport.requests.length, 1);
-  assert.deepEqual(transport.requests[0]!.req, { submit: { gen: 0n, turn: 0n, move: { shoot: { power: 2 } } } });
+  assert.deepEqual(transport.requests[0]!.req, { submit: { gen: 0n, step: 0n, move: { shoot: { power: 2 } } } });
 });
 
 test("plugin.applyLocal: the move shows as soon as it is submitted, and a rejection puts the real board back", async () => {
@@ -458,13 +459,14 @@ test("plugin.applyLocal: the move shows as soon as it is submitted, and a reject
     applyLocal: (game, _seat, move) => ((move as { add?: number }).add ? { n: game.n + 1 } : null),
   };
   start({ plugin: local, transport, session: defaultSession });
-  const live = (n: number, turn: bigint) =>
+  const live = (n: number, step: bigint) =>
     atTable({
       inGame: {
-        mode: { alternating: null },
+        mode: { turnBased: null },
+        toMove: [{ p1: null }],
         seat: { p1: null },
         game: { n },
-        turn,
+        step,
         youSubmitted: false,
         oppSubmitted: true,
         gen: 1n,
@@ -576,9 +578,10 @@ test("clicking 'Claim the win' sends claimWin with the last-observed gen", async
       view: atTable({
         inGame: {
           mode: { simultaneous: null },
+          toMove: [],
           seat: { p1: null },
           game: { n: 0 },
-          turn: 4n,
+          step: 4n,
           youSubmitted: true,
           oppSubmitted: false,
           gen: 3n,
@@ -611,9 +614,10 @@ test("the 'Claim the win' button reveals itself locally once the countdown reach
         view: atTable({
           inGame: {
             mode: { simultaneous: null },
+            toMove: [],
             seat: { p1: null },
             game: { n: 0 },
-            turn: 4n,
+            step: 4n,
             youSubmitted: true,
             oppSubmitted: false,
             gen: 5n,
@@ -661,9 +665,10 @@ test("the still-deciding player never gets a Claim button of their own — not i
         view: atTable({
           inGame: {
             mode: { simultaneous: null },
+            toMove: [],
             seat: { p1: null },
             game: { n: 0 },
-            turn: 4n,
+            step: 4n,
             youSubmitted: false, // THIS seat hasn't moved
             oppSubmitted: true, // the opponent has
             gen: 5n,
@@ -729,9 +734,10 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
     atTable({
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { n: 0 },
-        turn: 0n,
+        step: 0n,
         youSubmitted: false,
         oppSubmitted: false,
         gen: 1n,
@@ -743,7 +749,7 @@ test("the new-sid button is disabled while the sid holds a seat, and ignores cli
       debrief: {
         seat: { p1: null },
         end: { finished: { p1Wins: null } },
-        turns: 1n,
+        steps: 1n,
         finalGame: { n: 0 },
         gen: 1n,
       },
@@ -810,7 +816,7 @@ test("the new-sid button re-enables after a rejected join request", async () => 
   const { els, transport } = setup();
   start({ plugin, transport, session: defaultSession });
 
-  transport.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" }]) } });
+  transport.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, options: {} }]) } });
   const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.joinTable === "p1" && b.dataset.joinTableId === "1");
   assert.ok(p1Btn, "expected a rendered join button for table #1's p1 seat");
 
@@ -856,7 +862,7 @@ test("the new-sid button stays disabled through an unrelated push arriving mid-j
   start({ plugin, transport, session: defaultSession });
 
   // Browsing: one open table, both seats free.
-  transport.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" }]) } });
+  transport.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, options: {} }]) } });
 
   // This player (B) clicks "join as p2" on that table — their own call
   // is now in flight, correlated via transport.request().
@@ -870,8 +876,8 @@ test("the new-sid button stays disabled through an unrelated push arriving mid-j
   transport.onmessage!({
     data: {
       view: browsing([
-        { id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
-        { id: 2n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
+        { id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, options: {} },
+        { id: 2n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, options: {} },
       ]),
     },
   });
@@ -921,7 +927,7 @@ test("a createTable rejected as wrongPhase resyncs even without transport.reques
   const p1Btn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
   assert.ok(p1Btn, "expected a rendered 'create table as p1' button");
   click(els.screen, p1Btn!);
-  assert.deepEqual(transport.sent[1]!.req, { createTable: { seat: { p1: null }, visibility: { open: null }, variant: "" } });
+  assert.deepEqual(transport.sent[1]!.req, { createTable: { seat: { p1: null }, visibility: { open: null }, options: {} } });
 
   transport.onmessage!({ data: { err: { wrongPhase: "you are already at another table" } } });
 
@@ -941,7 +947,7 @@ test("a wrongPhase rejection from a NON-join request still shows the error banne
         debrief: {
           seat: { p1: null },
           end: { finished: { p1Wins: null } },
-          turns: 3n,
+          steps: 3n,
           finalGame: { n: 7 },
           gen: 1n,
         },
@@ -1242,7 +1248,7 @@ test("a login attempt still in flight is not re-enabled by an unrelated seated/u
 
   // An unrelated push arrives while the login is still pending — must not
   // re-enable a button whose own action hasn't settled yet.
-  transport.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" }]) } });
+  transport.onmessage!({ data: { view: browsing([{ id: 1n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, options: {} }]) } });
   assert.equal(els["duel-auth-btn"].disabled, true, "must stay disabled while its own login is still pending");
 
   resolveLogin();
@@ -1265,7 +1271,7 @@ test("start({ screens }) replaces one screen and keeps the rest, with the defaul
   transport.onmessage!({
     data: {
       view: atTable({
-        debrief: { seat: { p1: null }, end: { finished: { draw: null } }, turns: 2n, finalGame: { n: 1 }, gen: 3n },
+        debrief: { seat: { p1: null }, end: { finished: { draw: null } }, steps: 2n, finalGame: { n: 1 }, gen: 3n },
       }),
     },
   });

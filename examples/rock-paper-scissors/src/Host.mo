@@ -1,5 +1,3 @@
-import Principal "mo:core/Principal";
-
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
 import Transport "mo:duel-game-core/transport";
@@ -22,36 +20,36 @@ actor {
   renderer.addValue(pt.toValue());
 
   // Stable data: the tables, the bots, the ratings.
-  let state = Transport.new<Rules.State, Rules.Action>();
-  state.registry.setTimeouts(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
-  state.registry.attachMetrics(pt);
+  let duel = Transport.new<Rules.State, Rules.Action, Rules.Options>();
+  duel.registry.setTimeouts(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
+  duel.registry.attachMetrics(pt);
   let bots = CanisterPlayers.newStore();
   let leaderboard = Leaderboard.new(50, 1200); // Elo, starting at 1200
 
-  // Asks a seated bot canister for its move.
-  func callBot<system>(bot : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
-    let b : BotIface.CanisterPlayer = actor (CanisterPlayers.principalOfCanisterSession(bot).toText());
-    try { await* k<system>(?(await b.make_move(req))) } catch (_) {
-      await* k<system>(null);
-    };
+  // The function values the framework calls: the rules, the bot call,
+  // the rating. Rebuilt on every upgrade.
+  transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+    spec = Rules.spec;
+    bots = ?{ store = bots; call = BotIface.callBot };
+    scoring = ?{ board = leaderboard; rating = #elo { k = 32 } };
   };
 
-  // The stable data plus the functions that cannot be stable.
-  transient let duel = Transport.Duel<Rules.State, Rules.Action>(
-    state,
-    Rules.spec(),
-    ?{ store = bots; call = callBot },
-    ?{ board = leaderboard; rating = #elo { k = 32 } },
-  );
+  include TransportActorMixin<system>(duel.lobby(env));
 
-  include TransportActorMixin<system>(duel.lobby);
-
-  public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
-    duel.reply(caller, tableId, await* duel.submit<system>(caller, tableId, gen, turn, move));
+  public shared ({ caller }) func duel_create_table(seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options) : async Transport.Ack {
+    await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, seat, visibility, options);
   };
 
-  public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.State> {
-    duel.table(caller, tableId, rev);
+  public shared query ({ caller }) func duel_lobby(rev : Nat) : async Transport.LobbyResult<Rules.Options> {
+    duel.lobbyView(caller, rev);
+  };
+
+  public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, step : Nat, action : Rules.Action) : async Transport.Reply<Rules.View> {
+    duel.reply(env, caller, tableId, await* duel.submit<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, tableId, gen, step, action));
+  };
+
+  public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.View> {
+    duel.table(env, caller, tableId, rev);
   };
 
   include HttpActorMixin([
@@ -59,7 +57,7 @@ actor {
     ("/metrics", renderer.renderExposition),
   ]);
 
-  include CanisterPlayersActorMixin(duel.canisterPlayers, bots.directory, ?leaderboard);
+  include CanisterPlayersActorMixin(duel.canisterPlayers(env), bots.directory, ?leaderboard);
 
   include LeaderboardActorMixin(leaderboard, 25);
 };

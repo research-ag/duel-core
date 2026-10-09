@@ -92,7 +92,7 @@ export type LobbyResult =
 /// `duel_submit`/`duel_table` declared by the host, the rest from
 /// `transport_actor_mixin`. The caller is the player.
 export interface TransportActor {
-  duel_create_table(seat: Seat, visibility: Visibility, variant: string): Promise<Ack>;
+  duel_create_table(seat: Seat, visibility: Visibility, options: unknown): Promise<Ack>;
   duel_join_table(tableId: bigint, seat: Seat, code: [] | [string]): Promise<Ack>;
   duel_rematch(tableId: bigint): Promise<Ack>;
   duel_leave(tableId: bigint, gen: bigint): Promise<Ack>;
@@ -100,7 +100,7 @@ export interface TransportActor {
   duel_claim_win(tableId: bigint, gen: bigint): Promise<Ack>;
   duel_ack_ended(tableId: bigint): Promise<Ack>;
   duel_keep_alive(): Promise<{ ok: null } | { err: EngineErr }>;
-  duel_submit(tableId: bigint, gen: bigint, turn: bigint, move: unknown): Promise<Reply>;
+  duel_submit(tableId: bigint, gen: bigint, step: bigint, move: unknown): Promise<Reply>;
   duel_lobby(rev: bigint): Promise<LobbyResult>;
   duel_table(tableId: bigint, rev: bigint): Promise<TableResult>;
 }
@@ -178,8 +178,8 @@ export class DuelTransport extends EventTarget implements Transport {
       throw new Error("DuelTransport: `gameIdlTypes` is required");
 
     this._actor = actor;
-    const { Action, State } = gameIdlTypes({ IDL });
-    this._types = buildEngineTypes({ IDL, Action, State });
+    const { Action, View, Options } = gameIdlTypes({ IDL });
+    this._types = buildEngineTypes({ IDL, Action, View, Options });
     this._intervalMs = intervalMs;
     this._keepAliveMs = keepAliveMs;
     this._pollTimeoutMs = pollTimeoutMs;
@@ -379,8 +379,8 @@ export class DuelTransport extends EventTarget implements Transport {
   private _dispatch(req: TransportRequest, id: bigint | null): Promise<Reply | Ack> {
     const a = this._actor;
     if ("createTable" in req) {
-      const { seat, visibility, variant } = req.createTable;
-      return a.duel_create_table(seat, visibility, variant);
+      const { seat, visibility, options } = req.createTable;
+      return a.duel_create_table(seat, visibility, options);
     }
     if ("joinTable" in req) {
       const { id, seat, code } = req.joinTable;
@@ -388,8 +388,8 @@ export class DuelTransport extends EventTarget implements Transport {
     }
     if (id === null) return Promise.resolve({ err: NOT_SEATED });
     if ("submit" in req) {
-      const { gen, turn, move } = req.submit;
-      return a.duel_submit(id, gen, turn, move);
+      const { gen, step, move } = req.submit;
+      return a.duel_submit(id, gen, step, move);
     }
     if ("rematch" in req) return a.duel_rematch(id);
     if ("leave" in req) return a.duel_leave(id, req.leave.gen);

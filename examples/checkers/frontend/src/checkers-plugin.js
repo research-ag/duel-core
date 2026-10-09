@@ -282,8 +282,10 @@ export const plugin = {
       move: IDL.Record({ from: IDL.Nat, to: IDL.Nat }),
       jump: IDL.Record({ path: IDL.Vec(IDL.Nat) }),
     });
-    const State = IDL.Record({ board: IDL.Vec(IDL.Opt(Piece)) });
-    return { Action, State };
+    // Nothing is hidden: the view is the whole state.
+    const View = IDL.Record({ board: IDL.Vec(IDL.Opt(Piece)), toMove: IDL.Variant({ p1: IDL.Null, p2: IDL.Null }) });
+    const Options = IDL.Record({});
+    return { Action, View, Options };
   },
 
   seatLabel(seat) {

@@ -1,4 +1,4 @@
-/// CheckersRules — standard English draughts, as a pure `#alternating`
+/// CheckersRules — standard English draughts, as a pure `#turnBased`
 /// module. #p1 = Black (rows 5–7, moving toward row 0), #p2 = Red (rows
 /// 0–2, moving toward row 7). 8x8, row-major (`index = row*8 + col`), dark
 /// squares (`(row+col)` odd) only.
@@ -31,13 +31,13 @@ module {
 
   /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
   public let SEMANTICS : Text = "GAME: Checkers (English draughts)
-MODE: alternating
+MODE: turnBased (one action per turn, seats alternate)
 SEATS: p1 = Black (moves first), p2 = Red
-VARIANTS: none (the table variant text is ignored)
+OPTIONS: none (type Options = record {})
 
 STATE (Candid)
   type Piece = variant { manP1; manP2; kingP1; kingP2 };
-  type State = record { board : vec opt Piece };
+  type State = record { board : vec opt Piece; toMove : Seat };
   board has 64 squares, row-major: index = row*8 + col. Only dark
   squares, (row + col) odd, are ever used. p1 starts on rows 5..7 and
   moves toward row 0; p2 starts on rows 0..2 and moves toward row 7.
@@ -79,7 +79,8 @@ CLIENT NOTES
     #jump : { path : [Nat] };
   };
 
-  public type State = { board : Board };
+  /// `toMove` — the seat whose action the game is waiting for.
+  public type State = { board : Board; toMove : TP.Seat };
 
   let SIZE : Nat = 8;
   let SQUARES : Nat = 64;
@@ -134,7 +135,18 @@ CLIENT NOTES
     }
   );
 
-  public func init(_variant : Text) : State = { board = startBoard() };
+  /// Nothing is hidden: every seat sees the whole state.
+  public type View = State;
+
+  /// No table options.
+  public type Options = {};
+
+  public func checkOptions(_ : Options) : ?Text = null;
+
+  public func init(_ : Options, _ : TP.Rng) : State = {
+    board = startBoard();
+    toMove = #p1;
+  };
 
   /// Legal one-square, non-capturing destinations for `piece` at `i`.
   func stepTargets(board : Board, piece : Piece, i : Nat) : [Nat] {
@@ -362,12 +374,28 @@ CLIENT NOTES
       }
     );
 
-    { state = { board }; verdict };
+    { state = { board; toMove = otherSeat(seat) }; verdict };
   };
 
-  public func spec() : TP.Spec<State, Action> = #alternating {
+  /// Whose action the game is waiting for.
+  public func toMove(self : State) : TP.Seat = self.toMove;
+
+  public func view(self : State, _ : TP.Seat, _ : Bool) : View = self;
+
+  /// One action of the seat on turn: checked, then applied.
+  public func move(self : State, seat : TP.Seat, a : Action, _ : TP.Rng) : {
+    #ok : { state : State; verdict : ?TP.Verdict };
+    #err : Text;
+  } = switch (validate(self, seat, a)) {
+    case (?why) #err why;
+    case null #ok(resolve(self, seat, a));
+  };
+
+  public let spec : TP.Spec<State, Action, View, Options> = #turnBased {
+    checkOptions;
     init;
-    validate;
-    resolve;
+    toMove;
+    move;
+    view;
   };
 };

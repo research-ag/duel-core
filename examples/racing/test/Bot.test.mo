@@ -7,33 +7,36 @@ import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
 
 import TP "mo:duel-game-core";
+import Rng "mo:duel-game-core/rng";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import Registry "mo:duel-game-core/registry";
 
 import BotLogic "../bot/BotLogic";
 import Rules "../src/RacingRules";
 
-let spec = Rules.spec();
+let rng = Rng.new(42);
+
+let spec = Rules.spec;
 
 // ── 1. SCRIPT (plus the post-script hold) stays legal for a real, collision-
 //      checked drive ────────────────────────────────────────────────────────
 do {
-  var state = Rules.init("");
+  var state = Rules.init({}, rng);
   var i = 0;
   let steps = BotLogic.SCRIPT_P1.size() + 4; // a few rounds past the array's end too
   while (i < steps) {
-    let req : TP.MoveRequest<Rules.State, Rules.Action> = {
+    let req : TP.MoveRequest<Rules.View, Rules.Action> = {
       tableId = 0;
       seat = #p1;
       game = state;
       mode = #simultaneous;
-      turn = i;
+      step = i;
       gen = 0;
       complexity = "";
       retryReason = null;
       opponent = "p2";
       opponentLastMove = null;
-      lastRoundDurationNs = null;
+      lastStepDurationNs = null;
     };
     let move = BotLogic.chooseMove(req);
     switch (Rules.validate(state, #p1, move)) {
@@ -54,8 +57,8 @@ let CLAIM_TIMEOUT : Int = 45_000_000_000;
 let T0 : Int = 1_000_000_000_000;
 
 // The player's first table and their view of it, or `#browsing`.
-func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.PlayerId) : {
-  #atTable : { id : TP.TableId; view : TP.View<Rules.State> };
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action, Rules.Options>, at : Int, p : TP.PlayerId) : {
+  #atTable : { id : TP.TableId; view : TP.TableView<Rules.State> };
   #browsing;
 } {
   let ids = reg.tablesOf(p);
@@ -66,31 +69,45 @@ func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.Pla
   };
 };
 
+// A bot opening a table: seats it directly (bots open no tables
+// themselves through the canister-player methods) and runs the same
+// fan-out a mutation does.
+func botCreates<system>(ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action, Rules.View, Rules.Options>, bot : Principal.Principal, seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options, complexity : Text) : async* TP.Res<TP.TableId> {
+  switch (ctx.registry.createTable(ctx.spec, ctx.rng, T0, CanisterPlayers.idForCanister(bot, complexity), seat, visibility, options)) {
+    case (#ok id) {
+      await* ctx.afterMutation<system>(T0, id, true);
+      #ok id;
+    };
+    case (#err e) #err e;
+  };
+};
+
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
   case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
 };
 
-func atTableView(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, session : Text) : TP.View<Rules.State> = switch (statusOf(reg, at, session)) {
+func atTableView(reg : TP.Registry<Rules.State, Rules.Action, Rules.Options>, at : Int, session : Text) : TP.TableView<Rules.State> = switch (statusOf(reg, at, session)) {
   case (#atTable v) v.view;
   case (#browsing _) Runtime.trap("expected " # session # " to be at a table");
 };
 
 let bot1 = Principal.fromText("aaaaa-aa");
 
-let reg = Registry.new<Rules.State, Rules.Action>();
+let reg = Registry.new<Rules.State, Rules.Action, Rules.Options>();
 
 reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
 // The bots without the transport: every mutation settles the table
 // right away, and no timers (the interpreter has none).
 func settleAfter<system>(now : Int, id : TP.TableId, _ : Bool) : async* () {
-  await* CanisterPlayers.settle<system, Rules.State, Rules.Action>(ctx, now, id);
+  await* CanisterPlayers.settle<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx, now, id);
 };
-let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action> = {
+let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
   registry = reg;
   spec;
+  rng;
   store = CanisterPlayers.newStore();
-  call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+  call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.View, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
     await* k<system>(?BotLogic.chooseMove(req));
   };
   afterMutation = func<system>(now : Int, id : TP.TableId, b : Bool) : async* () {
@@ -98,19 +115,18 @@ let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action> = {
   };
   arm = func<system>(_ : TP.TableId, _ : Nat) {};
 };
-let cp = CanisterPlayers.endpointOf(ctx);
 
-let id = ok(await* cp.createTable<system>(bot1, #p1, #open, "", ""), "bot creates a table");
+let id = ok(await* botCreates<system>(ctx, bot1, #p1, #open, {}, ""), "bot creates a table");
 let sidBot1 = CanisterPlayers.idForCanister(bot1, "");
 // The human joins directly against `reg` — standing in for `transport.mo`
 // dispatching a browser's own `joinTable`, exactly as
 // `backend/test/CanisterPlayers.test.mo` does for its own human sessions.
-ignore ok(reg.joinTable(spec, T0, "human", id, #p2, null), "human joins bot1's table");
+ignore ok(reg.joinTable(spec, rng, T0, "human", id, #p2, null), "human joins bot1's table");
 
 var round = 0;
 var finished = false;
 while (round < BotLogic.SCRIPT_P1.size() + 2 and not finished) {
-  await* CanisterPlayers.sweep<system, Rules.State, Rules.Action>(ctx, T0);
+  await* CanisterPlayers.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx, T0);
   switch (atTableView(reg, T0, sidBot1)) {
     case (#inGame v) assert v.youSubmitted; // the bot's scripted move landed legally
     case (#debrief d) switch (d.end) {
@@ -124,7 +140,7 @@ while (round < BotLogic.SCRIPT_P1.size() + 2 and not finished) {
       case (#inGame v) v;
       case (_) Runtime.trap("human should be in-game");
     };
-    ignore ok(reg.submit(spec, T0, "human", id, hv.gen, hv.turn, { l = 0.0; c = 0.0 }), "human submits a no-op move; round resolves");
+    ignore ok(reg.submit(spec, rng, T0, "human", id, hv.gen, hv.step, { l = 0.0; c = 0.0 }), "human submits a no-op move; round resolves");
   };
   round += 1;
 };

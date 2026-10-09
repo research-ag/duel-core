@@ -4,9 +4,9 @@ import Rules "../src/UltimateTicTacToeRules";
 module {
 
   /// No lookahead: a deterministic pick from `legalActions` by turn.
-  public func chooseMove(req : TP.MoveRequest<Rules.State, Rules.Action>) : Rules.Action {
+  public func chooseMove(req : TP.MoveRequest<Rules.View, Rules.Action>) : Rules.Action {
     let moves = Rules.legalActions(req.game, req.seat);
-    moves[req.turn % moves.size()];
+    moves[req.step % moves.size()];
   };
 
 };

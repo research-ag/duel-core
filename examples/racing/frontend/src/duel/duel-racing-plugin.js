@@ -31,7 +31,8 @@ export const plugin = {
       distanceFromStart: IDL.Float64,
       crashPenaltyRemaining: IDL.Nat,
     });
-    const State = IDL.Record({
+    // Nothing is hidden: the view is the whole state.
+    const View = IDL.Record({
       p1: CarState,
       p2: CarState,
       step: IDL.Nat,
@@ -40,7 +41,8 @@ export const plugin = {
       l: IDL.Float64,
       c: IDL.Float64,
     });
-    return { Action, State };
+    const Options = IDL.Record({});
+    return { Action, View, Options };
   },
 
   seatLabel(seat) {
