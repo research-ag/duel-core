@@ -288,8 +288,9 @@ module {
                 case (?fresh) switch (ctx.registry.submit(ctx.spec, ctx.rng, now, player, id, fresh.gen, fresh.step, move)) {
                   case (#ok _) {
                     enterReply(ctx.store, id);
-                    await* ctx.afterMutation<system>(now, id, false);
-                    exitReply(ctx.store, id);
+                    try { await* ctx.afterMutation<system>(now, id, false) } finally {
+                      exitReply(ctx.store, id);
+                    };
                   };
                   case (#err(#illegalMove reason)) {
                     if (triesLeft > 0) {
@@ -305,8 +306,9 @@ module {
       );
     };
 
-    await* tryOnce<system>(1, req);
-    ctx.store.inFlight.remove(key);
+    try { await* tryOnce<system>(1, req) } finally {
+      ctx.store.inFlight.remove(key);
+    };
   };
 
   func isDue<S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, player : T.PlayerId) : Bool {

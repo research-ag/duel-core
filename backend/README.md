@@ -656,8 +656,10 @@ see the source, in these sections:
   outright (how to find the opponent's last move, formulas a client must
   mirror to offer only legal input).
 
-Update `SEMANTICS` in the same change as any edit to `State`, `Action`,
-`validate` or `resolve`.
+Update `SEMANTICS` in the same change as any edit to `View`, `Action`,
+`Options`, or the rules behind them (`move` and `toMove` in
+`#turnBased`, `validate` and `resolve` in `#simultaneous`,
+`checkOptions`).
 
 ### Downloadable wasm
 

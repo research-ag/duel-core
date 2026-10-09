@@ -16,7 +16,17 @@ while (i < 1000) {
   if (x >= 40) Runtime.trap("below(40) out of range");
   i += 1;
 };
-assert Rng.new(1).next() == Rng.new(1).next();
+let a = Rng.new(1);
+let b = Rng.new(1);
+i := 0;
+while (i < 20) {
+  assert a.next() == b.next();
+  assert a.below(1000) == b.below(1000);
+  i += 1;
+};
+let deck = Array.tabulate<Nat>(20, func(k) = k);
+assert a.shuffle(deck) == b.shuffle(deck);
+assert a.next() == b.next();
 assert Rng.new(1).below(1) == 0;
 Debug.print("1. range OK");
 

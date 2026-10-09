@@ -12,7 +12,7 @@ module {
     let schema : Bench.Schema = {
       name = "TwoPlayer engine overhead";
       description = "Cost of the engine's core operations, scaled by how many times each runs";
-      rows = ["join+leave (fresh table each time)", "one round (both submit)", "status (in-game, side-effect-free)"];
+      rows = ["join+leave (fresh table each time)", "one round (both submit)", "view (in-game, side-effect-free)"];
       cols = ["10", "100", "1000"];
     };
 

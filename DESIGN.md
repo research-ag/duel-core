@@ -485,7 +485,8 @@ alone.
    it, their `leave` declines it.
 2. **No ghost tables.** Every phase is timestamped; idle tables are
    taken over or swept, and empty ones are garbage-collected.
-3. **Server-side legality.** `validate` runs on every submission.
+3. **Server-side legality.** The rules check every action: `move` in a
+   turn-based game, `validate` on every simultaneous submission.
 4. **No silent endings.** `#aborted`, `#claimed`, `#endedByOther`.
 5. **Leave means left.** Once a player acknowledged a debrief, the
    table is no longer theirs.

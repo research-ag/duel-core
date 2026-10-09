@@ -16,17 +16,21 @@
 ///   import Transport "mo:duel-game-core/transport";
 ///
 ///   actor {
-///     let state = Transport.new<Rules.State, Rules.Action>();
-///     state.registry.setTimeouts(90_000_000_000, 60_000_000_000);
-///     transient let duel = Transport.Duel<Rules.State, Rules.Action>(state, Rules.spec(), null, null);
-///     // include TransportActorMixin<system>(duel.lobby) + the typed
-///     // duel_submit/duel_table pass-throughs — see `./transport`
+///     let duel = Transport.new<Rules.State, Rules.Action, Rules.Options>();
+///     duel.registry.setTimeouts(90_000_000_000, 60_000_000_000);
+///     transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+///       spec = Rules.spec;
+///       bots = null;
+///       scoring = null;
+///     };
+///     // include TransportActorMixin<system>(duel.lobby(env)) + the four
+///     // host-declared pass-throughs — see `./transport`
 ///   };
 ///
 /// `Registry<S, M, O>`/`Table<S, M, O>` are stable whenever `S`/`M`/`O` are; the
-/// `Spec` is passed on every call and never stored. A stable `state`
+/// `Spec` is passed on every call and never stored. A stable `duel`
 /// skips `Transport.new` on upgrade, so the host re-applies its timeouts
-/// with `state.registry.setTimeouts` on the very next line.
+/// with `duel.registry.setTimeouts` on the very next line.
 ///
 /// Design guarantees (see `../README.md`, "Design"): race-free rematch
 /// (create-then-join with a reserved seat), no ghost lobbies (every phase

@@ -344,13 +344,14 @@ module {
   /// Read at `Time.now()`: a canister player may have answered in the
   /// meantime.
   public func reply<S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, err : ?TP.Err) : Reply<V> {
+    let ?player = playerOf(caller) else return #err(#unauthorized);
     switch (err) {
       case (?e) #err e;
       case null switch (self.registry.tables.get(id)) {
         case null #err(#noSuchTable);
         case (?t) #view {
           rev = t.rev;
-          view = t.status(env.spec, Time.now(), caller.toText());
+          view = t.status(env.spec, Time.now(), player);
         };
       };
     };
