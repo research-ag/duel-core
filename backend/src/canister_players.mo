@@ -209,7 +209,16 @@ module {
     };
   };
 
-  func inGameView<S, M>(ctx : Ctx<S, M>, now : Int, id : T.TableId, player : T.PlayerId) : ?{ seat : T.Seat; game : S; mode : T.Mode; turn : Nat; gen : Nat; youSubmitted : Bool; claimWinAvailable : Bool; secondsUntilClaimable : Nat } {
+  func inGameView<S, M>(ctx : Ctx<S, M>, now : Int, id : T.TableId, player : T.PlayerId) : ?{
+    seat : T.Seat;
+    game : S;
+    mode : T.Mode;
+    turn : Nat;
+    gen : Nat;
+    youSubmitted : Bool;
+    claimWinAvailable : Bool;
+    secondsUntilClaimable : Nat;
+  } {
     switch (ctx.registry.view(ctx.spec, now, player, id)) {
       case (?#inGame ig) ?{
         seat = ig.seat;

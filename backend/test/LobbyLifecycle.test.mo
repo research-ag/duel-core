@@ -16,7 +16,10 @@ func idOf(reg : TP.Registry<Rules.State, Rules.Action>, p : Text) : TP.TableId {
   if (ids.size() == 0) Runtime.trap(p # " is at no table");
   ids[0];
 };
-func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : Text) : { #atTable : { id : TP.TableId; view : TP.View<Rules.State> }; #browsing } {
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : Text) : {
+  #atTable : { id : TP.TableId; view : TP.View<Rules.State> };
+  #browsing;
+} {
   let ids = reg.tablesOf(p);
   if (ids.size() == 0) return #browsing;
   switch (reg.view(spec, at, p, ids[0])) {

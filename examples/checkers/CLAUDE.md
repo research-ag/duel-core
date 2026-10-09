@@ -9,17 +9,18 @@ to end. Not part of either package.
   (only maximal `#jump` chains when a capture is mandatory) and is what
   `BotLogic.mo` consumes. The doc header lists the deliberate
   simplifications against tournament draughts.
-- **`src/Host.mo`** — `Registry` (90s/60s), `status`, `Transport.attach` +
-  `ActorMixin`, metrics, canister players (`CanisterPlayers.attach`
-  reusing `attached.afterMutation`; `callBot` recovers the bot principal
-  via `principalOfCanisterSession` and `await`s `make_move` in a
-  `try`/`catch`; `onSettled` → `cpAttached.settle` through a mutable
-  indirection; `armClaimCheck` via `Timer.setTimer`; `cpAttached.sweep`
-  folded into the idle-sweep timer), `include
-CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard)`, and
-  an ELO leaderboard whose local `playerKey` special-cases `cp:` sessions
-  to `CanisterPlayers.leaderboardKeyOfSession` so each bot complexity
-  accumulates one rating across tables. See `../../backend/README.md`.
+- **`src/Host.mo`** — the reference host with everything: stable
+  `state = Transport.new()` (90s/60s), `bots = CanisterPlayers.newStore()`
+  and `leaderboard = Leaderboard.new(50, 1200)`; one
+  `transient let duel = Transport.Duel(state, spec, ?{ store = bots;
+call = callBot }, ?{ board = leaderboard; rating = #elo { k = 32 } })`;
+  `callBot` recovers the bot principal via `principalOfCanisterSession`
+  and `await`s `make_move` in a `try`/`catch`; `include
+TransportActorMixin<system>(duel.lobby)`, the host's own
+  `duel_submit`/`duel_table`, metrics, `include
+CanisterPlayersActorMixin(duel.canisterPlayers, bots.directory, ?leaderboard)`
+  and `LeaderboardActorMixin`. A bot is rated per complexity (its player
+  id). See `../../DESIGN.md` and `../../backend/README.md`.
 - **`src/BotIface.mo`** — the `CanisterPlayer` interface (`make_move`),
   imported by `Host.mo` to type the remote bot.
 - **`bot/BotLogic.mo`** — `chooseMove` picks `legalActions(...)[turn %

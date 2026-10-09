@@ -176,10 +176,11 @@ mops test
 ```
 
 **Whole games against the local copy.** `Sparring.mo` takes the other
-seat the way a player's browser does: as an ordinary `an:` session
-through the transport's methods, one request per call, choosing its moves with
-your own `BotLogic`. The game asks the bot exactly as it will live:
-right after each of sparring's moves, inside that same call.
+seat the way a player's browser does: as an ordinary player (its own
+principal) through the transport's methods, one request per call,
+choosing its moves with your own `BotLogic`. The game asks the bot
+exactly as it will live: right after each of sparring's moves, inside
+that same call.
 
 ```motoko
 import Principal "mo:core/Principal";
@@ -190,46 +191,48 @@ import Transport "mo:duel-game-core/transport";
 import BotLogic "BotLogic";
 import Game "GameTypes";
 
-// Local tests only: takes the bot's opponent seat as a human session
-// would, one request per call.
+// Local tests only: takes the bot's opponent seat as a human would, one
+// request per call. The table it plays at is the one it opened last.
 actor Sparring {
 
   type Reply = Transport.Reply<Game.State>;
   type Host = actor {
-    duel_create_table : (Text, TP.Seat, TP.TableVisibility, Text) -> async Transport.Ack;
-    duel_ack_ended : (Text) -> async Transport.Ack;
-    duel_ping : (Text) -> async Transport.Ack;
-    duel_submit : (Text, Nat, Nat, Game.Action) -> async Reply;
-    duel_poll : query (Text, Nat) -> async Transport.PollResult<Game.State>;
+    duel_create_table : (TP.Seat, TP.TableVisibility, Text) -> async Transport.Ack;
+    duel_ack_ended : (TP.TableId) -> async Transport.Ack;
+    duel_submit : (TP.TableId, Nat, Nat, Game.Action) -> async Reply;
+    duel_table : query (TP.TableId, Nat) -> async Transport.TableResult<Game.State>;
   };
 
-  func sid() : Text = Transport.sidFor(Transport.ANON_SID_PREFIX, Principal.fromActor(Sparring));
+  var tableId : TP.TableId = 0;
+
   func hostOf(host : Principal.Principal) : Host = actor (host.toText());
 
-  // The fresh view after an acked request (`duel_poll` with rev 0 always
-  // answers it).
-  func view(host : Principal.Principal, ack : Transport.Ack) : async Reply {
-    switch ack {
-      case (#err e) #err e;
-      case (#ok _) switch (await hostOf(host).duel_poll(sid(), 0)) {
-        case (#changed v) #view v;
-        case _ #err(#wrongPhase "no link");
-      };
+  // The table's current view (`rev = 0` always answers).
+  func view(host : Principal.Principal) : async Reply {
+    switch (await hostOf(host).duel_table(tableId, 0)) {
+      case (#changed v) #view v;
+      case _ #err(#noSuchTable);
     };
   };
 
-  public func open_table(host : Principal.Principal, seat : TP.Seat, variant : Text) : async Reply {
-    await view(host, await hostOf(host).duel_create_table(sid(), seat, #open, variant));
+  // Answers the new table's id (and rev), which `bot play` needs next.
+  public func open_table(host : Principal.Principal, seat : TP.Seat, variant : Text) : async Transport.Ack {
+    let ack = await hostOf(host).duel_create_table(seat, #open, variant);
+    switch ack {
+      case (#ok { tableId = id }) tableId := id;
+      case (#err _) {};
+    };
+    ack;
   };
 
-  // One move when this seat is due; the fresh status either way.
+  // One move when this seat is due; the fresh view either way.
   public func step(host : Principal.Principal, complexity : Text) : async Reply {
-    let status = await view(host, await hostOf(host).duel_ping(sid()));
-    switch status {
-      case (#view { view = #atTable { id; view = #inGame g } }) {
-        if (g.youSubmitted) return status;
+    let current = await view(host);
+    switch current {
+      case (#view { view = #inGame g }) {
+        if (g.youSubmitted) return current;
         let move = BotLogic.chooseMove({
-          tableId = id;
+          tableId;
           seat = g.seat;
           game = g.game;
           mode = g.mode;
@@ -241,14 +244,14 @@ actor Sparring {
           opponentLastMove = null;
           lastRoundDurationNs = null;
         });
-        await hostOf(host).duel_submit(sid(), g.gen, g.turn, move);
+        await hostOf(host).duel_submit(tableId, g.gen, g.turn, move);
       };
-      case _ status;
+      case _ current;
     };
   };
 
-  public func ack_ended(host : Principal.Principal) : async Reply {
-    await view(host, await hostOf(host).duel_ack_ended(sid()));
+  public func ack_ended(host : Principal.Principal) : async Transport.Ack {
+    await hostOf(host).duel_ack_ended(tableId);
   };
 
 };
@@ -260,7 +263,7 @@ icp network start -d
 icp deploy
 HOST=$(icp canister status backend -i)
 icp canister call sparring open_table "(principal \"$HOST\", variant { p1 }, \"\")"
-# ... atTable = record { id = <table id> : nat; ...
+# (variant { ok = record { tableId = <table id> : nat; rev = 1 : nat } })
 icp canister call bot play "(principal \"$HOST\", <table id> : nat, variant { p2 }, null, \"<complexity>\")"
 # (variant { ok = variant { started = variant { p2 } } })
 icp canister call sparring step "(principal \"$HOST\", \"<complexity>\")"
@@ -274,8 +277,9 @@ bot's) and by one in `#simultaneous`. A `step` that returns the same
 `inGame` view with `youSubmitted = true` means the bot did not reply:
 its move was rejected twice (compare with `RULES`) or did not decode
 (compare `GameTypes.mo` with `backend.did`); a sparring call whose
-types do not match `backend.did` is rejected by Candid decoding. `ack_ended` clears the debrief
-before the next `open_table`.
+types do not match `backend.did` is rejected by Candid decoding. Once
+the game is over, a bot acks its own debrief right away; `ack_ended`
+(or a `duel_leave`) clears sparring's before the next `open_table`.
 
 Play at least one game per complexity, with the bot in each seat
 (`open_table`'s seat is sparring's; give `play` the other one), and

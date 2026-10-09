@@ -352,7 +352,10 @@ module {
         case (?e) #err e;
         case null switch (registry.tables.get(id)) {
           case null #err(#noSuchTable);
-          case (?t) #view { rev = t.rev; view = t.status(spec, Time.now(), caller.toText()) };
+          case (?t) #view {
+            rev = t.rev;
+            view = t.status(spec, Time.now(), caller.toText());
+          };
         };
       };
     };
@@ -363,7 +366,10 @@ module {
         case null #gone;
         case (?t) {
           if (rev != 0 and t.rev == rev) return #unchanged;
-          #changed { rev = t.rev; view = t.status(spec, Time.now(), caller.toText()) };
+          #changed {
+            rev = t.rev;
+            view = t.status(spec, Time.now(), caller.toText());
+          };
         };
       };
     };
@@ -376,7 +382,11 @@ module {
         case (?p) registry.tablesOf(p);
         case null [];
       };
-      #changed { rev = state.lobbyRev; tables = registry.listTables(Time.now()); yours };
+      #changed {
+        rev = state.lobbyRev;
+        tables = registry.listTables(Time.now());
+        yours;
+      };
     };
 
     /// Clears expired tables (a waiting one stays while its creator is

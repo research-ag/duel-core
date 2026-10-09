@@ -128,7 +128,10 @@ let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
 
 // The player's first table and their view of it, or `#browsing`.
-func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.PlayerId) : { #atTable : { id : TP.TableId; view : TP.View<Rules.State> }; #browsing } {
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.PlayerId) : {
+  #atTable : { id : TP.TableId; view : TP.View<Rules.State> };
+  #browsing;
+} {
   let ids = reg.tablesOf(p);
   if (ids.size() == 0) return #browsing;
   switch (reg.view(spec, at, p, ids[0])) {
@@ -147,7 +150,6 @@ func atTableView(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, session
   case (#browsing _) Runtime.trap("expected " # session # " to be at a table");
 };
 
-
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
 
@@ -164,14 +166,16 @@ let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action> = {
   spec;
   store = CanisterPlayers.newStore();
   call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
-      switch (req.seat) {
-        case (#p1) assert req.complexity == "Bear";
-        case (#p2) assert req.complexity == CanisterPlayers.DEFAULT_COMPLEXITY;
-      };
-      assert req.game.variant == #instructables;
-      await* k<system>(?BotLogic.chooseMove(req));
+    switch (req.seat) {
+      case (#p1) assert req.complexity == "Bear";
+      case (#p2) assert req.complexity == CanisterPlayers.DEFAULT_COMPLEXITY;
+    };
+    assert req.game.variant == #instructables;
+    await* k<system>(?BotLogic.chooseMove(req));
   };
-  afterMutation = func<system>(now : Int, id : TP.TableId, b : Bool) : async* () { await* settleAfter<system>(now, id, b) };
+  afterMutation = func<system>(now : Int, id : TP.TableId, b : Bool) : async* () {
+    await* settleAfter<system>(now, id, b);
+  };
   arm = func<system>(_ : TP.TableId, _ : Nat) {};
 };
 let cp = CanisterPlayers.endpointOf(ctx);

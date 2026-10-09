@@ -82,9 +82,9 @@ module {
     false;
   };
 
-  /// Whether `session` still has unfinished business here — what
-  /// `Registry.releaseIfStale` uses to drop a `bySession` mapping the
-  /// phase itself already moved past.
+  /// Whether `session` still has unfinished business here: seated in
+  /// the current phase, or (once `#empty`) owed an `#endedByOther`
+  /// notice. `Registry.isMine` builds on it.
   public func isStillSeated<S, M>(self : Table<S, M>, session : T.PlayerId) : Bool {
     switch (self.phase) {
       case (#empty) self.unackedEnded(session);

@@ -31,7 +31,9 @@ actor {
   // Asks a seated bot canister for its move.
   func callBot<system>(bot : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
     let b : BotIface.CanisterPlayer = actor (CanisterPlayers.principalOfCanisterSession(bot).toText());
-    try { await* k<system>(?(await b.make_move(req))) } catch (_) { await* k<system>(null) };
+    try { await* k<system>(?(await b.make_move(req))) } catch (_) {
+      await* k<system>(null);
+    };
   };
 
   // The stable data plus the functions that cannot be stable.

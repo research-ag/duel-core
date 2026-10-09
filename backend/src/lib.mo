@@ -6,33 +6,27 @@
 /// (`mo:duel-game-core/table`, the single-board primitive) and
 /// `./registry` (`mo:duel-game-core/registry`, the multi-table router).
 ///
-/// Every mutating `Registry` operation is driven exclusively through
-/// `mo:duel-game-core/transport` — never a plain Candid method — because two
-/// independent update calls have no guaranteed relative processing order.
-/// Only `status` is a plain public `query`; `http_request` and the
+/// Every client read and mutation goes through `mo:duel-game-core/transport`
+/// — never a plain Candid method; `http_request` and the
 /// controllers-only `wasm_upload_*` of `./http_actor_mixin` touch no
-/// game state.
+/// game state. The overall design, with diagrams: `../../DESIGN.md`.
 ///
 ///   import TP "mo:duel-game-core";
 ///   import Registry "mo:duel-game-core/registry";
 ///   import Transport "mo:duel-game-core/transport";
 ///
 ///   actor {
-///     let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
-///     registry.setTimeouts(90_000_000_000, 60_000_000_000);
-///
-///     public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
-///       registry.status(Rules.spec(), Time.now(), sid);
-///     };
-///
-///     // Transport.attach + include TransportActorMixin + the typed
-///     // duel_submit/duel_poll pass-throughs — see `./transport`
+///     let state = Transport.new<Rules.State, Rules.Action>();
+///     state.registry.setTimeouts(90_000_000_000, 60_000_000_000);
+///     transient let duel = Transport.Duel<Rules.State, Rules.Action>(state, Rules.spec(), null, null);
+///     // include TransportActorMixin<system>(duel.lobby) + the typed
+///     // duel_submit/duel_table pass-throughs — see `./transport`
 ///   };
 ///
 /// `Registry<S, M>`/`Table<S, M>` are stable whenever `S`/`M` are; the
-/// `Spec` is passed on every call and never stored. A stable `registry`
-/// skips `Registry.new` on upgrade, so the host re-applies its timeouts
-/// with `registry.setTimeouts` on the very next line.
+/// `Spec` is passed on every call and never stored. A stable `state`
+/// skips `Transport.new` on upgrade, so the host re-applies its timeouts
+/// with `state.registry.setTimeouts` on the very next line.
 ///
 /// Design guarantees (see `../README.md`, "Design"): race-free rematch
 /// (create-then-join with a reserved seat), no ghost lobbies (every phase

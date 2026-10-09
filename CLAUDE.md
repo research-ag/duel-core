@@ -6,60 +6,68 @@ registry), for 2-player games on the Internet Computer. A game is either
 take turns), chosen by the `Mode` tag on its `Spec`. Neither package
 knows any particular game.
 
+Read [`DESIGN.md`](DESIGN.md) first: the overall design with diagrams
+(identity, revs, the query/update split, keep-alive, bots, data vs
+behaviour).
+
 - **`backend/`** — the Motoko mops package. `src/types.mo` defines the
-  shared type surface (`Spec`, `Seat`, `Phase`, `View`, `Err`, `Res`,
-  `Table`, `Registry`, ...), re-exported by `src/lib.mo`
+  shared type surface (`Spec`, `Seat`, `PlayerId`, `Phase`, `View`,
+  `Err`, `Res`, `Table`, `Registry`, ...), re-exported by `src/lib.mo`
   (`mo:duel-game-core`). Modules, each on its own import subpath:
   - `table.mo` — the single-table primitive: `Table.new` plus
     `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded`/
-    `status`/`sweep`.
+    `status`/`sweep`. Every `Table` carries a stable `rev`.
   - `registry.mo` — the multi-table router built on it: `Registry.new`,
     `createTable`/`createTableReserving`/`listTables`/`joinTable`/
-    `peekNextTableId`, the same caller-facing operations routed to the
-    right table, `sweep`, `setTimeouts` (every host calls it on the line
-    after the declaration: a stable `registry` skips `Registry.new` on
-    upgrade), and the optional `attachMetrics(pt)` (`mo:promtracker`). Tables are `#open` or `#code`-protected, carry an
-    opaque `variant : Text` picked by their creator and read only by
-    the game's own `Spec.init(variant)`. No game logic is reimplemented
-    here.
-  - `transport.mo` — MANDATORY. Typed update methods and one polled
-    query (`duel_poll`, answering from a per-session `rev` in the
-    transient `Hub`; nothing is queued). `duel_submit` replies with the
-    caller's fresh status; every other request (`duel_create_table`,
-    `duel_join_table`, `duel_rematch`, `duel_leave`, `duel_reset`,
-    `duel_claim_win`, `duel_ack_ended`, and the `duel_ping` heartbeat)
-    replies with an `Ack` (the caller's `rev`), and the client fetches
-    the view with `duel_poll`. It is the only transport that can mutate game state: no
-    `Registry` mutating operation is a plain Candid method on a host;
-    `status` is the one plain `query`. There is no goodbye: silence only
-    ends presence (checked lazily against `PRESENCE_TTL_NS`); departure
-    is `#leave`, `claimWin`, idle takeover and `sweep`. Offers optional
-    hooks `onSettled`/`onGameEnded`/`onGameStarted`. The methods that
-    name neither `State` nor `Action` come from
-    `transport_actor_mixin.mo` (`include TransportActorMixin<system>(
-    attached.lobby, sweepFunc)`, with the 5-minute idle-sweep timer); a
-    mixin cannot take type parameters, so the host declares
-    `duel_submit`/`duel_poll` itself and passes them through.
-  - `canister_players.mo` — OPTIONAL. Lets a canister take a seat under a
-    third sid namespace `cp:<principal>:<tableId>:<complexity>`
-    (`sidForCanister`), one session per board, derived from
-    `msg.caller` so nothing is spoofable. The game canister calls the
-    bot's `make_move` and treats the reply as the move (`registry.submit`
-    via the same `afterMutation` fan-out `transport.mo` uses); silence, a trap,
-    or a still-illegal move after one retry leaves the ordinary timeout
-    machinery to act. `settle(now, id)` asks a due seat, claims a win for
-    an overdue WAITING seat, or acks a finished debrief once no live
-    human partner is still deciding; `armClaimCheck` (host-supplied,
-    `Timer.setTimer`) schedules the one wakeup nothing else triggers,
-    and, at 0 s, the ask of a canister seat that became due inside
-    another canister's reply (bot-vs-bot plays one move per message).
-    `sweep` is the slow full-registry fallback, folded into the existing
-    idle-sweep timer. Also holds bot DISCOVERY: `BotDirectory`,
-    `registerBot`/`unregisterBot`/`listBots`/`rankedBots`,
-    `leaderboardKey(p, complexity)`/`leaderboardKeyOfSession` (the
-    per-bot, per-complexity leaderboard key every `Host.mo` uses).
+    `peekNextTableId`, the table-scoped operations (`submit`/`rematch`/
+    `leave`/`reset`/`claimWin`/`ackEnded`/`view`, each naming its table
+    by id), `tablesOf(player)` (read off the tables, never stored),
+    `MAX_TABLES_PER_PLAYER` (3, `#tooManyTables`), `sweep`,
+    `setTimeouts` (every host calls it on the line after the
+    declaration: a stable `state` skips `Transport.new` on upgrade), and
+    the optional `attachMetrics(pt)` (`mo:promtracker`). Tables are
+    `#open` or `#code`-protected, carry an opaque `variant : Text`
+    picked by their creator and read only by the game's own
+    `Spec.init(variant)`. No game logic is reimplemented here.
+  - `transport.mo` — MANDATORY, the only client interface. A player is
+    the caller's principal (`playerOf`; anonymous is `#unauthorized`);
+    no method takes a session id. Data: `Transport.State` (`new()`: the
+    registry, `lobbyRev`, presence) — a plain stable record. Behaviour:
+    the `Duel` class, `Duel(state, spec, ?bots, ?scoring)`, kept in a
+    `transient let`; it binds the only function values (the `Spec`, the
+    host's `CallBot`, a `#elo`/`#best` rating). Reading is by query
+    only: `duel_lobby(rev)` (open tables + `yours`) and
+    `duel_table(tableId, rev)` (the caller's view), each `#unchanged`
+    while the table's / lobby's `rev` is current — nothing is stored per
+    reader. Mutations: `duel_submit` replies with the table's fresh
+    view; `duel_create_table`/`join_table`/`rematch`/`leave`/`reset`/
+    `claim_win`/`ack_ended` reply with an `Ack` (table + `rev`) and the
+    client polls the table. Presence only keeps a waiting table open
+    (`duel_keep_alive` every `KEEP_ALIVE_SECS` 20; `sweep` every
+    `SWEEP_SECS` 30; `PRESENCE_TTL_NS` 60 s); silence never ends a game.
+    After every mutation the `Duel` bumps revs, scores a fresh debrief
+    and settles canister players. `transport_actor_mixin.mo` supplies
+    every non-generic method, `duel_lobby` and the sweep timer
+    (`include TransportActorMixin<system>(duel.lobby)`); a mixin cannot
+    take type parameters, so the host declares `duel_submit`/
+    `duel_table` itself as one-line pass-throughs.
+  - `canister_players.mo` — OPTIONAL. Lets a canister take a seat as
+    player `cp:<principal>:<complexity>` (`idForCanister`), derived from
+    `msg.caller` so nothing is spoofable. Data: `newStore()` (the bot
+    directory, in-flight asks, tables settling inside a reply), passed
+    to the `Duel` with the host's `CallBot` (continuation-passing,
+    `<system>`). The game canister calls the bot's `make_move` and
+    treats the reply as the move; silence, a trap, or a still-illegal
+    move after one retry leaves the ordinary timeout machinery to act.
+    `settle(ctx, now, id)` asks a due seat, claims a win for an overdue
+    WAITING seat, arms a timer for one not yet overdue, or acks a
+    finished debrief once no live human partner is still deciding; a
+    canister seat that became due inside another canister's reply is
+    asked from a 0 s timer (bot-vs-bot plays one move per message).
+    Also holds bot DISCOVERY: `registerBot`/`unregisterBot`/`listBots`/
+    `rankedBots`, `leaderboardKey(p, complexity)` (= the player id).
   - `canister_players_actor_mixin.mo` — `include
-CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard)`:
+CanisterPlayersActorMixin(duel.canisterPlayers, bots.directory, ?leaderboard)`:
     the six `*_as_canister` methods (create/join/leave/ack_ended/
     claim_win/reset — each taking an explicit `tableId`; no
     `submit_as_canister`, no `rematch_as_canister`) plus
@@ -79,9 +87,9 @@ HttpActorMixin(routes)` supplies `http_request` over plain-text
     game-agnostic. A top-N highest-first `Board` (`new(keep,
 defaultScore)`, `setScore`, `recordIfBetter`, `scoreOf`, `top`), the
     pure chess-ELO `update`, and `include LeaderboardActorMixin(board,
-n)` supplying `get_leaderboard`. Filled from `Transport.attach`'s
-    `onGameEnded`/`onGameStarted` hooks. A lower-is-better metric is
-    converted to higher-is-better by the game before storing.
+n)` supplying `get_leaderboard`. Filled by the `Duel` on every fresh
+    debrief, per its `rating`: `#elo { k }` or a game's `#best pick`
+    (a lower-is-better metric is converted to higher-is-better first).
     See `backend/README.md` for the `Spec<S, M>` contract and full wiring.
 - **`frontend/`** — the npm package (TypeScript in `src/`, ships
   compiled `dist/`), in three layers. `client.js` is the headless
@@ -98,9 +106,10 @@ n)` supplying `get_leaderboard`. Filled from `Transport.attach`'s
 session, screens?, confirm?, promptCode? })` binds client to screens in
   `#screen` (delegated clicks, spinner, countdowns, header controls,
   error banner, overlays) and returns the client. Also session identity,
-  the `DuelTransport` client (`transport.js`: serialized
-  update calls, a 500 ms `duel_poll` loop with a 3 s per-poll timeout, a `duel_ping` heartbeat
-  after 120 s of quiet), and Candid IDL scaffolding (`idl.js`, which also declares
+  the `DuelTransport` client (`transport.js`: follows the lobby or one
+  table by query — a 500 ms poll with a 3 s per-poll timeout — and
+  composes the `Status`; serialized update calls; `duel_keep_alive`
+  every 20 s while waiting at a table), and Candid IDL scaffolding (`idl.js`, which also declares
   `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots`
   unconditionally, and `buildBotPlayIdlFactory` for calling a discovered
   bot's `play`). See `frontend/README.md` for the `GamePlugin` contract,
@@ -108,10 +117,12 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
 - **`backend/test/*.test.mo`** — interpreter suites (`mops test`
   discovers the `.test.mo` suffix only). `Engine`/`Lifecycle` cover
   `table.mo`; `Lobby`/`LobbyLifecycle` cover `registry.mo` (including
-  `createTableReserving`); `Alternating` covers `#alternating` mode;
-  `Hub`/`TransportBroadcast` cover `transport.mo`'s pure helpers
-  (`attach` itself needs a real actor); `CanisterPlayers` covers
-  `canister_players.mo` with stubbed `afterMutation`/`armClaimCheck`;
+  `createTableReserving`, the table cap); `Alternating` covers
+  `#alternating` mode; `Transport` drives a real `Duel` (revs,
+  `#unchanged`, `yours`, the cap, keep-alive through a sweep);
+  `CanisterPlayers` covers `canister_players.mo` with a hand-built
+  context whose fan-out settles and whose timers are only recorded (the
+  interpreter has none);
   `Leaderboard`/`Elo`/`Http`/`Wasm` cover their modules directly. `FakeGame.mo`/
   `FakeTurnGame.mo` are throwaway specs for these suites.
 - **`backend/bench/engine.bench.mo`** — `mops bench`, engine overhead
@@ -209,8 +220,13 @@ deploys all of them to the IC.
 
 ## Architecture rules (violating these reintroduces shipped bugs)
 
-1. **Spec is passed per call, never stored.** Function values are not
-   stable; every engine entry point takes `spec` as a parameter.
+1. **All data is stable; function values are never stored.** Data lives
+   in plain records declared as actor fields (`Transport.State`,
+   `CanisterPlayers.Store`, `Leaderboard.Board`, promtracker's
+   `Tracker`). Function values (the `Spec`, `CallBot`, a `#best`
+   rating) are bound by the `transient let duel = Transport.Duel(...)`
+   class, rebuilt on every upgrade; engine entry points take `spec` as
+   a parameter.
 2. **The engine owns time.** `now : Int` (ns) is a parameter everywhere;
    `lib.mo`/`types.mo`/`table.mo`/`registry.mo` never import `Time`.
    `transport.mo`, `canister_players.mo`, and the mixins play
@@ -229,14 +245,17 @@ deploys all of them to the IC.
 7. **No silent endings.** `leave` from a live game gives both a shared
    `#aborted` debrief; `claimWin` (after `claimTimeoutNs`, never
    automatic, only the WAITING seat) gives `#claimed`; an idle takeover
-   records the evicted players in `lastEnded` so `status` shows
+   records the evicted players in `lastEnded` so their view shows
    `#endedByOther` until acked (a takeover of an expired debrief
    pre-acks them). `Table.pruneEnded` drops a notice nobody will ever
    ack, since `gcIfQuiesced` refuses to drop a table with an outstanding
    notice.
-8. **`status` is side-effect-free** — a host exposes it as a `query`.
-   Lazy idle resets happen only in mutating calls.
-9. **Pending moves are hidden by construction**: `status` exposes only
+8. **Reads are pure queries with nothing per reader.** `duel_lobby`/
+   `duel_table` answer from the lobby's / table's `rev`; a view is
+   side-effect-free, and lazy idle resets happen only in mutating calls.
+   Every mutation of a table bumps its `rev` (the `Duel`'s fan-out, and
+   the sweep for what it changes); every lobby method bumps the lobby's.
+9. **Pending moves are hidden by construction**: a view exposes only
    Booleans about the opponent's pending move.
 10. **The frontend never assumes an agent-loading strategy.** `start()`
     and `createDuelClient()` take a required `transport` (the polling link from
@@ -245,12 +264,13 @@ deploys all of them to the IC.
 11. **`transport.mo` is the sole mutation entry point and reimplements no game
     logic.** Every request dispatches to `Registry`'s operations; none
     is also a plain Candid method. The `*_as_canister` methods are the
-    one deliberate exception, reachable only under the `cp:` namespace
-    `transport.mo` never authenticates, and `submit` is never exposed even
-    there. The `wasm_upload_*` methods touch no game state and are
-    controllers-only.
-12. **Leave means left.** `status`/`join`/`rematch` use
-    `activeDebriefSeat` so a session that acked its debrief stops being
+    one deliberate exception, acting only as the caller's own `cp:`
+    player, and `submit` is never exposed even there. The
+    `wasm_upload_*` methods touch no game state and are
+    controllers-only. A client sends one update at a time: two in-flight
+    update calls have no ordering guarantee.
+12. **Leave means left.** `status`/`join`/`rematch`/`tablesOf` use
+    `activeDebriefSeat` so a player who acked their debrief stops being
     a participant even while the phase lingers for the partner; `leave`
     itself stays idempotent via plain `seatInDebrief`.
 13. **`client.js` is headless and `render.js` is pure.** Neither touches
@@ -260,9 +280,9 @@ deploys all of them to the IC.
     private hook in `start()`.
 14. **Timeouts are re-applied after the declaration.** Every actor field
     is stable (moc 2 actors are persistent by default), which makes
-    `registry` stable, so `Registry.new()` (argument-free, 90s/60s
-    defaults) runs on first install only; the next line is always
-    `registry.setTimeouts(...)` with the host's numbers, and the stored
+    `state` stable, so `Transport.new()` (its registry starts at 90s/60s)
+    runs on first install only; the next line is always
+    `state.registry.setTimeouts(...)` with the host's numbers, and the stored
     `Registry`/`Table` fields stay `var`. A `var` field inside a stable
     record is invariant across upgrades, so any
     further change to either stable type needs an explicit actor

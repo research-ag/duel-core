@@ -272,9 +272,9 @@ behind, a silent `refresh()` is on its way), `"rejected"` (`err` and its
 `message`). A `"rejected"` or `"failed"` call also sends a `refresh()`,
 so a screen the server has moved past (the table is gone, the seat was
 lost) is replaced by the real status. When the first status after a
-reconnect finds a session that was seated back in the lobby,
-`state.error` says so (`ENDED_WHILE_AWAY_MESSAGE`). `refresh()` is a sync
-ping. `showError`/`clearError` put a
+reconnect finds a player who was seated back in the lobby,
+`state.error` says so (`ENDED_WHILE_AWAY_MESSAGE`). `refresh()` is a
+resync by query. `showError`/`clearError` put a
 UI's own messages on the same lifetime. `login()`, `logout()`,
 `regenerateSid()` wrap the session's own functions and drive
 `authPending`. `dispose()` detaches from `transport`.
@@ -314,74 +314,87 @@ era; the old names are gone, so a game written against them must be
 renamed.)
 
 `connectTransport()` builds a `DuelTransport` (`transport.js`) that
-speaks `mo:duel-game-core/transport`'s methods. A move is one
-`duel_submit` update call whose reply is this session's own fresh
-status. Every other request is an update call replying with the
-session's revision (`Ack`); the transport then fetches the view with
-`duel_poll` and accepts it once it is at least that new. `#status`
-maps to `duel_ping`. What the other seat causes arrives by polling the `duel_poll`
-query every `intervalMs` (500): the canister answers `unchanged` until
-the session's revision moves, then hands over the current status.
-Nothing is queued on either side, so a client always gets the latest
-snapshot and may skip intermediate ones. The transport drops any view
-whose revision is not newer than the last it applied, which orders a
-reply against a polled view. A poll unanswered after `pollTimeoutMs`
-(3000) counts as a failed one and the loop asks again, so a query the
-gateway never answers costs one retry instead of freezing the loop. Its
-answer still applies if it arrives late, which keeps a slow link from
-reading as a lost one. At most three polls are ever unanswered at once;
-past that the loop waits on the newest.
+speaks `mo:duel-game-core/transport`'s methods; [`../DESIGN.md`](../DESIGN.md)
+has the flows as diagrams. The caller's principal is the player; the
+`sid` the client passes around is only this tab's label for it.
 
-**Presence.** After `pingMs` (120000) without any other request the
-transport sends a `duel_ping`, which is all the canister needs to count
-the session as present. There is no goodbye: a closed tab, a throttled
-background tab, a sleeping laptop, a phone in another app all keep
-their seat, and a player who comes back under the same `sid` continues
-where they were. Genuine absence is the engine's claim and idle
-timeouts' business; the only explicit departure is the player's own
-`leave`.
+**Following one source.** Every read is a query. The transport follows
+the lobby (`duel_lobby(rev)`) or one table (`duel_table(id, rev)`) —
+the newest of the caller's own tables (`yours`) when there is one — and
+composes what it sees into the `Status` a client renders:
+`{ browsing: { tables } }` or `{ atTable: { id, view } }`. Each source
+answers `unchanged` while the `rev` asked with is current, so polling an
+idle table every `intervalMs` (500) costs one comparison on the
+canister. It goes back to the lobby when its table is `gone` or shows
+the caller an outsider's view (`lobby`/`busy`), and moves to a table
+when the lobby lists one in `yours`. A view not newer than the last
+applied from the same source is dropped, which orders a reply against a
+polled view. Nothing is queued on either side, so a client always gets
+the latest snapshot and may skip intermediate ones.
 
-**First paint.** `queryStatus(sid)` calls the host's plain `status`
-query (every host declares it, and `makeIdlFactory` includes it).
-`createDuelClient` uses it when the transport offers it, so the first
-screen lands in one query round trip while the first `#status`, an
-update call, is still on its way; whatever the transport then delivers
-supersedes it.
+**Requests.** A move is one `duel_submit` update whose reply is the
+table's fresh view. Every other mutation (`createTable`, `joinTable`,
+`rematch`, `leave`, `reset`, `claimWin`, `ackEnded`) is an update
+replying with an `Ack` — the table and its `rev` after the call; the
+transport follows that table and polls until its view has caught up
+(a replica answering the query may lag the update briefly). Table
+requests go to the table the transport follows when they are made, and a
+resend goes to the same one. A table request with no table followed is
+`#notSeated` without a call. `#status` is a resync by query: the lobby,
+then the caller's newest table.
 
-**The actor must sign as the session's identity** — the one that
-produced `session.sid`. The backend rejects a `sid` that doesn't match
-the caller's principal, and an anonymous caller outright, so never
-build the agent without an identity. `resolveIdentity()`/
+**Polls.** A poll unanswered after `pollTimeoutMs` (3000) counts as a
+failed one and the loop asks again, so a query the gateway never
+answers costs one retry instead of freezing the loop. Its answer still
+applies if it arrives late, which keeps a slow link from reading as a
+lost one. At most three polls are ever unanswered at once; past that
+the loop waits on the newest.
+
+**Keep-alive.** While the shown view is `stagingYou` (waiting at a table
+for an opponent), the transport sends `duel_keep_alive()` every
+`keepAliveMs` (20000); without it the canister's sweep clears the table
+about a minute after the tab is gone. Nothing else needs presence:
+there is no goodbye, and a closed tab, a throttled background tab, a
+sleeping laptop, a phone in another app all keep their seat in a game.
+A player who comes back with the same key continues where they were.
+Genuine absence in a game is the engine's claim and idle timeouts'
+business; the only explicit departure is the player's own `leave`.
+
+**First paint.** `queryStatus(sid)` composes the status from the same
+two queries without touching the link. `createDuelClient` uses it, so
+the first screen lands in one or two query round trips; whatever the
+transport then delivers supersedes it.
+
+**The actor must sign as the player's identity** — the one that
+produced `session.sid`. The canister refuses the anonymous principal,
+so never build the agent without an identity. `resolveIdentity()`/
 `resolveAnonymousIdentity()` return a matched `{ identity, principal,
-sid }`. A reload is safe: the canister sees the same `sid` again and
-nothing in between.
+sid }`. A reload is safe: the same key is the same player.
 
 **Dependencies.** `transport.js` uses `@icp-sdk/core/candid` only.
-`duel_poll` is an uncertified query; every mutation's reply comes from
-an update call.
+`duel_lobby`/`duel_table` are uncertified queries; every mutation's
+reply comes from an update call.
 
 **No other transport.** A host built on this framework has no plain
 mutating method. The client only needs the four handlers and
 `send(msg)`, so a hand-rolled object of the same shape (a test mock)
 can replace `DuelTransport`.
 
-**Relinking.** Only `close()` ends a `DuelTransport`; anything the
-canister forgets is redone with no `onclose`. `duel_poll` answering
-`unknown` (after an upgrade, or once a lapsed link was pruned), two
-failed polls in a row, or an update call that kept failing makes the
-next tick send a `#status`, backing off up to 5 s. `onconnecting` fires
-when the link is lost; `onopen` fires again on every confirmed relink
-(`client.js` asks for a fresh `#status` then, coalesced with the
-transport's own). Coming back — the tab visible again, `online`,
-`pageshow` — ticks at once. `onerror` fires only on a second
-consecutive failure, since a lone blip self-heals within a tick.
+**Relinking.** Only `close()` ends a `DuelTransport`. Two failed polls
+in a row, or an update call that kept failing, presume the link lost:
+`onconnecting` fires and the next tick resyncs, backing off up to 5 s.
+`onopen` fires again on every confirmed relink (`client.js` asks for a
+fresh `#status` then, coalesced with the transport's own). Coming back
+— the tab visible again, `online`, `pageshow` — ticks at once.
+`onerror` fires only on a second consecutive failure, since a lone blip
+self-heals within a tick.
 
 **Requests go out one at a time, in order**: two in-flight update calls
 have no ordering guarantee. `send()`/`request()` are safe at any time; a
 request waits its turn behind earlier ones. An update call that throws
 may or may not have landed, so it is resent (after 0.5 s, then 1.5 s);
 `#stale`/`#alreadySubmitted` on a resend can only mean the original
-landed, and settles with a fresh `#status` instead of an error.
+landed, and settles with a resync instead of an error.
 
 **Sharing one `transport`.** `DuelTransport` extends `EventTarget`; game code
 can `transport.addEventListener("message", ...)` on the same transport instead
@@ -515,7 +528,7 @@ sets (canister ids, root key), use `safeGetCanisterEnv()` from
 | `identity.js`      | `resolveIdentity()`, `sidForPrincipal(principalText)`; depends on `@icp-sdk/auth`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `anon-identity.js` | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX`; depends only on `@icp-sdk/core/identity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `ic-env.js`        | `deriveHost()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `transport.js`     | `connectTransport({ actor, gameIdlTypes, intervalMs?, pingMs?, pollTimeoutMs? })`, `DuelTransport` — serialized requests, poll loop, heartbeat, relink policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `transport.js`     | `connectTransport({ actor, gameIdlTypes, intervalMs?, keepAliveMs?, pollTimeoutMs? })`, `DuelTransport` — lobby/table queries, serialized requests, keep-alive, relink policy                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `style.css`        | generic layout primitives                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 See [`../backend/README.md`](../backend/README.md) for the `Spec`

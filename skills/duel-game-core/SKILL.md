@@ -12,7 +12,7 @@ rules-agnostic packages — a Motoko mops package (session engine) and an
 npm package (browser client) — implementing everything a 2-player game
 needs except the game itself: a multi-table lobby (open or access-code
 protected tables), seating, round submission, debrief, idle takeover,
-rematch, claim-win, session identity, the polling transport, a headless client
+rematch, claim-win, player identity, the polling transport, a headless client
 holding all of that browser-side, and default screens over it that a
 game can replace one at a time or entirely.
 
@@ -178,30 +178,53 @@ From `templates/Rules.mo.template`, write `src/<YourGame>Rules.mo`:
 
 ## Step 4 — Write the host actor
 
+How the pieces interact — identity, the lobby/table queries with their
+`rev`s, one update at a time, keep-alive, bots — is drawn in the
+repo's `DESIGN.md` (https://github.com/research-ag/duel-core/blob/main/DESIGN.md).
+The short version a host needs: a player is the caller's principal; all
+data lives in plain stable records; one transient `Transport.Duel`
+binds them to your rules.
+
 From `templates/Host.mo.template`, write `src/Host.mo`, filling in only
 `__RULES_MODULE__`, `__IDLE_TIMEOUT_NS__` (`90_000_000_000` = 90s: how
 long an abandoned game sits before a third party may take it over, and
-how long a waiting seat whose player has disconnected is kept), and
-`__CLAIM_TIMEOUT_NS__` (`60_000_000_000` = 60s: how long your submitted
-move may sit against the opponent's silence before you may claim the
-win). Both go into `registry.setTimeouts` on the line after
-`Registry.new()`: a stable `registry` runs its initializer only on first
-install, while `setTimeouts` runs on every upgrade. Keep
+how long a table waiting for an opponent survives once its creator's
+tab is gone), and `__CLAIM_TIMEOUT_NS__` (`60_000_000_000` = 60s: how
+long your submitted move may sit against the opponent's silence before
+you may claim the win). Both go into `state.registry.setTimeouts` on
+the line after `Transport.new()`: a stable `state` runs its initializer
+only on first install, while `setTimeouts` runs on every upgrade. Keep
 `idleTimeoutNs` comfortably above `claimTimeoutNs` (at least 15s of
 margin) — an idle game can otherwise be taken over by a third party
-before its own claim window even opens. Change nothing else. Do not add plain Candid methods for
-`createTable`/`joinTable`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/
-`ackEnded` — `mo:duel-game-core/transport` (`Transport.attach` + `ActorMixin`) is the
-only mutation path; a direct update call reopens the ordering race it
-closes. `status` stays a plain `query`. The template wires a
-`Registry`, so the game gets a multi-table lobby for free, and
-promtracker metrics, and `HttpActorMixin`, whose routes answer
-`GET /semantics` with `Rules.SEMANTICS` and `GET /metrics` with the
-metrics; data a client needs but `State` does not carry (a fixed map, a
-deck list) goes in as a further `(path, () -> Text)` route.
-The same mixin also serves the canister's own module at `GET /wasm` and
-takes it in through the controllers-only `wasm_upload_*` methods that
-`publish_wasm.sh` calls at deploy time (Step 7); nothing to wire.
+before its own claim window even opens. Change nothing else.
+
+What the template wires:
+
+- `let state = Transport.new<Rules.State, Rules.Action>()` — the
+  tables, plain stable data.
+- `transient let duel = Transport.Duel<…>(state, Rules.spec(), null, null)`
+  — the state plus your rules (function values cannot be stable, so the
+  `Duel` is rebuilt on every upgrade). The two `null`s are canister
+  players and a leaderboard, below.
+- `include TransportActorMixin<system>(duel.lobby)` — every method that
+  names neither `State` nor `Action` (`duel_create_table`,
+  `duel_join_table`, `duel_rematch`, `duel_leave`, `duel_reset`,
+  `duel_claim_win`, `duel_ack_ended`, `duel_keep_alive`, the
+  `duel_lobby` query) and the sweep timer.
+- `duel_submit` and `duel_table` — the two methods whose Candid types
+  depend on your game, as one-line pass-throughs (a mixin cannot take
+  type parameters).
+- promtracker metrics and `HttpActorMixin`, whose routes answer
+  `GET /semantics` with `Rules.SEMANTICS` and `GET /metrics` with the
+  metrics; data a client needs but `State` does not carry (a fixed map,
+  a deck list) goes in as a further `(path, () -> Text)` route. The same
+  mixin serves the canister's own module at `GET /wasm`, taken in
+  through the controllers-only `wasm_upload_*` methods that
+  `publish_wasm.sh` calls at deploy time (Step 7); nothing to wire.
+
+Do not add plain Candid methods for any game operation:
+`mo:duel-game-core/transport` is the only path, and the frontend sends
+its update calls one at a time so they apply in order.
 
 **Claim a win.** The generic `#inGame` screen renders a "Claim the win"
 button with its own countdown once `claimWinAvailable` turns true, and
@@ -210,14 +233,15 @@ is involved. In an `#alternating` game only the seat NOT on turn ever
 sees the control.
 
 **Metrics.** The template wires promtracker for every game:
-`registry.attachMetrics(pt)` records `games_started`, `active_games`,
-`rounds_per_game` and `matchmaking_wait_seconds` (the backend README's
-"Metrics"), next to promtracker's system metrics (memory, cycles,
-instructions), all served at `GET /metrics` in Prometheus format. Keep
-the `import Tracker "mo:promtracker/Tracker"` line: it is what brings
-`pt.toValue()` into scope, and without it the host does not compile.
-A game with its own counters adds them to the same `pt`
-(`pt.newCounter(name, labels)`, `pt.newGauge(...)`; see promtracker's README). Check after a deploy:
+`state.registry.attachMetrics(pt)` records `games_started`,
+`active_games`, `rounds_per_game` and `matchmaking_wait_seconds` (the
+backend README's "Metrics"), next to promtracker's system metrics
+(memory, cycles, instructions), all served at `GET /metrics` in
+Prometheus format. Keep the `import Tracker "mo:promtracker/Tracker"`
+line: it is what brings `pt.toValue()` into scope, and without it the
+host does not compile. A game with its own counters adds them to the
+same `pt` (`pt.newCounter(name, labels)`, `pt.newGauge(...)`; see
+promtracker's README). Check after a deploy:
 
 ```bash
 curl http://$ID.raw.localhost:8000/metrics
@@ -228,51 +252,33 @@ Nothing to add to `mops.toml`. Extend `Host.mo`:
 
 ```motoko
 import Principal "mo:core/Principal";
-import Timer "mo:core/Timer";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
 import BotIface "BotIface"; // make_move : (TP.MoveRequest<Rules.State, Rules.Action>) -> async Rules.Action
 
 actor {
-  // ...registry/status; Transport.attach's onSettled argument becomes ?settle...
+  // ...pt, state...
+  let bots = CanisterPlayers.newStore(); // the bot directory and in-flight asks — stable
 
-  transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
-  transient let settle = func(now : Int, id : TP.TableId) : async* () {
-    switch (settleTable) { case (?f) await* f(now, id); case null {} };
+  // Asks a seated bot canister for its move. Only the host can make this
+  // call: its result type is your Action.
+  func callBot<system>(bot : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+    let b : BotIface.CanisterPlayer = actor (CanisterPlayers.principalOfCanisterSession(bot).toText());
+    try { await* k<system>(?(await b.make_move(req))) } catch (_) {
+      await* k<system>(null);
+    };
   };
 
-  transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
+  transient let duel = Transport.Duel<Rules.State, Rules.Action>(
+    state,
     Rules.spec(),
-    registry,
-    attached.afterMutation,
-    true, // afterMutationSettles: `attached` runs `settle` via onSettled
-    func(session, req, k) : async* () {
-      let p = CanisterPlayers.principalOfCanisterSession(session);
-      let bot : BotIface.CanisterPlayer = actor (p.toText());
-      try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
-    },
-    func(id : TP.TableId, secs : Nat) : async* () {
-      ignore Timer.setTimer<system>(#seconds secs, func() : async () { await* settle(Time.now(), id) });
-    },
+    ?{ store = bots; call = callBot },
+    null, // or a leaderboard, below
   );
-  settleTable := ?cpAttached.settle;
 
-  let botDirectory = CanisterPlayers.newBotDirectory();
-  include CanisterPlayersActorMixin(cpAttached, botDirectory, null); // ?leaderboard once wired
-
-  transient let combinedSweep = func(now : Int) : async* () {
-    await* attached.sweep(now);
-    await* cpAttached.sweep(now);
-  };
-  include TransportActorMixin<system>(attached.lobby, combinedSweep);
-
-  public shared ({ caller }) func duel_submit(sid : Text, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
-    attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
-  };
-
-  public query func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
-    attached.poll(sid, rev);
-  };
+  include TransportActorMixin<system>(duel.lobby);
+  // ...duel_submit / duel_table unchanged...
+  include CanisterPlayersActorMixin(duel.canisterPlayers, bots.directory, null); // ?leaderboard once wired
 };
 
 ```
@@ -289,7 +295,7 @@ random or remembers anything — the latter makes `make_move` no longer a
 `query`.
 
 A challengeable bot self-registers once, by hand, after both canisters
-are deployed:
+are deployed (and again after any reinstall of the game):
 
 ```motoko
 public shared ({ caller }) func register(host : Principal.Principal, name : Text) : async () {
@@ -309,69 +315,55 @@ The bot then appears in every player's "🤖 Bots" dialog and the
 leaderboard's Challenge buttons (`frontend/README.md`, "Bot registry"),
 and a Rematch against it re-invites it automatically.
 
-**Leaderboard (optional).** Only if asked for rankings. A win/lose/draw
-game wants ELO (`#claimed`/`#aborted` count like a win); another metric
-is tracked directly, converted to higher-is-better if needed. Nothing to
-add to `mops.toml`:
+**Leaderboard (optional).** Only if asked for rankings. The `Duel`
+scores every finished game itself; you declare the board and pick the
+rating. A win/lose/draw game wants Elo (`#claimed`/`#aborted` count
+like a win). Nothing to add to `mops.toml`:
 
 ```motoko
 import Leaderboard "mo:duel-game-core/leaderboard";
 import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
-import Elo "mo:duel-game-core/elo";
 
 actor {
-  let STARTING_ELO : Int = 1200; // your call; elo.mo has no opinion
-  let leaderboard = Leaderboard.new(50, STARTING_ELO); // keep 50, show 25
+  let leaderboard = Leaderboard.new(50, 1200); // keep 50, start at 1200 — stable
 
-  func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
-    let outcome : Elo.Outcome = switch (d.end) {
-      case (#finished(#p1Wins)) #aWins;
-      case (#finished(#p2Wins)) #bWins;
-      case (#finished(#draw)) #draw;
-      case (#claimed(#p1)) #aWins;
-      case (#claimed(#p2)) #bWins;
-      case (#aborted(#p1)) #bWins;
-      case (#aborted(#p2)) #aWins;
-    };
-    let (k1, k2) = (Transport.playerKey(p1), Transport.playerKey(p2));
-    let (r1, r2) = Elo.update(Leaderboard.scoreOf(leaderboard, k1), Leaderboard.scoreOf(leaderboard, k2), outcome, 32);
-    let now = Time.now();
-    Leaderboard.setScore(leaderboard, k1, r1, now);
-    Leaderboard.setScore(leaderboard, k2, r2, now);
-  };
+  transient let duel = Transport.Duel<Rules.State, Rules.Action>(
+    state,
+    Rules.spec(),
+    null, // or the bots above
+    ?{ board = leaderboard; rating = #elo { k = 32 } },
+  );
 
-  // ...Transport.attach's onGameEnded argument becomes ?onGameEnded...
-  include LeaderboardActorMixin(leaderboard, 25);
+  include LeaderboardActorMixin(leaderboard, 25); // get_leaderboard(), top 25
 };
 
 ```
 
-For a metric like a best time, first check whether game state already
-tells you (`examples/racing` derives the lap time from `Debrief.turns`
-and the final state). Only when real elapsed time is genuinely needed,
-wire `onGameStarted` (the third `null` after the codec):
+Another metric (a best time, a high score) is a `#best` rating: a
+function from the finished game's `Debrief` to the seat it credits and
+its score, kept only when it improves that player's entry. Derive the
+metric from game state — `examples/racing` turns `Debrief.turns` and
+the final state into a lap time — and convert a lower-is-better metric
+to higher-is-better:
 
 ```motoko
-let leaderboard = Leaderboard.new(50, 0); // defaultScore unused by this shape
-func scoreFromYourMetric(raw : Int) : Int = Int.max(0, 3_600_000 - raw); // lower-is-better -> higher
+func scoreFromLapMs(ms : Int) : Int = Int.max(0, 3_600_000 - ms);
 
-let matchStarts = Map.empty<TP.TableId, Int>();
-func onGameStarted(id : TP.TableId, _p1 : TP.SessionId, _p2 : TP.SessionId) {
-  matchStarts.add(id, Time.now());
+func bestLap(d : TP.Debrief<Rules.State>) : ?(TP.Seat, Int) {
+  switch (d.end) {
+    case (#finished(#p1Wins)) ?(#p1, scoreFromLapMs(lapMsFor(d.finalGame.p1, d.turns)));
+    case (#finished(#p2Wins)) ?(#p2, scoreFromLapMs(lapMsFor(d.finalGame.p2, d.turns)));
+    case (_) null;
+  };
 };
-func onGameEnded(id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
-  // read d.end/d.finalGame, elapsed = Time.now() - matchStarts.get(id),
-  // Leaderboard.recordIfBetter(leaderboard, Transport.playerKey(winner), scoreFromYourMetric(raw), Time.now())
-  matchStarts.remove(id);
-};
+// rating = #best bestLap
 
 ```
 
-With canister players, special-case
-`CanisterPlayers.leaderboardKeyOfSession(sid)` before `Transport.playerKey`, so
-a bot's rating accumulates across tables, per complexity. On the
-frontend, call `actor.get_leaderboard()` (already declared by `idl.js`)
-and `renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames })`
+Keys are player ids — a human's principal, a bot's
+`cp:<principal>:<complexity>` — so a bot is rated per complexity. On
+the frontend, call `actor.get_leaderboard()` (already declared by
+`idl.js`) and `renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames })`
 (`botNames` from `actor.list_bots().catch(() => [])`). Use the examples'
 panel shape: an icon-only 🏆 toggle first in `.session` opening a
 full-page overlay (`#leaderboard-panel`), never an inline panel a status

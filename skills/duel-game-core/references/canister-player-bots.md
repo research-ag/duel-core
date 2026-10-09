@@ -16,16 +16,16 @@ don't have is set up by `bot-for-existing-game.md`; read `Rules.State`/
 
 - `game`, `seat`, `mode`, `turn` — what a human's screen shows.
 - `complexity` — which of your declared ways of playing this seat uses,
-  fixed for the session (`"Default"` if you declared none). Switch on it,
+  fixed for the game (`"Default"` if you declared none). Switch on it,
   treating unknown values as your default; never trap.
 - `gen` — this match's identity; bumps on every fresh stage, rematch on
   the same table included. You never submit it; it is only a memory key.
 - `retryReason` — `null` on a fresh ask; on a retry, the exact text your
   `validate` rejected the previous reply with.
-- `opponent` — the opposing seat's raw `SessionId`. Stable across every
-  table for a human (`ii:`/`an:`); per-table for a canister (`cp:`), so
-  use `CanisterPlayers.principalOfCanisterSession(req.opponent)` to model
-  a bot opponent across boards.
+- `opponent` — the opposing seat's player id: a human's principal (as
+  text), or another bot's `cp:<principal>:<complexity>`. Stable across
+  every table; use `CanisterPlayers.principalOfCanisterSession(req.opponent)`
+  to model a bot opponent across all its complexities.
 - `opponentLastMove` — the opponent's most recently RESOLVED move, never
   the pending one. `null` when `turn == 0`.
 - `lastRoundDurationNs` — how long the last round took: both seats'
@@ -97,8 +97,8 @@ Map.Map<...> = Map.empty()` is automatically stable.
 
 - **Per match** — `(req.tableId, req.gen)`; `req.turn == 0` is a cruder
   equivalent signal for "fresh match".
-- **Per opponent** — `req.opponent` for a human, its principal for a
-  canister.
+- **Per opponent** — `req.opponent` (for a bot, one id per complexity;
+  its principal to pool them).
 
 ## The retry pitfall: upsert, never append
 

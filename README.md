@@ -3,14 +3,18 @@
 A generic 2-player, turn-based game framework for the Internet Computer —
 two rules-agnostic packages, both published as `duel-game-core`:
 
-- [`backend/`](backend/README.md) — Motoko mops package: the session
-  engine (join/seating, rounds, debrief, rematch, idle takeover, status).
+- [`backend/`](backend/README.md) — Motoko mops package: the engine
+  (tables, seating, rounds, debrief, rematch, idle takeover, claims),
+  the transport every client goes through, canister bots and a
+  leaderboard.
 - [`frontend/`](frontend/README.md) — npm package: the matching client
-  plumbing (session identity, real-time push, generic screens) plus a
+  (identity, the polling transport, generic screens) plus a
   `GamePlugin` contract for a game's own board and moves.
 
-See each package's README for its integration contract. See
-[`CLAUDE.md`](CLAUDE.md) for repo-wide conventions and build/test commands.
+**Start with [`DESIGN.md`](DESIGN.md)** — the overall design, with
+diagrams of how a browser, the game canister and a bot interact. Each
+package's README has its API. See [`CLAUDE.md`](CLAUDE.md) for
+repo-wide conventions and build/test commands.
 
 ## Building a game
 

@@ -31,7 +31,11 @@ func acked(a : Transport.Ack, msg : Text) : { tableId : TP.TableId; rev : Nat } 
   case (#err e) Runtime.trap(msg # " failed: " # debug_show e);
 };
 
-func lobbyOf(r : Transport.LobbyResult) : { rev : Nat; tables : [TP.TableSummary]; yours : [TP.TableId] } = switch (r) {
+func lobbyOf(r : Transport.LobbyResult) : {
+  rev : Nat;
+  tables : [TP.TableSummary];
+  yours : [TP.TableId];
+} = switch (r) {
   case (#changed l) l;
   case (#unchanged) Runtime.trap("expected a lobby");
 };

@@ -311,7 +311,10 @@ module {
       return #err(#wrongPhase("cannot reserve yourself for the other seat"));
     };
     switch (atCapacity(self, session)) { case (?e) return #err e; case null {} };
-    switch (atCapacity(self, reservedFor)) { case (?e) return #err e; case null {} };
+    switch (atCapacity(self, reservedFor)) {
+      case (?e) return #err e;
+      case null {};
+    };
     let id = self.tableIdNonce;
     let t = Table.new<S, M>(self.idleTimeoutNs, self.claimTimeoutNs, visibility, session, variant);
     t.stage(now, session, seat, ?reservedFor);
@@ -345,7 +348,10 @@ module {
       case null return #err(#noSuchTable);
     };
     if (not isMine(t, session)) {
-      switch (atCapacity(self, session)) { case (?e) return #err e; case null {} };
+      switch (atCapacity(self, session)) {
+        case (?e) return #err e;
+        case null {};
+      };
     };
     let waitSince = stagingSince(t);
     switch (t.join(spec, now, session, seat)) {

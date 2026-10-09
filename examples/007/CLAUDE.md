@@ -5,14 +5,15 @@ A deployable `#simultaneous` example on `../../backend` and
 
 - **`src/Duel007Rules.mo`** — the rules as pure functions (no actor, no
   storage, no `Time`), plugged in via `spec() : TP.Spec<State, Action>`.
-- **`src/Host.mo`** — the host actor: a `Registry` (90s idle timeout, 60s
-  claim window), `status` as the only plain query, `Transport.attach` +
-  `include ActorMixin`, Prometheus metrics (`attachMetrics` + a
-  `/metrics` route on `HttpActorMixin`), and an ELO
-  leaderboard (`Leaderboard.new(50, 1200)`, re-rated in `onGameEnded`
-  with `Elo.update` at k=32 for every ending, read via `include
-LeaderboardActorMixin(leaderboard, 25)`). Plus canister
-  players and bot discovery, wired as in `../rock-paper-scissors/src/Host.mo`.
+- **`src/Host.mo`** — the host actor, same shape as
+  `../checkers/src/Host.mo`: stable `state` (90s idle timeout, 60s claim
+  window), bots store and leaderboard; one transient `Transport.Duel`
+  binding them with the rules, `callBot` and an Elo rating (k=32, every
+  ending re-rates both seats, read via `include
+LeaderboardActorMixin(leaderboard, 25)`); the transport and
+  canister-player mixins, the host's own `duel_submit`/`duel_table`, and
+  Prometheus metrics (`attachMetrics` + a `/metrics` route on
+  `HttpActorMixin`).
 - **`src/BotIface.mo`** — `make_move`.
 - **`bot/BotLogic.mo`** — `COMPLEXITIES = ["Easy", "Medium"]`.
   `chooseMove(req, entropy)` (`entropy` = `Time.now()` from `Bot.mo`,

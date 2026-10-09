@@ -25,7 +25,10 @@ func idOf(reg : TP.Registry<Rules.State, Rules.Action>, p : Text) : TP.TableId {
   if (ids.size() == 0) Runtime.trap(p # " is at no table");
   ids[0];
 };
-func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : Text) : { #atTable : { id : TP.TableId; view : TP.View<Rules.State> }; #browsing } {
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : Text) : {
+  #atTable : { id : TP.TableId; view : TP.View<Rules.State> };
+  #browsing;
+} {
   let ids = reg.tablesOf(p);
   if (ids.size() == 0) return #browsing;
   switch (reg.view(spec, at, p, ids[0])) {
@@ -33,7 +36,6 @@ func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : Text) 
     case null #browsing;
   };
 };
-
 
 let TIMEOUT : Int = 60_000_000_000; // 60 s
 let CLAIM_TIMEOUT : Int = 20_000_000_000; // 20 s
@@ -367,7 +369,9 @@ Debug.print("11. claimWin / reset forward correctly and route per-table OK");
 // trick)
 func perSessionBot(silent : TP.PlayerId) : CanisterPlayers.CallBot<Rules.State, Rules.Action> {
   func<system>(session : TP.PlayerId, _req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
-    if (session == silent) { await* k<system>(null) } else { await* k<system>(?#gather) };
+    if (session == silent) { await* k<system>(null) } else {
+      await* k<system>(?#gather);
+    };
   };
 };
 let reg12 = fresh();
