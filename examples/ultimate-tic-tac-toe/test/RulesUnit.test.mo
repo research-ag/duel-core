@@ -3,9 +3,12 @@
 // engine, no actor.
 import R "../src/UltimateTicTacToeRules";
 import TP "mo:duel-game-core";
+import Rng "mo:duel-game-core/rng";
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
+
+let rng = Rng.new(42);
 
 func withCells(marks : [(Nat, Nat, TP.Seat)]) : [?TP.Seat] {
   var cells = Array.repeat<?TP.Seat>(null, 81);
@@ -29,7 +32,7 @@ func stateOf(marks : [(Nat, Nat, TP.Seat)], overrides : [(Nat, R.BoardResult)], 
 };
 
 // ── 1. init() is a clean, empty state ──────────────────────────────────────
-let s0 = R.init("");
+let s0 = R.init({}, rng);
 assert s0.cells.size() == 81;
 assert s0.results.size() == 9;
 assert s0.cells.all<?TP.Seat>(func(cell) = cell == null);
@@ -37,12 +40,12 @@ assert s0.results.all<?R.BoardResult>(func(r) = r == null);
 assert s0.activeBoard == null;
 Debug.print("1. init() OK");
 
-// ── 2. spec() hands out the same rules, in #alternating mode ───────────────
-let sp = switch (R.spec()) {
-  case (#alternating s) s;
-  case (#simultaneous _) Runtime.trap("ultimate tic-tac-toe is a #alternating game");
+// ── 2. spec() hands out the same rules, in #turnBased mode ───────────────
+let sp = switch (R.spec) {
+  case (#turnBased s) s;
+  case (#simultaneous _) Runtime.trap("ultimate tic-tac-toe is a #turnBased game");
 };
-assert sp.init("").cells == s0.cells;
+assert sp.init({}, rng).cells == s0.cells;
 Debug.print("2. spec wiring OK");
 
 // ── 3. validate: free choice (activeBoard == null) accepts any empty cell in
@@ -177,7 +180,7 @@ Debug.print("10. fully-decided meta board with no line completed is a draw OK");
 // ── 11. legalActions mirrors validate's own legality, in every activeBoard
 //      mode ─────────────────────────────────────────────────────────────────
 do {
-  let s0b = R.init("");
+  let s0b = R.init({}, rng);
   assert R.legalActions(s0b, #p1).size() == 81;
 
   let s2 = stateOf([(4, 0, #p1)], [], ?4);

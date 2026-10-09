@@ -7,45 +7,50 @@ match's history or models an opponent across games. Don't reach for the
 stateful shape unless the strategy actually needs memory. Making a bot
 challengeable (self-registration) is covered in
 `SKILL.md`'s "Canister players" step. A bot for a game whose source you
-don't have is set up by `bot-for-existing-game.md`; read `Rules.State`/
-`Rules.Action` below as its `Game.State`/`Game.Action`.
+don't have is set up by `bot-for-existing-game.md`; read `Rules.View`/
+`Rules.Action` below as its `Game.View`/`Game.Action`.
 
 ## What `make_move` receives
 
-`TP.MoveRequest<S, M>`, grouped by purpose:
+`TP.MoveRequest<V, M>`, grouped by purpose:
 
-- `game`, `seat`, `mode`, `turn` — what a human's screen shows.
+- `game`, `seat`, `mode`, `step` — what a human's screen shows. `game`
+  is the game's `View` for your seat: exactly what a human there sees,
+  never the hidden parts of the state. `step` counts applied actions
+  (`#turnBased`) or resolved rounds (`#simultaneous`); in a turn of
+  several actions you are asked once per action, each time with the
+  view as it then is.
 - `complexity` — which of your declared ways of playing this seat uses,
-  fixed for the session (`"Default"` if you declared none). Switch on it,
+  fixed for the game (`"Default"` if you declared none). Switch on it,
   treating unknown values as your default; never trap.
 - `gen` — this match's identity; bumps on every fresh stage, rematch on
   the same table included. You never submit it; it is only a memory key.
 - `retryReason` — `null` on a fresh ask; on a retry, the exact text your
   `validate` rejected the previous reply with.
-- `opponent` — the opposing seat's raw `SessionId`. Stable across every
-  table for a human (`ii:`/`an:`); per-table for a canister (`cp:`), so
-  use `CanisterPlayers.principalOfCanisterSession(req.opponent)` to model
-  a bot opponent across boards.
+- `opponent` — the opposing seat's player id: a human's principal (as
+  text), or another bot's `cp:<principal>:<complexity>`. Stable across
+  every table; use `CanisterPlayers.principalOfCanisterSession(req.opponent)`
+  to model a bot opponent across all its complexities.
 - `opponentLastMove` — the opponent's most recently RESOLVED move, never
-  the pending one. `null` when `turn == 0`.
-- `lastRoundDurationNs` — how long the last round took: both seats'
+  the pending one. `null` when `step == 0`.
+- `lastStepDurationNs` — how long the last step took: both seats'
   combined time in `#simultaneous`, the one mover's time in
-  `#alternating`. `null` when `turn == 0`.
+  `#turnBased`. `null` when `step == 0`.
 
 ## The protocol in one sentence
 
-The game canister calls your `make_move` once per round you are due, and
+The game canister calls your `make_move` once per action you are due, and
 your reply IS the move; an illegal reply is asked once more with
 `retryReason` set, then the engine falls silent and its timeouts apply.
 
 ## Two shapes
 
 **Simple: a pure function, `query`.** A strategy over `game`/`seat`/
-`turn` alone (a script, a legal-move lookup, a minimax over the current
+`step` alone (a script, a legal-move lookup, a minimax over the current
 board):
 
 ```motoko
-public query func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async Rules.Action {
+public query func make_move(req : TP.MoveRequest<Rules.View, Rules.Action>) : async Rules.Action {
   BotLogic.chooseMove(req);
 };
 
@@ -57,7 +62,7 @@ storage, so `test/Bot.test.mo` can call `chooseMove` directly.
 
 **Randomness without state.** A bot whose strategy is a random pick (a
 game of hidden simultaneous choices, a tie-break between equal moves)
-must not derive it from `turn`/`seat` alone: a deterministic bot plays
+must not derive it from `step`/`seat` alone: a deterministic bot plays
 the same sequence every match and is trivially exploited. `Time.now()`'s
 nanoseconds are unpredictable enough in practice and keep `make_move` a
 `query`. `Bot.mo` passes it in as a parameter (`BotLogic` stays
@@ -66,7 +71,7 @@ nanoseconds are unpredictable enough in practice and keep `make_move` a
 each other (`examples/rock-paper-scissors/bot/BotLogic.mo`):
 
 ```motoko
-public query func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async Rules.Action {
+public query func make_move(req : TP.MoveRequest<Rules.View, Rules.Action>) : async Rules.Action {
   BotLogic.chooseMove(req, Time.now());
 };
 
@@ -81,7 +86,7 @@ are never committed — a hard IC constraint — so a bot that remembers
 anything must declare an ordinary `public func`:
 
 ```motoko
-public func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async Rules.Action {
+public func make_move(req : TP.MoveRequest<Rules.View, Rules.Action>) : async Rules.Action {
   BotLogic.chooseMove(req, opponentModels);
 };
 
@@ -95,17 +100,17 @@ Map.Map<...> = Map.empty()` is automatically stable.
 
 ## Keying your own memory
 
-- **Per match** — `(req.tableId, req.gen)`; `req.turn == 0` is a cruder
+- **Per match** — `(req.tableId, req.gen)`; `req.step == 0` is a cruder
   equivalent signal for "fresh match".
-- **Per opponent** — `req.opponent` for a human, its principal for a
-  canister.
+- **Per opponent** — `req.opponent` (for a bot, one id per complexity;
+  its principal to pool them).
 
 ## The retry pitfall: upsert, never append
 
-A retried round calls `make_move` a second time with the same
-`tableId`/`gen`/`turn`. Blindly appending your own move logs it twice,
+A retried action calls `make_move` a second time with the same
+`tableId`/`gen`/`step`. Blindly appending your own move logs it twice,
 and there is no "accepted" callback (even a legal reply may not land if
-the table moved on). Treat `(tableId, gen, turn)` as one decision point
+the table moved on). Treat `(tableId, gen, step)` as one decision point
 and overwrite by that key.
 
 ## A worked sketch
@@ -132,11 +137,11 @@ actor {
   var opponentModels : Map.Map<Text, OpponentModel> = Map.empty();
   var matchHistory : Map.Map<Text, [Rules.Action]> = Map.empty();
 
-  func matchKey(req : TP.MoveRequest<Rules.State, Rules.Action>) : Text {
+  func matchKey(req : TP.MoveRequest<Rules.View, Rules.Action>) : Text {
     Nat.toText(req.tableId) # "/" # Nat.toText(req.gen);
   };
 
-  func opponentKey(req : TP.MoveRequest<Rules.State, Rules.Action>) : Text {
+  func opponentKey(req : TP.MoveRequest<Rules.View, Rules.Action>) : Text {
     if (CanisterPlayers.isCanisterSession(req.opponent)) {
       Principal.toText(CanisterPlayers.principalOfCanisterSession(req.opponent));
     } else {
@@ -160,7 +165,7 @@ actor {
     };
   };
 
-  func learnFrom(req : TP.MoveRequest<Rules.State, Rules.Action>) {
+  func learnFrom(req : TP.MoveRequest<Rules.View, Rules.Action>) {
     switch (req.opponentLastMove) {
       case null {};
       case (?move) {
@@ -175,7 +180,7 @@ actor {
     };
   };
 
-  public func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async Rules.Action {
+  public func make_move(req : TP.MoveRequest<Rules.View, Rules.Action>) : async Rules.Action {
     learnFrom(req);
     let m = modelFor(opponentKey(req));
     let chosen : Rules.Action = #rock; // your strategy over `m` goes here
@@ -191,7 +196,9 @@ actor {
 
 - Don't look for the opponent's current pending move — there is no
   field for it, by design.
-- Don't force-unwrap `opponentLastMove`/`lastRoundDurationNs`; both are
-  `null` on turn 0, and a trap counts as silence.
-- Don't key per-match state by `turn` alone; pair it with `gen`.
+- Don't force-unwrap `opponentLastMove`/`lastStepDurationNs`; both are
+  `null` on step 0, and a trap counts as silence.
+- Don't key per-match state by `step` alone; pair it with `gen`.
+- Don't expect the full state: `game` is the `View`. A hidden-information
+  game's bot plays from what it may see, like everyone else.
 - Don't default to the stateful shape.

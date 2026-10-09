@@ -129,7 +129,7 @@ async function inviteBot(bot, staging) {
 
 async function startBotGame(bot, seat) {
   setInviting(bot);
-  const res = await client.createTable(seat, { open: null }, "");
+  const res = await client.createTable(seat, { open: null }, {});
   const staging = res.ok ? stagingOf(res.view) : null;
   if (staging === null) {
     if (res.ok) client.showError("Could not stage a file.");

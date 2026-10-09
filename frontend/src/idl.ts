@@ -1,10 +1,11 @@
 // Candid interface factory for any duel-game-core canister. Every type
-// except `Action`/`State` is fixed by the engine. `IDL` always arrives as
-// a parameter from the caller's own Candid tooling.
+// except the game's `Action`/`View`/`Options` is fixed by the engine.
+// `IDL` always arrives as a parameter from the caller's own Candid tooling.
 //
 //   const idlFactory = makeIdlFactory(({ IDL }) => ({
 //     Action: IDL.Variant({ /* ... */ }),
-//     State: IDL.Record({ /* ... */ }),
+//     View: IDL.Record({ /* ... */ }),     // what one seat sees of the state
+//     Options: IDL.Record({}),             // a table's options
 //   }));
 //   const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
@@ -12,7 +13,8 @@ import type { IDL as IDLNS } from "@icp-sdk/core/candid";
 
 export type BuildGameTypes = (args: { IDL: typeof IDLNS }) => {
   Action: IDLNS.Type;
-  State: IDLNS.Type;
+  View: IDLNS.Type;
+  Options: IDLNS.Type;
 };
 
 export interface EngineTypes {
@@ -28,25 +30,30 @@ export interface EngineTypes {
   Status: IDLNS.Type;
   LeaderboardEntry: IDLNS.Type;
   BotInfo: IDLNS.Type;
-  PollResult: IDLNS.Type;
   TransportRequest: IDLNS.Type;
-  TransportMsg: IDLNS.Type;
+  TransportReply: IDLNS.Type;
+  Ack: IDLNS.Type;
+  TableResult: IDLNS.Type;
+  LobbyResult: IDLNS.Type;
+  KeepAliveResult: IDLNS.Type;
 }
 
-/// Every named Candid type the service surface uses — `status`'s types
-/// plus the transport's. Exported so `transport.ts` encodes against the
+/// Every named Candid type the service surface uses, plus `Status`, the
+/// shape `DuelTransport` composes for a client. Exported so `transport.ts` encodes against the
 /// exact same descriptions.
 export function buildEngineTypes({
   IDL,
   Action,
-  State,
+  View: GameView,
+  Options,
 }: {
   IDL: typeof IDLNS;
   Action: IDLNS.Type;
-  State: IDLNS.Type;
+  View: IDLNS.Type;
+  Options: IDLNS.Type;
 }): EngineTypes {
   const Seat = IDL.Variant({ p1: IDL.Null, p2: IDL.Null });
-  const Mode = IDL.Variant({ simultaneous: IDL.Null, alternating: IDL.Null });
+  const Mode = IDL.Variant({ simultaneous: IDL.Null, turnBased: IDL.Null });
   const Verdict = IDL.Variant({
     p1Wins: IDL.Null,
     p2Wins: IDL.Null,
@@ -67,6 +74,7 @@ export function buildEngineTypes({
     noSuchTable: IDL.Null,
     badCode: IDL.Null,
     unauthorized: IDL.Null,
+    tooManyTables: IDL.Record({ max: IDL.Nat }),
   });
   // No JoinOk/SubmitOk/RematchOk: only a fresh `View` ever crosses the
   // wire, in a `#view`.
@@ -87,9 +95,10 @@ export function buildEngineTypes({
     awaitingRematch: IDL.Record({ openSeat: Seat, gen: IDL.Nat }),
     inGame: IDL.Record({
       seat: Seat,
-      game: State,
-      turn: IDL.Nat,
+      game: GameView,
+      step: IDL.Nat,
       mode: Mode,
+      toMove: IDL.Opt(Seat),
       youSubmitted: IDL.Bool,
       oppSubmitted: IDL.Bool,
       gen: IDL.Nat,
@@ -102,8 +111,8 @@ export function buildEngineTypes({
     debrief: IDL.Record({
       seat: Seat,
       end: End,
-      turns: IDL.Nat,
-      finalGame: State,
+      steps: IDL.Nat,
+      finalGame: GameView,
       gen: IDL.Nat,
     }),
     endedByOther: IDL.Null,
@@ -118,7 +127,7 @@ export function buildEngineTypes({
     p2Session: IDL.Opt(IDL.Text),
     protected: IDL.Bool,
     waitingSecs: IDL.Nat,
-    variant: IDL.Text,
+    options: Options,
   });
   const Status = IDL.Variant({
     browsing: IDL.Record({ tables: IDL.Vec(TableSummary) }),
@@ -143,11 +152,13 @@ export function buildEngineTypes({
     complexities: IDL.Vec(BotComplexity),
   });
 
-  // Mirrors `Transport.Msg<S, M>`: `rev` orders views.
+  // The client's own request vocabulary (`DuelTransport` maps each case
+  // to its method); never sent as such, only used to reject a malformed
+  // request before it is queued.
   const TransportRequest = IDL.Variant({
-    createTable: IDL.Record({ seat: Seat, visibility: Visibility, variant: IDL.Text }),
+    createTable: IDL.Record({ seat: Seat, visibility: Visibility, options: Options }),
     joinTable: IDL.Record({ id: TableId, seat: Seat, code: IDL.Opt(IDL.Text) }),
-    submit: IDL.Record({ gen: IDL.Nat, turn: IDL.Nat, move: Action }),
+    submit: IDL.Record({ gen: IDL.Nat, step: IDL.Nat, move: Action }),
     rematch: IDL.Null,
     leave: IDL.Record({ gen: IDL.Nat }),
     reset: IDL.Record({ gen: IDL.Nat }),
@@ -155,43 +166,54 @@ export function buildEngineTypes({
     ackEnded: IDL.Null,
     status: IDL.Null,
   });
-  const TransportMsg = IDL.Variant({
-    req: IDL.Record({ sid: IDL.Text, req: TransportRequest }),
-    view: IDL.Record({ rev: IDL.Nat, view: Status }),
-    err: IDL.Record({ err: Err }),
-  });
-  // `changed` carries an encoded `TransportMsg` `#view`.
-  const PollResult = IDL.Variant({
+  // Mirrors `Transport.Snapshot<S>`/`Reply<S>`/`TableResult<S>`/
+  // `LobbyResult`/`Ack`: `rev` orders one table's (or the lobby's) views.
+  const Snapshot = IDL.Record({ rev: IDL.Nat, view: View });
+  const TransportReply = IDL.Variant({ view: Snapshot, err: Err });
+  const TableResult = IDL.Variant({
     unchanged: IDL.Null,
-    changed: IDL.Vec(IDL.Nat8),
-    unknown: IDL.Null,
+    changed: Snapshot,
+    gone: IDL.Null,
   });
+  const LobbyResult = IDL.Variant({
+    unchanged: IDL.Null,
+    changed: IDL.Record({ rev: IDL.Nat, tables: IDL.Vec(TableSummary), yours: IDL.Vec(TableId) }),
+  });
+  const Ack = IDL.Variant({ ok: IDL.Record({ tableId: TableId, rev: IDL.Nat }), err: Err });
+  const KeepAliveResult = IDL.Variant({ ok: IDL.Null, err: Err });
 
   return {
     Seat, Mode, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
     LeaderboardEntry, BotInfo,
-    PollResult, TransportRequest, TransportMsg,
+    TransportRequest, TransportReply, Ack, TableResult, LobbyResult, KeepAliveResult,
   };
 }
 
-/// Wraps a game's `{ Action, State }` in the fixed service shape. No
-/// mutating methods: mutation goes exclusively through `duel_request`.
+/// Wraps a game's `{ Action, View, Options }` in the fixed service shape. Game
+/// state is mutated only through the `duel_*` transport methods.
 /// `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots` are
 /// declared unconditionally; a client that never calls them pays nothing.
 export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
   return ({ IDL }: { IDL: typeof IDLNS }) => {
-    const { Action, State } = buildGameTypes({ IDL });
-    const t = buildEngineTypes({ IDL, Action, State });
+    const { Action, View, Options } = buildGameTypes({ IDL });
+    const t = buildEngineTypes({ IDL, Action, View, Options });
 
     return IDL.Service({
-      status: IDL.Func([IDL.Text], [t.Status], ["query"]),
       get_leaderboard: IDL.Func([], [IDL.Vec(t.LeaderboardEntry)], ["query"]),
       register_bot: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [], []),
       unregister_bot: IDL.Func([], [], []),
       list_bots: IDL.Func([], [IDL.Vec(t.BotInfo)], ["query"]),
-      // Both blobs are an encoded `TransportMsg`.
-      duel_request: IDL.Func([IDL.Vec(IDL.Nat8)], [IDL.Vec(IDL.Nat8)], []),
-      duel_poll: IDL.Func([IDL.Text, IDL.Nat], [t.PollResult], ["query"]),
+      duel_create_table: IDL.Func([t.Seat, t.Visibility, Options], [t.Ack], []),
+      duel_join_table: IDL.Func([t.TableId, t.Seat, IDL.Opt(IDL.Text)], [t.Ack], []),
+      duel_rematch: IDL.Func([t.TableId], [t.Ack], []),
+      duel_leave: IDL.Func([t.TableId, IDL.Nat], [t.Ack], []),
+      duel_reset: IDL.Func([t.TableId, IDL.Nat], [t.Ack], []),
+      duel_claim_win: IDL.Func([t.TableId, IDL.Nat], [t.Ack], []),
+      duel_ack_ended: IDL.Func([t.TableId], [t.Ack], []),
+      duel_keep_alive: IDL.Func([], [t.KeepAliveResult], []),
+      duel_submit: IDL.Func([t.TableId, IDL.Nat, IDL.Nat, Action], [t.TransportReply], []),
+      duel_lobby: IDL.Func([IDL.Nat], [t.LobbyResult], ["query"]),
+      duel_table: IDL.Func([t.TableId, IDL.Nat], [t.TableResult], ["query"]),
     });
   };
 }
@@ -200,7 +222,7 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
 /// code, complexity)`, called directly on the bot's canister (never through
 /// `transport.mo`). Reuses `buildEngineTypes` for `Seat`/`TableId`/`Err`.
 export function buildBotPlayIdlFactory({ IDL }: { IDL: typeof IDLNS }) {
-  const t = buildEngineTypes({ IDL, Action: IDL.Null, State: IDL.Null });
+  const t = buildEngineTypes({ IDL, Action: IDL.Null, View: IDL.Null, Options: IDL.Null });
   const JoinOk = IDL.Variant({ staged: t.Seat, started: t.Seat });
   const Res = IDL.Variant({ ok: JoinOk, err: t.Err });
   return IDL.Service({

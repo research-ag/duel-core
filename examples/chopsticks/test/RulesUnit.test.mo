@@ -2,13 +2,17 @@
 // exercised directly against synthetic positions, no engine, no actor.
 import R "../src/ChopsticksRules";
 import TP "mo:duel-game-core";
+import Rng "mo:duel-game-core/rng";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
+
+let rng = Rng.new(42);
 
 func pos(variant : R.Variant, p1 : (Nat, Nat), p2 : (Nat, Nat)) : R.State = {
   variant;
   p1 = { l = p1.0; r = p1.1 };
   p2 = { l = p2.0; r = p2.1 };
+  toMove = #p1;
 };
 
 func legal(s : R.State, seat : TP.Seat, a : R.Action, msg : Text) = switch (R.validate(s, seat, a)) {
@@ -22,23 +26,23 @@ func illegal(s : R.State, seat : TP.Seat, a : R.Action, msg : Text) = switch (R.
 
 // ── 1. init: both hands at 1 on both sides; the variant text is parsed ─────
 do {
-  let s0 = R.init("");
+  let s0 = R.init(#classic, rng);
   assert s0.p1 == { l = 1; r = 1 };
   assert s0.p2 == { l = 1; r = 1 };
   assert s0.variant == #classic;
-  assert R.init("instructables").variant == #instructables;
-  assert R.init("classic").variant == #classic;
-  assert R.init("garbage").variant == #classic;
+  assert R.init(#instructables, rng).variant == #instructables;
+  assert R.init(#classic, rng).variant == #classic;
+  assert R.init(#classic, rng).variant == #classic;
 };
 Debug.print("1. init() OK");
 
-// ── 2. spec() hands out the same rules, in #alternating mode ───────────────
+// ── 2. spec() hands out the same rules, in #turnBased mode ───────────────
 do {
-  let sp = switch (R.spec()) {
-    case (#alternating s) s;
-    case (#simultaneous _) Runtime.trap("chopsticks is a #alternating game");
+  let sp = switch (R.spec) {
+    case (#turnBased s) s;
+    case (#simultaneous _) Runtime.trap("chopsticks is a #turnBased game");
   };
-  assert sp.init("instructables") == R.init("instructables");
+  assert sp.init(#instructables, rng) == R.init(#instructables, rng);
 };
 Debug.print("2. spec wiring OK");
 
@@ -143,9 +147,9 @@ do {
   };
   // Opening, classic: 4 attacks + 1+1 -> 0+2 / 2+0 (1+1 itself is both
   // staying put and its own swap).
-  check(R.init(""), #p1, 6);
+  check(R.init(#classic, rng), #p1, 6);
   // Opening, instructables: 4 attacks, no split with both hands live.
-  check(R.init("instructables"), #p1, 4);
+  check(R.init(#instructables, rng), #p1, 4);
   // One hand out on each side, classic: 1 attack + 3 splits of 4
   // (1+3, 2+2, 3+1 — 0+4 stays put, 4+0 is a swap).
   check(pos(#classic, (0, 4), (0, 2)), #p1, 4);

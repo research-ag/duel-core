@@ -3,27 +3,27 @@
 /// The game canister calls the player canister's `make_move` and treats
 /// the reply as the move; a move never arrives as a separate inbound call
 /// (that would reopen the unordered-second-channel race rule 11 closes).
-/// Identity is a third sid namespace, `cp:<principal>:<tableId>:<complexity>`
-/// (`sidForCanister`), always derived from `msg.caller` — nothing to
-/// spoof — and one session per board, so one canister may sit at many
-/// tables. `complexity` is the bot's own way of playing this seat, picked
-/// at seating time, opaque here, carried on every `MoveRequest`.
+/// A bot's player id is `cp:<principal>:<complexity>` (`idForCanister`),
+/// always derived from `msg.caller` — nothing to spoof. `complexity` is
+/// the bot's own way of playing, picked at seating time, opaque here,
+/// carried on every `MoveRequest`; it also tells two seats of one bot
+/// canister apart at the same table.
 ///
 /// `notifyAndApply` is the protocol: build a `MoveRequest` from the
-/// table's own status, `await` the host's `callBot`, re-read `gen`/`turn`
-/// fresh, `registry.submit`, then the same fan-out `transport.mo` runs. An
+/// table's own status, `await` the host's `CallBot`, re-read `gen`/`step`
+/// fresh, `registry.submit`, then the same fan-out `transport.mo` runs
+/// (which ends in `settle`). An
 /// illegal reply is retried once with `retryReason`; a trap or any other
 /// rejection is treated as silence and left to the engine's timeouts.
 /// `settle(now, id)` asks a due seat, claims a win for an overdue waiting
-/// seat, arms `armClaimCheck` for one not yet overdue, and acks a finished
+/// seat, arms a timer for one not yet overdue, and acks a finished
 /// debrief once the other seat is gone or is itself a canister. A seat
 /// that becomes due inside another canister's reply is asked from a fresh
-/// message (`armClaimCheck(id, 0)`), never in the same call. `sweep` is
-/// the slow full-registry fallback.
+/// message (a 0-second timer), never in the same call. `sweep` is the
+/// slow full-registry fallback.
 ///
-/// See `../README.md`, "Canister players", for the host wiring (the
-/// `settle` indirection between `Transport.attach` and `attach` here) and bot
-/// discovery.
+/// All data is the stable `Store`; `transport.mo`'s `Duel` class binds it
+/// with the host's `CallBot` and drives everything here.
 
 import Array "mo:core/Array";
 import Int "mo:core/Int";
@@ -42,7 +42,7 @@ import T "./types";
 
 module {
 
-  public let CP_SID_PREFIX : Text = "cp:";
+  public let CP_ID_PREFIX : Text = "cp:";
 
   /// What a bot with no declared complexities is listed under, and what
   /// an empty `complexity` argument normalizes to.
@@ -50,37 +50,33 @@ module {
 
   public func normalizeComplexity(complexity : Text) : Text = if (complexity == "") DEFAULT_COMPLEXITY else complexity;
 
-  /// Duplicates `Transport.sidFor`'s shape rather than importing
-  /// `transport.mo`. `complexity` may itself
-  /// contain `:` (it is the last segment).
-  public func sidForCanister(p : Principal.Principal, tableId : T.TableId, complexity : Text) : T.SessionId {
-    CP_SID_PREFIX # p.toText() # ":" # tableId.toText() # ":" # normalizeComplexity(complexity);
+  /// A bot's player id. `complexity` may itself contain `:` (it is the
+  /// last segment).
+  public func idForCanister(p : Principal.Principal, complexity : Text) : T.PlayerId {
+    CP_ID_PREFIX # p.toText() # ":" # normalizeComplexity(complexity);
   };
 
   // Traps on a non-`cp:` session; every call site checks first.
-  func parseSession(session : T.SessionId) : (Text, Text) {
-    let parts = session.trimStart(#text CP_SID_PREFIX).split(#char ':');
+  func parseSession(session : T.PlayerId) : (Text, Text) {
+    let parts = session.trimStart(#text CP_ID_PREFIX).split(#char ':');
     switch (parts.next(), parts.next()) {
-      case (?p, ?_) (p, normalizeComplexity(parts.join(":")));
+      case (?p, ?first) {
+        let rest = parts.join(":");
+        (p, normalizeComplexity(if (rest == "") first else first # ":" # rest));
+      };
       case (_, _) Runtime.trap("malformed cp: session " # session);
     };
   };
 
-  public func principalOfCanisterSession(session : T.SessionId) : Principal.Principal = Principal.fromText(parseSession(session).0);
+  public func principalOfCanisterSession(session : T.PlayerId) : Principal.Principal = Principal.fromText(parseSession(session).0);
 
-  public func complexityOfCanisterSession(session : T.SessionId) : Text = parseSession(session).1;
+  public func complexityOfCanisterSession(session : T.PlayerId) : Text = parseSession(session).1;
 
-  public func isCanisterSession(session : T.SessionId) : Bool = session.startsWith(#text CP_SID_PREFIX);
+  public func isCanisterSession(session : T.PlayerId) : Bool = session.startsWith(#text CP_ID_PREFIX);
 
-  /// Per-bot, per-complexity leaderboard key (`cp:<principal>:<complexity>`),
-  /// since a `cp:` session itself is per-table. Shared by `rankedBots` and
-  /// every host's `playerKey`.
-  public func leaderboardKey(p : Principal.Principal, complexity : Text) : Text = CP_SID_PREFIX # p.toText() # ":" # normalizeComplexity(complexity);
-
-  public func leaderboardKeyOfSession(session : T.SessionId) : Text {
-    let (p, complexity) = parseSession(session);
-    CP_SID_PREFIX # p # ":" # complexity;
-  };
+  /// A bot's leaderboard key: its player id, so each complexity is rated
+  /// separately.
+  public func leaderboardKey(p : Principal.Principal, complexity : Text) : Text = idForCanister(p, complexity);
 
   // ── Bot discovery ────────────────────────────────────────────────────────
 
@@ -164,330 +160,318 @@ module {
     );
   };
 
-  /// No `submit` (a move is only ever the reply to `make_move`) and no
-  /// `rematch` (a canister-vs-canister debrief auto-acks; a human's
-  /// rematch against a bot is their frontend re-issuing `play`).
-  /// `leave`/`ackEnded`/`claimWin`/`reset` take an explicit `tableId`.
-  /// The trailing `Text` on `createTable`/`joinTable` is the complexity.
-  public type Attached = {
-    createTable : (Principal.Principal, T.Seat, T.TableVisibility, Text, Text) -> async* T.Res<T.TableId>;
-    joinTable : (Principal.Principal, T.TableId, T.Seat, ?Text, Text) -> async* T.Res<T.JoinOk>;
-    leave : (Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
-    ackEnded : (Principal.Principal, T.TableId) -> async* ();
-    claimWin : (Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
-    reset : (Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
-    settle : (Int, T.TableId) -> async* ();
-    sweep : (Int) -> async* ();
+  /// Calls a bot's `make_move` — the one thing only the host can do,
+  /// since an inter-canister call returning a generic `M` does not
+  /// type-check here. Continuation-passing: the host calls `k(?move)` on
+  /// a reply, `k(null)` on a trap or rejection.
+  public type CallBot<V, M> = <system>(T.PlayerId, T.MoveRequest<V, M>, <system>(?M) -> async* ()) -> async* ();
+
+  /// Everything kept here. Stable.
+  public type Store = {
+    directory : BotDirectory;
+    /// Due seats (`tableId/seat`) with an ask outstanding.
+    inFlight : Map.Map<Text, ()>;
+    /// Tables settling inside a canister's own reply, counted per reply.
+    replying : Map.Map<T.TableId, Nat>;
   };
 
-  /// `callBot` is continuation-passing (Motoko rejects `async M` for a
-  /// generic `M`): the host calls `k(?move)` on success, `k(null)` on a
-  /// trap. `armClaimCheck(id, secs)` schedules one future `settle` — a
-  /// host hook because only an actor holds `Timer.setTimer`'s `<system>`;
-  /// `secs` is `0` for a canister seat that became due inside another
-  /// canister's reply.
-  /// `afterMutationSettles` says who owns settlement after a mutation
-  /// made here: `true` when `afterMutation` itself ends in this module's
-  /// `settle` (`Transport.Attached.afterMutation` with `onSettled` wired
-  /// to it); `false` makes this module settle the table itself.
-  public func attach<S, M>(
-    spec : T.Spec<S, M>,
-    registry : T.Registry<S, M>,
-    afterMutation : (Int, T.SessionId, ?T.TableId, Bool) -> async* (),
-    afterMutationSettles : Bool,
-    callBot : (T.SessionId, T.MoveRequest<S, M>, (?M) -> async* ()) -> async* (),
-    armClaimCheck : (T.TableId, Nat) -> async* (),
+  public func newStore() : Store = {
+    directory = newBotDirectory();
+    inFlight = Map.empty<Text, ()>();
+    replying = Map.empty<T.TableId, Nat>();
+  };
 
-  ) : Attached {
+  /// What `settle` and friends need from the transport: the registry and
+  /// rules, the host's `CallBot`, and the transport's fan-out after a
+  /// mutation made here (which itself ends in `settle`).
+  public type Ctx<S, M, V, O> = {
+    registry : T.Registry<S, M, O>;
+    spec : T.Spec<S, M, V, O>;
+    rng : T.Rng;
+    store : Store;
+    call : CallBot<V, M>;
+    afterMutation : <system>(Int, T.TableId, Bool) -> async* ();
+    /// Arms a `settle(id)` after `secs` from a fresh message.
+    arm : <system>(T.TableId, Nat) -> ();
+  };
 
-    // Prevents asking the same due seat twice while an ask is pending.
-    let inFlight = Map.empty<Text, ()>();
-    func flightKey(id : T.TableId, seat : T.Seat) : Text {
-      id.toText() # (switch (seat) { case (#p1) "/p1"; case (#p2) "/p2" });
+  func flightKey(id : T.TableId, seat : T.Seat) : Text {
+    id.toText() # (switch (seat) { case (#p1) "/p1"; case (#p2) "/p2" });
+  };
+
+  func enterReply(store : Store, id : T.TableId) {
+    store.replying.add(id, (switch (store.replying.get(id)) { case (?n) n; case null 0 }) + 1);
+  };
+
+  func exitReply(store : Store, id : T.TableId) {
+    switch (store.replying.get(id)) {
+      case (?n) if (n > 1) store.replying.add(id, n - 1 : Nat) else store.replying.remove(id);
+      case null {};
     };
+  };
 
-    // Tables settling inside a canister's own reply, counted per reply.
-    let replying = Map.empty<T.TableId, Nat>();
-    func enterReply(id : T.TableId) {
-      replying.add(id, (switch (replying.get(id)) { case (?n) n; case null 0 }) + 1);
-    };
-    func exitReply(id : T.TableId) {
-      switch (replying.get(id)) {
-        case (?n) if (n > 1) replying.add(id, n - 1 : Nat) else replying.remove(id);
-        case null {};
+  func inGameView<S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, player : T.PlayerId) : ?{
+    seat : T.Seat;
+    game : V;
+    mode : T.Mode;
+    step : Nat;
+    gen : Nat;
+    youSubmitted : Bool;
+    claimWinAvailable : Bool;
+    secondsUntilClaimable : Nat;
+  } {
+    switch (ctx.registry.view(ctx.spec, now, player, id)) {
+      case (?#inGame ig) ?{
+        seat = ig.seat;
+        game = ig.game;
+        mode = ig.mode;
+        step = ig.step;
+        gen = ig.gen;
+        youSubmitted = ig.youSubmitted;
+        claimWinAvailable = ig.claimWinAvailable;
+        secondsUntilClaimable = ig.secondsUntilClaimable;
       };
+      case (_) null;
     };
+  };
 
-    /// `null` unless `session` is seated in-game and due to move
-    /// (`not youSubmitted` means "due" in either mode). Fields `View`
-    /// lacks come from the `Active` record in the same synchronous step.
-    func dueRequest(now : Int, id : T.TableId, session : T.SessionId) : ?T.MoveRequest<S, M> {
-      switch (registry.status(spec, now, session)) {
-        case (#atTable { view = #inGame ig }) {
-          if (ig.youSubmitted) { null } else {
-            switch (registry.tables.get(id)) {
-              case null null;
-              case (?t) switch (t.phase) {
-                case (#active g) {
-                  let (opponent, opponentLastMove) = switch (ig.seat) {
-                    case (#p1) (g.p2, g.lastMoveP2);
-                    case (#p2) (g.p1, g.lastMoveP1);
-                  };
-                  ?{
-                    tableId = id;
-                    seat = ig.seat;
-                    game = ig.game;
-                    mode = ig.mode;
-                    turn = ig.turn;
-                    gen = ig.gen;
-                    complexity = complexityOfCanisterSession(session);
-                    retryReason = null;
-                    opponent;
-                    opponentLastMove;
-                    lastRoundDurationNs = g.lastRoundDurationNs;
-                  };
-                };
-                case (_) null;
-              };
-            };
+  /// `null` unless `player` is seated in-game at `id` and due to move
+  /// (`not youSubmitted` means "due" in either mode). Fields `View`
+  /// lacks come from the `Active` record in the same synchronous step.
+  func dueRequest<S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, player : T.PlayerId) : ?T.MoveRequest<V, M> {
+    let ?ig = inGameView(ctx, now, id, player) else return null;
+    if (ig.youSubmitted) return null;
+    switch (ctx.registry.tables.get(id)) {
+      case (?t) switch (t.phase) {
+        case (#active g) {
+          let (opponent, opponentLastMove) = switch (ig.seat) {
+            case (#p1) (g.p2, g.lastMoveP2);
+            case (#p2) (g.p1, g.lastMoveP1);
+          };
+          ?{
+            tableId = id;
+            seat = ig.seat;
+            game = ig.game;
+            mode = ig.mode;
+            step = ig.step;
+            gen = ig.gen;
+            complexity = complexityOfCanisterSession(player);
+            retryReason = null;
+            opponent;
+            opponentLastMove;
+            lastStepDurationNs = g.lastStepDurationNs;
           };
         };
         case (_) null;
       };
+      case null null;
     };
+  };
 
-    func notifyAndApply(id : T.TableId, session : T.SessionId, req : T.MoveRequest<S, M>) : async* () {
-      let key = flightKey(id, req.seat);
-      inFlight.add(key, ());
+  func notifyAndApply<system, S, M, V, O>(ctx : Ctx<S, M, V, O>, id : T.TableId, player : T.PlayerId, req : T.MoveRequest<V, M>) : async* () {
+    let key = flightKey(id, req.seat);
+    ctx.store.inFlight.add(key, ());
 
-      func tryOnce(triesLeft : Nat, thisReq : T.MoveRequest<S, M>) : async* () {
-        await* callBot(
-          session,
-          thisReq,
-          func(maybeMove : ?M) : async* () {
-            switch (maybeMove) {
-              case null {}; // trapped/errored — silence
-              case (?move) {
-                let now = Time.now();
-                // Re-read gen/turn fresh: the table may have moved on
-                // during the bot's await.
-                switch (dueRequest(now, id, session)) {
-                  case null {};
-                  case (?fresh) switch (registry.submit(spec, now, session, fresh.gen, fresh.turn, move)) {
-                    case (#ok _) {
-                      enterReply(id);
-                      await* afterMutation(now, session, ?id, false);
-                      await* settleUnlessOwned(now, id);
-                      exitReply(id);
-                    };
-                    case (#err(#illegalMove reason)) {
-                      if (triesLeft > 0) {
-                        await* tryOnce(triesLeft - 1 : Nat, { fresh with retryReason = ?reason });
-                      };
-                    };
-                    case (#err _) {}; // table moved on — don't retry
+    func tryOnce<system>(triesLeft : Nat, thisReq : T.MoveRequest<V, M>) : async* () {
+      await* ctx.call<system>(
+        player,
+        thisReq,
+        func<system>(maybeMove : ?M) : async* () {
+          switch (maybeMove) {
+            case null {}; // trapped/errored — silence
+            case (?move) {
+              let now = Time.now();
+              // Re-read gen/step fresh: the table may have moved on
+              // during the bot's await.
+              switch (dueRequest(ctx, now, id, player)) {
+                case null {};
+                case (?fresh) switch (ctx.registry.submit(ctx.spec, ctx.rng, now, player, id, fresh.gen, fresh.step, move)) {
+                  case (#ok _) {
+                    enterReply(ctx.store, id);
+                    await* ctx.afterMutation<system>(now, id, false);
+                    exitReply(ctx.store, id);
                   };
+                  case (#err(#illegalMove reason)) {
+                    if (triesLeft > 0) {
+                      await* tryOnce<system>(triesLeft - 1 : Nat, { fresh with retryReason = ?reason });
+                    };
+                  };
+                  case (#err _) {}; // table moved on — don't retry
                 };
               };
             };
-          },
-        );
-      };
-
-      await* tryOnce(1, req);
-      inFlight.remove(key);
-    };
-
-    func isDue(now : Int, session : T.SessionId) : Bool {
-      switch (registry.status(spec, now, session)) {
-        case (#atTable { view = #inGame ig }) not ig.youSubmitted;
-        case (_) false;
-      };
-    };
-
-    /// Due when this settle began (`dueAtStart`): ask, or, inside another
-    /// canister's reply, arm an immediate wakeup that asks from a fresh
-    /// message. A seat that became due since was made due by a mutation
-    /// whose own settle covers it. So a canister-vs-canister match
-    /// advances one move per message, never inside one call. Waiting and
-    /// overdue: claim. Waiting, not yet overdue: arm one wakeup. No-op
-    /// outside `#active`.
-    func maybeNotify(now : Int, id : T.TableId, session : T.SessionId, dueAtStart : Bool) : async* () {
-      if (not isCanisterSession(session)) return;
-      switch (registry.status(spec, now, session)) {
-        case (#atTable { view = #inGame ig }) {
-          if (not ig.youSubmitted) {
-            if (not dueAtStart) {} else if (replying.get(id) != null) {
-              await* armClaimCheck(id, 0);
-            } else if (inFlight.get(flightKey(id, ig.seat)) == null) {
-              switch (dueRequest(now, id, session)) {
-                case (?req) await* notifyAndApply(id, session, req);
-                case null {};
-              };
-            };
-          } else if (ig.claimWinAvailable) {
-            switch (registry.claimWin(spec, now, session, ig.gen)) {
-              case (#ok _) await* afterMutation(now, session, ?id, true);
-              case (#err _) {};
-            };
-          } else {
-            await* armClaimCheck(id, ig.secondsUntilClaimable);
           };
+        },
+      );
+    };
+
+    await* tryOnce<system>(1, req);
+    ctx.store.inFlight.remove(key);
+  };
+
+  func isDue<S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, player : T.PlayerId) : Bool {
+    switch (inGameView(ctx, now, id, player)) {
+      case (?ig) not ig.youSubmitted;
+      case null false;
+    };
+  };
+
+  /// Due when this settle began (`dueAtStart`): ask, or, inside another
+  /// canister's reply, arm an immediate wakeup that asks from a fresh
+  /// message. A seat that became due since was made due by a mutation
+  /// whose own settle covers it. So a canister-vs-canister match
+  /// advances one move per message, never inside one call. Waiting and
+  /// overdue: claim. Waiting, not yet overdue: arm one wakeup. No-op
+  /// outside `#active`.
+  func maybeNotify<system, S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, player : T.PlayerId, dueAtStart : Bool) : async* () {
+    if (not isCanisterSession(player)) return;
+    let ?ig = inGameView(ctx, now, id, player) else return;
+    if (not ig.youSubmitted) {
+      if (not dueAtStart) {} else if (ctx.store.replying.get(id) != null) {
+        ctx.arm<system>(id, 0);
+      } else if (ctx.store.inFlight.get(flightKey(id, ig.seat)) == null) {
+        switch (dueRequest(ctx, now, id, player)) {
+          case (?req) await* notifyAndApply<system, S, M, V, O>(ctx, id, player, req);
+          case null {};
+        };
+      };
+    } else if (ig.claimWinAvailable) {
+      switch (ctx.registry.claimWin(ctx.spec, now, player, id, ig.gen)) {
+        case (#ok _) await* ctx.afterMutation<system>(now, id, true);
+        case (#err _) {};
+      };
+    } else {
+      // `secondsUntilClaimable` rounds down: one more second wakes after
+      // the deadline instead of just before it.
+      ctx.arm<system>(id, ig.secondsUntilClaimable + 1);
+    };
+  };
+
+  /// Acks a canister seat's debrief once the partner is no longer a live
+  /// participant or is itself a canister (two canister seats would
+  /// otherwise deadlock on each other's ack).
+  func maybeAckDebrief<system, S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId, t : T.Table<S, M, O>, d : T.Debrief<S>, player : T.PlayerId) : async* () {
+    if (not isCanisterSession(player)) return;
+    if (t.activeDebriefSeat(d, player) == null) return;
+    let partner = if (d.p1 == player) { d.p2 } else { d.p1 };
+    let partnerGoneOrCanister = isCanisterSession(partner) or t.activeDebriefSeat(d, partner) == null;
+    if (not partnerGoneOrCanister) return;
+    switch (ctx.registry.leave(now, player, id, t.gen)) {
+      case (#ok _) await* ctx.afterMutation<system>(now, id, true);
+      case (#err _) {};
+    };
+  };
+
+  /// Asks a due canister seat, claims for an overdue one, acks a
+  /// finished canister seat's debrief. Run after every mutation.
+  public func settle<system, S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int, id : T.TableId) : async* () {
+    switch (ctx.registry.tables.get(id)) {
+      case null {};
+      case (?t) switch (t.phase) {
+        case (#active g) {
+          let due1 = isDue(ctx, now, id, g.p1);
+          let due2 = isDue(ctx, now, id, g.p2);
+          await* maybeNotify<system, S, M, V, O>(ctx, now, id, g.p1, due1);
+          await* maybeNotify<system, S, M, V, O>(ctx, now, id, g.p2, due2);
+        };
+        case (#debrief d) {
+          await* maybeAckDebrief<system, S, M, V, O>(ctx, now, id, t, d, d.p1);
+          await* maybeAckDebrief<system, S, M, V, O>(ctx, now, id, t, d, d.p2);
         };
         case (_) {};
       };
     };
+  };
 
-    /// Acks a canister seat's debrief once the partner is no longer a live
-    /// participant or is itself a canister (two canister seats would
-    /// otherwise deadlock on each other's ack).
-    func maybeAckDebrief(now : Int, id : T.TableId, t : T.Table<S, M>, d : T.Debrief<S>, session : T.SessionId) : async* () {
-      if (not isCanisterSession(session)) return;
-      if (t.activeDebriefSeat(d, session) == null) return;
-      let partner = if (d.p1 == session) { d.p2 } else { d.p1 };
-      let partnerGoneOrCanister = isCanisterSession(partner) or t.activeDebriefSeat(d, partner) == null;
-      if (not partnerGoneOrCanister) return;
-      switch (registry.leave(now, session, t.gen)) {
-        case (#ok _) await* afterMutation(now, session, ?id, true);
-        case (#err _) {};
+  /// The slow full-registry fallback.
+  public func sweep<system, S, M, V, O>(ctx : Ctx<S, M, V, O>, now : Int) : async* () {
+    for ((id, _) in ctx.registry.tables.toArray().values()) {
+      await* settle<system, S, M, V, O>(ctx, now, id);
+    };
+  };
+
+  /// The id `caller` holds at table `id`, read off the phase record (and
+  /// `lastEnded`, for `ackEnded`) by principal prefix.
+  public func idAt<S, M, O>(registry : T.Registry<S, M, O>, caller : Principal.Principal, id : T.TableId) : ?T.PlayerId {
+    let prefix = CP_ID_PREFIX # caller.toText() # ":";
+    switch (registry.tables.get(id)) {
+      case null null;
+      case (?t) {
+        let seated : [T.PlayerId] = switch (t.phase) {
+          case (#empty) [];
+          case (#staging s) [s.session];
+          case (#active g) [g.p1, g.p2];
+          case (#debrief d) [d.p1, d.p2];
+        };
+        let ended = t.lastEnded.flatMap<T.Ended, T.PlayerId>(func(e) = [e.p1, e.p2].values());
+        seated.concat(ended).find(func(s : T.PlayerId) : Bool = s.startsWith(#text prefix));
       };
     };
+  };
 
-    func maybeSettleBoth(now : Int, id : T.TableId) : async* () {
-      switch (registry.tables.get(id)) {
-        case null {};
-        case (?t) switch (t.phase) {
-          case (#active g) {
-            let due1 = isDue(now, g.p1);
-            let due2 = isDue(now, g.p2);
-            await* maybeNotify(now, id, g.p1, due1);
-            await* maybeNotify(now, id, g.p2, due2);
-          };
-          case (#debrief d) {
-            await* maybeAckDebrief(now, id, t, d, d.p1);
-            await* maybeAckDebrief(now, id, t, d, d.p2);
-          };
-          case (_) {};
+  /// The bot-facing methods, as `./canister_players_actor_mixin` exposes
+  /// them. No `submit` (a move is only ever the reply to `make_move`) and
+  /// no `rematch` (a canister-vs-canister debrief auto-acks; a human's
+  /// rematch against a bot is their frontend re-issuing `play`). The
+  /// trailing `Text` on `joinTable` is the complexity.
+  public type Endpoint = {
+    joinTable : <system>(Principal.Principal, T.TableId, T.Seat, ?Text, Text) -> async* T.Res<T.JoinOk>;
+    leave : <system>(Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
+    ackEnded : <system>(Principal.Principal, T.TableId) -> async* ();
+    claimWin : <system>(Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
+    reset : <system>(Principal.Principal, T.TableId, Nat) -> async* T.Res<()>;
+  };
+
+  /// `afterMutation(now, id)` here is the transport's full fan-out
+  /// (bumping revs, the leaderboard, `settle`).
+  public func endpointOf<S, M, V, O>(ctx : Ctx<S, M, V, O>) : Endpoint = {
+    joinTable = func<system>(caller : Principal.Principal, id : T.TableId, seat : T.Seat, code : ?Text, complexity : Text) : async* T.Res<T.JoinOk> {
+      let now = Time.now();
+      switch (ctx.registry.joinTable(ctx.spec, ctx.rng, now, idForCanister(caller, complexity), id, seat, code)) {
+        case (#ok j) {
+          await* ctx.afterMutation<system>(now, id, true);
+          #ok(j);
         };
+        case (#err e) #err(e);
       };
     };
-
-    func settleUnlessOwned(now : Int, id : T.TableId) : async* () {
-      if (not afterMutationSettles) await* maybeSettleBoth(now, id);
-    };
-
-    /// The session `caller` holds at board `id`, read off the phase record
-    /// (and `lastEnded`, for `ackEnded`) by principal + tableId prefix.
-    func sessionAt(caller : Principal.Principal, id : T.TableId) : ?T.SessionId {
-      let prefix = CP_SID_PREFIX # caller.toText() # ":" # id.toText() # ":";
-      switch (registry.tables.get(id)) {
-        case null null;
-        case (?t) {
-          let seated : [T.SessionId] = switch (t.phase) {
-            case (#empty) [];
-            case (#staging s) [s.session];
-            case (#active g) [g.p1, g.p2];
-            case (#debrief d) [d.p1, d.p2];
-          };
-          let ended = t.lastEnded.flatMap<T.Ended, T.SessionId>(func(e) = [e.p1, e.p2].values());
-          seated.concat(ended).find(func(s : T.SessionId) : Bool = s.startsWith(#text prefix));
+    leave = func<system>(caller : Principal.Principal, id : T.TableId, gen : Nat) : async* T.Res<()> {
+      let ?player = idAt(ctx.registry, caller, id) else return #err(#notSeated);
+      let now = Time.now();
+      switch (ctx.registry.leave(now, player, id, gen)) {
+        case (#ok _) {
+          await* ctx.afterMutation<system>(now, id, true);
+          #ok(());
         };
+        case (#err e) #err(e);
       };
     };
-
-    {
-      // No `await*` between `peekNextTableId` and `createTable`.
-      createTable = func(caller : Principal.Principal, seat : T.Seat, visibility : T.TableVisibility, variant : Text, complexity : Text) : async* T.Res<T.TableId> {
-        let now = Time.now();
-        let id = registry.peekNextTableId();
-        let session = sidForCanister(caller, id, complexity);
-        switch (registry.createTable(spec, now, session, seat, visibility, variant)) {
-          case (#ok gotId) {
-            await* afterMutation(now, session, ?gotId, true);
-            #ok(gotId);
-          };
-          case (#err e) #err(e);
+    ackEnded = func<system>(caller : Principal.Principal, id : T.TableId) : async* () {
+      let ?player = idAt(ctx.registry, caller, id) else return;
+      let now = Time.now();
+      ctx.registry.ackEnded(player, id);
+      await* ctx.afterMutation<system>(now, id, true);
+    };
+    claimWin = func<system>(caller : Principal.Principal, id : T.TableId, gen : Nat) : async* T.Res<()> {
+      let ?player = idAt(ctx.registry, caller, id) else return #err(#notSeated);
+      let now = Time.now();
+      switch (ctx.registry.claimWin(ctx.spec, now, player, id, gen)) {
+        case (#ok _) {
+          await* ctx.afterMutation<system>(now, id, true);
+          #ok(());
         };
+        case (#err e) #err(e);
       };
-
-      joinTable = func(caller : Principal.Principal, id : T.TableId, seat : T.Seat, code : ?Text, complexity : Text) : async* T.Res<T.JoinOk> {
-        let session = sidForCanister(caller, id, complexity);
-        let now = Time.now();
-        switch (registry.joinTable(spec, now, session, id, seat, code)) {
-          case (#ok j) {
-            await* afterMutation(now, session, ?id, true);
-            await* settleUnlessOwned(Time.now(), id);
-            #ok(j);
-          };
-          case (#err e) #err(e);
+    };
+    reset = func<system>(caller : Principal.Principal, id : T.TableId, gen : Nat) : async* T.Res<()> {
+      let ?player = idAt(ctx.registry, caller, id) else return #err(#notSeated);
+      let now = Time.now();
+      switch (ctx.registry.reset(now, player, id, gen)) {
+        case (#ok _) {
+          await* ctx.afterMutation<system>(now, id, true);
+          #ok(());
         };
-      };
-
-      leave = func(caller : Principal.Principal, tableId : T.TableId, gen : Nat) : async* T.Res<()> {
-        switch (sessionAt(caller, tableId)) {
-          case null #err(#notSeated);
-          case (?session) {
-            let now = Time.now();
-            switch (registry.leave(now, session, gen)) {
-              case (#ok _) {
-                await* afterMutation(now, session, ?tableId, true);
-                #ok(());
-              };
-              case (#err e) #err(e);
-            };
-          };
-        };
-      };
-
-      ackEnded = func(caller : Principal.Principal, tableId : T.TableId) : async* () {
-        switch (sessionAt(caller, tableId)) {
-          case null {};
-          case (?session) {
-            let now = Time.now();
-            registry.ackEnded(session);
-            await* afterMutation(now, session, ?tableId, true);
-          };
-        };
-      };
-
-      claimWin = func(caller : Principal.Principal, tableId : T.TableId, gen : Nat) : async* T.Res<()> {
-        switch (sessionAt(caller, tableId)) {
-          case null #err(#notSeated);
-          case (?session) {
-            let now = Time.now();
-            switch (registry.claimWin(spec, now, session, gen)) {
-              case (#ok _) {
-                await* afterMutation(now, session, ?tableId, true);
-                #ok(());
-              };
-              case (#err e) #err(e);
-            };
-          };
-        };
-      };
-
-      reset = func(caller : Principal.Principal, tableId : T.TableId, gen : Nat) : async* T.Res<()> {
-        switch (sessionAt(caller, tableId)) {
-          case null #err(#notSeated);
-          case (?session) {
-            let now = Time.now();
-            switch (registry.reset(now, session, gen)) {
-              case (#ok _) {
-                await* afterMutation(now, session, ?tableId, true);
-                #ok(());
-              };
-              case (#err e) #err(e);
-            };
-          };
-        };
-      };
-
-      settle = maybeSettleBoth;
-
-      sweep = func(now : Int) : async* () {
-        for ((id, _) in registry.tables.toArray().values()) {
-          await* maybeSettleBoth(now, id);
-        };
+        case (#err e) #err(e);
       };
     };
   };

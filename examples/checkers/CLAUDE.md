@@ -1,28 +1,32 @@
-# checkers — reference #alternating game built on duel-game-core
+# checkers — reference #turnBased game built on duel-game-core
 
-Standard English draughts, proving the engine's `#alternating` mode end
+Standard English draughts, proving the engine's `#turnBased` mode end
 to end. Not part of either package.
 
-- **`src/CheckersRules.mo`** — pure rules; `spec()` returns `#alternating
-{ init; validate; resolve }` (Black/`#p1` first; no turn flag in
-  `State`). `legalActions(s, seat)` enumerates every legal `Action`
+- **`src/CheckersRules.mo`** — pure rules; `spec` is `#turnBased {
+checkOptions; init; toMove; move; view }` (`State = { board; toMove }`,
+  Black/`#p1` first, `resolve` flips `toMove`; `move` = `validate` then
+  `resolve`; `View = State`, `Options = {}`). `legalActions(s, seat)`
+  enumerates every legal `Action`
   (only maximal `#jump` chains when a capture is mandatory) and is what
   `BotLogic.mo` consumes. The doc header lists the deliberate
   simplifications against tournament draughts.
-- **`src/Host.mo`** — `Registry` (90s/60s), `status`, `Transport.attach` +
-  `ActorMixin`, metrics, canister players (`CanisterPlayers.attach`
-  reusing `attached.afterMutation`; `callBot` recovers the bot principal
-  via `principalOfCanisterSession` and `await`s `make_move` in a
-  `try`/`catch`; `onSettled` → `cpAttached.settle` through a mutable
-  indirection; `armClaimCheck` via `Timer.setTimer`; `cpAttached.sweep`
-  folded into the idle-sweep timer), `include
-CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard)`, and
-  an ELO leaderboard whose local `playerKey` special-cases `cp:` sessions
-  to `CanisterPlayers.leaderboardKeyOfSession` so each bot complexity
-  accumulates one rating across tables. See `../../backend/README.md`.
-- **`src/BotIface.mo`** — the `CanisterPlayer` interface (`make_move`),
-  imported by `Host.mo` to type the remote bot.
-- **`bot/BotLogic.mo`** — `chooseMove` picks `legalActions(...)[turn %
+- **`src/Host.mo`** — the reference host with everything: stable
+  `duel = Transport.new()` (90s/60s), `bots = CanisterPlayers.newStore()`
+  and `leaderboard = Leaderboard.new(50, 1200)`; one `transient let env
+: Transport.Env<…> = { spec = Rules.spec; bots = ?{ store = bots; call
+= BotIface.callBot }; scoring = ?{ board = leaderboard; rating = #elo {
+k = 32 } } }`; `include TransportActorMixin<system>(duel.lobby(env))`,
+  the host's own `duel_create_table`/`duel_lobby`/`duel_submit`/
+  `duel_table`, metrics, `include
+CanisterPlayersActorMixin(duel.canisterPlayers(env), bots.directory, ?leaderboard)`
+  and `LeaderboardActorMixin`. A bot is rated per complexity (its player
+  id). See `../../DESIGN.md` and `../../backend/README.md`.
+- **`src/BotIface.mo`** — the `CanisterPlayer` interface (`make_move`
+  over `MoveRequest<View, Action>`) and `callBot`, which recovers the
+  bot principal via `principalOfCanisterSession` and `await`s
+  `make_move` in a `try`/`catch`.
+- **`bot/BotLogic.mo`** — `chooseMove` picks `legalActions(...)[step %
 n]`; no lookahead. Separate from `Bot.mo` so `Bot.test.mo` calls it
   directly.
 - **`bot/Bot.mo`** — the bot canister: `make_move` as a `query`,
@@ -100,7 +104,7 @@ Everything in `../../CLAUDE.md`, plus:
   maximal.
 - A man promotes on landing on the far row at the END of its chain only.
 - No legal move on your turn = you lose. No draw condition.
-- `turn` counts plies, not move pairs.
+- `step` counts plies, not move pairs.
 
 ## Conventions
 

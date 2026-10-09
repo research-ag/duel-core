@@ -1,4 +1,4 @@
-/// TicTacToeRules — standard 3x3 tic-tac-toe, as a pure `#alternating`
+/// TicTacToeRules — standard 3x3 tic-tac-toe, as a pure `#turnBased`
 /// module. #p1 = X (first), #p2 = O. 9 cells, row-major.
 ///
 /// Rules:
@@ -15,9 +15,9 @@ module {
 
   /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
   public let SEMANTICS : Text = "GAME: Tic-tac-toe
-MODE: alternating
+MODE: turnBased (one action per turn, seats alternate)
 SEATS: p1 = X (moves first), p2 = O
-VARIANTS: none (the table variant text is ignored)
+OPTIONS: none (type Options = record {})
 
 STATE (Candid)
   type Seat = variant { p1; p2 };
@@ -47,6 +47,12 @@ CLIENT NOTES
 
   public type State = { board : Board };
 
+  /// Nothing is hidden: every seat sees the whole state.
+  public type View = State;
+
+  /// No table options.
+  public type Options = {};
+
   let CELLS : Nat = 9;
 
   let LINES : [[Nat]] = [
@@ -64,7 +70,18 @@ CLIENT NOTES
 
   func emptyBoard() : Board = Array.repeat<?TP.Seat>(null, CELLS);
 
-  public func init(_variant : Text) : State = { board = emptyBoard() };
+  public func checkOptions(_ : Options) : ?Text = null;
+
+  public func init(_ : Options, _ : TP.Rng) : State = { board = emptyBoard() };
+
+  /// X moves first; marks alternate, so the count of marks says whose
+  /// turn it is.
+  public func toMove(self : State) : TP.Seat {
+    let marks = self.board.filter(func(c : ?TP.Seat) : Bool = c != null).size();
+    if (marks % 2 == 0) #p1 else #p2;
+  };
+
+  public func view(self : State, _ : TP.Seat, _ : Bool) : View = self;
 
   func lineWonBy(board : Board, seat : TP.Seat) : Bool {
     LINES.find<[Nat]>(
@@ -109,9 +126,20 @@ CLIENT NOTES
     { state = { board }; verdict };
   };
 
-  public func spec() : TP.Spec<State, Action> = #alternating {
+  /// One action of the seat on turn: checked, then applied.
+  public func move(self : State, seat : TP.Seat, a : Action, _ : TP.Rng) : {
+    #ok : { state : State; verdict : ?TP.Verdict };
+    #err : Text;
+  } = switch (validate(self, seat, a)) {
+    case (?why) #err why;
+    case null #ok(resolve(self, seat, a));
+  };
+
+  public let spec : TP.Spec<State, Action, View, Options> = #turnBased {
+    checkOptions;
     init;
-    validate;
-    resolve;
+    toMove;
+    move;
+    view;
   };
 };

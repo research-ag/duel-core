@@ -1,11 +1,14 @@
 // Unit checks for the pure 007 rules that Rules.test.mo's scenarios miss: the
 // p2-as-shooter half of `resolve`, the laser endings, narration bookkeeping,
 // and `validate` from synthetic states.
+import Rng "mo:duel-game-core/rng";
 import R "../src/Duel007Rules";
 import TP "mo:duel-game-core"; // Verdict lives in the engine, not the rules
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 import Text "mo:core/Text"; // enables Text.contains dot notation
+
+let rng = Rng.new(42);
 
 // Shorthand: run one round, trap if it ended unexpectedly.
 func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
@@ -24,7 +27,7 @@ func alive(r : { state : R.State; verdict : ?TP.Verdict }, msg : Text) {
 };
 
 // ── 1. init() is a clean slate, and spec() hands out the same rules ────────
-let s0 = R.init("");
+let s0 = R.init({}, rng);
 assert s0.p1.ammo == 0 and s0.p1.shieldHits == 0;
 assert s0.p1.mirrors == 3 and s0.p1.charge == 0;
 assert s0.p2.ammo == 0 and s0.p2.shieldHits == 0;
@@ -33,17 +36,17 @@ switch (s0.lastRound) {
   case null {};
   case (?_) Runtime.trap("a fresh game has no previous round");
 };
-let sp = switch (R.spec()) {
+let sp = switch (R.spec) {
   case (#simultaneous s) s;
-  case (#alternating _) Runtime.trap("007 is a #simultaneous game");
+  case (#turnBased _) Runtime.trap("007 is a #simultaneous game");
 };
-let s1 = sp.init("");
+let s1 = sp.init({}, rng);
 assert s1.p1.mirrors == 3 and s1.p2.mirrors == 3;
 switch (sp.validate(s1, #p1, #shoot)) {
   case (?_) {};
   case null Runtime.trap("spec.validate must be the module's validate");
 };
-alive(sp.resolve(s1, #load, #load), "spec.resolve must be the module's resolve");
+alive(sp.resolve(s1, #load, #load, rng), "spec.resolve must be the module's resolve");
 Debug.print("1. init + spec wiring OK");
 
 // ── 2. Seat names ──────────────────────────────────────────────────────────
@@ -52,7 +55,7 @@ assert R.agentName(#p2) == "SILVA";
 Debug.print("2. agentName OK");
 
 // ── 3. Symmetry: p2 shooting exercises the mirrored half of `resolve` ──────
-var s = R.init("");
+var s = R.init({}, rng);
 s := round(s, #load, #load); // both hold 1 ammo
 
 let p2Kills = R.resolve(s, #load, #shoot);
@@ -73,7 +76,7 @@ assert p2Absorbed.state.p2.ammo == 0; // the shot cost p2 its round's ammo
 Debug.print("3. p2-as-shooter symmetry OK");
 
 // ── 4. Laser vs laser → mutual annihilation ────────────────────────────────
-s := R.init("");
+s := R.init({}, rng);
 var i = 0;
 while (i < 5) { s := round(s, #load, #load); i += 1 };
 assert s.p1.charge == 5 and s.p2.charge == 5;
@@ -86,7 +89,7 @@ assert narrationOf(bothLasers.state).contains(#text "LASERS");
 Debug.print("4. laser vs laser draw OK");
 
 // ── 5. Laser vs a normal shot → both die (the shot was already in flight) ───
-s := R.init("");
+s := R.init({}, rng);
 s := round(s, #load, #load); // p2: ammo 1, charge 1
 s := round(s, #load, #shield); // p2's streak breaks; p1 keeps loading
 s := round(s, #load, #load);
@@ -108,14 +111,14 @@ assert not mixedText.contains(#text "LASERS"); // only one laser was fired
 Debug.print("5. laser vs normal shot OK");
 
 // ── 6. A mirror is spent even when no shot arrives ─────────────────────────
-let wasted = R.resolve(R.init(""), #load, #mirror);
+let wasted = R.resolve(R.init({}, rng), #load, #mirror);
 alive(wasted, "a mirror alone ends nothing");
 assert wasted.state.p2.mirrors == 2;
 assert wasted.state.p2.charge == 0;
 Debug.print("6. mirror consumed without a shot OK");
 
 // ── 7. The 3rd absorb saves the defender AND breaks the shield ─────────────
-s := R.init("");
+s := R.init({}, rng);
 i := 0;
 while (i < 2) {
   s := round(s, #load, #load);
@@ -135,7 +138,7 @@ switch (R.validate(breaks.state, #p2, #shield)) {
 Debug.print("7. shield break boundary + narration OK");
 
 // ── 8. Every round records the moves that produced it ──────────────────────
-let logged = R.resolve(R.init(""), #load, #shield);
+let logged = R.resolve(R.init({}, rng), #load, #shield);
 switch (logged.state.lastRound) {
   case (?rd) {
     assert rd.p1Action == #load;
@@ -183,7 +186,7 @@ switch (R.validate(depleted, #p2, #mirror)) {
 Debug.print("9. validate on depleted state OK");
 
 // ── 10. A round with no shots changes nothing but the bookkeeping ──────────
-let quiet = R.resolve(R.init(""), #shield, #mirror);
+let quiet = R.resolve(R.init({}, rng), #shield, #mirror);
 alive(quiet, "nobody shot — nobody dies");
 assert quiet.state.p1.ammo == 0 and quiet.state.p1.charge == 0;
 assert quiet.state.p1.shieldHits == 0; // raising a shield is not a hit

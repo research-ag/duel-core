@@ -31,7 +31,7 @@ actor {
     await h.unregister_bot();
   };
 
-  public query func make_move(req : TP.MoveRequest<Rules.State, Rules.Action>) : async Rules.Action {
+  public query func make_move(req : TP.MoveRequest<Rules.View, Rules.Action>) : async Rules.Action {
     BotLogic.chooseMove(req);
   };
 

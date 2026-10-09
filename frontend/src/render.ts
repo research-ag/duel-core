@@ -135,11 +135,9 @@ export function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
       ${occupantHtml}
     </button>`;
   };
-  // Empty for a game without variants (`variant` is always ""). A plugin
-  // without `formatVariant` still shows the raw key rather than nothing.
-  const variantHtml = r.variant
-    ? ` <span class="variant-badge">${esc(plugin.formatVariant ? plugin.formatVariant(r.variant) : r.variant)}</span>`
-    : "";
+  // Empty for a game without `formatOptions` (nothing to say about `{}`).
+  const optionsText = plugin.formatOptions ? plugin.formatOptions(r.options) : "";
+  const variantHtml = optionsText ? ` <span class="variant-badge">${esc(optionsText)}</span>` : "";
   return `
     <div class="table-row">
       <span class="table-id">Table #${r.id}${r.protected ? ` <span class="protected-badge" title="Requires an access code">🔒 Protected</span>` : ""}${variantHtml}</span>
@@ -154,9 +152,9 @@ export function renderTableRow(r: TableSummary, plugin: GamePlugin): string {
 export function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin): string {
   const seatBtn = (seat: SeatTag) => `
     <button class="seat" data-create-table="${seat}">${esc(plugin.seatLabel(seat))}</button>`;
-  // No picker for a game without `variantChoices`; the first choice is the
-  // default, read back by app.ts's `readCreateVariant`.
-  const choices = plugin.variantChoices?.() ?? [];
+  // No picker for a game without `optionChoices`; the first choice is the
+  // default. app.ts reads the chosen key back and maps it to its options.
+  const choices = plugin.optionChoices?.() ?? [];
   const variantPicker =
     choices.length === 0
       ? ""
@@ -278,14 +276,14 @@ export function atRiskWarningText(secondsUntilClaimable: bigint): string {
 
 /// The turn bar's opponent line, for either `Mode`.
 export function opponentStatusText(v: InGameView): string {
-  if ("alternating" in v.mode) return v.oppSubmitted ? "◉ Your turn" : "○ Opponent's turn";
+  if ("turnBased" in v.mode) return v.oppSubmitted ? "◉ Your turn" : "○ Opponent's turn";
   return v.oppSubmitted ? "◉ Opponent has locked in" : "○ Opponent is deciding";
 }
 
 export function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string {
   const mySeat = tag(v.seat) as SeatTag;
   const oppSeat = oppSeatOf(mySeat);
-  const alternating = "alternating" in v.mode;
+  const turnBased = "turnBased" in v.mode;
   // A player who already locked in can't do anything about the idle clock.
   const idleWarningHidden =
     v.youSubmitted || v.secondsUntilIdleReset > idleWarningThreshold(v.idleTimeoutSecs);
@@ -293,13 +291,13 @@ export function renderInGame<S>(v: InGameView<S>, plugin: GamePlugin<S>): string
 
   return `
     <div class="turnbar">
-      <span>${alternating ? "Move" : "Round"} <strong>${v.turn + 1n}</strong></span>
+      <span>${turnBased ? "Move" : "Round"} <strong>${v.step + 1n}</strong></span>
       <span class="${v.oppSubmitted ? "locked" : "muted"}">${opponentStatusText(v)}</span>
     </div>
     <div class="board">${plugin.renderBoard(v.game, mySeat, oppSeat, !v.youSubmitted)}</div>
     ${
       v.youSubmitted
-        ? `<p class="waiting">${alternating ? "Waiting for your opponent's turn…" : "Move locked in — waiting for your opponent…"}</p>`
+        ? `<p class="waiting">${turnBased ? "Waiting for your opponent's turn…" : "Move locked in — waiting for your opponent…"}</p>`
         : `<div class="actions">${plugin.renderActions(v.game, mySeat)}</div>`
     }
     <p class="countdown" id="${DUEL_IDLE_WARNING_ID}"${idleWarningHidden ? " hidden" : ""}>${idleWarningText(v.secondsUntilIdleReset)}</p>
@@ -354,7 +352,7 @@ export function renderDebrief<S>(v: DebriefView<S>, plugin: GamePlugin<S>): stri
 
   return `
     <h2 class="verdict ${outcome}">${title}</h2>
-    <p class="muted">Game lasted ${v.turns} round${v.turns === 1n ? "" : "s"}.</p>
+    <p class="muted">Game lasted ${v.steps} round${v.steps === 1n ? "" : "s"}.</p>
     <div class="board">${plugin.renderBoard(v.finalGame, mySeat, oppSeat)}</div>
     <p>
       <button data-rematch class="primary">Rematch</button>

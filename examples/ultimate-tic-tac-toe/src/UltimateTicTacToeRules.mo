@@ -1,5 +1,5 @@
 /// UltimateTicTacToeRules — https://en.wikipedia.org/wiki/Ultimate_tic-tac-toe
-/// as a pure `#alternating` module. #p1 = X (first), #p2 = O.
+/// as a pure `#turnBased` module. #p1 = X (first), #p2 = O.
 ///
 /// A 3x3 META-board of nine 3x3 LOCAL boards. `cells` is all 81 cells
 /// flattened (`index = board*9 + cell`); `results` says which seat won
@@ -26,9 +26,9 @@ module {
 
   /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
   public let SEMANTICS : Text = "GAME: Ultimate tic-tac-toe
-MODE: alternating
+MODE: turnBased (one action per turn, seats alternate)
 SEATS: p1 = X (moves first), p2 = O
-VARIANTS: none (the table variant text is ignored)
+OPTIONS: none (type Options = record {})
 
 STATE (Candid)
   type Seat = variant { p1; p2 };
@@ -125,7 +125,15 @@ CLIENT NOTES
     out.toArray();
   };
 
-  public func init(_variant : Text) : State = {
+  /// Nothing is hidden: every seat sees the whole state.
+  public type View = State;
+
+  /// No table options.
+  public type Options = {};
+
+  public func checkOptions(_ : Options) : ?Text = null;
+
+  public func init(_ : Options, _ : TP.Rng) : State = {
     cells = Array.repeat<?TP.Seat>(null, 81);
     results = Array.repeat<?BoardResult>(null, 9);
     activeBoard = null;
@@ -191,9 +199,25 @@ CLIENT NOTES
     { state = { cells; results; activeBoard }; verdict };
   };
 
-  public func spec() : TP.Spec<State, Action> = #alternating {
+  /// Whose action the game is waiting for.
+  public func toMove(self : State) : TP.Seat = if (self.cells.filter(func(c : ?TP.Seat) : Bool = c != null).size() % 2 == 0) #p1 else #p2;
+
+  public func view(self : State, _ : TP.Seat, _ : Bool) : View = self;
+
+  /// One action of the seat on turn: checked, then applied.
+  public func move(self : State, seat : TP.Seat, a : Action, _ : TP.Rng) : {
+    #ok : { state : State; verdict : ?TP.Verdict };
+    #err : Text;
+  } = switch (validate(self, seat, a)) {
+    case (?why) #err why;
+    case null #ok(resolve(self, seat, a));
+  };
+
+  public let spec : TP.Spec<State, Action, View, Options> = #turnBased {
+    checkOptions;
     init;
-    validate;
-    resolve;
+    toMove;
+    move;
+    view;
   };
 };

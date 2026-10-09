@@ -10,7 +10,7 @@ export type SeatTag = "p1" | "p2";
 
 export type Seat = { p1: null } | { p2: null };
 
-export type Mode = { simultaneous: null } | { alternating: null };
+export type Mode = { simultaneous: null } | { turnBased: null };
 
 export type Verdict = { p1Wins: null } | { p2Wins: null } | { draw: null };
 
@@ -26,11 +26,12 @@ export type EngineErr =
   | { reserved: { secondsLeft: bigint } }
   | { notIdle: { secondsLeft: bigint } }
   | { notOverdue: { secondsLeft: bigint } }
-  // Stale `gen`/`turn` — refetch `status` instead of surfacing it.
+  // Stale `gen`/`step` — resync instead of surfacing it.
   | { stale: null }
   | { noSuchTable: null }
   | { badCode: null }
-  | { unauthorized: null };
+  | { unauthorized: null }
+  | { tooManyTables: { max: bigint } };
 
 /// Sequential, never reused.
 export type TableId = bigint;
@@ -39,7 +40,7 @@ export type TableId = bigint;
 /// its own occupant (`StagingYouView.visibility`).
 export type Visibility = { open: null } | { code: string };
 
-export interface TableSummary {
+export interface TableSummary<O = unknown> {
   id: TableId;
   p1Open: boolean;
   p2Open: boolean;
@@ -48,12 +49,12 @@ export interface TableSummary {
   p2Session: [] | [string];
   protected: boolean;
   waitingSecs: bigint;
-  /// Opaque rules variant; "" for a game without variants.
-  variant: string;
+  /// The rules options the creator picked (the game's own `Options`).
+  options: O;
 }
 
-export interface BrowsingStatus {
-  tables: TableSummary[];
+export interface BrowsingStatus<O = unknown> {
+  tables: TableSummary<O>[];
 }
 
 export interface AtTableStatus<S = unknown> {
@@ -88,10 +89,14 @@ export interface AwaitingRematchView {
 
 export interface InGameView<S = unknown> {
   seat: Seat;
+  /// The game's `View` for this seat (hidden information removed).
   game: S;
-  turn: bigint;
+  /// Applied actions (`turnBased`) or resolved rounds (`simultaneous`).
+  step: bigint;
   mode: Mode;
-  /// `#simultaneous`: locked in this round. `#alternating`: on turn.
+  /// `turnBased`: the seat on turn; `[]` in `simultaneous`.
+  toMove: [] | [Seat];
+  /// `simultaneous`: locked in this step. `turnBased`: not on turn.
   /// Either way the waiting seat is `youSubmitted && !oppSubmitted`.
   youSubmitted: boolean;
   oppSubmitted: boolean;
@@ -107,7 +112,7 @@ export interface InGameView<S = unknown> {
 export interface DebriefView<S = unknown> {
   seat: Seat;
   end: End;
-  turns: bigint;
+  steps: bigint;
   finalGame: S;
   gen: bigint;
 }
@@ -146,8 +151,10 @@ export interface BotInfo {
 }
 
 /// See ../README.md, "The GamePlugin contract".
-export interface GamePlugin<S = unknown> {
-  idlTypes(args: { IDL: typeof IDL }): { Action: IDL.Type; State: IDL.Type };
+export interface GamePlugin<S = unknown, O = unknown> {
+  /// The game's own Candid types: one action, what a seat sees of the
+  /// state (`View`), and a table's options.
+  idlTypes(args: { IDL: typeof IDL }): { Action: IDL.Type; View: IDL.Type; Options: IDL.Type };
   seatLabel(seat: SeatTag): string;
   /// Optional: renders a leaderboard `score`. Default is the plain
   /// integer; a game storing a converted score inverts it here.
@@ -162,19 +169,22 @@ export interface GamePlugin<S = unknown> {
   /// the submit is in flight; null draws the board as it is. Display only,
   /// never sent anywhere. See `withLocalMove` in client.ts.
   applyLocal?(gameState: S, mySeat: SeatTag, move: unknown): S | null;
-  /// Optional: rules variants; the first is the default, each `key` is
-  /// what the backend's `Spec.init(variant)` receives.
-  variantChoices?(): { key: string; label: string }[];
-  /// Optional: a stored variant key -> display text.
-  formatVariant?(variant: string): string;
+  /// The table options a creator may pick from; the first is the default.
+  /// `key` only identifies the radio button, `options` is the typed value
+  /// sent to `duel_create_table`. A game with no options returns `[]` and
+  /// its `Options` is the empty record.
+  optionChoices?(): { key: string; label: string; options: O }[];
+  /// Optional: a table's stored options -> display text for the lobby.
+  formatOptions?(options: O): string;
 }
 
-/// Mirrors `Transport.Request<M>`. `submit`/`leave`/`reset`/`claimWin` carry the
-/// last-seen `gen` (and `turn`); a stale value is rejected as `#stale`.
-export type TransportRequest<A = unknown> =
-  | { createTable: { seat: Seat; visibility: Visibility; variant: string } }
+/// The client's request vocabulary. `submit`/`leave`/`reset`/`claimWin`
+/// carry the last-seen `gen` (and `step`); a stale value is rejected as
+/// `#stale`.
+export type TransportRequest<A = unknown, O = unknown> =
+  | { createTable: { seat: Seat; visibility: Visibility; options: O } }
   | { joinTable: { id: TableId; seat: Seat; code: [] | [string] } }
-  | { submit: { gen: bigint; turn: bigint; move: A } }
+  | { submit: { gen: bigint; step: bigint; move: A } }
   | { rematch: null }
   | { leave: { gen: bigint } }
   | { reset: { gen: bigint } }

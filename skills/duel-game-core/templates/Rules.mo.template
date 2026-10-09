@@ -1,9 +1,9 @@
 /// __RULES_MODULE__ — __GAME_TITLE__ game logic, as a pure module.
 ///
-/// `#simultaneous`: both seats act every round. For an alternating-turn
-/// game build `#alternating { init; validate; resolve }` instead, where
-/// `resolve : (State, TP.Seat, Action) -> ...` takes the one seat on turn
-/// (see references/alternating-turn-games.md).
+/// `#simultaneous`: both seats act every round. For a game where the
+/// rules decide whose turn it is (chess, checkers, a card game with a
+/// draw-then-place turn) build `#turnBased { checkOptions; init; toMove;
+/// move; view }` instead — see references/turn-based-games.md.
 ///
 /// Seats: #p1 = __P1_NAME__, #p2 = __P2_NAME__ (display only).
 ///
@@ -21,11 +21,12 @@ module {
   public let SEMANTICS : Text = "GAME: __GAME_TITLE__
 MODE: simultaneous
 SEATS: p1 = __P1_NAME__, p2 = __P2_NAME__
-VARIANTS: none (the table variant text is ignored)
+OPTIONS: none (type Options = record {})
 
-STATE (Candid)
-  type State = record { ... };
-  What every field means: indexing, units, what null stands for.
+VIEW (Candid)
+  type View = record { ... };
+  What every field means: indexing, units, what null stands for, and
+  what a seat does not get to see.
 
 ACTION (Candid)
   type Action = variant { ... };
@@ -37,27 +38,11 @@ ENDINGS
   Every way the game is won, lost or drawn.
 
 CLIENT NOTES
-  What a UI must know that the state does not say outright.
+  What a UI must know that the view does not say outright.
 ";
 
   /// The raw decision only — never a value the server can derive from
   /// State (SKILL.md step 2).
-  ///
-  /// If this game's variants don't share a move shape, tag Action into a
-  /// union over each variant's payload and dispatch validate/resolve
-  /// through a variant-keyed lookup built at module level:
-  //
-  // public type Action = { #variantA : ActionA; #variantB : ActionB };
-  //
-  // type VariantModule = {
-  //   validate : (State, TP.Seat, Action) -> ?Text;
-  //   resolve : (State, Action, Action) -> { state : State; verdict : ?TP.Verdict };
-  // };
-  //
-  // func variantModule(key : Text) : ?VariantModule = Map.fromIter(
-  //   [("variantA", variantAModule), ("variantB", variantBModule)].values(),
-  //   Text.compare,
-  // ).get(key);
   public type Action = { /* #yourMove; #anotherMove; ... */ };
 
   /// Per-seat state that persists across rounds. Immutable.
@@ -75,15 +60,24 @@ CLIENT NOTES
     p1 : Side;
     p2 : Side;
     lastRound : ?Round;
-    // For a same-shape rules variant (SKILL.md step 2, question 8):
+    // For a rules variant picked at table time (SKILL.md step 2, question 8):
     // variant : Variant;
   };
 
+  /// What one seat sees. `State` when nothing is hidden; otherwise its
+  /// own record, built by `view` (a hand of cards: your own face up, the
+  /// opponent's as a count).
+  public type View = State;
+
+  /// What a table's creator picks. `{}` for a game without options.
+  public type Options = {};
   // public type Variant = { #classic; #yourOtherVariant };
-  //
-  // func parseVariant(raw : Text) : Variant = switch (raw) {
-  //   case ("yourOtherVariant") #yourOtherVariant;
-  //   case (_) #classic; // safe default — never trap on "" or garbage
+  // public type Options = { variant : Variant; roundsToWin : Nat };
+
+  /// null = sensible; ?reason = the table is refused (`#badOptions`).
+  public func checkOptions(_ : Options) : ?Text = null;
+  // public func checkOptions(o : Options) : ?Text {
+  //   if (o.roundsToWin < 1 or o.roundsToWin > 9) ?"Rounds to win must be 1 to 9." else null;
   // };
 
   // Fixed game numbers go here as `let`s, not as Action/State fields.
@@ -97,13 +91,14 @@ CLIENT NOTES
     // starting values
   };
 
-  /// `raw` is this table's rules variant text ("" without variants).
-  /// Rename to `_raw` if unused.
-  public func init(raw : Text) : State = {
+  /// The starting position for these options. `rng` is the framework's
+  /// random-number generator (`rng.below(n)`, `rng.shuffle(xs)`); rename
+  /// to `_rng` if unused.
+  public func init(_ : Options, _rng : TP.Rng) : State = {
     p1 = freshSide();
     p2 = freshSide();
     lastRound = null;
-    // variant = parseVariant(raw);
+    // variant = options.variant;
   };
 
   /// null = legal. The only legality gate in the system; the frontend's
@@ -119,7 +114,7 @@ CLIENT NOTES
 
   /// Both moves are in and already validated. Guard every Nat
   /// subtraction against underflow.
-  public func resolve(s : State, a1 : Action, a2 : Action)
+  public func resolve(s : State, a1 : Action, a2 : Action, _rng : TP.Rng)
     : { state : State; verdict : ?TP.Verdict } {
 
     // let verdict : ?TP.Verdict =
@@ -139,10 +134,17 @@ CLIENT NOTES
     };
   };
 
-  /// Built fresh per call; never stored.
-  public func spec() : TP.Spec<State, Action> = #simultaneous {
+  /// What `seat` sees of `s`; `over` is true once the game has ended, when
+  /// a game with hidden information reveals it.
+  public func view(s : State, _seat : TP.Seat, _over : Bool) : View = s;
+
+  /// The functions the framework calls. Never stored by it: the host hands
+  /// `spec` in on every call.
+  public let spec : TP.Spec<State, Action, View, Options> = #simultaneous {
+    checkOptions;
     init;
     validate;
     resolve;
+    view;
   };
 };

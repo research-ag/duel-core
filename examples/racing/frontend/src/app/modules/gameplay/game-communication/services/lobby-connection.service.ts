@@ -61,10 +61,10 @@ export class LobbyConnectionService {
   private wasInGame: boolean = false;
   private prevGame: RacingState | null = null;
   private pendingMine: StepDataModel | null = null;
-  // The engine's own gen/turn from the latest #inGame view — what
+  // The engine's own gen/step from the latest #inGame view — what
   // `submit`/`leave` must stamp (a stale one is rejected as `#stale`).
   private currentGen: bigint = 0n;
-  private currentTurn: bigint = 0n;
+  private currentStep: bigint = 0n;
   // Keeps body.in-race up until the final step has been animated.
   private awaitingFinalAnimation: boolean = false;
 
@@ -114,7 +114,7 @@ export class LobbyConnectionService {
     const trajectory = data.trajectory || new StepTrajectoryModel(0, 0);
     const action: RacingAction = { l: trajectory.l, c: trajectory.c };
     // `request()` resolves this call's own reply; the caller checks `err`.
-    return from(this.transport.request(this.sid, { submit: { gen: this.currentGen, turn: this.currentTurn, move: action } }));
+    return from(this.transport.request(this.sid, { submit: { gen: this.currentGen, step: this.currentStep, move: action } }));
   }
 
   emitFinished(stepsCount?: number): Observable<any> {
@@ -164,7 +164,7 @@ export class LobbyConnectionService {
       const v = view.inGame;
       // Refreshed on every #inGame view.
       this.currentGen = v.gen;
-      this.currentTurn = v.turn;
+      this.currentStep = v.step;
       const slot = 'p1' in v.seat ? 0 : 1;
       const game: RacingState = v.game;
       const isNewRace = !this.wasInGame;

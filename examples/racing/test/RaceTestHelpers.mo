@@ -28,7 +28,7 @@ module {
   /// Overwrite a live `#active` table's game state — the seats, turn
   /// counter and activity timestamp the engine already set via real
   /// `join` calls are left untouched; only the two cars change.
-  public func seedGame(t : TP.Table<R.State, R.Action>, p1 : R.CarState, p2 : R.CarState) {
+  public func seedGame(t : TP.Table<R.State, R.Action, R.Options>, p1 : R.CarState, p2 : R.CarState) {
     switch (t.phase) {
       case (#active a) {
         t.phase := #active({ a with game = { p1; p2; step = a.game.step } });
@@ -38,7 +38,7 @@ module {
   };
 
   /// p1 is one legal move from winning; p2 sits at the same spot on lap 0.
-  public func seedP1NearFinish(t : TP.Table<R.State, R.Action>) {
+  public func seedP1NearFinish(t : TP.Table<R.State, R.Action, R.Options>) {
     seedGame(t, nearFinish(), idleCar());
   };
 

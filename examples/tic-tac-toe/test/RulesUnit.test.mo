@@ -2,9 +2,12 @@
 // exercised directly against synthetic boards, no engine, no actor.
 import R "../src/TicTacToeRules";
 import TP "mo:duel-game-core";
+import Rng "mo:duel-game-core/rng";
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
+
+let rng = Rng.new(42);
 
 func withMarks(marks : [(Nat, TP.Seat)]) : R.Board {
   var b = Array.repeat<?TP.Seat>(null, 9);
@@ -15,17 +18,17 @@ func withMarks(marks : [(Nat, TP.Seat)]) : R.Board {
 };
 
 // ── 1. init() is a clean, empty board ──────────────────────────────────────
-let s0 = R.init("");
+let s0 = R.init({}, rng);
 assert s0.board.size() == 9;
 assert s0.board.all<?TP.Seat>(func(cell) = cell == null);
 Debug.print("1. init() OK");
 
-// ── 2. spec() hands out the same rules, in #alternating mode ───────────────
-let sp = switch (R.spec()) {
-  case (#alternating s) s;
-  case (#simultaneous _) Runtime.trap("tic-tac-toe is a #alternating game");
+// ── 2. spec() hands out the same rules, in #turnBased mode ───────────────
+let sp = switch (R.spec) {
+  case (#turnBased s) s;
+  case (#simultaneous _) Runtime.trap("tic-tac-toe is a #turnBased game");
 };
-assert sp.init("").board == s0.board;
+assert sp.init({}, rng).board == s0.board;
 Debug.print("2. spec wiring OK");
 
 // ── 3. validate: any empty cell is legal, an occupied one is not ───────────

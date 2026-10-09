@@ -9,22 +9,23 @@ import { buildEngineTypes, makeIdlFactory } from "../src/idl.js";
 function sampleGameTypes({ IDL: I }: { IDL: typeof IDL }) {
   return {
     Action: I.Variant({ pass: I.Null, shoot: I.Nat }),
-    State: I.Record({ hp: I.Nat }),
+    View: I.Record({ hp: I.Nat }),
+    Options: I.Record({}),
   };
 }
 
 test("buildEngineTypes builds every named type without throwing", () => {
-  const { Action, State } = sampleGameTypes({ IDL });
-  const t = buildEngineTypes({ IDL, Action, State });
+  const { Action, View, Options } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, View, Options });
   for (const key of [
     "Seat", "Verdict", "End", "Err", "View", "LeaderboardEntry",
-    "PollResult", "TransportRequest", "TransportMsg",
+    "TransportRequest", "TransportReply", "Ack", "TableResult", "LobbyResult", "KeepAliveResult",
   ] as const) {
     assert.ok(t[key], `missing type: ${key}`);
   }
 });
 
-test("makeIdlFactory produces a Service with status + get_leaderboard + bot discovery + duel_request/duel_poll, no plain mutating game method", () => {
+test("makeIdlFactory produces a Service with get_leaderboard + bot discovery + the duel_* transport methods, no plain mutating game method", () => {
   const idlFactory = makeIdlFactory(sampleGameTypes);
   const service = idlFactory({ IDL });
   // IDL.Service exposes its method table via ._fields (array of [name,
@@ -35,8 +36,10 @@ test("makeIdlFactory produces a Service with status + get_leaderboard + bot disc
   assert.deepEqual(
     [...names].sort(),
     [
-      "status", "get_leaderboard", "register_bot", "unregister_bot", "list_bots",
-      "duel_request", "duel_poll",
+      "get_leaderboard", "register_bot", "unregister_bot", "list_bots",
+      "duel_create_table", "duel_join_table", "duel_rematch", "duel_leave",
+      "duel_reset", "duel_claim_win", "duel_ack_ended", "duel_keep_alive",
+      "duel_submit", "duel_lobby", "duel_table",
     ].sort(),
   );
   for (const forbidden of ["join", "submit", "rematch", "leave", "reset", "claimWin", "ackEnded"]) {
@@ -45,15 +48,16 @@ test("makeIdlFactory produces a Service with status + get_leaderboard + bot disc
 });
 
 test("View round-trips through Candid encode/decode for a game's own State shape", () => {
-  const { Action, State } = sampleGameTypes({ IDL });
-  const t = buildEngineTypes({ IDL, Action, State });
+  const { Action, View, Options } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, View, Options });
 
   const view = {
     inGame: {
       mode: { simultaneous: null },
+      toMove: [],
       seat: { p1: null },
       game: { hp: 10n },
-      turn: 3n,
+      step: 3n,
       youSubmitted: true,
       oppSubmitted: false,
       gen: 1n,
@@ -70,10 +74,10 @@ test("View round-trips through Candid encode/decode for a game's own State shape
 });
 
 test("TransportRequest round-trips a game's own Action through the submit variant", () => {
-  const { Action, State } = sampleGameTypes({ IDL });
-  const t = buildEngineTypes({ IDL, Action, State });
+  const { Action, View, Options } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, View, Options });
 
-  const req = { submit: { gen: 1n, turn: 2n, move: { shoot: 5n } } };
+  const req = { submit: { gen: 1n, step: 2n, move: { shoot: 5n } } };
   const bytes = IDL.encode([t.TransportRequest], [req]);
   const [decoded] = IDL.decode(
     [t.TransportRequest],
@@ -83,8 +87,8 @@ test("TransportRequest round-trips a game's own Action through the submit varian
 });
 
 test("TransportRequest round-trips the claimWin variant", () => {
-  const { Action, State } = sampleGameTypes({ IDL });
-  const t = buildEngineTypes({ IDL, Action, State });
+  const { Action, View, Options } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, View, Options });
 
   const req = { claimWin: { gen: 1n } };
   const bytes = IDL.encode([t.TransportRequest], [req]);
@@ -96,8 +100,8 @@ test("TransportRequest round-trips the claimWin variant", () => {
 });
 
 test("Err round-trips every variant shape", () => {
-  const { Action, State } = sampleGameTypes({ IDL });
-  const t = buildEngineTypes({ IDL, Action, State });
+  const { Action, View, Options } = sampleGameTypes({ IDL });
+  const t = buildEngineTypes({ IDL, Action, View, Options });
 
   for (const err of [
     { seatTaken: null },

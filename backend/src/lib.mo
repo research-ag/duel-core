@@ -6,42 +6,37 @@
 /// (`mo:duel-game-core/table`, the single-board primitive) and
 /// `./registry` (`mo:duel-game-core/registry`, the multi-table router).
 ///
-/// Every mutating `Registry` operation is driven exclusively through
-/// `mo:duel-game-core/transport` — never a plain Candid method — because two
-/// independent update calls have no guaranteed relative processing order.
-/// Only `status` is a plain public `query`; `http_request` and the
+/// Every client read and mutation goes through `mo:duel-game-core/transport`
+/// — never a plain Candid method; `http_request` and the
 /// controllers-only `wasm_upload_*` of `./http_actor_mixin` touch no
-/// game state.
+/// game state. The overall design, with diagrams: `../../DESIGN.md`.
 ///
 ///   import TP "mo:duel-game-core";
 ///   import Registry "mo:duel-game-core/registry";
 ///   import Transport "mo:duel-game-core/transport";
-///   import ActorMixin "mo:duel-game-core/actor_mixin";
 ///
 ///   actor {
-///     let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
-///     registry.setTimeouts(90_000_000_000, 60_000_000_000);
-///
-///     public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
-///       registry.status(Rules.spec(), Time.now(), sid);
-///     };
-///
-///     // Transport.attach + include ActorMixin<system>(attached.endpoint, attached.sweep)
+///     let state = Transport.new<Rules.State, Rules.Action>();
+///     state.registry.setTimeouts(90_000_000_000, 60_000_000_000);
+///     transient let duel = Transport.Duel<Rules.State, Rules.Action>(state, Rules.spec(), null, null);
+///     // include TransportActorMixin<system>(duel.lobby) + the typed
+///     // duel_submit/duel_table pass-throughs — see `./transport`
 ///   };
 ///
-/// `Registry<S, M>`/`Table<S, M>` are stable whenever `S`/`M` are; the
-/// `Spec` is passed on every call and never stored. A stable `registry`
-/// skips `Registry.new` on upgrade, so the host re-applies its timeouts
-/// with `registry.setTimeouts` on the very next line.
+/// `Registry<S, M, O>`/`Table<S, M, O>` are stable whenever `S`/`M`/`O` are; the
+/// `Spec` is passed on every call and never stored. A stable `state`
+/// skips `Transport.new` on upgrade, so the host re-applies its timeouts
+/// with `state.registry.setTimeouts` on the very next line.
 ///
 /// Design guarantees (see `../README.md`, "Design"): race-free rematch
 /// (create-then-join with a reserved seat), no ghost lobbies (every phase
-/// timestamped), server-side legality (`validate` for both seats), no
+/// timestamped), server-side legality (the rules check every action), no
 /// silent endings (`#aborted`/`#claimed`/`#endedByOther`), leave means
 /// left (an acked debrief seat is no longer a participant), replay-safe
-/// (`gen`/`turn` mismatches come back `#stale`). `Spec` is tagged by
-/// `Mode`; in `#alternating` the engine tracks whose turn it is and only
-/// the waiting seat may `claimWin`.
+/// (`gen`/`step` mismatches come back `#stale`), hidden information stays
+/// hidden (every view goes through the game's `view`). `Spec` is tagged
+/// by `Mode`; in `#turnBased` the rules' `toMove` says whose action is
+/// next and only the waiting seat may `claimWin`.
 
 import Array "mo:core/Array";
 import Int "mo:core/Int";
@@ -57,27 +52,27 @@ module {
 
   public type TableId = T.TableId;
   public type TableVisibility = T.TableVisibility;
-  public type SessionId = T.SessionId;
+  public type PlayerId = T.PlayerId;
   public type Seat = T.Seat;
   public type Verdict = T.Verdict;
   public type Mode = T.Mode;
-  public type Registry<S, M> = T.Registry<S, M>;
-  public type TableSummary = T.TableSummary;
-  public type SessionStatus<S> = T.SessionStatus<S>;
-  public type MoveRequest<S, M> = T.MoveRequest<S, M>;
-  public type Spec<S, M> = T.Spec<S, M>;
+  public type Rng = T.Rng;
+  public type Registry<S, M, O> = T.Registry<S, M, O>;
+  public type TableSummary<O> = T.TableSummary<O>;
+  public type MoveRequest<V, M> = T.MoveRequest<V, M>;
+  public type Spec<S, M, V, O> = T.Spec<S, M, V, O>;
   public type Staging = T.Staging;
   public type Active<S, M> = T.Active<S, M>;
   public type End = T.End;
   public type Debrief<S> = T.Debrief<S>;
   public type Phase<S, M> = T.Phase<S, M>;
   public type Ended = T.Ended;
-  public type Table<S, M> = T.Table<S, M>;
+  public type Table<S, M, O> = T.Table<S, M, O>;
   public type Err = T.Err;
   public type Res<T> = T.Res<T>;
   public type JoinOk = T.JoinOk;
   public type SubmitOk = T.SubmitOk;
   public type RematchOk = T.RematchOk;
-  public type View<S> = T.View<S>;
+  public type TableView<V> = T.TableView<V>;
 
 };

@@ -12,7 +12,7 @@ module {
   let BEAR_DEPTH : Nat = 6;
   let WIN : Int = 1000;
 
-  public func chooseMove(req : TP.MoveRequest<Rules.State, Rules.Action>) : Rules.Action {
+  public func chooseMove(req : TP.MoveRequest<Rules.View, Rules.Action>) : Rules.Action {
     switch (req.complexity) {
       case ("Fox") foxMove(req);
       case ("Bear") bearMove(req.game, req.seat);
@@ -26,10 +26,10 @@ module {
 
   func canWinNow(s : Rules.State, seat : TP.Seat) : Bool = Rules.legalActions(s, seat).any<Rules.Action>(func(a) = winsNow(s, seat, a));
 
-  func bunnyMove(req : TP.MoveRequest<Rules.State, Rules.Action>) : Rules.Action = pick(Rules.legalActions(req.game, req.seat), req.turn);
+  func bunnyMove(req : TP.MoveRequest<Rules.View, Rules.Action>) : Rules.Action = pick(Rules.legalActions(req.game, req.seat), req.step);
 
   // Take an immediate win; otherwise never hand the opponent one.
-  func foxMove(req : TP.MoveRequest<Rules.State, Rules.Action>) : Rules.Action {
+  func foxMove(req : TP.MoveRequest<Rules.View, Rules.Action>) : Rules.Action {
     let s = req.game;
     let seat = req.seat;
     let moves = Rules.legalActions(s, seat);
@@ -38,7 +38,7 @@ module {
       case null {};
     };
     let safe = moves.filter<Rules.Action>(func(a) = not canWinNow(Rules.resolve(s, seat, a).state, Rules.other(seat)));
-    pick(if (safe.size() > 0) safe else moves, req.turn);
+    pick(if (safe.size() > 0) safe else moves, req.step);
   };
 
   func eval(s : Rules.State, seat : TP.Seat) : Int = Rules.liveHands(Rules.handsOf(s, seat)) - Rules.liveHands(Rules.handsOf(s, Rules.other(seat)));

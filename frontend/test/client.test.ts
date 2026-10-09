@@ -13,7 +13,7 @@ import {
   localSecondsElapsed,
   localSecondsLeft,
   pendingKeyOf,
-  turnOf,
+  stepOf,
   viewOf,
   viewTagOf,
   withLocalMove,
@@ -77,8 +77,9 @@ function inGame(over: Partial<InGameView> = {}): Status {
         inGame: {
           seat: { p1: null },
           game: {},
-          turn: 3n,
+          step: 3n,
           mode: { simultaneous: null },
+          toMove: [],
           youSubmitted: false,
           oppSubmitted: false,
           gen: 5n,
@@ -170,10 +171,10 @@ test("createTable: sets pending with a stable key, resolves ok with the reply's 
   const transport = new FakeTransport();
   const client = createDuelClient({ transport, session });
   const states = record(client);
-  const p = client.createTable("p1", { open: null }, "classic");
+  const p = client.createTable("p1", { open: null }, { classic: null });
   assert.deepEqual(client.getState().pending, {
     key: "create:p1",
-    req: { createTable: { seat: { p1: null }, visibility: { open: null }, variant: "classic" } },
+    req: { createTable: { seat: { p1: null }, visibility: { open: null }, options: { classic: null } } },
   });
   assert.equal(client.getState().identityLocked, true, "a join in flight locks identity");
   assert.equal(transport.requests.length, 1);
@@ -186,11 +187,11 @@ test("createTable: sets pending with a stable key, resolves ok with the reply's 
   assert.ok(states.length >= 2);
 });
 
-test("createTable defaults to an open table with no variant; joinTable wraps the code as a Candid opt", async () => {
+test("createTable defaults to an open table with empty options; joinTable wraps the code as a Candid opt", async () => {
   const transport = new FakeTransport();
   const client = createDuelClient({ transport, session });
   void client.createTable("p2");
-  assert.deepEqual(transport.requests[0]!.req, { createTable: { seat: { p2: null }, visibility: { open: null }, variant: "" } });
+  assert.deepEqual(transport.requests[0]!.req, { createTable: { seat: { p2: null }, visibility: { open: null }, options: {} } });
   transport.requests[0]!.resolve({ view: browsing() });
   await Promise.resolve();
   void client.joinTable(4n, "p1", "s3cret");
@@ -211,12 +212,12 @@ test("a second call while one is in flight is refused with reason inFlight", asy
   assert.equal(transport.requests.length, 1);
 });
 
-test("submit stamps the last-seen gen and turn; leave/reset/claimWin stamp gen", async () => {
+test("submit stamps the last-seen gen and step; leave/reset/claimWin stamp gen", async () => {
   const transport = new FakeTransport();
   const client = createDuelClient({ transport, session });
   transport.onmessage!({ data: { view: inGame() } });
   void client.submit({ pass: null });
-  assert.deepEqual(transport.requests[0]!.req, { submit: { gen: 5n, turn: 3n, move: { pass: null } } });
+  assert.deepEqual(transport.requests[0]!.req, { submit: { gen: 5n, step: 3n, move: { pass: null } } });
   assert.equal(client.getState().pending!.key, 'act:{"pass":null}');
   transport.requests[0]!.resolve({ view: inGame({ youSubmitted: true }) });
   await Promise.resolve();
@@ -485,18 +486,18 @@ test("subscribe: listeners get (state, prev) synchronously and can unsubscribe; 
   assert.equal(transport.onopen, null);
 });
 
-test("selectors: viewTagOf/viewOf/isSeated/genOf/turnOf/claimRoleOf", () => {
+test("selectors: viewTagOf/viewOf/isSeated/genOf/stepOf/claimRoleOf", () => {
   assert.equal(viewTagOf(null), null);
   assert.equal(viewTagOf(browsing()), "browsing");
   assert.equal(viewTagOf(staging()), "stagingYou");
   assert.equal(viewOf(browsing(), "inGame"), null);
-  assert.equal(viewOf<InGameView>(inGame(), "inGame")!.turn, 3n);
+  assert.equal(viewOf<InGameView>(inGame(), "inGame")!.step, 3n);
   assert.equal(isSeated(browsing()), false);
   assert.equal(isSeated(inGame()), true);
   assert.equal(genOf(browsing()), 0n);
   assert.equal(genOf(staging(9n)), 9n);
-  assert.equal(turnOf(staging()), 0n);
-  assert.equal(turnOf(inGame()), 3n);
+  assert.equal(stepOf(staging()), 0n);
+  assert.equal(stepOf(inGame()), 3n);
   const v = viewOf<InGameView>(inGame(), "inGame")!;
   assert.equal(claimRoleOf(v), null);
   assert.equal(claimRoleOf({ ...v, youSubmitted: true }), "waiting");
@@ -505,10 +506,10 @@ test("selectors: viewTagOf/viewOf/isSeated/genOf/turnOf/claimRoleOf", () => {
 });
 
 test("pendingKeyOf mirrors the default UI's button keys, bigint moves included", () => {
-  assert.equal(pendingKeyOf({ createTable: { seat: { p2: null }, visibility: { open: null }, variant: "" } }), "create:p2");
+  assert.equal(pendingKeyOf({ createTable: { seat: { p2: null }, visibility: { open: null }, options: {} } }), "create:p2");
   assert.equal(pendingKeyOf({ joinTable: { id: 7n, seat: { p1: null }, code: [] } }), "jointable:7:p1");
-  assert.equal(pendingKeyOf({ submit: { gen: 0n, turn: 0n, move: { place: { row: 1, col: 2 } } } }), 'act:{"place":{"row":1,"col":2}}');
-  assert.equal(pendingKeyOf({ submit: { gen: 0n, turn: 0n, move: { n: 5n } } }), 'act:{"n":"5"}');
+  assert.equal(pendingKeyOf({ submit: { gen: 0n, step: 0n, move: { place: { row: 1, col: 2 } } } }), 'act:{"place":{"row":1,"col":2}}');
+  assert.equal(pendingKeyOf({ submit: { gen: 0n, step: 0n, move: { n: 5n } } }), 'act:{"n":"5"}');
   assert.equal(pendingKeyOf({ ackEnded: null }), "ack");
   assert.equal(pendingKeyOf({ status: null }), "");
 });
@@ -516,9 +517,9 @@ test("pendingKeyOf mirrors the default UI's button keys, bigint moves included",
 test("withLocalMove: applies a pending submit stamped against the shown view, else returns status unchanged", () => {
   const add = (game: unknown, _seat: string, move: unknown): unknown =>
     (move as { add?: number }).add ? { n: ((game as { n?: number }).n ?? 0) + 1 } : null;
-  const submit = (turn = 3n, gen = 5n, move: unknown = { add: 1 }): PendingCall => ({
+  const submit = (step = 3n, gen = 5n, move: unknown = { add: 1 }): PendingCall => ({
     key: "act",
-    req: { submit: { gen, turn, move } },
+    req: { submit: { gen, step, move } },
   });
   const sim = inGame({ game: { n: 1 }, oppSubmitted: true });
   assert.equal(withLocalMove(sim, null, add), sim);
@@ -534,13 +535,13 @@ test("withLocalMove: applies a pending submit stamped against the shown view, el
 
   const s = viewOf<InGameView>(withLocalMove(sim, submit(), add), "inGame")!;
   assert.deepEqual(s.game, { n: 2 });
-  assert.equal(s.turn, 3n);
+  assert.equal(s.step, 3n);
   assert.equal(s.youSubmitted, true);
   assert.equal(s.oppSubmitted, true, "simultaneous: the opponent's lock-in is kept");
 
-  const alt = inGame({ mode: { alternating: null }, oppSubmitted: true, claimWinAvailable: true, secondsUntilClaimable: 0n });
+  const alt = inGame({ mode: { turnBased: null }, oppSubmitted: true, claimWinAvailable: true, secondsUntilClaimable: 0n });
   const a = viewOf<InGameView>(withLocalMove(alt, submit(), add), "inGame")!;
-  assert.equal(a.turn, 4n);
+  assert.equal(a.step, 4n);
   assert.equal(a.youSubmitted, true);
   assert.equal(a.oppSubmitted, false);
   assert.equal(a.claimWinAvailable, false);
