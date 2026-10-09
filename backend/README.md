@@ -791,10 +791,12 @@ hold at both the `Table` and `Registry` layer):
 - **Module layout.** `lib.mo` is the type surface; `table.mo`/
   `registry.mo` the operations; `transport.mo` +
   `transport_actor_mixin.mo` the mandatory transport (plus the host's
-  own `duel_submit`/`duel_table`);
+  own `duel_create_table`/`duel_lobby`/`duel_submit`/`duel_table`);
   `canister_players.mo` + `canister_players_actor_mixin.mo`,
   `leaderboard.mo` + `elo.mo` + `leaderboard_actor_mixin.mo` are
-  optional, wired through the `Duel` class.
+  optional, wired through the transport's `Env`: `env.bots` (the store
+  and the game's `callBot`) and `env.scoring` (the board and its
+  rating).
 - `test/FakeGame.mo`/`FakeTurnGame.mo` are throwaway specs for the
   suites and benchmarks, not games.
 

@@ -1,13 +1,16 @@
 // Checks for `transport.mo`: a `Duel` driven by two principals — revs and
 // `#unchanged`, the lobby's `yours`, the table cap, the anonymous caller,
-// and a waiting table kept open by `keepAlive` through a `sweep`.
+// a waiting table kept open by `keepAlive` through a `sweep`, and a
+// debrief scored once.
 import Debug "mo:core/Debug";
+import Map "mo:core/Map";
 import Nat "mo:core/Nat";
 import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
 import Time "mo:core/Time";
 
 import Rules "FakeGame";
+import Leaderboard "../src/leaderboard";
 import Registry "../src/registry";
 import TP "../src/lib";
 import Transport "../src/transport";
@@ -137,6 +140,34 @@ do {
   check(tableOf(duel, PA, tableId, rev) == #gone, "5b: a silent creator's waiting table is cleared");
   check(lobbyOf(duel.lobbyView(PB, 0)).rev > lobbyBefore, "5c: the sweep moved the lobby's rev");
   Debug.print("5. keep-alive and sweep OK");
+};
+
+// ── 6. a debrief is scored once, even when an ack shares its `now` ──────────
+// A canister seat acks its debrief inside the message that ended the game,
+// so `afterMutation` runs twice with the same `now`; only the first scores.
+do {
+  let duel = fresh();
+  let board = Leaderboard.new(10, 1200);
+  let scored : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+    env with scoring = ?{ board; rating = #elo { k = 32 } }
+  };
+  let { tableId } = acked(await* create<system>(duel, PA, ""), "6: PA creates");
+  ignore acked(await* join<system>(duel, PB, tableId), "6: PB joins");
+  let gen = switch (duel.registry.tables.get(tableId)) {
+    case (?t) t.gen;
+    case null Runtime.trap("6: no table");
+  };
+  let now = Time.now() + SEC;
+  // PA leaves the game: an #aborted debrief, PB wins.
+  check(duel.registry.leave(now, PA.toText(), tableId, gen) == #ok(()), "6: PA leaves");
+  await* Transport.afterMutation<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(duel, scored, now, tableId, true);
+  let afterEnd = Leaderboard.scoreOf(board, PB.toText());
+  check(afterEnd > 1200, "6a: the ending scored the winner");
+  // PB acks the debrief in the same message.
+  check(duel.registry.leave(now, PB.toText(), tableId, gen) == #ok(()), "6: PB acks");
+  await* Transport.afterMutation<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(duel, scored, now, tableId, true);
+  check(Leaderboard.scoreOf(board, PB.toText()) == afterEnd, "6b: the ack must not score the debrief again");
+  Debug.print("6. a debrief is scored once OK");
 };
 
 Debug.print("ALL TRANSPORT CHECKS PASSED");

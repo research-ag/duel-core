@@ -229,14 +229,16 @@ module {
   };
 
   /// Bumps table `id`'s `rev` (and the lobby's with `bumpLobbyToo`),
-  /// scores a fresh debrief, then settles canister players — the only
-  /// await.
+  /// scores a debrief this mutation created, then settles canister
+  /// players — the only await.
   public func afterMutation<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, now : Int, id : TP.TableId, bumpLobbyToo : Bool) : async* () {
     bumpTable(self, id);
     if (bumpLobbyToo) self.lobbyRev += 1;
     switch (env.scoring, self.registry.tables.get(id)) {
       case (?sc, ?t) switch (t.phase) {
-        case (#debrief d) if (d.since == now) score(sc, d, now);
+        // Only the mutation that created it: a canister seat's ack runs in
+        // the same message (same `now`) and must not score it again.
+        case (#debrief d) if (d.since == now and t.debriefAcked.size() == 0) score(sc, d, now);
         case (_) {};
       };
       case (_, _) {};

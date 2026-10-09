@@ -341,7 +341,9 @@ module {
         case (#err _) {};
       };
     } else {
-      ctx.arm<system>(id, ig.secondsUntilClaimable);
+      // `secondsUntilClaimable` rounds down: one more second wakes after
+      // the deadline instead of just before it.
+      ctx.arm<system>(id, ig.secondsUntilClaimable + 1);
     };
   };
 

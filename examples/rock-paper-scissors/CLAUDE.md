@@ -56,10 +56,10 @@ Everything in `../../CLAUDE.md`, plus: the engine is never vendored here.
 
 ## Game-rule notes (src/RockPaperScissorsRules.mo)
 
-- Seats: "Player 1"/"Player 2". `WINS_NEEDED = 3` is a constant. A tie
-  scores nobody.
-- **Classic** (`""` or unrecognized): `#well` is illegal.
-- **Well** (`"well"`): Scissors beats Paper; Paper beats Rock and Well;
+- Seats: "Player 1"/"Player 2". `winsNeeded` is a table option,
+  1..9 (`checkOptions`); the frontend offers 3. A tie scores nobody.
+- **Classic** (`#classic`): `#well` is illegal.
+- **Well** (`#well`): Scissors beats Paper; Paper beats Rock and Well;
   Rock beats Scissors; Well beats Rock and Scissors. Deliberately
   unbalanced, as specified — not a bug.
 - If either `ACTIONS` list changes, re-derive the bot's p2 multiplier to

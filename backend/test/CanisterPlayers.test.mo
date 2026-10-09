@@ -475,7 +475,7 @@ switch (atTableView(reg15, T0, sidBot1)) {
   case (#inGame v) assert v.youSubmitted and not v.claimWinAvailable;
   case (_) Runtime.trap("bot1 should be waiting, not yet claimable");
 };
-assert armLog15.calls == [(id15, CLAIM_TIMEOUT.toNat() / 1_000_000_000)];
+assert armLog15.calls == [(id15, CLAIM_TIMEOUT.toNat() / 1_000_000_000 + 1)];
 await* CanisterPlayers.settle<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx15, T0, id15); // re-settling before the wakeup fires must not claim early
 switch (atTableView(reg15, T0, sidBot1)) {
   case (#inGame v) assert v.youSubmitted and not v.claimWinAvailable;
@@ -785,7 +785,7 @@ switch (atTableView(reg27, T0, sidBot1)) {
   case (#inGame v) assert v.youSubmitted;
   case (_) Runtime.trap("bot1 should have moved and be waiting");
 };
-assert armLog27.calls == [(id27, CLAIM_TIMEOUT.toNat() / 1_000_000_000)];
+assert armLog27.calls == [(id27, CLAIM_TIMEOUT.toNat() / 1_000_000_000 + 1)];
 Debug.print("27. a bot's move settles once through the fan-out: one claim check armed, not two OK");
 
 // ── 28. bot-vs-bot never chains inside one call: a canister seat due
