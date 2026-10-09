@@ -28,14 +28,16 @@ export interface EngineTypes {
   Status: IDLNS.Type;
   LeaderboardEntry: IDLNS.Type;
   BotInfo: IDLNS.Type;
-  PollResult: IDLNS.Type;
   TransportRequest: IDLNS.Type;
   TransportReply: IDLNS.Type;
   Ack: IDLNS.Type;
+  TableResult: IDLNS.Type;
+  LobbyResult: IDLNS.Type;
+  KeepAliveResult: IDLNS.Type;
 }
 
-/// Every named Candid type the service surface uses — `status`'s types
-/// plus the transport's. Exported so `transport.ts` encodes against the
+/// Every named Candid type the service surface uses, plus `Status`, the
+/// shape `DuelTransport` composes for a client. Exported so `transport.ts` encodes against the
 /// exact same descriptions.
 export function buildEngineTypes({
   IDL,
@@ -68,6 +70,7 @@ export function buildEngineTypes({
     noSuchTable: IDL.Null,
     badCode: IDL.Null,
     unauthorized: IDL.Null,
+    tooManyTables: IDL.Record({ max: IDL.Nat }),
   });
   // No JoinOk/SubmitOk/RematchOk: only a fresh `View` ever crosses the
   // wire, in a `#view`.
@@ -158,21 +161,26 @@ export function buildEngineTypes({
     ackEnded: IDL.Null,
     status: IDL.Null,
   });
-  // Mirrors `Transport.Snapshot<S>`/`Reply<S>`/`PollResult<S>`/`Ack`:
-  // `rev` orders views.
-  const TransportView = IDL.Record({ rev: IDL.Nat, view: Status });
-  const TransportReply = IDL.Variant({ view: TransportView, err: Err });
-  const PollResult = IDL.Variant({
+  // Mirrors `Transport.Snapshot<S>`/`Reply<S>`/`TableResult<S>`/
+  // `LobbyResult`/`Ack`: `rev` orders one table's (or the lobby's) views.
+  const Snapshot = IDL.Record({ rev: IDL.Nat, view: View });
+  const TransportReply = IDL.Variant({ view: Snapshot, err: Err });
+  const TableResult = IDL.Variant({
     unchanged: IDL.Null,
-    changed: TransportView,
-    unknown: IDL.Null,
+    changed: Snapshot,
+    gone: IDL.Null,
   });
-  const Ack = IDL.Variant({ ok: IDL.Record({ rev: IDL.Nat }), err: Err });
+  const LobbyResult = IDL.Variant({
+    unchanged: IDL.Null,
+    changed: IDL.Record({ rev: IDL.Nat, tables: IDL.Vec(TableSummary), yours: IDL.Vec(TableId) }),
+  });
+  const Ack = IDL.Variant({ ok: IDL.Record({ tableId: TableId, rev: IDL.Nat }), err: Err });
+  const KeepAliveResult = IDL.Variant({ ok: IDL.Null, err: Err });
 
   return {
     Seat, Mode, Verdict, End, Err, View, TableId, Visibility, TableSummary, Status,
     LeaderboardEntry, BotInfo,
-    PollResult, TransportRequest, TransportReply, Ack,
+    TransportRequest, TransportReply, Ack, TableResult, LobbyResult, KeepAliveResult,
   };
 }
 
@@ -186,21 +194,21 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
     const t = buildEngineTypes({ IDL, Action, State });
 
     return IDL.Service({
-      status: IDL.Func([IDL.Text], [t.Status], ["query"]),
       get_leaderboard: IDL.Func([], [IDL.Vec(t.LeaderboardEntry)], ["query"]),
       register_bot: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [], []),
       unregister_bot: IDL.Func([], [], []),
       list_bots: IDL.Func([], [IDL.Vec(t.BotInfo)], ["query"]),
-      duel_create_table: IDL.Func([IDL.Text, t.Seat, t.Visibility, IDL.Text], [t.Ack], []),
-      duel_join_table: IDL.Func([IDL.Text, t.TableId, t.Seat, IDL.Opt(IDL.Text)], [t.Ack], []),
-      duel_rematch: IDL.Func([IDL.Text], [t.Ack], []),
-      duel_leave: IDL.Func([IDL.Text, IDL.Nat], [t.Ack], []),
-      duel_reset: IDL.Func([IDL.Text, IDL.Nat], [t.Ack], []),
-      duel_claim_win: IDL.Func([IDL.Text, IDL.Nat], [t.Ack], []),
-      duel_ack_ended: IDL.Func([IDL.Text], [t.Ack], []),
-      duel_ping: IDL.Func([IDL.Text], [t.Ack], []),
-      duel_submit: IDL.Func([IDL.Text, IDL.Nat, IDL.Nat, Action], [t.TransportReply], []),
-      duel_poll: IDL.Func([IDL.Text, IDL.Nat], [t.PollResult], ["query"]),
+      duel_create_table: IDL.Func([t.Seat, t.Visibility, IDL.Text], [t.Ack], []),
+      duel_join_table: IDL.Func([t.TableId, t.Seat, IDL.Opt(IDL.Text)], [t.Ack], []),
+      duel_rematch: IDL.Func([t.TableId], [t.Ack], []),
+      duel_leave: IDL.Func([t.TableId, IDL.Nat], [t.Ack], []),
+      duel_reset: IDL.Func([t.TableId, IDL.Nat], [t.Ack], []),
+      duel_claim_win: IDL.Func([t.TableId, IDL.Nat], [t.Ack], []),
+      duel_ack_ended: IDL.Func([t.TableId], [t.Ack], []),
+      duel_keep_alive: IDL.Func([], [t.KeepAliveResult], []),
+      duel_submit: IDL.Func([t.TableId, IDL.Nat, IDL.Nat, Action], [t.TransportReply], []),
+      duel_lobby: IDL.Func([IDL.Nat], [t.LobbyResult], ["query"]),
+      duel_table: IDL.Func([t.TableId, IDL.Nat], [t.TableResult], ["query"]),
     });
   };
 }

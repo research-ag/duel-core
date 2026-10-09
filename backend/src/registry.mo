@@ -1,5 +1,6 @@
 import Array "mo:core/Array";
 import Int "mo:core/Int";
+import List "mo:core/List";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
 import Option "mo:core/Option";
@@ -11,13 +12,17 @@ import Tracker "mo:promtracker/Tracker";
 import Table "./table";
 import T "./types";
 
-/// Many independent `Table`s behind one `Registry`. Every function here
-/// resolves which table a call is about (by id for `createTable`/
-/// `joinTable`, by the caller's current table otherwise) and delegates to
-/// `Table`; no game logic is reimplemented.
+/// Many independent `Table`s behind one `Registry`. Every operation names
+/// its table by id (except `createTable`, which makes one) and delegates
+/// to `Table`; no game logic is reimplemented. A player may be at up to
+/// `MAX_TABLES_PER_PLAYER` tables at once; which ones is read off the
+/// tables themselves (`tablesOf`), never stored separately.
 module {
 
   public type Registry<S, M> = T.Registry<S, M>;
+
+  /// Caps how many tables one player holds, so nobody hogs the lobby.
+  public let MAX_TABLES_PER_PLAYER : Nat = 3;
 
   /// Starts at 90s idle / 60s claim; a host overrides them with
   /// `setTimeouts` on the next line.
@@ -25,7 +30,6 @@ module {
     var idleTimeoutNs = 90_000_000_000;
     var claimTimeoutNs = 60_000_000_000;
     var tables = Map.empty<T.TableId, T.Table<S, M>>();
-    var bySession = Map.empty<T.SessionId, T.TableId>();
     var tableIdNonce = 1;
     var gamesStarted = null;
     var activeGames = null;
@@ -116,8 +120,8 @@ module {
   func openness<S, M>(t : T.Table<S, M>, now : Int) : ?{
     p1Open : Bool;
     p2Open : Bool;
-    p1Session : ?T.SessionId;
-    p2Session : ?T.SessionId;
+    p1Session : ?T.PlayerId;
+    p2Session : ?T.PlayerId;
     since : Int;
   } {
     switch (t.phase) {
@@ -185,50 +189,47 @@ module {
     };
   };
 
-  func alreadyAtATable<S, M>(reg : Registry<S, M>, session : T.SessionId) : Bool = reg.bySession.get(session).isSome();
-
-  /// Drops a `bySession` mapping whose table no longer considers the
-  /// session seated (a phase that moved on without `leave`/`reset`/
-  /// `ackEnded`), so `alreadyAtATable` can't refuse them forever.
-  func releaseIfStale<S, M>(reg : Registry<S, M>, session : T.SessionId) {
-    switch (reg.bySession.get(session)) {
-      case null {};
-      case (?id) switch (reg.tables.get(id)) {
-        case null reg.bySession.remove(session);
-        case (?t) {
-          if (not t.isStillSeated(session)) {
-            reg.bySession.remove(session);
-            gcIfQuiesced(reg, id, t);
-          };
-        };
-      };
+  /// Whether `player` has business at `t`: seated, holding an unacked
+  /// `#endedByOther` notice (in any phase — an idle takeover re-stages
+  /// the table under them), or named by a rematch reservation.
+  public func isMine<S, M>(t : T.Table<S, M>, player : T.PlayerId) : Bool {
+    if (t.isStillSeated(player) or t.unackedEnded(player)) return true;
+    switch (t.phase) {
+      case (#staging st) st.reservedFor == ?player;
+      case (_) false;
     };
   };
 
-  func withTable<S, M, T>(
+  /// Every table `player` has business at, by id.
+  public func tablesOf<S, M>(self : Registry<S, M>, player : T.PlayerId) : [T.TableId] {
+    let mine = List.empty<T.TableId>();
+    for ((id, t) in self.tables.entries()) {
+      if (isMine(t, player)) mine.add(id);
+    };
+    mine.toArray();
+  };
+
+  func atCapacity<S, M>(reg : Registry<S, M>, player : T.PlayerId) : ?T.Err {
+    if (tablesOf(reg, player).size() >= MAX_TABLES_PER_PLAYER) {
+      ?#tooManyTables { max = MAX_TABLES_PER_PLAYER };
+    } else null;
+  };
+
+  func withTable<S, M, R>(
     reg : Registry<S, M>,
-    session : T.SessionId,
-    op : (T.Table<S, M>) -> T.Res<T>,
-  ) : T.Res<T> {
-    switch (reg.bySession.get(session)) {
-      case null #err(#notSeated);
-      case (?id) switch (reg.tables.get(id)) {
-        case null #err(#notSeated);
-        case (?t) op(t);
-      };
+    id : T.TableId,
+    op : (T.Table<S, M>) -> T.Res<R>,
+  ) : T.Res<R> {
+    switch (reg.tables.get(id)) {
+      case null #err(#noSuchTable);
+      case (?t) op(t);
     };
   };
 
-  func returnToLobby<S, M>(reg : Registry<S, M>, session : T.SessionId) {
-    switch (reg.bySession.get(session)) {
+  func gcById<S, M>(reg : Registry<S, M>, id : T.TableId) {
+    switch (reg.tables.get(id)) {
+      case (?t) gcIfQuiesced(reg, id, t);
       case null {};
-      case (?id) {
-        reg.bySession.remove(session);
-        switch (reg.tables.get(id)) {
-          case (?t) gcIfQuiesced(reg, id, t);
-          case null {};
-        };
-      };
     };
   };
 
@@ -267,7 +268,7 @@ module {
     self : Registry<S, M>,
     spec : T.Spec<S, M>,
     now : Int,
-    session : T.SessionId,
+    session : T.PlayerId,
     seat : T.Seat,
     visibility : T.TableVisibility,
     variant : Text,
@@ -276,10 +277,7 @@ module {
       case (#code c) { if (c.size() == 0) return #err(#badCode) };
       case (#open) {};
     };
-    releaseIfStale(self, session);
-    if (alreadyAtATable(self, session)) {
-      return #err(#wrongPhase("you are already at another table"));
-    };
+    switch (atCapacity(self, session)) { case (?e) return #err e; case null {} };
     let id = self.tableIdNonce;
     let t = Table.new<S, M>(self.idleTimeoutNs, self.claimTimeoutNs, visibility, session, variant);
     switch (t.join(spec, now, session, seat)) {
@@ -287,7 +285,6 @@ module {
       case (#ok _) {
         self.tableIdNonce += 1;
         self.tables.add(id, t);
-        self.bySession.add(session, id);
         #ok(id);
       };
     };
@@ -300,10 +297,10 @@ module {
     self : Registry<S, M>,
     spec : T.Spec<S, M>,
     now : Int,
-    session : T.SessionId,
+    session : T.PlayerId,
     seat : T.Seat,
     visibility : T.TableVisibility,
-    reservedFor : T.SessionId,
+    reservedFor : T.PlayerId,
     variant : Text,
   ) : T.Res<T.TableId> {
     switch (visibility) {
@@ -313,14 +310,8 @@ module {
     if (reservedFor == session) {
       return #err(#wrongPhase("cannot reserve yourself for the other seat"));
     };
-    releaseIfStale(self, session);
-    if (alreadyAtATable(self, session)) {
-      return #err(#wrongPhase("you are already at another table"));
-    };
-    releaseIfStale(self, reservedFor);
-    if (alreadyAtATable(self, reservedFor)) {
-      return #err(#wrongPhase("the other seat's own session is already at another table"));
-    };
+    switch (atCapacity(self, session)) { case (?e) return #err e; case null {} };
+    switch (atCapacity(self, reservedFor)) { case (?e) return #err e; case null {} };
     let id = self.tableIdNonce;
     let t = Table.new<S, M>(self.idleTimeoutNs, self.claimTimeoutNs, visibility, session, variant);
     t.stage(now, session, seat, ?reservedFor);
@@ -331,8 +322,6 @@ module {
     };
     self.tableIdNonce += 1;
     self.tables.add(id, t);
-    self.bySession.add(session, id);
-    self.bySession.add(reservedFor, id);
     bumpGamesStarted(self);
     recordMatchmakingWait(self, now, ?now);
     recordActiveGames(self);
@@ -343,15 +332,11 @@ module {
     self : Registry<S, M>,
     spec : T.Spec<S, M>,
     now : Int,
-    session : T.SessionId,
+    session : T.PlayerId,
     id : T.TableId,
     seat : T.Seat,
     code : ?Text,
   ) : T.Res<T.JoinOk> {
-    releaseIfStale(self, session);
-    if (alreadyAtATable(self, session)) {
-      return #err(#wrongPhase("you are already at another table"));
-    };
     let t = switch (self.tables.get(id)) {
       case (?t) switch (t.visibility) {
         case (#code c) { if (code != ?c) return #err(#badCode) else { t } };
@@ -359,11 +344,13 @@ module {
       };
       case null return #err(#noSuchTable);
     };
+    if (not isMine(t, session)) {
+      switch (atCapacity(self, session)) { case (?e) return #err e; case null {} };
+    };
     let waitSince = stagingSince(t);
     switch (t.join(spec, now, session, seat)) {
       case (#err e) #err(e);
       case (#ok j) {
-        self.bySession.add(session, id);
         switch (j) {
           case (#started _) {
             bumpGamesStarted(self);
@@ -381,13 +368,14 @@ module {
     self : Registry<S, M>,
     spec : T.Spec<S, M>,
     now : Int,
-    session : T.SessionId,
+    session : T.PlayerId,
+    id : T.TableId,
     gen : Nat,
     turn : Nat,
     move : M,
   ) : T.Res<T.SubmitOk> = withTable<S, M, T.SubmitOk>(
     self,
-    session,
+    id,
     func(t) {
       let r = t.submit(spec, now, session, gen, turn, move);
       switch (r) {
@@ -401,9 +389,9 @@ module {
     },
   );
 
-  public func rematch<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.Res<T.RematchOk> = withTable<S, M, T.RematchOk>(
+  public func rematch<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.PlayerId, id : T.TableId) : T.Res<T.RematchOk> = withTable<S, M, T.RematchOk>(
     self,
-    session,
+    id,
     func(t) {
       let waitSince = stagingSince(t);
       let r = t.rematch(spec, now, session);
@@ -419,9 +407,9 @@ module {
     },
   );
 
-  public func claimWin<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(
+  public func claimWin<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.PlayerId, id : T.TableId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(
     self,
-    session,
+    id,
     func(t) {
       let r = t.claimWin(spec, now, session, gen);
       switch (r) {
@@ -435,17 +423,17 @@ module {
     },
   );
 
-  /// An abort (leaving a live game) keeps the leaver mapped to the table
-  /// so they still see the shared `#aborted` debrief; only a staging
-  /// walkout or a debrief ack returns them to browsing.
+  /// An abort (leaving a live game) keeps the leaver at the table so they
+  /// still see the shared `#aborted` debrief; only a staging walkout or a
+  /// debrief ack lets the table go.
   func isAbort<S, M>(t : T.Table<S, M>) : Bool = switch (t.phase) {
     case (#active _) true;
     case (_) false;
   };
 
-  public func leave<S, M>(self : Registry<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(
+  public func leave<S, M>(self : Registry<S, M>, now : Int, session : T.PlayerId, id : T.TableId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(
     self,
-    session,
+    id,
     func(t) {
       let abort = isAbort(t);
       let r = t.leave(now, session, gen);
@@ -455,7 +443,7 @@ module {
             recordActiveGames(self);
             recordRoundsPerGame(self, t);
           } else {
-            returnToLobby(self, session);
+            gcById(self, id);
           };
         };
         case (#err _) {};
@@ -464,9 +452,9 @@ module {
     },
   );
 
-  public func reset<S, M>(self : Registry<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(
+  public func reset<S, M>(self : Registry<S, M>, now : Int, session : T.PlayerId, id : T.TableId, gen : Nat) : T.Res<()> = withTable<S, M, ()>(
     self,
-    session,
+    id,
     func(t) {
       let abort = isAbort(t);
       let r = t.reset(now, session, gen);
@@ -476,7 +464,7 @@ module {
             recordActiveGames(self);
             recordRoundsPerGame(self, t);
           } else {
-            returnToLobby(self, session);
+            gcById(self, id);
           };
         };
         case (#err _) {};
@@ -486,31 +474,28 @@ module {
   );
 
   /// Acking an `#endedByOther` notice is the "return to lobby" action.
-  public func ackEnded<S, M>(self : Registry<S, M>, session : T.SessionId) {
-    switch (self.bySession.get(session)) {
-      case null {};
-      case (?id) switch (self.tables.get(id)) {
-        case (?t) t.ackEnded(session);
-        case null {};
+  public func ackEnded<S, M>(self : Registry<S, M>, session : T.PlayerId, id : T.TableId) {
+    switch (self.tables.get(id)) {
+      case (?t) {
+        t.ackEnded(session);
+        gcIfQuiesced(self, id, t);
       };
+      case null {};
     };
-    returnToLobby(self, session);
   };
 
-  public func status<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.SessionStatus<S> {
-    switch (self.bySession.get(session)) {
-      case (?id) switch (self.tables.get(id)) {
-        case (?t) #atTable({ id; view = t.status(spec, now, session) });
-        case null #browsing({ tables = listTables(self, now) });
-      };
-      case null #browsing({ tables = listTables(self, now) });
+  /// `player`'s view of table `id`.
+  public func view<S, M>(self : Registry<S, M>, spec : T.Spec<S, M>, now : Int, player : T.PlayerId, id : T.TableId) : ?T.View<S> {
+    switch (self.tables.get(id)) {
+      case (?t) ?t.status(spec, now, player);
+      case null null;
     };
   };
 
   /// Snapshots the table list first: GC mutates `tables` in place.
   /// `isPresent` keeps a waiting occupant's staging alive; see
   /// `Table.sweep`.
-  public func sweep<S, M>(self : Registry<S, M>, now : Int, isPresent : T.SessionId -> Bool) {
+  public func sweep<S, M>(self : Registry<S, M>, now : Int, isPresent : T.PlayerId -> Bool) {
     for ((id, t) in self.tables.toArray().values()) {
       t.sweep(now, isPresent);
       gcIfQuiesced(self, id, t);

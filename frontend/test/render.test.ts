@@ -72,7 +72,7 @@ test("errText: fixed-text variants", () => {
   assert.equal(errText({ notSeated: null }), "You are not seated in this game.");
   assert.equal(errText({ alreadySubmitted: null }), "You have already moved this round.");
   assert.equal(errText({ notYourTurn: null }), "It's not your turn.");
-  assert.equal(errText({ unauthorized: null }), "This session belongs to a different signed-in identity.");
+  assert.equal(errText({ unauthorized: null }), "An anonymous identity can't play — reload the page.");
 });
 
 test("errText: variants carrying their own message", () => {

@@ -7,7 +7,7 @@ module {
 
   public type TableVisibility = { #open; #code : Text };
 
-  public type SessionId = Text;
+  public type PlayerId = Text;
 
   public type Seat = { #p1; #p2 };
 
@@ -28,8 +28,6 @@ module {
     var idleTimeoutNs : Int;
     var claimTimeoutNs : Int;
     var tables : Map.Map<TableId, Table<S, M>>;
-    /// A session's current table; absent = browsing.
-    var bySession : Map.Map<SessionId, TableId>;
     var tableIdNonce : TableId;
     var gamesStarted : ?PT.Counter;
     var activeGames : ?PT.Gauge;
@@ -42,8 +40,8 @@ module {
     p1Open : Bool;
     p2Open : Bool;
     /// Occupant of a NOT-open seat, if there is someone to name.
-    p1Session : ?SessionId;
-    p2Session : ?SessionId;
+    p1Session : ?PlayerId;
+    p2Session : ?PlayerId;
     /// Needs an access code — never the code itself.
     protected : Bool;
     waitingSecs : Nat;
@@ -51,15 +49,10 @@ module {
     variant : Text;
   };
 
-  public type SessionStatus<S> = {
-    #browsing : { tables : [TableSummary] };
-    #atTable : { id : TableId; view : View<S> };
-  };
-
   /// What a canister-seated player is asked with. `gen` also identifies
   /// the match (bumps on every stage, rematch included). `retryReason`
   /// is `validate`'s text on the one retry after an illegal reply.
-  /// `opponent` is the raw opposing `SessionId` (stable across tables for
+  /// `opponent` is the raw opposing `PlayerId` (stable across tables for
   /// a human, per-table for a `cp:` canister). `opponentLastMove` and
   /// `lastRoundDurationNs` describe the last RESOLVED round and are
   /// `null` when `turn == 0`. `complexity` is the way of playing this
@@ -73,7 +66,7 @@ module {
     gen : Nat;
     complexity : Text;
     retryReason : ?Text;
-    opponent : SessionId;
+    opponent : PlayerId;
     opponentLastMove : ?M;
     lastRoundDurationNs : ?Int;
   };
@@ -98,14 +91,14 @@ module {
 
   public type Staging = {
     seat : Seat;
-    session : SessionId;
-    reservedFor : ?SessionId; // rematch: open seat held for this partner
+    session : PlayerId;
+    reservedFor : ?PlayerId; // rematch: open seat held for this partner
     since : Int;
   };
 
   public type Active<S, M> = {
-    p1 : SessionId;
-    p2 : SessionId;
+    p1 : PlayerId;
+    p2 : PlayerId;
     game : S;
     pending1 : ?M; // hidden from the opponent; `status` exposes Booleans only
     pending2 : ?M;
@@ -127,8 +120,8 @@ module {
   };
 
   public type Debrief<S> = {
-    p1 : SessionId;
-    p2 : SessionId;
+    p1 : PlayerId;
+    p2 : PlayerId;
     end : End;
     turns : Nat;
     finalGame : S;
@@ -145,9 +138,9 @@ module {
   /// A game that vanished without both players seeing a debrief; drives
   /// `#endedByOther` until acked or pruned.
   public type Ended = {
-    p1 : SessionId;
-    p2 : SessionId;
-    acked : [SessionId];
+    p1 : PlayerId;
+    p2 : PlayerId;
+    acked : [PlayerId];
     since : Int;
   };
 
@@ -155,7 +148,7 @@ module {
     var idleTimeoutNs : Int;
     var claimTimeoutNs : Int;
     visibility : TableVisibility;
-    createdBy : SessionId;
+    createdBy : PlayerId;
     /// Immutable for the table's lifetime; handed to `Spec.init`.
     variant : Text;
 
@@ -164,7 +157,10 @@ module {
     /// `submit`/`leave`/`reset`/`claimWin` so a stale replay is `#stale`.
     var gen : Nat;
     var lastEnded : [Ended];
-    var debriefAcked : [SessionId];
+    var debriefAcked : [PlayerId];
+    /// Bumped on every change to the table (by `transport.mo`); a client
+    /// polling with the `rev` it holds gets `#unchanged` until it moves.
+    var rev : Nat;
   };
 
   public type Err = {
@@ -180,7 +176,8 @@ module {
     #stale; // `gen`/`turn` no longer current — refetch `status`
     #noSuchTable;
     #badCode; // wrong/missing code, or `createTable` with `#code("")`
-    #unauthorized; // `transport.mo`: sid not bound to the caller's principal
+    #unauthorized; // the anonymous principal
+    #tooManyTables : { max : Nat }; // already at `max` tables
   };
 
   public type Res<T> = { #ok : T; #err : Err };

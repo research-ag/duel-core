@@ -127,17 +127,26 @@ let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
 
+// The player's first table and their view of it, or `#browsing`.
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.PlayerId) : { #atTable : { id : TP.TableId; view : TP.View<Rules.State> }; #browsing } {
+  let ids = reg.tablesOf(p);
+  if (ids.size() == 0) return #browsing;
+  switch (reg.view(spec, at, p, ids[0])) {
+    case (?v) #atTable { id = ids[0]; view = v };
+    case null #browsing;
+  };
+};
+
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
   case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
 };
 
-func atTableView(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, session : Text) : TP.View<Rules.State> = switch (reg.status(spec, at, session)) {
+func atTableView(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, session : Text) : TP.View<Rules.State> = switch (statusOf(reg, at, session)) {
   case (#atTable v) v.view;
   case (#browsing _) Runtime.trap("expected " # session # " to be at a table");
 };
 
-func noopAfterMutation(_now : Int, _sid : TP.SessionId, _id : ?TP.TableId, _broadcast : Bool) : async* () {};
 
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
@@ -145,26 +154,32 @@ let bot2 = Principal.fromText("2vxsx-fae");
 let reg = Registry.new<Rules.State, Rules.Action>();
 
 reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
-let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
-  spec,
-  reg,
-  noopAfterMutation,
-  false,
-  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
-    switch (req.seat) {
-      case (#p1) assert req.complexity == "Bear";
-      case (#p2) assert req.complexity == CanisterPlayers.DEFAULT_COMPLEXITY;
-    };
-    assert req.game.variant == #instructables;
-    await* k(?BotLogic.chooseMove(req));
-  },
-  func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
-);
+// The bots without the transport: every mutation settles the table
+// right away, and no timers (the interpreter has none).
+func settleAfter<system>(now : Int, id : TP.TableId, _ : Bool) : async* () {
+  await* CanisterPlayers.settle<system, Rules.State, Rules.Action>(ctx, now, id);
+};
+let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action> = {
+  registry = reg;
+  spec;
+  store = CanisterPlayers.newStore();
+  call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+      switch (req.seat) {
+        case (#p1) assert req.complexity == "Bear";
+        case (#p2) assert req.complexity == CanisterPlayers.DEFAULT_COMPLEXITY;
+      };
+      assert req.game.variant == #instructables;
+      await* k<system>(?BotLogic.chooseMove(req));
+  };
+  afterMutation = func<system>(now : Int, id : TP.TableId, b : Bool) : async* () { await* settleAfter<system>(now, id, b) };
+  arm = func<system>(_ : TP.TableId, _ : Nat) {};
+};
+let cp = CanisterPlayers.endpointOf(ctx);
 
-let id = ok(await* cp.createTable(bot1, #p1, #open, "instructables", "Bear"), "bot1 creates an instructables table, playing Bear");
-let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "Bear");
-let sidBot2 = CanisterPlayers.sidForCanister(bot2, id, "");
-ignore ok(await* cp.joinTable(bot2, id, #p2, null, ""), "bot2 joins; game starts");
+let id = ok(await* cp.createTable<system>(bot1, #p1, #open, "instructables", "Bear"), "bot1 creates an instructables table, playing Bear");
+let sidBot1 = CanisterPlayers.idForCanister(bot1, "Bear");
+let sidBot2 = CanisterPlayers.idForCanister(bot2, "");
+ignore ok(await* cp.joinTable<system>(bot2, id, #p2, null, ""), "bot2 joins; game starts");
 switch (atTableView(reg, T0, sidBot1)) {
   case (#inGame v) assert v.turn > 0; // #p1's own opening move already resolved
   case (_) Runtime.trap("bot1 should be in-game, at least one ply in");
@@ -177,8 +192,8 @@ var lastTurn = switch (atTableView(reg, T0, sidBot1)) {
 };
 var stalled = false;
 while (round < 12) {
-  await* cp.sweep(T0);
-  switch (reg.status(spec, T0, sidBot1)) {
+  await* CanisterPlayers.sweep<system, Rules.State, Rules.Action>(ctx, T0);
+  switch (statusOf(reg, T0, sidBot1)) {
     case (#atTable { view = #inGame v }) {
       if (v.turn == lastTurn) stalled := true;
       lastTurn := v.turn;
@@ -188,7 +203,7 @@ while (round < 12) {
   round += 1;
 };
 assert not stalled;
-switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
+switch (statusOf(reg, T0, sidBot1), statusOf(reg, T0, sidBot2)) {
   case (#atTable { view = #inGame v1 }, #atTable { view = #inGame v2 }) {
     assert v1.turn == v2.turn;
     assert v1.turn > 0;
@@ -197,7 +212,7 @@ switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
     // Bear has very plausibly already won by now — a real #debrief, or
     // (an all-canister debrief acking both sides immediately) already
     // settled back to #browsing within the same sweep call that ended it.
-    switch (reg.status(spec, T0, sidBot1)) {
+    switch (statusOf(reg, T0, sidBot1)) {
       case (#atTable { view = #debrief _ }) {};
       case (#browsing _) {};
       case (other) Runtime.trap("expected in-game, a real debrief, or an already-settled browsing state, got " # debug_show (other));

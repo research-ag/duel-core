@@ -73,7 +73,9 @@ export function errText(e: EngineErr): string {
     case "badCode":
       return "Wrong (or missing) access code for that table.";
     case "unauthorized":
-      return "This session belongs to a different signed-in identity.";
+      return "An anonymous identity can't play — reload the page.";
+    case "tooManyTables":
+      return `You are already at ${(v as { max: bigint }).max} tables — leave one first.`;
     default:
       return t;
   }

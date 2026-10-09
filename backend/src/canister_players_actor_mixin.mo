@@ -1,18 +1,24 @@
 /// The six `*_as_canister` Candid methods plus bot discovery
 /// (`register_bot`/`unregister_bot`/`list_bots`) for a host that wires
 /// `mo:duel-game-core/canister_players`. Every method derives the
-/// caller's own `cp:` session from `caller` and forwards; no game logic
-/// here. There is deliberately no `submit_as_canister` (a move only ever
+/// caller's own `cp:` player id from `caller` and forwards; no game logic
+/// here. `endpoint` is `Duel.canisterPlayers` (a `Duel` built with bots). There is deliberately no `submit_as_canister` (a move only ever
 /// arrives as the reply to `make_move`) and no `rematch_as_canister`.
 /// `leaderboard` may be `null`, in which case every `elo` is `null`.
 import Principal "mo:core/Principal";
+import Runtime "mo:core/Runtime";
 import Time "mo:core/Time";
 
 import CanisterPlayers "./canister_players";
 import Leaderboard "./leaderboard";
 import T "./types";
 
-mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDirectory, leaderboard : ?Leaderboard.Board) {
+mixin (endpoint : ?CanisterPlayers.Endpoint, directory : CanisterPlayers.BotDirectory, leaderboard : ?Leaderboard.Board) {
+
+  transient let cp : CanisterPlayers.Endpoint = switch (endpoint) {
+    case (?e) e;
+    case null Runtime.trap("CanisterPlayersActorMixin needs a Duel built with bots");
+  };
 
   public shared ({ caller }) func create_table_as_canister(
     seat : T.Seat,
@@ -20,7 +26,7 @@ mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDir
     variant : Text,
     complexity : Text,
   ) : async T.Res<T.TableId> {
-    await* cpAttached.createTable(caller, seat, visibility, variant, complexity);
+    await* cp.createTable<system>(caller, seat, visibility, variant, complexity);
   };
 
   public shared ({ caller }) func join_table_as_canister(
@@ -29,23 +35,23 @@ mixin (cpAttached : CanisterPlayers.Attached, directory : CanisterPlayers.BotDir
     code : ?Text,
     complexity : Text,
   ) : async T.Res<T.JoinOk> {
-    await* cpAttached.joinTable(caller, id, seat, code, complexity);
+    await* cp.joinTable<system>(caller, id, seat, code, complexity);
   };
 
   public shared ({ caller }) func leave_as_canister(tableId : T.TableId, gen : Nat) : async T.Res<()> {
-    await* cpAttached.leave(caller, tableId, gen);
+    await* cp.leave<system>(caller, tableId, gen);
   };
 
   public shared ({ caller }) func ack_ended_as_canister(tableId : T.TableId) : async () {
-    await* cpAttached.ackEnded(caller, tableId);
+    await* cp.ackEnded<system>(caller, tableId);
   };
 
   public shared ({ caller }) func claim_win_as_canister(tableId : T.TableId, gen : Nat) : async T.Res<()> {
-    await* cpAttached.claimWin(caller, tableId, gen);
+    await* cp.claimWin<system>(caller, tableId, gen);
   };
 
   public shared ({ caller }) func reset_as_canister(tableId : T.TableId, gen : Nat) : async T.Res<()> {
-    await* cpAttached.reset(caller, tableId, gen);
+    await* cp.reset<system>(caller, tableId, gen);
   };
 
   /// Idempotent upsert keyed by `caller`. `complexities` is the bot's own

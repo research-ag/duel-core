@@ -90,6 +90,16 @@ let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
 
+// The player's first table and their view of it, or `#browsing`.
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.PlayerId) : { #atTable : { id : TP.TableId; view : TP.View<Rules.State> }; #browsing } {
+  let ids = reg.tablesOf(p);
+  if (ids.size() == 0) return #browsing;
+  switch (reg.view(spec, at, p, ids[0])) {
+    case (?v) #atTable { id = ids[0]; view = v };
+    case null #browsing;
+  };
+};
+
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
   case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
@@ -101,24 +111,30 @@ let bot2 = Principal.fromText("2vxsx-fae");
 let reg = Registry.new<Rules.State, Rules.Action>();
 
 reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
-let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
-  spec,
-  reg,
-  func(_now : Int, _sid : TP.SessionId, _id : ?TP.TableId, _broadcast : Bool) : async* () {},
-  false,
-  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
-    await* k(?BotLogic.chooseMove(req));
-  },
-  func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
-);
+// The bots without the transport: every mutation settles the table
+// right away, and no timers (the interpreter has none).
+func settleAfter<system>(now : Int, id : TP.TableId, _ : Bool) : async* () {
+  await* CanisterPlayers.settle<system, Rules.State, Rules.Action>(ctx, now, id);
+};
+let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action> = {
+  registry = reg;
+  spec;
+  store = CanisterPlayers.newStore();
+  call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+      await* k<system>(?BotLogic.chooseMove(req));
+  };
+  afterMutation = func<system>(now : Int, id : TP.TableId, b : Bool) : async* () { await* settleAfter<system>(now, id, b) };
+  arm = func<system>(_ : TP.TableId, _ : Nat) {};
+};
+let cp = CanisterPlayers.endpointOf(ctx);
 
-let id = ok(await* cp.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
-let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "");
-let sidBot2 = CanisterPlayers.sidForCanister(bot2, id, "");
+let id = ok(await* cp.createTable<system>(bot1, #p1, #open, "", ""), "bot1 creates a table");
+let sidBot1 = CanisterPlayers.idForCanister(bot1, "");
+let sidBot2 = CanisterPlayers.idForCanister(bot2, "");
 // bot2's own joinTable eagerly triggers the opening plies with no sweep
 // at all — proving #p1 moves first when canister-seated at game start.
-ignore ok(await* cp.joinTable(bot2, id, #p2, null, ""), "bot2 joins; game starts");
-switch (reg.status(spec, T0, sidBot1)) {
+ignore ok(await* cp.joinTable<system>(bot2, id, #p2, null, ""), "bot2 joins; game starts");
+switch (statusOf(reg, T0, sidBot1)) {
   case (#atTable { view = #inGame v }) assert v.turn > 0; // #p1's own opening move already resolved
   case (other) Runtime.trap("bot1 should be in-game, at least one ply in, got " # debug_show (other));
 };
@@ -126,14 +142,14 @@ switch (reg.status(spec, T0, sidBot1)) {
 // A large-enough sweep budget for a board that can run up to 81 plies in the
 // worst case
 var round = 0;
-var lastTurn = switch (reg.status(spec, T0, sidBot1)) {
+var lastTurn = switch (statusOf(reg, T0, sidBot1)) {
   case (#atTable { view = #inGame v }) v.turn;
   case (_) 0;
 };
 var stalled = false;
 while (round < 45) {
-  await* cp.sweep(T0);
-  switch (reg.status(spec, T0, sidBot1)) {
+  await* CanisterPlayers.sweep<system, Rules.State, Rules.Action>(ctx, T0);
+  switch (statusOf(reg, T0, sidBot1)) {
     case (#atTable { view = #inGame v }) {
       if (v.turn == lastTurn) stalled := true;
       lastTurn := v.turn;
@@ -143,7 +159,7 @@ while (round < 45) {
   round += 1;
 };
 assert not stalled;
-switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
+switch (statusOf(reg, T0, sidBot1), statusOf(reg, T0, sidBot2)) {
   case (#atTable { view = #inGame v1 }, #atTable { view = #inGame v2 }) {
     assert v1.turn == v2.turn;
     assert v1.turn > 0;
@@ -151,7 +167,7 @@ switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
   case (_, _) {
     // Either a real #debrief, or (an all-canister debrief acks both sides
     // immediately
-    switch (reg.status(spec, T0, sidBot1)) {
+    switch (statusOf(reg, T0, sidBot1)) {
       case (#atTable { view = #debrief _ }) {};
       case (#browsing _) {};
       case (other) Runtime.trap("expected in-game, a real debrief, or an already-settled browsing state, got " # debug_show (other));

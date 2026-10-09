@@ -54,12 +54,21 @@ Debug.print("1. BotLogic.chooseMove always picks a legal move and reaches every 
 // ── 2/3. wired live through canister_players.mo, two canister seats play a
 //      full real #simultaneous match to a decisive finish ───────────────────
 
+// The player's first table and their view of it, or `#browsing`.
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.PlayerId) : { #atTable : { id : TP.TableId; view : TP.View<Rules.State> }; #browsing } {
+  let ids = reg.tablesOf(p);
+  if (ids.size() == 0) return #browsing;
+  switch (reg.view(spec, at, p, ids[0])) {
+    case (?v) #atTable { id = ids[0]; view = v };
+    case null #browsing;
+  };
+};
+
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
   case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
 };
 
-func noopAfterMutation(_now : Int, _sid : TP.SessionId, _id : ?TP.TableId, _broadcast : Bool) : async* () {};
 
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
@@ -69,30 +78,36 @@ var entropy : Int = T0;
 func playFullMatch(variant : Text) : async* () {
   let reg = Registry.new<Rules.State, Rules.Action>();
   reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
-  let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
-    spec,
-    reg,
-    noopAfterMutation,
-    false,
-    func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
-      entropy += 1_000_003;
-      await* k(?BotLogic.chooseMove(req, entropy));
-    },
-    func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
-  );
+  // The bots without the transport: every mutation settles the table
+  // right away, and no timers (the interpreter has none).
+  func settleAfter<system>(now : Int, id : TP.TableId, _ : Bool) : async* () {
+    await* CanisterPlayers.settle<system, Rules.State, Rules.Action>(ctx, now, id);
+  };
+  let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action> = {
+    registry = reg;
+    spec;
+    store = CanisterPlayers.newStore();
+    call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+        entropy += 1_000_003;
+        await* k<system>(?BotLogic.chooseMove(req, entropy));
+    };
+    afterMutation = func<system>(now : Int, id : TP.TableId, b : Bool) : async* () { await* settleAfter<system>(now, id, b) };
+    arm = func<system>(_ : TP.TableId, _ : Nat) {};
+  };
+  let cp = CanisterPlayers.endpointOf(ctx);
 
-  let id = ok(await* cp.createTable(bot1, #p1, #open, variant, ""), "bot1 creates a table");
-  let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "");
+  let id = ok(await* cp.createTable<system>(bot1, #p1, #open, variant, ""), "bot1 creates a table");
+  let sidBot1 = CanisterPlayers.idForCanister(bot1, "");
   // bot2's own joinTable eagerly triggers both seats' opening picks with no
   // sweep call needed at all
-  ignore ok(await* cp.joinTable(bot2, id, #p2, null, ""), "bot2 joins; game starts");
+  ignore ok(await* cp.joinTable<system>(bot2, id, #p2, null, ""), "bot2 joins; game starts");
 
   // Whatever didn't already cascade to conclusion above gets driven the rest
   // of the way here
   var round = 0;
   var stalled = true;
   label loop_ while (round < 12) {
-    switch (reg.status(spec, T0, sidBot1)) {
+    switch (statusOf(reg, T0, sidBot1)) {
       case (#atTable { view = #inGame _ }) {};
       case (#atTable { view = #debrief d }) {
         switch (d.end) {
@@ -109,7 +124,7 @@ func playFullMatch(variant : Text) : async* () {
       };
       case (other) Runtime.trap("unexpected state for bot1: " # debug_show (other));
     };
-    await* cp.sweep(T0);
+    await* CanisterPlayers.sweep<system, Rules.State, Rules.Action>(ctx, T0);
     round += 1;
   };
   assert not stalled; // two rule-following bots with varying entropy must reach 3 round wins well within 12 rounds

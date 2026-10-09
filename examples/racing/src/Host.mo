@@ -1,15 +1,13 @@
 import Float "mo:core/Float";
 import Int "mo:core/Int";
 import Principal "mo:core/Principal";
-import Time "mo:core/Time";
-import Timer "mo:core/Timer";
 
 import TP "mo:duel-game-core";
+import Registry "mo:duel-game-core/registry";
 import Transport "mo:duel-game-core/transport";
 import TransportActorMixin "mo:duel-game-core/transport_actor_mixin";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
-import Registry "mo:duel-game-core/registry";
 import Leaderboard "mo:duel-game-core/leaderboard";
 import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
 import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
@@ -26,18 +24,16 @@ actor {
   renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
-  let registry = Registry.new<Rules.State, Rules.Action>();
-  registry.setTimeouts(300_000_000_000, 45_000_000_000); // 300s idle, 45s claim window
-  registry.attachMetrics(pt);
-
-  public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
-    registry.status(Rules.spec(), Time.now(), sid);
-  };
-
+  // Stable data: the tables, the bots, the best laps.
+  let state = Transport.new<Rules.State, Rules.Action>();
+  state.registry.setTimeouts(300_000_000_000, 45_000_000_000); // 300s idle, 45s claim window
+  state.registry.attachMetrics(pt);
+  let bots = CanisterPlayers.newStore();
   // Best-lap leaderboard: a lower lap time is converted to a higher score
   // before storing (boards sort highest-first). `defaultScore` is inert
   // here. See ../../backend/README.md, "Leaderboard".
   let leaderboard = Leaderboard.new(50, 0);
+
   let ONE_HOUR_MS : Int = 3_600_000;
   func scoreFromLapMs(ms : Int) : Int = Int.max(0, ONE_HOUR_MS - ms);
 
@@ -53,79 +49,37 @@ actor {
     Float.nearest((turns.toFloat() - overshootSteps) * STEP_DURATION_MS.toFloat()).toInt();
   };
 
-  // A `cp:` session is per-table; score a bot per principal + complexity.
-  func playerKey(sid : TP.SessionId) : Text {
-    if (CanisterPlayers.isCanisterSession(sid)) {
-      CanisterPlayers.leaderboardKeyOfSession(sid);
-    } else {
-      Transport.playerKey(sid);
-    };
-  };
-
   // Only a clean `#finished` win records a lap.
-  func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
+  func bestLap(d : TP.Debrief<Rules.State>) : ?(TP.Seat, Int) {
     switch (d.end) {
-      case (#finished(#p1Wins)) {
-        let lapMs = lapMsFor(d.finalGame.p1, d.turns);
-        ignore Leaderboard.recordIfBetter(leaderboard, playerKey(p1), scoreFromLapMs(lapMs), Time.now());
-      };
-      case (#finished(#p2Wins)) {
-        let lapMs = lapMsFor(d.finalGame.p2, d.turns);
-        ignore Leaderboard.recordIfBetter(leaderboard, playerKey(p2), scoreFromLapMs(lapMs), Time.now());
-      };
-      case (_) {};
+      case (#finished(#p1Wins)) ?(#p1, scoreFromLapMs(lapMsFor(d.finalGame.p1, d.turns)));
+      case (#finished(#p2Wins)) ?(#p2, scoreFromLapMs(lapMsFor(d.finalGame.p2, d.turns)));
+      case (_) null;
     };
   };
 
-  // Breaks the cycle between `attached` and `cpAttached`.
-  transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
-  transient let settle = func(now : Int, id : TP.TableId) : async* () {
-    switch (settleTable) {
-      case (?f) await* f(now, id);
-      case null {};
-    };
+  // Asks a seated bot canister for its move.
+  func callBot<system>(bot : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+    let b : BotIface.CanisterPlayer = actor (CanisterPlayers.principalOfCanisterSession(bot).toText());
+    try { await* k<system>(?(await b.make_move(req))) } catch (_) { await* k<system>(null) };
   };
 
-  transient let hub : Transport.Hub = Transport.createHub();
-  transient let attached = Transport.attach<Rules.State, Rules.Action>(
+  // The stable data plus the functions that cannot be stable.
+  transient let duel = Transport.Duel<Rules.State, Rules.Action>(
+    state,
     Rules.spec(),
-    registry,
-    hub,
-    ?settle,
-    ?onGameEnded,
-    null,
+    ?{ store = bots; call = callBot },
+    ?{ board = leaderboard; rating = #best bestLap },
   );
 
-  let botDirectory = CanisterPlayers.newBotDirectory();
+  include TransportActorMixin<system>(duel.lobby);
 
-  transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
-    Rules.spec(),
-    registry,
-    attached.afterMutation,
-    true, // `attached` settles through `onSettled`
-    func(session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
-      let p = CanisterPlayers.principalOfCanisterSession(session);
-      let bot : BotIface.CanisterPlayer = actor (p.toText());
-      try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
-    },
-    func(id : TP.TableId, secs : Nat) : async* () {
-      ignore Timer.setTimer<system>(#seconds secs, func() : async () { await* settle(Time.now(), id) });
-    },
-  );
-  settleTable := ?cpAttached.settle;
-
-  transient let combinedSweep = func(now : Int) : async* () {
-    await* attached.sweep(now);
-    await* cpAttached.sweep(now);
-  };
-  include TransportActorMixin<system>(attached.lobby, combinedSweep);
-
-  public shared ({ caller }) func duel_submit(sid : Text, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
-    attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
+  public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
+    duel.reply(caller, tableId, await* duel.submit<system>(caller, tableId, gen, turn, move));
   };
 
-  public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
-    attached.poll(caller, sid, rev);
+  public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.State> {
+    duel.table(caller, tableId, rev);
   };
 
   include HttpActorMixin([
@@ -134,7 +88,7 @@ actor {
     ("/track", Rules.trackText),
   ]);
 
-  include CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard);
+  include CanisterPlayersActorMixin(duel.canisterPlayers, bots.directory, ?leaderboard);
 
   include LeaderboardActorMixin(leaderboard, 25);
 

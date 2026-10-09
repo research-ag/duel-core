@@ -30,7 +30,8 @@ export type EngineErr =
   | { stale: null }
   | { noSuchTable: null }
   | { badCode: null }
-  | { unauthorized: null };
+  | { unauthorized: null }
+  | { tooManyTables: { max: bigint } };
 
 /// Sequential, never reused.
 export type TableId = bigint;

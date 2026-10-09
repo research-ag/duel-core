@@ -286,11 +286,9 @@ actor {
 
   // Not stable — rebuilt on every upgrade; `registry` is untouched and
   // browsers relink on their own.
-  transient let hub : Transport.Hub = Transport.createHub();
   transient let attached = Transport.attach<Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
-    hub,
     null, // onSettled — see "Canister players"
     null, // onGameEnded — see "Leaderboard"
     null, // onGameStarted — see "Leaderboard"
@@ -305,8 +303,8 @@ actor {
     attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
   };
 
-  public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
-    attached.poll(caller, sid, rev);
+  public query func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
+    attached.poll(sid, rev);
   };
 };
 
@@ -407,11 +405,9 @@ actor {
     switch (settleTable) { case (?f) await* f(now, id); case null {} };
   };
 
-  transient let hub : Transport.Hub = Transport.createHub();
   transient let attached = Transport.attach<Rules.State, Rules.Action>(
     Rules.spec(),
     registry,
-    hub,
     ?settle,
     null,
     null,
@@ -446,8 +442,8 @@ actor {
     attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
   };
 
-  public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
-    attached.poll(caller, sid, rev);
+  public query func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
+    attached.poll(sid, rev);
   };
 };
 

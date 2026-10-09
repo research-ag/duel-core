@@ -1,10 +1,8 @@
 // Host actor for __GAME_SLUG__. Copy verbatim; only the `Rules` import
-// and the two timeouts change between games. `status`, `http_request` and
-// the HTTP mixin's controllers-only `wasm_upload_*` are the only plain
-// Candid methods — every game mutation goes through
+// and the two timeouts change between games. `http_request` and the HTTP
+// mixin's controllers-only `wasm_upload_*` are the only plain Candid
+// methods — every game read and mutation goes through
 // `mo:duel-game-core/transport`.
-
-import Time "mo:core/Time";
 
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
@@ -24,32 +22,23 @@ actor {
   renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
-  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
-  registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // re-applied on every upgrade
-  registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
+  // The tables — plain data, stable.
+  let state = Transport.new<Rules.State, Rules.Action>();
+  state.registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // re-applied on every upgrade
+  state.registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
 
-  public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
-    registry.status(Rules.spec(), Time.now(), sid);
+  // The state plus the rules (functions — rebuilt on upgrade). No bots,
+  // no leaderboard.
+  transient let duel = Transport.Duel<Rules.State, Rules.Action>(state, Rules.spec(), null, null);
+
+  include TransportActorMixin<system>(duel.lobby);
+
+  public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
+    duel.reply(caller, tableId, await* duel.submit<system>(caller, tableId, gen, turn, move));
   };
 
-  transient let hub : Transport.Hub = Transport.createHub();
-  transient let attached = Transport.attach<Rules.State, Rules.Action>(
-    Rules.spec(),
-    registry,
-    hub,
-    null, // onSettled — canister players
-    null, // onGameEnded — leaderboard
-    null, // onGameStarted — leaderboard
-  );
-
-  include TransportActorMixin<system>(attached.lobby, attached.sweep);
-
-  public shared ({ caller }) func duel_submit(sid : Text, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
-    attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
-  };
-
-  public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
-    attached.poll(caller, sid, rev);
+  public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.State> {
+    duel.table(caller, tableId, rev);
   };
 
   // GET /semantics — the rules text a third-party frontend is built from;

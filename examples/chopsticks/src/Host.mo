@@ -1,6 +1,4 @@
 import Principal "mo:core/Principal";
-import Time "mo:core/Time";
-import Timer "mo:core/Timer";
 
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
@@ -10,7 +8,6 @@ import CanisterPlayers "mo:duel-game-core/canister_players";
 import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
 import Leaderboard "mo:duel-game-core/leaderboard";
 import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
-import Elo "mo:duel-game-core/elo";
 import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
 import PT "mo:promtracker";
 import Tracker "mo:promtracker/Tracker";
@@ -24,96 +21,35 @@ actor {
   renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
-  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
-  registry.setTimeouts(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
-  registry.attachMetrics(pt);
+  // Stable data: the tables, the bots, the ratings.
+  let state = Transport.new<Rules.State, Rules.Action>();
+  state.registry.setTimeouts(90_000_000_000, 60_000_000_000); // 90s idle, 60s claim window
+  state.registry.attachMetrics(pt);
+  let bots = CanisterPlayers.newStore();
+  let leaderboard = Leaderboard.new(50, 1200); // Elo, starting at 1200
 
-  public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
-    registry.status(Rules.spec(), Time.now(), sid);
+  // Asks a seated bot canister for its move.
+  func callBot<system>(bot : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+    let b : BotIface.CanisterPlayer = actor (CanisterPlayers.principalOfCanisterSession(bot).toText());
+    try { await* k<system>(?(await b.make_move(req))) } catch (_) { await* k<system>(null) };
   };
 
-  // See ../../backend/README.md, "Leaderboard".
-  let STARTING_ELO : Int = 1200;
-  let ELO_K : Nat = 32;
-  let leaderboard = Leaderboard.new(50, STARTING_ELO);
-
-  // A `cp:` session is per-table; rate a bot per principal + complexity.
-  func playerKey(sid : TP.SessionId) : Text {
-    if (CanisterPlayers.isCanisterSession(sid)) {
-      CanisterPlayers.leaderboardKeyOfSession(sid);
-    } else {
-      Transport.playerKey(sid);
-    };
-  };
-
-  // Every ending re-rates both seats; `#claimed`/`#aborted` count as wins.
-  func onGameEnded(_id : TP.TableId, p1 : TP.SessionId, p2 : TP.SessionId, d : TP.Debrief<Rules.State>) {
-    let outcome : Elo.Outcome = switch (d.end) {
-      case (#finished(#p1Wins)) #aWins;
-      case (#finished(#p2Wins)) #bWins;
-      case (#finished(#draw)) #draw;
-      case (#claimed(#p1)) #aWins;
-      case (#claimed(#p2)) #bWins;
-      case (#aborted(#p1)) #bWins;
-      case (#aborted(#p2)) #aWins;
-    };
-    let k1 = playerKey(p1);
-    let k2 = playerKey(p2);
-    let (r1, r2) = Elo.update(Leaderboard.scoreOf(leaderboard, k1), Leaderboard.scoreOf(leaderboard, k2), outcome, ELO_K);
-    let now = Time.now();
-    Leaderboard.setScore(leaderboard, k1, r1, now);
-    Leaderboard.setScore(leaderboard, k2, r2, now);
-  };
-
-  // Breaks the cycle between `attached` and `cpAttached`.
-  transient var settleTable : ?((Int, TP.TableId) -> async* ()) = null;
-  transient let settle = func(now : Int, id : TP.TableId) : async* () {
-    switch (settleTable) {
-      case (?f) await* f(now, id);
-      case null {};
-    };
-  };
-
-  transient let hub : Transport.Hub = Transport.createHub();
-  transient let attached = Transport.attach<Rules.State, Rules.Action>(
+  // The stable data plus the functions that cannot be stable.
+  transient let duel = Transport.Duel<Rules.State, Rules.Action>(
+    state,
     Rules.spec(),
-    registry,
-    hub,
-    ?settle,
-    ?onGameEnded,
-    null,
+    ?{ store = bots; call = callBot },
+    ?{ board = leaderboard; rating = #elo { k = 32 } },
   );
 
-  let botDirectory = CanisterPlayers.newBotDirectory();
+  include TransportActorMixin<system>(duel.lobby);
 
-  transient let cpAttached = CanisterPlayers.attach<Rules.State, Rules.Action>(
-    Rules.spec(),
-    registry,
-    attached.afterMutation,
-    true, // `attached` settles through `onSettled`
-    func(session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
-      let p = CanisterPlayers.principalOfCanisterSession(session);
-      let bot : BotIface.CanisterPlayer = actor (p.toText());
-      try { await* k(?(await bot.make_move(req))) } catch (_) { await* k(null) };
-    },
-    func(id : TP.TableId, secs : Nat) : async* () {
-      ignore Timer.setTimer<system>(#seconds secs, func() : async () { await* settle(Time.now(), id) });
-    },
-  );
-  settleTable := ?cpAttached.settle;
-
-  transient let combinedSweep = func(now : Int) : async* () {
-    await* attached.sweep(now);
-    await* cpAttached.sweep(now);
-  };
-  include TransportActorMixin<system>(attached.lobby, combinedSweep);
-
-  public shared ({ caller }) func duel_submit(sid : Text, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
-    attached.reply(sid, await* attached.submit(caller, sid, gen, turn, move));
+  public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
+    duel.reply(caller, tableId, await* duel.submit<system>(caller, tableId, gen, turn, move));
   };
 
-  public shared query ({ caller }) func duel_poll(sid : Text, rev : Nat) : async Transport.PollResult<Rules.State> {
-    attached.poll(caller, sid, rev);
+  public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.State> {
+    duel.table(caller, tableId, rev);
   };
 
   include HttpActorMixin([
@@ -121,7 +57,7 @@ actor {
     ("/metrics", renderer.renderExposition),
   ]);
 
-  include CanisterPlayersActorMixin(cpAttached, botDirectory, ?leaderboard);
+  include CanisterPlayersActorMixin(duel.canisterPlayers, bots.directory, ?leaderboard);
 
   include LeaderboardActorMixin(leaderboard, 25);
 };

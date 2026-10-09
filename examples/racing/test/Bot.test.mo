@@ -53,36 +53,51 @@ let TIMEOUT : Int = 300_000_000_000;
 let CLAIM_TIMEOUT : Int = 45_000_000_000;
 let T0 : Int = 1_000_000_000_000;
 
+// The player's first table and their view of it, or `#browsing`.
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, p : TP.PlayerId) : { #atTable : { id : TP.TableId; view : TP.View<Rules.State> }; #browsing } {
+  let ids = reg.tablesOf(p);
+  if (ids.size() == 0) return #browsing;
+  switch (reg.view(spec, at, p, ids[0])) {
+    case (?v) #atTable { id = ids[0]; view = v };
+    case null #browsing;
+  };
+};
+
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
   case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
 };
 
-func atTableView(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, session : Text) : TP.View<Rules.State> = switch (reg.status(spec, at, session)) {
+func atTableView(reg : TP.Registry<Rules.State, Rules.Action>, at : Int, session : Text) : TP.View<Rules.State> = switch (statusOf(reg, at, session)) {
   case (#atTable v) v.view;
   case (#browsing _) Runtime.trap("expected " # session # " to be at a table");
 };
 
-func noopAfterMutation(_now : Int, _sid : TP.SessionId, _id : ?TP.TableId, _broadcast : Bool) : async* () {};
 
 let bot1 = Principal.fromText("aaaaa-aa");
 
 let reg = Registry.new<Rules.State, Rules.Action>();
 
 reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
-let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
-  spec,
-  reg,
-  noopAfterMutation,
-  false,
-  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
-    await* k(?BotLogic.chooseMove(req));
-  },
-  func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
-);
+// The bots without the transport: every mutation settles the table
+// right away, and no timers (the interpreter has none).
+func settleAfter<system>(now : Int, id : TP.TableId, _ : Bool) : async* () {
+  await* CanisterPlayers.settle<system, Rules.State, Rules.Action>(ctx, now, id);
+};
+let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action> = {
+  registry = reg;
+  spec;
+  store = CanisterPlayers.newStore();
+  call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+      await* k<system>(?BotLogic.chooseMove(req));
+  };
+  afterMutation = func<system>(now : Int, id : TP.TableId, b : Bool) : async* () { await* settleAfter<system>(now, id, b) };
+  arm = func<system>(_ : TP.TableId, _ : Nat) {};
+};
+let cp = CanisterPlayers.endpointOf(ctx);
 
-let id = ok(await* cp.createTable(bot1, #p1, #open, "", ""), "bot creates a table");
-let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "");
+let id = ok(await* cp.createTable<system>(bot1, #p1, #open, "", ""), "bot creates a table");
+let sidBot1 = CanisterPlayers.idForCanister(bot1, "");
 // The human joins directly against `reg` — standing in for `transport.mo`
 // dispatching a browser's own `joinTable`, exactly as
 // `backend/test/CanisterPlayers.test.mo` does for its own human sessions.
@@ -91,7 +106,7 @@ ignore ok(reg.joinTable(spec, T0, "human", id, #p2, null), "human joins bot1's t
 var round = 0;
 var finished = false;
 while (round < BotLogic.SCRIPT_P1.size() + 2 and not finished) {
-  await* cp.sweep(T0);
+  await* CanisterPlayers.sweep<system, Rules.State, Rules.Action>(ctx, T0);
   switch (atTableView(reg, T0, sidBot1)) {
     case (#inGame v) assert v.youSubmitted; // the bot's scripted move landed legally
     case (#debrief d) switch (d.end) {
@@ -105,7 +120,7 @@ while (round < BotLogic.SCRIPT_P1.size() + 2 and not finished) {
       case (#inGame v) v;
       case (_) Runtime.trap("human should be in-game");
     };
-    ignore ok(reg.submit(spec, T0, "human", hv.gen, hv.turn, { l = 0.0; c = 0.0 }), "human submits a no-op move; round resolves");
+    ignore ok(reg.submit(spec, T0, "human", id, hv.gen, hv.turn, { l = 0.0; c = 0.0 }), "human submits a no-op move; round resolves");
   };
   round += 1;
 };

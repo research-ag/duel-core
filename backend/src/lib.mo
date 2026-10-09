@@ -57,13 +57,12 @@ module {
 
   public type TableId = T.TableId;
   public type TableVisibility = T.TableVisibility;
-  public type SessionId = T.SessionId;
+  public type PlayerId = T.PlayerId;
   public type Seat = T.Seat;
   public type Verdict = T.Verdict;
   public type Mode = T.Mode;
   public type Registry<S, M> = T.Registry<S, M>;
   public type TableSummary = T.TableSummary;
-  public type SessionStatus<S> = T.SessionStatus<S>;
   public type MoveRequest<S, M> = T.MoveRequest<S, M>;
   public type Spec<S, M> = T.Spec<S, M>;
   public type Staging = T.Staging;
