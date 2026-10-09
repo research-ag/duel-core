@@ -2,15 +2,18 @@
 // moves, then the live board is seeded via `Table.phase` to one capture from
 // finishing (see references/testing-deep-dive.md).
 import TP "mo:duel-game-core";
+import Rng "mo:duel-game-core/rng";
 import Table "mo:duel-game-core/table";
 import Array "mo:core/Array";
 import Rules "../src/CheckersRules";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
-type Tbl = TP.Table<Rules.State, Rules.Action>;
+let rng = Rng.new(42);
 
-let spec = Rules.spec();
+type Tbl = TP.Table<Rules.State, Rules.Action, Rules.Options>;
+
+let spec = Rules.spec;
 let now : Int = 1_000_000_000_000;
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
@@ -29,11 +32,11 @@ func withPieces(pieces : [(Nat, Rules.Piece)]) : Rules.Board {
   b;
 };
 
-let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000, #open, "test", "");
+let t = Table.new<Rules.State, Rules.Action, Rules.Options>(60_000_000_000, 15_000_000_000, #open, "test", {});
 
 // ── 1. join seats black/red, black moves first ─────────────────────────────
-ignore ok(t.join(spec, now, "black", #p1), "black joins");
-switch (ok(t.join(spec, now, "red", #p2), "red joins")) {
+ignore ok(t.join(spec, rng, now, "black", #p1), "black joins");
+switch (ok(t.join(spec, rng, now, "red", #p2), "red joins")) {
   case (#started _) {};
   case (_) Runtime.trap("red's join should complete the pair and start the game");
 };
@@ -45,13 +48,13 @@ func genOf(session : Text) : Nat = switch (t.status(spec, now, session)) {
   case (_) Runtime.trap("genOf: " # session # " is not in an active game");
 };
 func turnOf(session : Text) : Nat = switch (t.status(spec, now, session)) {
-  case (#inGame v) v.turn;
+  case (#inGame v) v.step;
   case (_) Runtime.trap("turnOf: " # session # " is not in an active game");
 };
-ignore ok(t.submit(spec, now, "black", genOf("black"), turnOf("black"), #move { from = idx(5, 0); to = idx(4, 1) }), "black opens");
-ignore ok(t.submit(spec, now, "red", genOf("red"), turnOf("red"), #move { from = idx(2, 1); to = idx(3, 2) }), "red replies");
+ignore ok(t.submit(spec, rng, now, "black", genOf("black"), turnOf("black"), #move { from = idx(5, 0); to = idx(4, 1) }), "black opens");
+ignore ok(t.submit(spec, rng, now, "red", genOf("red"), turnOf("red"), #move { from = idx(2, 1); to = idx(3, 2) }), "red replies");
 switch (t.status(spec, now, "black")) {
-  case (#inGame v) assert v.turn == 2;
+  case (#inGame v) assert v.step == 2;
   case (_) Runtime.trap("black should be back on turn");
 };
 Debug.print("2. opening moves through the real board OK");
@@ -63,14 +66,17 @@ switch (t.phase) {
   case (#active g) {
     t.phase := #active {
       g with
-      game = { board = withPieces([(idx(4, 3), #manP1), (idx(3, 2), #manP2)]) };
+      game = {
+        board = withPieces([(idx(4, 3), #manP1), (idx(3, 2), #manP2)]);
+        toMove = g.game.toMove;
+      };
     };
   };
   case (_) Runtime.trap("expected a live game to seed");
 };
 switch (
   ok(
-    t.submit(spec, now, "black", genOf("black"), turnOf("black"), #jump { path = [idx(4, 3), idx(2, 1)] }),
+    t.submit(spec, rng, now, "black", genOf("black"), turnOf("black"), #jump { path = [idx(4, 3), idx(2, 1)] }),
     "black's finishing capture",
   )
 ) {

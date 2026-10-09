@@ -1,12 +1,15 @@
 // Unit checks for the pure racing rules that Rules.test.mo misses:
 // nextStepArea's shape, the reverse-never-crashes carve-out, the lap-
 // decrement guard, and validate() from synthetic states.
+import Rng "mo:duel-game-core/rng";
 import R "../src/RacingRules";
 import Float "mo:core/Float";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
-let PI : Float = 3.14159265358979323846;
+let rng = Rng.new(42);
+
+let PI : Float = Float.pi;
 let STILL : R.Action = { l = 0.0; c = 0.0 };
 
 // Same spot on Track.roadPath's wrap segment Rules.test.mo uses
@@ -21,17 +24,17 @@ func nearFinish() : R.CarState = {
 func idleCar() : R.CarState = { nearFinish() with lap = 0 };
 
 // ── 1. spec() hands out the same rules as calling the module directly ──────
-let sp = switch (R.spec()) {
+let sp = switch (R.spec) {
   case (#simultaneous s) s;
-  case (#alternating _) Runtime.trap("racing is a #simultaneous game");
+  case (#turnBased _) Runtime.trap("racing is a #simultaneous game");
 };
-let s1 = sp.init("");
+let s1 = sp.init({}, rng);
 assert s1.p1.lap == 0 and s1.p2.lap == 0;
 switch (sp.validate(s1, #p1, { l = 999.0; c = 0.0 })) {
   case (?_) {};
   case null Runtime.trap("spec.validate must be the module's validate");
 };
-switch (sp.resolve(s1, STILL, STILL).verdict) {
+switch (sp.resolve(s1, STILL, STILL, rng).verdict) {
   case null {};
   case (?_) Runtime.trap("sitting still resolves nothing");
 };

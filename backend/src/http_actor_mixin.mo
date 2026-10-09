@@ -15,7 +15,7 @@ mixin (routes : [Http.Route]) {
   let wasm : Wasm.Store = Wasm.new();
 
   func controllersOnly(caller : Principal) {
-    if (not Principal.isController(caller)) Runtime.trap("Controllers only");
+    if (not caller.isController()) Runtime.trap("Controllers only");
   };
 
   public shared ({ caller }) func wasm_upload_begin() : async () {

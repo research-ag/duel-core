@@ -8,13 +8,16 @@ import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
 
 import TP "mo:duel-game-core";
+import Rng "mo:duel-game-core/rng";
 import CanisterPlayers "mo:duel-game-core/canister_players";
 import Registry "mo:duel-game-core/registry";
 
 import BotLogic "../bot/BotLogic";
 import Rules "../src/UltimateTicTacToeRules";
 
-let spec = Rules.spec();
+let rng = Rng.new(42);
+
+let spec = Rules.spec;
 
 func withCells(marks : [(Nat, Nat, TP.Seat)]) : [?TP.Seat] {
   var cells = Array.repeat<?TP.Seat>(null, 81);
@@ -27,24 +30,24 @@ func withCells(marks : [(Nat, Nat, TP.Seat)]) : [?TP.Seat] {
 
 // ── 1. chooseMove never strays outside legalActions ────────────────────────
 do {
-  let s0 = Rules.init("");
+  let s0 = Rules.init({}, rng);
   for (turn in Nat.range(0, 9)) {
-    let req : TP.MoveRequest<Rules.State, Rules.Action> = {
+    let req : TP.MoveRequest<Rules.View, Rules.Action> = {
       tableId = 0;
       seat = #p1;
       game = s0;
-      mode = #alternating;
-      turn;
+      mode = #turnBased;
+      step = turn;
       gen = 0;
       complexity = "";
       retryReason = null;
       opponent = "p2";
       opponentLastMove = null;
-      lastRoundDurationNs = null;
+      lastStepDurationNs = null;
     };
     let move = BotLogic.chooseMove(req);
     let legal = Rules.legalActions(s0, #p1);
-    assert Array.find<Rules.Action>(legal, func(a) = a == move) != null;
+    assert legal.find<Rules.Action>(func(a) = a == move) != null;
   };
 
   // board 4 down to its last empty cell (cell 8), and the router
@@ -64,18 +67,18 @@ do {
     activeBoard = ?4;
   };
   for (turn in Nat.range(0, 5)) {
-    let req : TP.MoveRequest<Rules.State, Rules.Action> = {
+    let req : TP.MoveRequest<Rules.View, Rules.Action> = {
       tableId = 0;
       seat = #p1;
       game = almostFullBoard4;
-      mode = #alternating;
-      turn;
+      mode = #turnBased;
+      step = turn;
       gen = 0;
       complexity = "";
       retryReason = null;
       opponent = "p2";
       opponentLastMove = null;
-      lastRoundDurationNs = null;
+      lastStepDurationNs = null;
     };
     switch (BotLogic.chooseMove(req)) {
       case (#place { board; cell }) { assert board == 4; assert cell == 8 };
@@ -85,10 +88,36 @@ do {
 Debug.print("1. BotLogic.chooseMove always picks a Rules.legalActions-listed move, including a board's last empty cell OK");
 
 // ── 2. wired live through canister_players.mo, two canister seats play each
-//      other through several real #alternating plies ────────────────────────
+//      other through several real #turnBased plies ────────────────────────
 let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
+
+// The player's first table and their view of it, or `#browsing`.
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action, Rules.Options>, at : Int, p : TP.PlayerId) : {
+  #atTable : { id : TP.TableId; view : TP.TableView<Rules.State> };
+  #browsing;
+} {
+  let ids = reg.tablesOf(p);
+  if (ids.size() == 0) return #browsing;
+  switch (reg.view(spec, at, p, ids[0])) {
+    case (?v) #atTable { id = ids[0]; view = v };
+    case null #browsing;
+  };
+};
+
+// A bot opening a table: seats it directly (bots open no tables
+// themselves through the canister-player methods) and runs the same
+// fan-out a mutation does.
+func botCreates<system>(ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action, Rules.View, Rules.Options>, bot : Principal.Principal, seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options, complexity : Text) : async* TP.Res<TP.TableId> {
+  switch (ctx.registry.createTable(ctx.spec, ctx.rng, T0, CanisterPlayers.idForCanister(bot, complexity), seat, visibility, options)) {
+    case (#ok id) {
+      await* ctx.afterMutation<system>(T0, id, true);
+      #ok id;
+    };
+    case (#err e) #err e;
+  };
+};
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
@@ -98,66 +127,75 @@ func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
 
-let reg = Registry.new<Rules.State, Rules.Action>();
+let reg = Registry.new<Rules.State, Rules.Action, Rules.Options>();
 
 reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
-let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
-  spec,
-  reg,
-  func(_now : Int, _sid : TP.SessionId, _id : ?TP.TableId, _broadcast : Bool) : async* () {},
-  false,
-  func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
-    await* k(?BotLogic.chooseMove(req));
-  },
-  func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
-);
+// The bots without the transport: every mutation settles the table
+// right away, and no timers (the interpreter has none).
+func settleAfter<system>(now : Int, id : TP.TableId, _ : Bool) : async* () {
+  await* CanisterPlayers.settle<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx, now, id);
+};
+let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+  registry = reg;
+  spec;
+  rng;
+  store = CanisterPlayers.newStore();
+  call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.View, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+    await* k<system>(?BotLogic.chooseMove(req));
+  };
+  afterMutation = func<system>(now : Int, id : TP.TableId, b : Bool) : async* () {
+    await* settleAfter<system>(now, id, b);
+  };
+  arm = func<system>(_ : TP.TableId, _ : Nat) {};
+};
+let cp = CanisterPlayers.endpointOf(ctx);
 
-let id = ok(await* cp.createTable(bot1, #p1, #open, "", ""), "bot1 creates a table");
-let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "");
-let sidBot2 = CanisterPlayers.sidForCanister(bot2, id, "");
+let id = ok(await* botCreates<system>(ctx, bot1, #p1, #open, {}, ""), "bot1 creates a table");
+let sidBot1 = CanisterPlayers.idForCanister(bot1, "");
+let sidBot2 = CanisterPlayers.idForCanister(bot2, "");
 // bot2's own joinTable eagerly triggers the opening plies with no sweep
 // at all — proving #p1 moves first when canister-seated at game start.
-ignore ok(await* cp.joinTable(bot2, id, #p2, null, ""), "bot2 joins; game starts");
-switch (reg.status(spec, T0, sidBot1)) {
-  case (#atTable { view = #inGame v }) assert v.turn > 0; // #p1's own opening move already resolved
+ignore ok(await* cp.joinTable<system>(bot2, id, #p2, null, ""), "bot2 joins; game starts");
+switch (statusOf(reg, T0, sidBot1)) {
+  case (#atTable { view = #inGame v }) assert v.step > 0; // #p1's own opening move already resolved
   case (other) Runtime.trap("bot1 should be in-game, at least one ply in, got " # debug_show (other));
 };
 
 // A large-enough sweep budget for a board that can run up to 81 plies in the
 // worst case
 var round = 0;
-var lastTurn = switch (reg.status(spec, T0, sidBot1)) {
-  case (#atTable { view = #inGame v }) v.turn;
+var lastTurn = switch (statusOf(reg, T0, sidBot1)) {
+  case (#atTable { view = #inGame v }) v.step;
   case (_) 0;
 };
 var stalled = false;
 while (round < 45) {
-  await* cp.sweep(T0);
-  switch (reg.status(spec, T0, sidBot1)) {
+  await* CanisterPlayers.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx, T0);
+  switch (statusOf(reg, T0, sidBot1)) {
     case (#atTable { view = #inGame v }) {
-      if (v.turn == lastTurn) stalled := true;
-      lastTurn := v.turn;
+      if (v.step == lastTurn) stalled := true;
+      lastTurn := v.step;
     };
     case (_) {}; // the game already ended — see the check right below
   };
   round += 1;
 };
 assert not stalled;
-switch (reg.status(spec, T0, sidBot1), reg.status(spec, T0, sidBot2)) {
+switch (statusOf(reg, T0, sidBot1), statusOf(reg, T0, sidBot2)) {
   case (#atTable { view = #inGame v1 }, #atTable { view = #inGame v2 }) {
-    assert v1.turn == v2.turn;
-    assert v1.turn > 0;
+    assert v1.step == v2.step;
+    assert v1.step > 0;
   };
   case (_, _) {
     // Either a real #debrief, or (an all-canister debrief acks both sides
     // immediately
-    switch (reg.status(spec, T0, sidBot1)) {
+    switch (statusOf(reg, T0, sidBot1)) {
       case (#atTable { view = #debrief _ }) {};
       case (#browsing _) {};
       case (other) Runtime.trap("expected in-game, a real debrief, or an already-settled browsing state, got " # debug_show (other));
     };
   };
 };
-Debug.print("2. two canister-seated bots resolve several real #alternating plies against each other, no stall OK");
+Debug.print("2. two canister-seated bots resolve several real #turnBased plies against each other, no stall OK");
 
 Debug.print("ALL ULTIMATE TIC-TAC-TOE BOT CHECKS PASSED");

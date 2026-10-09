@@ -15,18 +15,18 @@ module {
 
   public func new() : Store = { var live = []; staged = List.empty() };
 
-  public func begin(s : Store) = List.clear(s.staged);
+  public func begin(s : Store) = s.staged.clear();
 
-  public func append(s : Store, chunk : Blob) = List.add(s.staged, chunk);
+  public func append(s : Store, chunk : Blob) = s.staged.add(chunk);
 
   /// Replaces the served module with the staged chunks if they add up to
   /// `size` bytes; otherwise discards them and keeps the previous module.
   public func commit(s : Store, size : Nat) : Bool {
     var total = 0;
-    for (c in List.values(s.staged)) total += c.size();
+    for (c in s.staged.values()) total += c.size();
     let ok = total == size and size > 0;
-    if (ok) s.live := List.toArray(s.staged);
-    List.clear(s.staged);
+    if (ok) s.live := s.staged.toArray();
+    s.staged.clear();
     ok;
   };
 

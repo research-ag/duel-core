@@ -1,4 +1,4 @@
-/// ChopsticksRules — the hand game chopsticks, as a pure `#alternating`
+/// ChopsticksRules — the hand game chopsticks, as a pure `#turnBased`
 /// module with two table-time variants (Classic, Instructables). Each
 /// player has two hands holding 0 (out) to 4 fingers; both start at 1.
 ///
@@ -22,16 +22,16 @@ module {
 
   /// Served at `/semantics`; see the backend README, "Semantics over HTTP".
   public let SEMANTICS : Text = "GAME: Chopsticks
-MODE: alternating
+MODE: turnBased (one action per turn, seats alternate)
 SEATS: p1 moves first
-VARIANTS (table variant text, picked by the table's creator)
-  classic         Also used for any other text.
-  instructables
+OPTIONS (picked by the table's creator)
+  type Options = variant { classic; instructables };
 
 STATE (Candid)
   type Variant = variant { classic; instructables };
   type Hands = record { l : nat; r : nat };
-  type State = record { variant : Variant; p1 : Hands; p2 : Hands };
+  type State = record { variant : Variant; p1 : Hands; p2 : Hands; toMove : Seat };
+  toMove is the seat whose action the game is waiting for.
   Each hand holds 0 (out) to 4 fingers; every hand starts at 1.
 
 ACTION (Candid)
@@ -65,11 +65,14 @@ CLIENT NOTES
 
   public type Variant = { #classic; #instructables };
 
-  /// Unrecognized text (including `""`) falls back to `#classic`.
-  public func parseVariant(raw : Text) : Variant = switch (raw) {
-    case ("instructables") #instructables;
-    case (_) #classic;
-  };
+  /// The table's options: which rules variant it plays.
+  public type Options = Variant;
+
+  /// Nothing is hidden: every seat sees the whole state.
+  public type View = State;
+
+  /// Both variants are always sensible.
+  public func checkOptions(_ : Options) : ?Text = null;
 
   public type HandId = { #l; #r };
 
@@ -85,6 +88,8 @@ CLIENT NOTES
     variant : Variant;
     p1 : Hands;
     p2 : Hands;
+    /// The seat whose action the game is waiting for.
+    toMove : TP.Seat;
   };
 
   let MAX_HAND : Nat = 4;
@@ -119,10 +124,11 @@ CLIENT NOTES
 
   public func isOut(h : Hands) : Bool = liveHands(h) == 0;
 
-  public func init(raw : Text) : State = {
-    variant = parseVariant(raw);
+  public func init(options : Options, _ : TP.Rng) : State = {
+    variant = options;
     p1 = { l = 1; r = 1 };
     p2 = { l = 1; r = 1 };
+    toMove = #p1;
   };
 
   func validateSplit(variant : Variant, cur : Hands, l : Nat, r : Nat) : ?Text {
@@ -200,12 +206,28 @@ CLIENT NOTES
     let verdict : ?TP.Verdict = if (isOut(handsOf(state, opp))) {
       ?(switch (seat) { case (#p1) #p1Wins; case (#p2) #p2Wins });
     } else null;
-    { state; verdict };
+    { state = { state with toMove = opp }; verdict };
   };
 
-  public func spec() : TP.Spec<State, Action> = #alternating {
+  /// Whose action the game is waiting for.
+  public func toMove(self : State) : TP.Seat = self.toMove;
+
+  public func view(self : State, _ : TP.Seat, _ : Bool) : View = self;
+
+  /// One action of the seat on turn: checked, then applied.
+  public func move(self : State, seat : TP.Seat, a : Action, _ : TP.Rng) : {
+    #ok : { state : State; verdict : ?TP.Verdict };
+    #err : Text;
+  } = switch (validate(self, seat, a)) {
+    case (?why) #err why;
+    case null #ok(resolve(self, seat, a));
+  };
+
+  public let spec : TP.Spec<State, Action, View, Options> = #turnBased {
+    checkOptions;
     init;
-    validate;
-    resolve;
+    toMove;
+    move;
+    view;
   };
 };

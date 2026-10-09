@@ -1,6 +1,7 @@
 // Proves the rock-paper-scissors bot: `chooseMove` always returns a legal
 // pick per variant (offline), and two canister-seated bots play a full real
 // match per variant through `canister_players`.
+import Rng "mo:duel-game-core/rng";
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Nat "mo:core/Nat";
@@ -14,29 +15,31 @@ import Registry "mo:duel-game-core/registry";
 import BotLogic "../bot/BotLogic";
 import Rules "../src/RockPaperScissorsRules";
 
-let spec = Rules.spec();
+let rng = Rng.new(42);
+
+let spec = Rules.spec;
 let TIMEOUT : Int = 60_000_000_000;
 let CLAIM_TIMEOUT : Int = 15_000_000_000;
 let T0 : Int = 1_000_000_000_000;
 
 // ── 1. chooseMove always returns a legal pick, whatever the entropy, and
 //      covers the whole action set ───────────────────────────────────────────
-for (raw in ["", "well"].values()) {
-  let s0 = Rules.init(raw);
+for (options in [{ variant = #classic; winsNeeded = 3 }, { variant = #well; winsNeeded = 3 }].values()) {
+  let s0 = Rules.init(options, rng);
   var seen : [Rules.Action] = [];
   for (turn in Nat.range(0, 64)) {
-    let req : TP.MoveRequest<Rules.State, Rules.Action> = {
+    let req : TP.MoveRequest<Rules.View, Rules.Action> = {
       tableId = 0;
       seat = #p1;
       game = s0;
       mode = #simultaneous;
-      turn;
+      step = turn;
       gen = 0;
       complexity = "";
       retryReason = null;
       opponent = "p2";
       opponentLastMove = null;
-      lastRoundDurationNs = null;
+      lastStepDurationNs = null;
     };
     let move = BotLogic.chooseMove(req, T0 + turn * 1_000_003);
     switch (Rules.validate(s0, #p1, move)) {
@@ -47,52 +50,85 @@ for (raw in ["", "well"].values()) {
       seen := seen.concat([move]);
     };
   };
-  assert seen.size() == (if (raw == "") 3 else 4);
+  assert seen.size() == (if (options.variant == #classic) 3 else 4);
 };
 Debug.print("1. BotLogic.chooseMove always picks a legal move and reaches every action, in classic and well alike OK");
 
 // ── 2/3. wired live through canister_players.mo, two canister seats play a
 //      full real #simultaneous match to a decisive finish ───────────────────
 
+// The player's first table and their view of it, or `#browsing`.
+func statusOf(reg : TP.Registry<Rules.State, Rules.Action, Rules.Options>, at : Int, p : TP.PlayerId) : {
+  #atTable : { id : TP.TableId; view : TP.TableView<Rules.State> };
+  #browsing;
+} {
+  let ids = reg.tablesOf(p);
+  if (ids.size() == 0) return #browsing;
+  switch (reg.view(spec, at, p, ids[0])) {
+    case (?v) #atTable { id = ids[0]; view = v };
+    case null #browsing;
+  };
+};
+
+// A bot opening a table: seats it directly (bots open no tables
+// themselves through the canister-player methods) and runs the same
+// fan-out a mutation does.
+func botCreates<system>(ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action, Rules.View, Rules.Options>, bot : Principal.Principal, seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options, complexity : Text) : async* TP.Res<TP.TableId> {
+  switch (ctx.registry.createTable(ctx.spec, ctx.rng, T0, CanisterPlayers.idForCanister(bot, complexity), seat, visibility, options)) {
+    case (#ok id) {
+      await* ctx.afterMutation<system>(T0, id, true);
+      #ok id;
+    };
+    case (#err e) #err e;
+  };
+};
+
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
   case (#ok v) v;
   case (#err e) Runtime.trap(msg # " unexpectedly failed: " # debug_show (e));
 };
-
-func noopAfterMutation(_now : Int, _sid : TP.SessionId, _id : ?TP.TableId, _broadcast : Bool) : async* () {};
 
 let bot1 = Principal.fromText("aaaaa-aa");
 let bot2 = Principal.fromText("2vxsx-fae");
 
 var entropy : Int = T0;
 
-func playFullMatch(variant : Text) : async* () {
-  let reg = Registry.new<Rules.State, Rules.Action>();
+func playFullMatch(variant : Rules.Options) : async* () {
+  let reg = Registry.new<Rules.State, Rules.Action, Rules.Options>();
   reg.setTimeouts(TIMEOUT, CLAIM_TIMEOUT);
-  let cp = CanisterPlayers.attach<Rules.State, Rules.Action>(
-    spec,
-    reg,
-    noopAfterMutation,
-    false,
-    func(_session : TP.SessionId, req : TP.MoveRequest<Rules.State, Rules.Action>, k : (?Rules.Action) -> async* ()) : async* () {
+  // The bots without the transport: every mutation settles the table
+  // right away, and no timers (the interpreter has none).
+  func settleAfter<system>(now : Int, id : TP.TableId, _ : Bool) : async* () {
+    await* CanisterPlayers.settle<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx, now, id);
+  };
+  let ctx : CanisterPlayers.Ctx<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+    registry = reg;
+    spec;
+    rng;
+    store = CanisterPlayers.newStore();
+    call = func<system>(_session : TP.PlayerId, req : TP.MoveRequest<Rules.View, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
       entropy += 1_000_003;
-      await* k(?BotLogic.chooseMove(req, entropy));
-    },
-    func(_id : TP.TableId, _secs : Nat) : async* () {}, // armClaimCheck — not exercised here, see backend/test/CanisterPlayers.test.mo's own test 15
-  );
+      await* k<system>(?BotLogic.chooseMove(req, entropy));
+    };
+    afterMutation = func<system>(now : Int, id : TP.TableId, b : Bool) : async* () {
+      await* settleAfter<system>(now, id, b);
+    };
+    arm = func<system>(_ : TP.TableId, _ : Nat) {};
+  };
+  let cp = CanisterPlayers.endpointOf(ctx);
 
-  let id = ok(await* cp.createTable(bot1, #p1, #open, variant, ""), "bot1 creates a table");
-  let sidBot1 = CanisterPlayers.sidForCanister(bot1, id, "");
+  let id = ok(await* botCreates<system>(ctx, bot1, #p1, #open, variant, ""), "bot1 creates a table");
+  let sidBot1 = CanisterPlayers.idForCanister(bot1, "");
   // bot2's own joinTable eagerly triggers both seats' opening picks with no
   // sweep call needed at all
-  ignore ok(await* cp.joinTable(bot2, id, #p2, null, ""), "bot2 joins; game starts");
+  ignore ok(await* cp.joinTable<system>(bot2, id, #p2, null, ""), "bot2 joins; game starts");
 
   // Whatever didn't already cascade to conclusion above gets driven the rest
   // of the way here
   var round = 0;
   var stalled = true;
   label loop_ while (round < 12) {
-    switch (reg.status(spec, T0, sidBot1)) {
+    switch (statusOf(reg, T0, sidBot1)) {
       case (#atTable { view = #inGame _ }) {};
       case (#atTable { view = #debrief d }) {
         switch (d.end) {
@@ -109,16 +145,16 @@ func playFullMatch(variant : Text) : async* () {
       };
       case (other) Runtime.trap("unexpected state for bot1: " # debug_show (other));
     };
-    await* cp.sweep(T0);
+    await* CanisterPlayers.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(ctx, T0);
     round += 1;
   };
   assert not stalled; // two rule-following bots with varying entropy must reach 3 round wins well within 12 rounds
 };
 
-await* playFullMatch(""); // classic
+await* playFullMatch({ variant = #classic; winsNeeded = 3 }); // classic
 Debug.print("2. two canister-seated bots play a full real classic-mode match to a decisive finish OK");
 
-await* playFullMatch("well");
+await* playFullMatch({ variant = #well; winsNeeded = 3 });
 Debug.print("3. two canister-seated bots play a full real well-mode match to a decisive finish OK");
 
 Debug.print("ALL ROCKPAPERSCISSORS BOT CHECKS PASSED");

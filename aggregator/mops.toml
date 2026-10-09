@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Game aggregator — Internet Identity login, developer profiles, and a public registry of games built on this repo's tooling."
 
 [dependencies]
-core = "2.6.1"
+core = "2.6.2"
 
 [toolchain]
-moc = "1.11.2"
+moc = "2.0.0"

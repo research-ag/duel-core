@@ -157,7 +157,7 @@ botBack.addEventListener('click', () => {
 // This session's own staging (`seat === undefined`), or a new table.
 async function stageFor(seat) {
   if (seat === undefined) return staging;
-  const res = await transport.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, variant: "" } });
+  const res = await transport.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, options: {} } });
   if ('err' in res) throw new Error(errText(res.err));
   const status = res.view;
   if (!('atTable' in status) || tag(status.atTable.view) !== 'stagingYou') {

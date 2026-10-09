@@ -2,15 +2,18 @@
 // routing, then the live board is seeded via `Table.phase` to one placement
 // from winning the whole match.
 import TP "mo:duel-game-core";
+import Rng "mo:duel-game-core/rng";
 import Table "mo:duel-game-core/table";
 import Array "mo:core/Array";
 import Rules "../src/UltimateTicTacToeRules";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
-type Tbl = TP.Table<Rules.State, Rules.Action>;
+let rng = Rng.new(42);
 
-let spec = Rules.spec();
+type Tbl = TP.Table<Rules.State, Rules.Action, Rules.Options>;
+
+let spec = Rules.spec;
 let now : Int = 1_000_000_000_000;
 
 func ok<T>(r : TP.Res<T>, msg : Text) : T = switch (r) {
@@ -35,11 +38,11 @@ func withResults(overrides : [(Nat, Rules.BoardResult)]) : [?Rules.BoardResult] 
   results;
 };
 
-let t = Table.new<Rules.State, Rules.Action>(60_000_000_000, 15_000_000_000, #open, "test", "");
+let t = Table.new<Rules.State, Rules.Action, Rules.Options>(60_000_000_000, 15_000_000_000, #open, "test", {});
 
 // ── 1. join seats X/O, X moves first ───────────────────────────────────────
-ignore ok(t.join(spec, now, "x", #p1), "x joins");
-switch (ok(t.join(spec, now, "o", #p2), "o joins")) {
+ignore ok(t.join(spec, rng, now, "x", #p1), "x joins");
+switch (ok(t.join(spec, rng, now, "o", #p2), "o joins")) {
   case (#started _) {};
   case (_) Runtime.trap("o's join should complete the pair and start the game");
 };
@@ -52,13 +55,13 @@ func genOf(session : Text) : Nat = switch (t.status(spec, now, session)) {
   case (_) Runtime.trap("genOf: " # session # " is not in an active game");
 };
 func turnOf(session : Text) : Nat = switch (t.status(spec, now, session)) {
-  case (#inGame v) v.turn;
+  case (#inGame v) v.step;
   case (_) Runtime.trap("turnOf: " # session # " is not in an active game");
 };
-ignore ok(t.submit(spec, now, "x", genOf("x"), turnOf("x"), #place { board = 4; cell = 4 }), "x opens the center board's center cell");
-ignore ok(t.submit(spec, now, "o", genOf("o"), turnOf("o"), #place { board = 4; cell = 0 }), "o replies, routing x to board 0");
+ignore ok(t.submit(spec, rng, now, "x", genOf("x"), turnOf("x"), #place { board = 4; cell = 4 }), "x opens the center board's center cell");
+ignore ok(t.submit(spec, rng, now, "o", genOf("o"), turnOf("o"), #place { board = 4; cell = 0 }), "o replies, routing x to board 0");
 switch (t.status(spec, now, "x")) {
-  case (#inGame v) { assert v.turn == 2; assert v.game.activeBoard == ?0 };
+  case (#inGame v) { assert v.step == 2; assert v.game.activeBoard == ?0 };
   case (_) Runtime.trap("x should be back on turn, routed to board 0");
 };
 Debug.print("2. opening moves through the real board, routing enforced OK");
@@ -79,7 +82,7 @@ switch (t.phase) {
   };
   case (_) Runtime.trap("expected a live game to seed");
 };
-switch (ok(t.submit(spec, now, "x", genOf("x"), turnOf("x"), #place { board = 2; cell = 2 }), "x's finishing placement")) {
+switch (ok(t.submit(spec, rng, now, "x", genOf("x"), turnOf("x"), #place { board = 2; cell = 2 }), "x's finishing placement")) {
   case (#gameEnded r) { assert r.verdict == #p1Wins };
   case (_) Runtime.trap("completing the top meta-row must end the whole match");
 };

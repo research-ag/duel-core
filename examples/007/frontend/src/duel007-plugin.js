@@ -106,12 +106,14 @@ export const plugin = {
       p2Action: Action,
       narration: IDL.Text,
     });
-    const State = IDL.Record({
+    // Nothing is hidden: the view is the whole state.
+    const View = IDL.Record({
       p1: AgentStats,
       p2: AgentStats,
       lastRound: IDL.Opt(Round),
     });
-    return { Action, State };
+    const Options = IDL.Record({});
+    return { Action, View, Options };
   },
 
   seatLabel(seat) {

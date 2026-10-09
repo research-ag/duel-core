@@ -72,7 +72,7 @@ test("errText: fixed-text variants", () => {
   assert.equal(errText({ notSeated: null }), "You are not seated in this game.");
   assert.equal(errText({ alreadySubmitted: null }), "You have already moved this round.");
   assert.equal(errText({ notYourTurn: null }), "It's not your turn.");
-  assert.equal(errText({ unauthorized: null }), "This session belongs to a different signed-in identity.");
+  assert.equal(errText({ unauthorized: null }), "An anonymous identity can't play — reload the page.");
 });
 
 test("errText: variants carrying their own message", () => {
@@ -138,8 +138,8 @@ function browsingStatus(tables: TableSummary[]): Status<{ turn: string }> {
 test("renderStatus: browsing lists a protected table alongside open ones, flagged and never leaking its code", () => {
   const html = renderStatus(
     browsingStatus([
-      { id: 1n, p1Open: false, p2Open: true, p1Session: ["alice"], p2Session: [], protected: false, waitingSecs: 2n, variant: "" },
-      { id: 2n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 5n, variant: "" },
+      { id: 1n, p1Open: false, p2Open: true, p1Session: ["alice"], p2Session: [], protected: false, waitingSecs: 2n, options: {} },
+      { id: 2n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 5n, options: {} },
     ]),
     plugin,
   );
@@ -158,8 +158,8 @@ test("renderStatus: browsing lists a protected table alongside open ones, flagge
 test("renderStatus: browsing marks a protected row's open seat with data-protected, so app.js knows to prompt for the code; an open table's own seats never carry it", () => {
   const html = renderStatus(
     browsingStatus([
-      { id: 2n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 0n, variant: "" },
-      { id: 3n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
+      { id: 2n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 0n, options: {} },
+      { id: 3n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 0n, options: {} },
     ]),
     plugin,
   );
@@ -171,7 +171,7 @@ test("renderStatus: browsing shows a taken seat's occupant id, truncated with a 
   const longId = "ii:abcdefghijklmnopqrstuvwxyz";
   const html = renderStatus(
     browsingStatus([
-      { id: 5n, p1Open: false, p2Open: true, p1Session: [longId], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
+      { id: 5n, p1Open: false, p2Open: true, p1Session: [longId], p2Session: [], protected: false, waitingSecs: 0n, options: {} },
     ]),
     plugin,
   );
@@ -182,7 +182,7 @@ test("renderStatus: browsing shows a taken seat's occupant id, truncated with a 
 test("renderStatus: browsing shows a short occupant id verbatim, with no tooltip", () => {
   const html = renderStatus(
     browsingStatus([
-      { id: 6n, p1Open: false, p2Open: true, p1Session: ["bob"], p2Session: [], protected: false, waitingSecs: 0n, variant: "" },
+      { id: 6n, p1Open: false, p2Open: true, p1Session: ["bob"], p2Session: [], protected: false, waitingSecs: 0n, options: {} },
     ]),
     plugin,
   );
@@ -240,9 +240,10 @@ test("renderView: inGame shows the turn counter (1-indexed) and delegates board/
     {
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 0n,
+        step: 0n,
         youSubmitted: false,
         oppSubmitted: false,
         gen: 1n,
@@ -262,14 +263,15 @@ test("renderView: inGame shows the turn counter (1-indexed) and delegates board/
   assert.match(html, /data-confirm="Forfeit/);
 });
 
-test("renderView: inGame uses turn-accurate copy for an #alternating table", () => {
+test("renderView: inGame uses turn-accurate copy for an #turnBased table", () => {
   const html = renderView<{ turn: string }>(
     {
       inGame: {
-        mode: { alternating: null },
+        mode: { turnBased: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 0n,
+        step: 0n,
         youSubmitted: false,
         oppSubmitted: true,
         gen: 1n,
@@ -289,14 +291,15 @@ test("renderView: inGame uses turn-accurate copy for an #alternating table", () 
   assert.match(html, /Pass/); // it's this seat's turn — actions are shown
 });
 
-test("renderView: inGame shows the waiting-for-turn copy once it's the opponent's turn, #alternating", () => {
+test("renderView: inGame shows the waiting-for-turn copy once it's the opponent's turn, #turnBased", () => {
   const html = renderView<{ turn: string }>(
     {
       inGame: {
-        mode: { alternating: null },
+        mode: { turnBased: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 1n,
+        step: 1n,
         youSubmitted: true,
         oppSubmitted: false,
         gen: 1n,
@@ -319,9 +322,10 @@ test("renderView: inGame hides actions and shows the waiting note once submitted
     {
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 2n,
+        step: 2n,
         youSubmitted: true,
         oppSubmitted: true,
         gen: 1n,
@@ -348,9 +352,10 @@ test("renderView: inGame shows the idle-reset warning once within threshold, for
     {
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 0n,
+        step: 0n,
         youSubmitted: false,
         oppSubmitted: false,
         gen: 1n,
@@ -372,9 +377,10 @@ test("renderView: inGame hides the idle-reset warning for a player who already l
     {
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 0n,
+        step: 0n,
         youSubmitted: true,
         oppSubmitted: false,
         gen: 1n,
@@ -404,9 +410,10 @@ test("renderView: inGame keeps the claim-win countdown quiet until within its ow
     {
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 0n,
+        step: 0n,
         youSubmitted: true,
         oppSubmitted: false,
         gen: 1n,
@@ -427,9 +434,10 @@ test("renderView: inGame keeps the claim-win countdown quiet until within its ow
     {
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 0n,
+        step: 0n,
         youSubmitted: true,
         oppSubmitted: false,
         gen: 1n,
@@ -453,9 +461,10 @@ test("renderView: inGame offers the Claim the win button once the claim window h
     {
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 0n,
+        step: 0n,
         youSubmitted: true,
         oppSubmitted: false,
         gen: 1n,
@@ -479,9 +488,10 @@ test("renderView: inGame warns the STILL-DECIDING player that their opponent cou
     {
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 0n,
+        step: 0n,
         youSubmitted: false,
         oppSubmitted: true,
         gen: 1n,
@@ -504,9 +514,10 @@ test("renderView: inGame warns the STILL-DECIDING player that their opponent cou
     {
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 0n,
+        step: 0n,
         youSubmitted: false,
         oppSubmitted: true,
         gen: 1n,
@@ -526,9 +537,10 @@ test("renderView: inGame warns the STILL-DECIDING player that their opponent cou
     {
       inGame: {
         mode: { simultaneous: null },
+        toMove: [],
         seat: { p1: null },
         game: { turn: "x" },
-        turn: 0n,
+        step: 0n,
         youSubmitted: false,
         oppSubmitted: true,
         gen: 1n,
@@ -549,7 +561,7 @@ test("renderView: inGame warns the STILL-DECIDING player that their opponent cou
 test("renderView: debrief — win/lose/draw wording from the acting seat's own point of view", () => {
   const base = {
     seat: { p1: null } as const,
-    turns: 3n,
+    steps: 3n,
     finalGame: { turn: "x" },
     gen: 1n,
   };
@@ -577,7 +589,7 @@ test("renderView: debrief — aborted wording distinguishes who walked away", ()
     {
       debrief: {
         seat: { p1: null },
-        turns: 1n,
+        steps: 1n,
         finalGame: { turn: "x" },
         end: { aborted: { p1: null } },
         gen: 1n,
@@ -591,7 +603,7 @@ test("renderView: debrief — aborted wording distinguishes who walked away", ()
     {
       debrief: {
         seat: { p1: null },
-        turns: 1n,
+        steps: 1n,
         finalGame: { turn: "x" },
         end: { aborted: { p2: null } },
         gen: 1n,
@@ -607,7 +619,7 @@ test("renderView: debrief — claimed wording distinguishes who claimed the over
     {
       debrief: {
         seat: { p1: null },
-        turns: 1n,
+        steps: 1n,
         finalGame: { turn: "x" },
         end: { claimed: { p1: null } },
         gen: 1n,
@@ -621,7 +633,7 @@ test("renderView: debrief — claimed wording distinguishes who claimed the over
     {
       debrief: {
         seat: { p1: null },
-        turns: 1n,
+        steps: 1n,
         finalGame: { turn: "x" },
         end: { claimed: { p2: null } },
         gen: 1n,
@@ -637,7 +649,7 @@ test("renderView: debrief pluralizes 'round(s)' correctly", () => {
     {
       debrief: {
         seat: { p1: null },
-        turns: 1n,
+        steps: 1n,
         finalGame: { turn: "x" },
         end: { finished: { draw: null } },
         gen: 1n,
@@ -651,7 +663,7 @@ test("renderView: debrief pluralizes 'round(s)' correctly", () => {
     {
       debrief: {
         seat: { p1: null },
-        turns: 3n,
+        steps: 3n,
         finalGame: { turn: "x" },
         end: { finished: { draw: null } },
         gen: 1n,

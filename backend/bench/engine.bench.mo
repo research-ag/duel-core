@@ -2,9 +2,8 @@
 import Bench "mo:bench-helper";
 import Runtime "mo:core/Runtime";
 
-import TP "../src/lib";
 import Registry "../src/registry";
-import Table "../src/table";
+import Rng "../src/rng";
 
 import Rules "../test/FakeGame";
 
@@ -13,22 +12,24 @@ module {
     let schema : Bench.Schema = {
       name = "TwoPlayer engine overhead";
       description = "Cost of the engine's core operations, scaled by how many times each runs";
-      rows = ["join+leave (fresh table each time)", "one round (both submit)", "status (in-game, side-effect-free)"];
+      rows = ["join+leave (fresh table each time)", "one round (both submit)", "view (in-game, side-effect-free)"];
       cols = ["10", "100", "1000"];
     };
 
     let spec = Rules.spec();
+    let rng = Rng.new(42);
     let timeout : Int = 60_000_000_000;
-    let reg = Registry.new<Rules.State, Rules.Action>();
+    let reg = Registry.new<Rules.State, Rules.Action, Rules.Options>();
     reg.setTimeouts(timeout, timeout);
     let ns : [Nat] = [10, 100, 1000];
 
-    func freshGame() : () {
-      let tid = switch (reg.createTable(spec, 0, "a", #p1, #open, "")) {
+    func freshGame() : Nat {
+      let tid = switch (reg.createTable(spec, rng, 0, "a", #p1, #open, "")) {
         case (#ok id) { id };
         case (#err e) Runtime.trap("freshGame: createTable failed: " # debug_show (e));
       };
-      ignore reg.joinTable(spec, 0, "b", tid, #p2, null);
+      ignore reg.joinTable(spec, rng, 0, "b", tid, #p2, null);
+      tid;
     };
 
     let run : Bench.Runner = func(ri, ci) {
@@ -40,11 +41,11 @@ module {
         // path every lobby click and quick disconnect takes.
         case (0) {
           while (i < n) {
-            switch (reg.createTable(spec, 0, "c", #p1, #open, "")) {
-              case (#ok _) {};
+            let tid = switch (reg.createTable(spec, rng, 0, "c", #p1, #open, "")) {
+              case (#ok id) id;
               case (#err e) Runtime.trap("createTable failed: " # debug_show (e));
             };
-            ignore reg.leave(0, "c", 1);
+            ignore reg.leave(0, "c", tid, 1);
             i += 1;
           };
         };
@@ -52,33 +53,33 @@ module {
         // never ends the game — see FakeGame.mo). Isolates the cost of
         // `submit`'s pending-move bookkeeping and round resolution.
         case (1) {
-          freshGame();
+          let tid = freshGame();
           while (i < n) {
             // `gen` is a fixed `1` for this game's whole lifetime (no
             // rematch ever happens here); `turn` is `i` for both calls in
             // this round — it only advances once BOTH have submitted.
-            ignore reg.submit(spec, 0, "a", 1, i, #gather);
-            ignore reg.submit(spec, 0, "b", 1, i, #gather);
+            ignore reg.submit(spec, rng, 0, "a", tid, 1, i, #gather);
+            ignore reg.submit(spec, rng, 0, "b", tid, 1, i, #gather);
             i += 1;
           };
           // FakeGame's #gather never ends the match, so the table is still
           // #active here
-          ignore reg.leave(0, "a", 1);
-          ignore reg.leave(0, "b", 1);
-          ignore reg.leave(0, "a", 1);
+          ignore reg.leave(0, "a", tid, 1);
+          ignore reg.leave(0, "b", tid, 1);
+          ignore reg.leave(0, "a", tid, 1);
         };
-        // One live game, N `status` queries.
+        // One live game, N `view` reads.
         case (2) {
-          freshGame();
+          let tid = freshGame();
           while (i < n) {
-            ignore reg.status(spec, 0, "a");
+            ignore reg.view(spec, 0, "a", tid);
             i += 1;
           };
           // Same abort/ack asymmetry as case (1) above — "a" must leave
           // twice to fully free itself from the still-#active table.
-          ignore reg.leave(0, "a", 1);
-          ignore reg.leave(0, "b", 1);
-          ignore reg.leave(0, "a", 1);
+          ignore reg.leave(0, "a", tid, 1);
+          ignore reg.leave(0, "b", tid, 1);
+          ignore reg.leave(0, "a", tid, 1);
         };
         case (_) {};
       };

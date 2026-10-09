@@ -31,7 +31,7 @@ module {
   // `keep` is small, so a full re-sort per write is fine.
   func upsert(b : Board, e : Entry) {
     let withoutOld = b.entries.filter(func(x : Entry) : Bool = x.player != e.player);
-    let merged = Array.concat(withoutOld, [e]);
+    let merged = withoutOld.concat([e]);
     let sorted = merged.sort(func(a : Entry, b : Entry) : Order.Order = Int.compare(b.score, a.score));
     b.entries := if (sorted.size() > b.keep) sorted.sliceToArray(0, b.keep) else sorted;
   };

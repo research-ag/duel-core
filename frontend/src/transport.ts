@@ -1,20 +1,31 @@
 // The transport `start()` requires: a `DuelTransport` speaking
-// `mo:duel-game-core/transport`'s two methods. A request is one
-// `duel_request` update call whose reply is this session's fresh status;
-// everything the other seat causes arrives by polling the `duel_poll`
-// query. There is no other transport.
+// `mo:duel-game-core/transport`'s methods. The caller's principal is the
+// player (the `sid` passed in is only this tab's label for it).
+//
+// Reading is by query only: `duel_lobby(rev)` (the open tables and the
+// caller's own, `yours`) and `duel_table(tableId, rev)` (the caller's view
+// of one table), each answering `unchanged` while the `rev` asked with is
+// still current. The transport follows one table at a time — the newest
+// of `yours` — or the lobby when there is none, and composes what it sees
+// into the `Status` a client renders. A move is one `duel_submit` update
+// whose reply is the table's fresh view; every other mutation
+// (`duel_create_table`, ...) replies with an `Ack` (the table and its
+// `rev`), after which the view is polled until it has caught up. A
+// `#status` request is a resync by query. While the caller waits at a
+// table for an opponent, `duel_keep_alive` keeps that table open.
 //
 //   const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 //   start({ plugin, transport, session });
 //
-// `gameIdlTypes` is the same function passed to `makeIdlFactory()`.
+// `actor` is built from `makeIdlFactory(gameIdlTypes)`; `gameIdlTypes`
+// is the same function, used to reject a malformed request before it is
+// queued.
 //
 // Exposes `onopen`/`onmessage`/`onerror`/`onclose`/`send(msg)` plus
 // `request(sid, req)` (a Promise of this call's own `{view}`/`{err}`),
 // `onconnecting` (the link was lost and is being redone) and
 // `queryStatus(sid)`. Requests go out one at a time, in order. Only
-// `close()` ends it: anything the canister forgets (an upgrade, a pruned
-// link) is relinked with a `#status`.
+// `close()` ends it.
 
 import { IDL } from "@icp-sdk/core/candid";
 import {
@@ -25,19 +36,22 @@ import {
 import type {
   Transport,
   EngineErr,
+  Seat,
   Status,
+  TableSummary,
   TransportPayload,
   TransportRequest,
+  Visibility,
 } from "./types.js";
 
 const DEFAULT_INTERVAL_MS = 500;
 
-/// A `#status` goes out after this long without any other request; the
-/// canister's `PRESENCE_TTL_NS` (180s) is what it keeps alive.
-const DEFAULT_PING_MS = 120000;
+/// How often a client waiting at a table for an opponent sends
+/// `duel_keep_alive` (the canister's `KEEP_ALIVE_SECS`).
+const DEFAULT_KEEP_ALIVE_MS = 20000;
 
-/// A `duel_poll` unanswered for this long counts as failed: the agent
-/// retries a query that errors but never gives up on one that hangs.
+/// A poll unanswered for this long counts as failed: the agent retries a
+/// query that errors but never gives up on one that hangs.
 const DEFAULT_POLL_TIMEOUT_MS = 3000;
 
 /// Unanswered polls allowed at once: a call cannot be cancelled, so at
@@ -47,48 +61,90 @@ const MAX_OPEN_POLLS = 3;
 /// Delays before resending a request whose update call threw.
 const RESEND_DELAYS_MS = [500, 1500];
 
+/// Delays between polls fetching an acked request's view while the
+/// answering replica has not caught up with the ack's `rev` yet.
+const FETCH_DELAYS_MS = [0, 100, 250, 500, 1000, 0];
+
 /// Ceiling for the back-off between failed relinks.
 const MAX_RETRY_MS = 5000;
 
-export type PollResult =
-  { unchanged: null } | { changed: Uint8Array | number[] } | { unknown: null };
+/// The caller's view of one table (`TP.View<S>`), as the engine sends it.
+type TableView = { [tag: string]: unknown };
 
-/// The two methods `mo:duel-game-core/actor_mixin` supplies.
+/// Mirrors `Transport.Snapshot<S>`.
+type Snapshot = { rev: bigint; view: TableView };
+
+/// Mirrors `Transport.Reply<S>`.
+export type Reply = { view: Snapshot } | { err: EngineErr };
+
+/// Mirrors `Transport.Ack`.
+export type Ack = { ok: { tableId: bigint; rev: bigint } } | { err: EngineErr };
+
+/// Mirrors `Transport.TableResult<S>`.
+export type TableResult = { unchanged: null } | { changed: Snapshot } | { gone: null };
+
+/// Mirrors `Transport.LobbyResult`.
+export type LobbyResult =
+  | { unchanged: null }
+  | { changed: { rev: bigint; tables: TableSummary[]; yours: bigint[] } };
+
+/// The methods of a host wired with `mo:duel-game-core/transport`:
+/// `duel_submit`/`duel_table` declared by the host, the rest from
+/// `transport_actor_mixin`. The caller is the player.
 export interface TransportActor {
-  duel_request(msg: Uint8Array): Promise<Uint8Array | number[]>;
-  duel_poll(sid: string, rev: bigint): Promise<PollResult>;
-  /// The host's plain `status` query, when the actor declares it.
-  status?(sid: string): Promise<Status>;
+  duel_create_table(seat: Seat, visibility: Visibility, options: unknown): Promise<Ack>;
+  duel_join_table(tableId: bigint, seat: Seat, code: [] | [string]): Promise<Ack>;
+  duel_rematch(tableId: bigint): Promise<Ack>;
+  duel_leave(tableId: bigint, gen: bigint): Promise<Ack>;
+  duel_reset(tableId: bigint, gen: bigint): Promise<Ack>;
+  duel_claim_win(tableId: bigint, gen: bigint): Promise<Ack>;
+  duel_ack_ended(tableId: bigint): Promise<Ack>;
+  duel_keep_alive(): Promise<{ ok: null } | { err: EngineErr }>;
+  duel_submit(tableId: bigint, gen: bigint, step: bigint, move: unknown): Promise<Reply>;
+  duel_lobby(rev: bigint): Promise<LobbyResult>;
+  duel_table(tableId: bigint, rev: bigint): Promise<TableResult>;
 }
-
-type Reply =
-  { view: { rev: bigint; view: Status } } | { err: { err: EngineErr } };
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
 const isStatus = (req: TransportRequest): boolean => "status" in req;
 
+/// A view the caller sees as an outsider: the table is not (or no longer)
+/// theirs, so the transport goes back to the lobby.
+const isOutsider = (view: TableView): boolean => "lobby" in view || "busy" in view;
+
+/// The table to follow among the caller's own: the newest.
+const pick = (yours: bigint[]): bigint =>
+  yours.reduce((a, b) => (b > a ? b : a));
+
+const NOT_SEATED: EngineErr = { notSeated: null } as EngineErr;
+
 export class DuelTransport extends EventTarget implements Transport {
   private _actor: TransportActor;
   private _types: EngineTypes;
   private _intervalMs: number;
-  private _pingMs: number;
+  private _keepAliveMs: number;
   private _pollTimeoutMs: number;
   private _sid: string | null;
   // Bumped on every presumed loss, so a reply or poll from before it
   // cannot mark the new link up or down.
   private _epoch: number;
-  // The newest revision applied, and the payload it carried.
+  // What the polls follow: a table, or the lobby (`null`), and the `rev`
+  // last applied from it.
+  private _focus: bigint | null;
   private _rev: bigint;
+  // What was last delivered, and from which source (`undefined`: nothing).
+  private _shown: bigint | null | undefined;
   private _last: TransportPayload | null;
-  // A reply arrived under the current epoch and nothing invalidated it.
+  // A poll or reply succeeded under the current epoch and nothing
+  // invalidated it.
   private _linked: boolean;
   private _closed: boolean;
-  private _chain: Promise<void>; // serializes every duel_request
+  private _chain: Promise<void>; // serializes every request
   private _inFlight: number;
   private _statusQueued: boolean;
-  private _lastRequestAt: number;
+  private _lastKeepAlive: number;
   private _pollTimer: ReturnType<typeof setTimeout> | null;
   private _ticking: boolean;
   private _openPolls: number;
@@ -107,13 +163,13 @@ export class DuelTransport extends EventTarget implements Transport {
     actor,
     gameIdlTypes,
     intervalMs = DEFAULT_INTERVAL_MS,
-    pingMs = DEFAULT_PING_MS,
+    keepAliveMs = DEFAULT_KEEP_ALIVE_MS,
     pollTimeoutMs = DEFAULT_POLL_TIMEOUT_MS,
   }: {
     actor: TransportActor;
     gameIdlTypes: BuildGameTypes;
     intervalMs?: number;
-    pingMs?: number;
+    keepAliveMs?: number;
     pollTimeoutMs?: number;
   }) {
     super();
@@ -122,21 +178,23 @@ export class DuelTransport extends EventTarget implements Transport {
       throw new Error("DuelTransport: `gameIdlTypes` is required");
 
     this._actor = actor;
-    const { Action, State } = gameIdlTypes({ IDL });
-    this._types = buildEngineTypes({ IDL, Action, State });
+    const { Action, View, Options } = gameIdlTypes({ IDL });
+    this._types = buildEngineTypes({ IDL, Action, View, Options });
     this._intervalMs = intervalMs;
-    this._pingMs = pingMs;
+    this._keepAliveMs = keepAliveMs;
     this._pollTimeoutMs = pollTimeoutMs;
     this._sid = null;
     this._epoch = 0;
+    this._focus = null;
     this._rev = 0n;
+    this._shown = undefined;
     this._last = null;
     this._linked = false;
     this._closed = false;
     this._chain = Promise.resolve();
     this._inFlight = 0;
     this._statusQueued = false;
-    this._lastRequestAt = 0;
+    this._lastKeepAlive = 0;
     this._pollTimer = null;
     this._ticking = false;
     this._openPolls = 0;
@@ -174,15 +232,15 @@ export class DuelTransport extends EventTarget implements Transport {
     this._unlisten.push(() => target.removeEventListener(type, fn));
   }
 
-  /// Back from a gap: the next tick relinks, pings or polls, whichever
-  /// is due.
+  /// Back from a gap: the next tick relinks, keeps alive or polls,
+  /// whichever is due.
   private _resume(): void {
     if (this._closed) return;
     this._schedule(0);
   }
 
-  /// The link is gone, or presumed gone: the next tick sends a `#status`
-  /// under a new epoch, and a caller that saw it open hears `onconnecting`.
+  /// The link is gone, or presumed gone: the next tick resyncs under a
+  /// new epoch, and a caller that saw it open hears `onconnecting`.
   private _lose(): void {
     this._epoch++;
     if (!this._linked) return;
@@ -197,25 +255,72 @@ export class DuelTransport extends EventTarget implements Transport {
     this._pollTimer = setTimeout(() => this._tick(), delay);
   }
 
+  /// Applies `status` from source `id` at `rev` and delivers it, unless
+  /// it is not newer than what that same source already showed.
+  private _show(id: bigint | null, rev: bigint, status: Status): void {
+    if (this._shown === id && rev <= this._rev && this._last !== null) return;
+    this._shown = id;
+    this._rev = rev;
+    this._last = { view: status };
+    this._deliver(this._last);
+  }
+
+  /// Switches what the polls follow; the next poll asks it afresh.
+  private _follow(id: bigint | null): void {
+    if (this._focus === id) return;
+    this._focus = id;
+    this._rev = 0n;
+  }
+
+  /// One round of queries for the current focus: the table (falling back
+  /// to the lobby when it is gone or no longer the caller's), or the
+  /// lobby (moving on to the caller's newest table when there is one).
+  private async _pollOnce(sid: string): Promise<void> {
+    for (let hop = 0; hop < 3; hop++) {
+      if (this._closed || sid !== this._sid) return;
+      const id = this._focus;
+      if (id === null) {
+        const res = await this._actor.duel_lobby(this._rev);
+        this._markAlive();
+        if (this._focus !== null) return; // a request moved on meanwhile
+        if ("unchanged" in res) return;
+        const { rev, tables, yours } = res.changed;
+        if (yours.length > 0) {
+          this._follow(pick(yours));
+          continue;
+        }
+        this._show(null, rev, { browsing: { tables } } as Status);
+        return;
+      }
+      const res = await this._actor.duel_table(id, this._rev);
+      this._markAlive();
+      if (this._focus !== id) return; // a request moved on meanwhile
+      if ("unchanged" in res) return;
+      if ("gone" in res || isOutsider(res.changed.view)) {
+        this._follow(null);
+        continue;
+      }
+      this._show(id, res.changed.rev, { atTable: { id, view: res.changed.view } } as Status);
+      return;
+    }
+  }
+
   /// One wait of `pollTimeoutMs` on a poll: a new one, or the newest
   /// while `MAX_OPEN_POLLS` are unanswered. A poll that outlives its wait
   /// still applies its answer.
   private _poll(sid: string): Promise<void> {
     if (this._lastPoll === null || this._openPolls < MAX_OPEN_POLLS) {
-      const epoch = this._epoch;
       this._openPolls++;
-      const poll = (async () => this._actor.duel_poll(sid, this._rev))()
-        .finally(() => {
-          this._openPolls--;
-        })
-        .then((res) => this._applyPoll(sid, epoch, res));
+      const poll = this._pollOnce(sid).finally(() => {
+        this._openPolls--;
+      });
       poll.catch(() => {});
       this._lastPoll = poll;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const expired = new Promise<never>((_, reject) => {
       timer = setTimeout(
-        () => reject(new Error("DuelTransport: duel_poll timed out")),
+        () => reject(new Error("DuelTransport: poll timed out")),
         this._pollTimeoutMs
       );
     });
@@ -224,23 +329,16 @@ export class DuelTransport extends EventTarget implements Transport {
     );
   }
 
-  private _applyPoll(sid: string, epoch: number, res: PollResult): void {
-    if (this._closed || sid !== this._sid) return;
-    this._markAlive();
-    if ("changed" in res) {
-      const reply = this._decode(res.changed);
-      if ("view" in reply && reply.view.rev > this._rev) {
-        this._rev = reply.view.rev;
-        this._last = { view: reply.view.view };
-        this._deliver(this._last);
-      }
-    } else if ("unknown" in res && this._linked && epoch === this._epoch) {
-      this._lose();
-    }
+  /// Whether the caller is waiting at a table for an opponent.
+  private _waiting(): boolean {
+    const last = this._last;
+    if (last === null || !("view" in last)) return false;
+    const st = last.view as { atTable?: { view: TableView } };
+    return st.atTable !== undefined && "stagingYou" in st.atTable.view;
   }
 
-  /// The one loop: relink if needed, ping if due, else poll. Two failed
-  /// or expired waits in a row presume the link lost.
+  /// The one loop: relink if needed, keep a waiting table alive if due,
+  /// poll. Two failed or expired waits in a row presume the link lost.
   private async _tick(): Promise<void> {
     if (this._closed || this._ticking) return;
     this._ticking = true;
@@ -255,11 +353,12 @@ export class DuelTransport extends EventTarget implements Transport {
           this._intervalMs * 2 ** Math.min(4, this._consecutiveFailures)
         );
       } else {
-        if (idle && Date.now() - this._lastRequestAt >= this._pingMs)
-          this._sendStatus(sid);
+        if (this._waiting() && Date.now() - this._lastKeepAlive >= this._keepAliveMs) {
+          this._lastKeepAlive = Date.now();
+          this._actor.duel_keep_alive().catch((e) => this._reportError(e as Error));
+        }
         try {
           await this._poll(sid);
-          if (!this._linked) delay = 0;
         } catch (e) {
           this._reportError(e as Error);
           if (this._consecutiveFailures >= 2) this._lose();
@@ -270,35 +369,88 @@ export class DuelTransport extends EventTarget implements Transport {
     this._schedule(delay);
   }
 
-  private _encode(sid: string, req: TransportRequest): Uint8Array {
-    const buf = IDL.encode([this._types.TransportMsg], [{ req: { sid, req } }]);
-    return buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  /// Throws on a request the IDL doesn't recognize.
+  private _validate(req: TransportRequest): void {
+    IDL.encode([this._types.TransportRequest], [req]);
   }
 
-  private _decode(bytes: Uint8Array | number[]): Reply {
-    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    return IDL.decode([this._types.TransportMsg], b)[0] as unknown as Reply;
+  /// The update call `req` maps to. Table requests name `id`, the table
+  /// followed when the request was made (`joinTable` its own).
+  private _dispatch(req: TransportRequest, id: bigint | null): Promise<Reply | Ack> {
+    const a = this._actor;
+    if ("createTable" in req) {
+      const { seat, visibility, options } = req.createTable;
+      return a.duel_create_table(seat, visibility, options);
+    }
+    if ("joinTable" in req) {
+      const { id, seat, code } = req.joinTable;
+      return a.duel_join_table(id, seat, code);
+    }
+    if (id === null) return Promise.resolve({ err: NOT_SEATED });
+    if ("submit" in req) {
+      const { gen, step, move } = req.submit;
+      return a.duel_submit(id, gen, step, move);
+    }
+    if ("rematch" in req) return a.duel_rematch(id);
+    if ("leave" in req) return a.duel_leave(id, req.leave.gen);
+    if ("reset" in req) return a.duel_reset(id, req.reset.gen);
+    if ("claimWin" in req) return a.duel_claim_win(id, req.claimWin.gen);
+    return a.duel_ack_ended(id);
   }
 
-  /// One update call, resent when it throws: the call may or may not have
-  /// landed, and every mutation is gated by the engine's own
-  /// legality/idempotency checks.
+  /// Polls until the view of table `id` has reached `minRev`, or the
+  /// table is no longer the caller's (the transport has moved on to the
+  /// lobby or another of their tables).
+  private async _await(sid: string, id: bigint, minRev: bigint): Promise<TransportPayload> {
+    this._follow(id);
+    for (const delay of FETCH_DELAYS_MS) {
+      if (this._closed) throw new Error("DuelTransport: closed");
+      const caughtUp = this._shown === id && this._rev >= minRev;
+      const movedOn = this._focus !== id && this._shown !== id && this._shown !== undefined;
+      if ((caughtUp || movedOn) && this._last !== null) return this._last;
+      if (delay > 0) await sleep(delay);
+      await this._poll(sid);
+    }
+    throw new Error("DuelTransport: no view at the acked revision");
+  }
+
+  /// A resync by query: the lobby, then the caller's newest table.
+  private async _resync(sid: string): Promise<TransportPayload> {
+    this._follow(null);
+    this._rev = 0n;
+    this._shown = this._shown === null ? undefined : this._shown;
+    await this._poll(sid);
+    if (this._last === null) throw new Error("DuelTransport: no status");
+    return this._last;
+  }
+
+  /// One request. An update call is resent when it throws: it may or may
+  /// not have landed, and every mutation is gated by the engine's own
+  /// legality/idempotency checks. An `Ack` is followed by fetching the
+  /// view it promises, which is not resent with the call.
   private async _call(
     sid: string,
     req: TransportRequest
-  ): Promise<{ reply: Reply; resent: boolean }> {
+  ): Promise<{ payload: TransportPayload; resent: boolean }> {
+    const epoch = this._epoch;
+    if (isStatus(req)) {
+      try {
+        const payload = await this._resync(sid);
+        if (epoch === this._epoch) this._markLinked();
+        return { payload, resent: false };
+      } catch (e) {
+        this._reportError(e as Error);
+        this._lose();
+        throw e;
+      }
+    }
+    // A resend goes to the same table, whatever the polls follow by then.
+    const target = this._focus;
     for (let attempt = 0; ; attempt++) {
       if (this._closed) throw new Error("DuelTransport: closed");
-      // A loss presumed while this attempt was out must not be undone
-      // by its reply.
-      const epoch = this._epoch;
-      const bytes = this._encode(sid, req);
+      let res: Reply | Ack;
       try {
-        this._lastRequestAt = Date.now();
-        const reply = this._decode(await this._actor.duel_request(bytes));
-        this._markAlive();
-        if ("view" in reply && epoch === this._epoch) this._markLinked();
-        return { reply, resent: attempt > 0 };
+        res = await this._dispatch(req, target);
       } catch (e) {
         this._reportError(e as Error);
         if (attempt >= RESEND_DELAYS_MS.length) {
@@ -306,43 +458,51 @@ export class DuelTransport extends EventTarget implements Transport {
           throw e;
         }
         await sleep(RESEND_DELAYS_MS[attempt]);
+        continue;
       }
+      this._markAlive();
+      if ("err" in res) return { payload: { err: res.err }, resent: attempt > 0 };
+      let payload: TransportPayload;
+      if ("ok" in res) {
+        try {
+          payload = await this._await(sid, res.ok.tableId, res.ok.rev);
+        } catch (e) {
+          this._reportError(e as Error);
+          this._lose();
+          throw e;
+        }
+      } else {
+        // `duel_submit`'s own view of the table it was about.
+        const id = target as bigint;
+        this._follow(id);
+        this._show(id, res.view.rev, { atTable: { id, view: res.view.view } } as Status);
+        payload = this._last as TransportPayload;
+      }
+      if (epoch === this._epoch) this._markLinked();
+      return { payload, resent: attempt > 0 };
     }
-  }
-
-  /// Applies a reply in revision order and returns what the caller should
-  /// see: a view older than one already applied yields the newer one.
-  private _apply(reply: Reply): { payload: TransportPayload; fresh: boolean } {
-    if ("err" in reply) return { payload: { err: reply.err.err }, fresh: true };
-    if (reply.view.rev < this._rev && this._last !== null) {
-      return { payload: this._last, fresh: false };
-    }
-    this._rev = reply.view.rev;
-    this._last = { view: reply.view.view };
-    return { payload: this._last, fresh: true };
   }
 
   /// `#alreadySubmitted`/`#stale` on a resent mutation can only mean the
-  /// original already landed; settle with a fresh `#status` instead of an
-  /// error that would make a successful click look failed.
+  /// original already landed; settle with a resync instead of an error
+  /// that would make a successful click look failed.
   private async _exchange(sid: string, req: TransportRequest): Promise<TransportPayload> {
-    let { reply, resent } = await this._call(sid, req);
+    let { payload, resent } = await this._call(sid, req);
     if (
       resent &&
-      "err" in reply &&
-      ("alreadySubmitted" in reply.err.err || "stale" in reply.err.err)
+      "err" in payload &&
+      ("alreadySubmitted" in payload.err || "stale" in payload.err)
     ) {
-      ({ reply } = await this._call(sid, { status: null }));
+      ({ payload } = await this._call(sid, { status: null }));
     }
-    const { payload, fresh } = this._apply(reply);
-    if (fresh) this._deliver(payload);
+    if ("err" in payload) this._deliver(payload);
     return payload;
   }
 
   private _enqueue(sid: string, req: TransportRequest): Promise<TransportPayload> {
     // Throws on a request the IDL doesn't recognize (a tampered
     // `data-act`), before anything is queued.
-    this._encode(sid, req);
+    this._validate(req);
     this._sid = sid;
     this._inFlight++;
     const result = this._chain.then(() => this._exchange(sid, req));
@@ -410,15 +570,20 @@ export class DuelTransport extends EventTarget implements Transport {
     }
   }
 
-  /// The host's plain `status` query: a first paint while the first
-  /// `#status` is still on its way. Rejects when the actor declares none.
-  queryStatus(sid: string): Promise<Status> {
-    if (typeof this._actor.status !== "function") {
-      return Promise.reject(
-        new Error("DuelTransport: the actor declares no `status` query")
-      );
+  /// The caller's status by query alone — the lobby, then their newest
+  /// table — without touching the link: a first paint.
+  async queryStatus(_sid: string): Promise<Status> {
+    const lobby = await this._actor.duel_lobby(0n);
+    if (!("changed" in lobby)) throw new Error("DuelTransport: no lobby");
+    const { tables, yours } = lobby.changed;
+    if (yours.length > 0) {
+      const id = pick(yours);
+      const t = await this._actor.duel_table(id, 0n);
+      if ("changed" in t && !isOutsider(t.changed.view)) {
+        return { atTable: { id, view: t.changed.view } } as Status;
+      }
     }
-    return this._actor.status(sid);
+    return { browsing: { tables } } as Status;
   }
 
   get closed(): boolean {
@@ -459,14 +624,14 @@ export class DuelTransport extends EventTarget implements Transport {
   }
 }
 
-/// `intervalMs` (default 500) is the poll interval; `pingMs` (default
-/// 120000) is how long the link may stay quiet before a `#status`;
-/// `pollTimeoutMs` (default 3000) is how long one poll may go unanswered.
+/// `intervalMs` (default 500) is the poll interval; `keepAliveMs` (default
+/// 20000) how often a waiting table is kept open; `pollTimeoutMs`
+/// (default 3000) how long one poll may go unanswered.
 export function connectTransport(opts: {
   actor: TransportActor;
   gameIdlTypes: BuildGameTypes;
   intervalMs?: number;
-  pingMs?: number;
+  keepAliveMs?: number;
   pollTimeoutMs?: number;
 }): DuelTransport {
   return new DuelTransport(opts);

@@ -35,7 +35,7 @@ Every screen is a function of `state.status` (`null` before the first
 push, `{ browsing }`, or `{ atTable: { id, view } }` with `view` one of
 `lobby`/`busy`/`stagingYou`/`awaitingRematch`/`inGame`/`debrief`/
 `endedByOther` — the shapes are in `types.js`). Every control calls one
-client method: `createTable(seat, visibility?, variant?)`,
+client method: `createTable(seat, visibility?, options?)`,
 `joinTable(id, seat, code?)`, `submit(move)`, `rematch()`, `leave()`,
 `reset()`, `claimWin()`, `ackEnded()`. Each resolves with `{ ok: true,
 view }` or `{ ok: false, reason }` (`inFlight`, `closed`, `stale`,
@@ -54,7 +54,7 @@ is forgotten:
 | "new sid" / login / logout enabled                       | `!state.identityLocked`; call `client.regenerateSid()`/`login()`/`logout()`               |
 | countdowns between views                                 | `localSecondsLeft(view.secondsUntilX, state.statusAt)` on a local 1 s timer               |
 | who may claim                                            | `claimRoleOf(inGame)`: `"waiting"` may, `"atRisk"` is the mirror                          |
-| submit's `gen`/`turn`                                    | stamped by the client; never send them yourself                                           |
+| submit's `gen`/`step`                                    | stamped by the client; never send them yourself                                           |
 | a stale view (`#wrongPhase` on join, `#stale` on a move) | handled: the client refreshes silently, `reason: "stale"`; any rejection also refreshes   |
 
 ## Your move at once, the opponent's move marked
@@ -108,10 +108,10 @@ complexities into pickable characters and calls the bot's `play` after
 `client.createTable(...)` resolves, modal dialogs rendered from local
 state alongside the screen, an opponent-move replay that keeps drawing
 the previous `view.game` while animating the move inferred by diffing it
-against the new one (`turn` advanced by one ply; the mover is the seat
-on turn), and a move-history sidebar built from the same diffs, both
+against the new one (`step` advanced by one; the mover is the seat that
+was on turn), and a move-history sidebar built from the same diffs, both
 over `withLocalMove`. A
-design that needs the last move should carry it in `State` when it can
+design that needs the last move should carry it in `View` when it can
 change the backend; the diff is the fallback when it cannot.
 
 ## Persistent DOM alongside the default shell
@@ -126,14 +126,14 @@ app, a `<canvas>` with a WebGL context — is destroyed and reparsed.
 2. Give your UI its own persistent DOM region, a **sibling** of `#screen`.
 3. Drive it from `client.subscribe(...)`. Never open a second connection
    (two pollers can deliver views out of order); `client.submit(move)` is
-   the one way to move, and its `gen`/`turn` stamping and the chrome's
+   the one way to move, and its `gen`/`step` stamping and the chrome's
    spinner come for free.
-4. `renderBoard`/`renderActions` can be near-stubs. The turn counter,
+4. `renderBoard`/`renderActions` can be near-stubs. The step counter,
    "opponent is deciding"/"locked in", verdict banner, and claim-win
    warnings around them stay correct, since they are driven by the
    engine's own view fields.
-5. Detect round boundaries from `state.status` changes (a monotonic
-   counter in `State`), not from `renderBoard` being called.
+5. Detect round boundaries from `state.status` changes (`step`, or a
+   monotonic counter in `View`), not from `renderBoard` being called.
 
 `examples/racing` in the framework repo is the worked example (a Three.js
 scene beside the chrome, sharing one `transport`); its `frontend/CLAUDE.md` and

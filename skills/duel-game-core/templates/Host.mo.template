@@ -1,22 +1,20 @@
 // Host actor for __GAME_SLUG__. Copy verbatim; only the `Rules` import
-// and the two timeouts change between games. `status`, `http_request` and
-// the HTTP mixin's controllers-only `wasm_upload_*` are the only plain
-// Candid methods — every game mutation goes through
+// and the two timeouts change between games. `http_request` and the HTTP
+// mixin's controllers-only `wasm_upload_*` are the only plain Candid
+// methods — every game read and mutation goes through
 // `mo:duel-game-core/transport`.
-
-import Time "mo:core/Time";
 
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
 import Transport "mo:duel-game-core/transport";
-import ActorMixin "mo:duel-game-core/actor_mixin";
+import TransportActorMixin "mo:duel-game-core/transport_actor_mixin";
 import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
 import PT "mo:promtracker";
 import Tracker "mo:promtracker/Tracker"; // brings `pt.toValue()` into scope
 
 import Rules "__RULES_MODULE__";
 
-persistent actor {
+actor {
   // Metrics: the registry's four game metrics plus promtracker's system
   // ones, served at GET /metrics (Prometheus exposition).
   let pt = PT.Tracker.new(); // plain data — stable
@@ -24,29 +22,38 @@ persistent actor {
   renderer.addValue(PT.allSystemMetrics);
   renderer.addValue(pt.toValue());
 
-  let registry : TP.Registry<Rules.State, Rules.Action> = Registry.new();
-  registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // re-applied on every upgrade
-  registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
+  // All the data — tables, lobby, random-number generator. Stable.
+  let duel = Transport.new<Rules.State, Rules.Action, Rules.Options>();
+  duel.registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // re-applied on every upgrade
+  duel.registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
 
-  public query func status(sid : Text) : async TP.SessionStatus<Rules.State> {
-    registry.status(Rules.spec(), Time.now(), sid);
+  // The function values the framework calls — the game's rules. No bots,
+  // no leaderboard. Rebuilt on every upgrade.
+  transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+    spec = Rules.spec;
+    bots = null;
+    scoring = null;
   };
 
-  transient let hub : Transport.Hub = Transport.createHub();
-  transient let attached = Transport.attach<Rules.State, Rules.Action>(
-    Rules.spec(),
-    registry,
-    hub,
-    {
-      encode = func(m : Transport.Msg<Rules.State, Rules.Action>) : Blob = to_candid (m);
-      decode = func(b : Blob) : ?Transport.Msg<Rules.State, Rules.Action> = from_candid (b);
-    },
-    null, // onSettled — canister players
-    null, // onGameEnded — leaderboard
-    null, // onGameStarted — leaderboard
-  );
+  // Every method that names none of the game's types, and the sweep timer.
+  include TransportActorMixin<system>(duel.lobby(env));
 
-  include ActorMixin<system>(attached.endpoint, attached.sweep);
+  // The four methods whose Candid types name the game's own types.
+  public shared ({ caller }) func duel_create_table(seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options) : async Transport.Ack {
+    await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, seat, visibility, options);
+  };
+
+  public shared query ({ caller }) func duel_lobby(rev : Nat) : async Transport.LobbyResult<Rules.Options> {
+    duel.lobbyView(caller, rev);
+  };
+
+  public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, step : Nat, action : Rules.Action) : async Transport.Reply<Rules.View> {
+    duel.reply(env, caller, tableId, await* duel.submit<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, tableId, gen, step, action));
+  };
+
+  public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.View> {
+    duel.table(env, caller, tableId, rev);
+  };
 
   // GET /semantics — the rules text a third-party frontend is built from;
   // GET /metrics — the metrics above. GET /wasm is the mixin's own.

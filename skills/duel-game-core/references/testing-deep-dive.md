@@ -17,12 +17,12 @@ genuine `#debrief` through the real engine in a lifecycle-style test.
 
 ## The fix: seed the state, then submit one real move
 
-`Table<S, M>.phase` is a public `var`. Join two real sessions normally,
+`Table<S, M, O>.phase` is a public `var`. Join two real sessions normally,
 then overwrite just the `game : S` payload of the live `#active` phase
 with a state one legal move from finishing:
 
 ```motoko
-public func seedGame(t : TP.Table<R.State, R.Action>, p1 : R.CarState, p2 : R.CarState) {
+public func seedGame(t : TP.Table<R.State, R.Action, R.Options>, p1 : R.CarState, p2 : R.CarState) {
   switch (t.phase) {
     case (#active a) t.phase := #active({
       a with game = { p1; p2; step = a.game.step }
@@ -44,5 +44,6 @@ multiply the interpreter cost.
 ## Everything that isn't "reach a finished game"
 
 Physics bounds, penalty rules, unreachable edge cases: construct
-synthetic `State` values and call `validate`/`resolve` directly. That is
+synthetic `State` values and call `validate`/`resolve` (or `move`)
+directly. That is
 better test design, not a compromise.

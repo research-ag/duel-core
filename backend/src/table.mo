@@ -9,50 +9,54 @@ import T "./types";
 
 module {
 
-  public type Table<S, M> = T.Table<S, M>;
+  public type Table<S, M, O> = T.Table<S, M, O>;
 
-  public func new<S, M>(idleTimeoutNs : Int, claimTimeoutNs : Int, visibility : T.TableVisibility, createdBy : T.SessionId, variant : Text) : Table<S, M> = {
+  public func new<S, M, O>(idleTimeoutNs : Int, claimTimeoutNs : Int, visibility : T.TableVisibility, createdBy : T.PlayerId, options : O) : Table<S, M, O> = {
     var idleTimeoutNs = idleTimeoutNs;
     var claimTimeoutNs = claimTimeoutNs;
     visibility;
     createdBy;
-    variant;
+    options;
     var phase = #empty;
     var gen = 0;
     var lastEnded = [];
     var debriefAcked = [];
+    var rev = 0;
   };
 
-  public func setTimeouts<S, M>(self : Table<S, M>, idleTimeoutNs : Int, claimTimeoutNs : Int) {
+  public func setTimeouts<S, M, O>(self : Table<S, M, O>, idleTimeoutNs : Int, claimTimeoutNs : Int) {
     self.idleTimeoutNs := idleTimeoutNs;
     self.claimTimeoutNs := claimTimeoutNs;
   };
 
-  public func isExpired<S, M>(self : Table<S, M>, since : Int, now : Int) : Bool = now - since >= self.idleTimeoutNs;
+  public func isExpired<S, M, O>(self : Table<S, M, O>, since : Int, now : Int) : Bool = now - since >= self.idleTimeoutNs;
 
-  public func claimOverdue<S, M>(self : Table<S, M>, since : Int, now : Int) : Bool = now - since >= self.claimTimeoutNs;
+  public func claimOverdue<S, M, O>(self : Table<S, M, O>, since : Int, now : Int) : Bool = now - since >= self.claimTimeoutNs;
 
   func secsLeftFor(timeoutNs : Int, since : Int, now : Int) : Nat {
     let left = timeoutNs - (now - since);
     if (left <= 0) { 0 } else { left.toNat() / 1_000_000_000 };
   };
 
-  public func secsLeft<S, M>(self : Table<S, M>, since : Int, now : Int) : Nat = secsLeftFor(self.idleTimeoutNs, since, now);
+  public func secsLeft<S, M, O>(self : Table<S, M, O>, since : Int, now : Int) : Nat = secsLeftFor(self.idleTimeoutNs, since, now);
 
-  public func claimSecsLeft<S, M>(self : Table<S, M>, since : Int, now : Int) : Nat = secsLeftFor(self.claimTimeoutNs, since, now);
+  public func claimSecsLeft<S, M, O>(self : Table<S, M, O>, since : Int, now : Int) : Nat = secsLeftFor(self.claimTimeoutNs, since, now);
 
-  /// Whose turn on an `#alternating` table: p1 at `turn == 0`, then
-  /// alternating. Derived, never stored.
-  public func toMove(turn : Nat) : T.Seat = if (turn % 2 == 0) #p1 else #p2;
+  /// Whose turn it is on a `#turnBased` table: the rules' own `toMove`.
+  /// `null` in `#simultaneous`, where both seats act every step.
+  public func toMoveOf<S, M, V, O>(spec : T.Spec<S, M, V, O>, game : S) : ?T.Seat = switch (spec) {
+    case (#turnBased turnSpec) ?turnSpec.toMove(game);
+    case (#simultaneous _) null;
+  };
 
-  public func idleTimeoutSecs<S, M>(self : Table<S, M>) : Nat = self.idleTimeoutNs.toNat() / 1_000_000_000;
+  public func idleTimeoutSecs<S, M, O>(self : Table<S, M, O>) : Nat = self.idleTimeoutNs.toNat() / 1_000_000_000;
 
-  public func claimTimeoutSecs<S, M>(self : Table<S, M>) : Nat = self.claimTimeoutNs.toNat() / 1_000_000_000;
+  public func claimTimeoutSecs<S, M, O>(self : Table<S, M, O>) : Nat = self.claimTimeoutNs.toNat() / 1_000_000_000;
 
   /// A session that already acked THIS debrief is no longer a participant
   /// (rule 12, "leave means left"), even while the phase lingers for the
   /// partner. Used by every debrief-phase operation except `leave` itself.
-  public func activeDebriefSeat<S, M>(self : Table<S, M>, d : T.Debrief<S>, session : T.SessionId) : ?T.Seat {
+  public func activeDebriefSeat<S, M, O>(self : Table<S, M, O>, d : T.Debrief<S>, session : T.PlayerId) : ?T.Seat {
     if (member(self.debriefAcked, session)) { null } else {
       getSessionSeat(d, session);
     };
@@ -60,19 +64,19 @@ module {
 
   /// The partner to reserve a rematch seat for — `null` if they already
   /// acked, so the staging opens unreserved instead of waiting forever.
-  func rematchPartner<S, M>(self : Table<S, M>, d : T.Debrief<S>, session : T.SessionId) : ?T.SessionId {
+  func rematchPartner<S, M, O>(self : Table<S, M, O>, d : T.Debrief<S>, session : T.PlayerId) : ?T.PlayerId {
     let partner = if (d.p1 == session) d.p2 else d.p1;
     if (member(self.debriefAcked, partner)) { null } else { ?partner };
   };
 
   /// Appends (a freed board can host another vanished pair before the
   /// first acks); skips an entry that is already fully acked.
-  public func noteEnded<S, M>(self : Table<S, M>, now : Int, p1 : T.SessionId, p2 : T.SessionId, acked : [T.SessionId]) {
+  public func noteEnded<S, M, O>(self : Table<S, M, O>, now : Int, p1 : T.PlayerId, p2 : T.PlayerId, acked : [T.PlayerId]) {
     if (member(acked, p1) and member(acked, p2)) return;
     self.lastEnded := self.lastEnded.concat([{ p1; p2; acked; since = now }]);
   };
 
-  public func unackedEnded<S, M>(self : Table<S, M>, session : T.SessionId) : Bool {
+  public func unackedEnded<S, M, O>(self : Table<S, M, O>, session : T.PlayerId) : Bool {
     for (e in self.lastEnded.values()) {
       if ((e.p1 == session or e.p2 == session) and not member(e.acked, session)) {
         return true;
@@ -81,10 +85,10 @@ module {
     false;
   };
 
-  /// Whether `session` still has unfinished business here — what
-  /// `Registry.releaseIfStale` uses to drop a `bySession` mapping the
-  /// phase itself already moved past.
-  public func isStillSeated<S, M>(self : Table<S, M>, session : T.SessionId) : Bool {
+  /// Whether `session` still has unfinished business here: seated in
+  /// the current phase, or (once `#empty`) owed an `#endedByOther`
+  /// notice. `Registry.isMine` builds on it.
+  public func isStillSeated<S, M, O>(self : Table<S, M, O>, session : T.PlayerId) : Bool {
     switch (self.phase) {
       case (#empty) self.unackedEnded(session);
       case (#staging st) st.session == session;
@@ -95,25 +99,38 @@ module {
 
   /// Drops notices nobody is plausibly coming back to ack; otherwise one
   /// dangling entry pins an `#empty` table in the registry forever.
-  func pruneEnded<S, M>(self : Table<S, M>, now : Int) {
+  func pruneEnded<S, M, O>(self : Table<S, M, O>, now : Int) {
     self.lastEnded := self.lastEnded.filter(func(e) = now - e.since < self.idleTimeoutNs * 10);
   };
 
-  public func checkGen<S, M>(self : Table<S, M>, gen : Nat) : ?T.Err = if (gen == self.gen) {
+  public func checkGen<S, M, O>(self : Table<S, M, O>, gen : Nat) : ?T.Err = if (gen == self.gen) {
     null;
   } else { ?#stale };
 
-  public func stage<S, M>(self : Table<S, M>, now : Int, session : T.SessionId, seat : T.Seat, reservedFor : ?T.SessionId) {
+  public func stage<S, M, O>(self : Table<S, M, O>, now : Int, session : T.PlayerId, seat : T.Seat, reservedFor : ?T.PlayerId) {
     self.gen += 1;
     self.phase := #staging { seat; session; reservedFor; since = now };
   };
 
-  func initOf<S, M>(spec : T.Spec<S, M>, variant : Text) : S = switch (spec) {
-    case (#simultaneous simSpec) simSpec.init(variant);
-    case (#alternating turnSpec) turnSpec.init(variant);
+  func initOf<S, M, V, O>(spec : T.Spec<S, M, V, O>, options : O, rng : T.Rng) : S = switch (spec) {
+    case (#simultaneous simSpec) simSpec.init(options, rng);
+    case (#turnBased turnSpec) turnSpec.init(options, rng);
   };
 
-  public func startGame<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, st : T.Staging, joiner : T.SessionId) {
+  /// The game's verdict on a table's options: `null` = sensible.
+  public func checkOptions<S, M, V, O>(spec : T.Spec<S, M, V, O>, options : O) : ?Text = switch (spec) {
+    case (#simultaneous simSpec) simSpec.checkOptions(options);
+    case (#turnBased turnSpec) turnSpec.checkOptions(options);
+  };
+
+  /// What `seat` may see of `game`: the game's own `view`; `over` once
+  /// the game has ended.
+  public func viewOf<S, M, V, O>(spec : T.Spec<S, M, V, O>, game : S, seat : T.Seat, over : Bool) : V = switch (spec) {
+    case (#simultaneous simSpec) simSpec.view(game, seat, over);
+    case (#turnBased turnSpec) turnSpec.view(game, seat, over);
+  };
+
+  public func startGame<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, rng : T.Rng, now : Int, st : T.Staging, joiner : T.PlayerId) {
     let (p1, p2) = switch (st.seat) {
       case (#p1) (st.session, joiner);
       case (#p2) (joiner, st.session);
@@ -121,21 +138,21 @@ module {
     self.phase := #active {
       p1;
       p2;
-      game = initOf(spec, self.variant);
+      game = initOf(spec, self.options, rng);
       pending1 = null;
       pending2 = null;
-      turn = 0;
+      step = 0;
       lastActivity = now;
-      roundStartedAt = now;
+      stepStartedAt = now;
       lastMoveP1 = null;
       lastMoveP2 = null;
-      lastRoundDurationNs = null;
+      lastStepDurationNs = null;
     };
   };
 
-  public func enterDebrief<S, M>(self : Table<S, M>, now : Int, p1 : T.SessionId, p2 : T.SessionId, end : T.End, turns : Nat, finalGame : S) {
+  public func enterDebrief<S, M, O>(self : Table<S, M, O>, now : Int, p1 : T.PlayerId, p2 : T.PlayerId, end : T.End, steps : Nat, finalGame : S) {
     self.debriefAcked := [];
-    self.phase := #debrief { p1; p2; end; turns; finalGame; since = now };
+    self.phase := #debrief { p1; p2; end; steps; finalGame; since = now };
   };
 
   /// Claim a seat: fresh join, seat switch while staging alone, idempotent
@@ -143,7 +160,7 @@ module {
   /// expired debrief, or (for a debrief participant) a rematch staging
   /// with a free choice of seat. A staged seat is never taken over: only
   /// `sweep` frees it.
-  public func join<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, seat : T.Seat) : T.Res<T.JoinOk> {
+  public func join<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, rng : T.Rng, now : Int, session : T.PlayerId, seat : T.Seat) : T.Res<T.JoinOk> {
     switch (self.phase) {
 
       case (#empty) {
@@ -171,7 +188,7 @@ module {
             };
             case null {};
           };
-          self.startGame(spec, now, st, session);
+          self.startGame(spec, rng, now, st, session);
           #ok(#started(seat));
         };
       };
@@ -212,7 +229,7 @@ module {
   /// the partner unless they already left. From a staging reserved for
   /// you: start the game. Two simultaneous calls serialize into
   /// create-then-join.
-  public func rematch<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.Res<T.RematchOk> {
+  public func rematch<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, rng : T.Rng, now : Int, session : T.PlayerId) : T.Res<T.RematchOk> {
     switch (self.phase) {
 
       case (#debrief d) {
@@ -227,7 +244,7 @@ module {
 
       case (#staging st) {
         if (st.session == session) { #ok(#awaitingPartner) } else if (st.reservedFor == ?session) {
-          self.startGame(spec, now, st, session);
+          self.startGame(spec, rng, now, st, session);
           #ok(#started);
         } else {
           #err(#wrongPhase("another player is staging a game"));
@@ -244,16 +261,16 @@ module {
     };
   };
 
-  /// `gen`/`turn` must match what the caller last observed, so a resend
-  /// whose original already resolved this round comes back `#stale`.
-  public func submit<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, gen : Nat, turn : Nat, move : M) : T.Res<T.SubmitOk> {
+  /// `gen`/`step` must match what the caller last observed, so a resend
+  /// whose original already applied comes back `#stale`.
+  public func submit<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, rng : T.Rng, now : Int, session : T.PlayerId, gen : Nat, step : Nat, move : M) : T.Res<T.SubmitOk> {
     switch (self.checkGen(gen)) {
       case (?e) return #err(e);
       case null {};
     };
     switch (self.phase) {
       case (#active g) {
-        if (turn != g.turn) return #err(#stale);
+        if (step != g.step) return #err(#stale);
         let mySeat = switch (getSessionSeat(g, session)) {
           case (?s) s;
           case null return #err(#notSeated);
@@ -275,9 +292,7 @@ module {
             };
 
             let g2 : T.Active<S, M> = {
-              p1 = g.p1;
-              p2 = g.p2;
-              game = g.game;
+              g with
               pending1 = switch (mySeat) {
                 case (#p1) ?move;
                 case (#p2) g.pending1;
@@ -286,39 +301,33 @@ module {
                 case (#p2) ?move;
                 case (#p1) g.pending2;
               };
-              turn = g.turn;
               lastActivity = now;
-              roundStartedAt = g.roundStartedAt;
-              lastMoveP1 = g.lastMoveP1;
-              lastMoveP2 = g.lastMoveP2;
-              lastRoundDurationNs = g.lastRoundDurationNs;
             };
             self.phase := #active(g2);
 
             switch (g2.pending1, g2.pending2) {
               case (?m1, ?m2) {
-                let r = simSpec.resolve(g2.game, m1, m2);
-                let turns = g2.turn + 1;
+                let r = simSpec.resolve(g2.game, m1, m2, rng);
+                let steps = g2.step + 1;
                 switch (r.verdict) {
                   case (?v) {
-                    self.enterDebrief(now, g2.p1, g2.p2, #finished(v), turns, r.state);
-                    #ok(#gameEnded { verdict = v; turns });
+                    self.enterDebrief(now, g2.p1, g2.p2, #finished(v), steps, r.state);
+                    #ok(#gameEnded { verdict = v; steps });
                   };
                   case null {
                     self.phase := #active {
-                      p1 = g2.p1;
-                      p2 = g2.p2;
+                      g2 with
                       game = r.state;
                       pending1 = null;
                       pending2 = null;
-                      turn = turns;
+                      step = steps;
                       lastActivity = now;
-                      roundStartedAt = now;
+                      stepStartedAt = now;
                       lastMoveP1 = ?m1;
                       lastMoveP2 = ?m2;
-                      lastRoundDurationNs = ?(now - g2.roundStartedAt);
+                      lastStepDurationNs = ?(now - g2.stepStartedAt);
                     };
-                    #ok(#roundResolved(turns));
+                    #ok(#stepped(steps));
                   };
                 };
               };
@@ -326,31 +335,27 @@ module {
             };
           };
 
-          // Resolves immediately; `pending1`/`pending2` stay `null`.
-          case (#alternating turnSpec) {
-            if (mySeat != toMove(g.turn)) return #err(#notYourTurn);
-            switch (turnSpec.validate(g.game, mySeat, move)) {
-              case (?why) return #err(#illegalMove(why));
-              case null {};
+          // One action of the seat on turn, applied at once;
+          // `pending1`/`pending2` stay `null`.
+          case (#turnBased turnSpec) {
+            if (mySeat != turnSpec.toMove(g.game)) return #err(#notYourTurn);
+            let r = switch (turnSpec.move(g.game, mySeat, move, rng)) {
+              case (#err why) return #err(#illegalMove(why));
+              case (#ok r) r;
             };
-
-            let r = turnSpec.resolve(g.game, mySeat, move);
-            let turns = g.turn + 1;
+            let steps = g.step + 1;
             switch (r.verdict) {
               case (?v) {
-                self.enterDebrief(now, g.p1, g.p2, #finished(v), turns, r.state);
-                #ok(#gameEnded { verdict = v; turns });
+                self.enterDebrief(now, g.p1, g.p2, #finished(v), steps, r.state);
+                #ok(#gameEnded { verdict = v; steps });
               };
               case null {
                 self.phase := #active {
-                  p1 = g.p1;
-                  p2 = g.p2;
+                  g with
                   game = r.state;
-                  pending1 = null;
-                  pending2 = null;
-                  turn = turns;
+                  step = steps;
                   lastActivity = now;
-                  roundStartedAt = now;
+                  stepStartedAt = now;
                   lastMoveP1 = switch (mySeat) {
                     case (#p1) ?move;
                     case (#p2) g.lastMoveP1;
@@ -359,9 +364,9 @@ module {
                     case (#p2) ?move;
                     case (#p1) g.lastMoveP2;
                   };
-                  lastRoundDurationNs = ?(now - g.roundStartedAt);
+                  lastStepDurationNs = ?(now - g.stepStartedAt);
                 };
-                #ok(#roundResolved(turns));
+                #ok(#stepped(steps));
               };
             };
           };
@@ -374,7 +379,7 @@ module {
   /// The waiting seat ends the match with `#claimed` once the opponent's
   /// move has been pending past `claimTimeoutNs`. `resolve` is not run;
   /// the game state stays as it was. Never automatic.
-  public func claimWin<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> {
+  public func claimWin<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, now : Int, session : T.PlayerId, gen : Nat) : T.Res<()> {
     switch (self.checkGen(gen)) {
       case (?e) return #err(e);
       case null {};
@@ -398,8 +403,8 @@ module {
               return #err(#wrongPhase("your opponent already moved"));
             };
           };
-          case (#alternating _) {
-            if (mySeat == toMove(g.turn)) {
+          case (#turnBased turnSpec) {
+            if (mySeat == turnSpec.toMove(g.game)) {
               return #err(#wrongPhase("it's your turn to move — only the waiting player may claim"));
             };
           };
@@ -407,7 +412,7 @@ module {
         if (not self.claimOverdue(g.lastActivity, now)) {
           return #err(#notOverdue { secondsLeft = self.claimSecsLeft(g.lastActivity, now) });
         };
-        self.enterDebrief(now, g.p1, g.p2, #claimed(mySeat), g.turn, g.game);
+        self.enterDebrief(now, g.p1, g.p2, #claimed(mySeat), g.step, g.game);
         #ok(());
       };
       case (_) #err(#wrongPhase("no game is running"));
@@ -419,7 +424,7 @@ module {
   /// Debrief: acks it for you; the board frees once both have acked.
   /// `gen`-checked in every phase but `#empty`, so a stale resend can't
   /// wipe a newer match the same session later started.
-  public func leave<S, M>(self : Table<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> {
+  public func leave<S, M, O>(self : Table<S, M, O>, now : Int, session : T.PlayerId, gen : Nat) : T.Res<()> {
     switch (self.phase) {
 
       case (#staging st) {
@@ -448,7 +453,7 @@ module {
         };
         switch (getSessionSeat(g, session)) {
           case (?mySeat) {
-            self.enterDebrief(now, g.p1, g.p2, #aborted(mySeat), g.turn, g.game);
+            self.enterDebrief(now, g.p1, g.p2, #aborted(mySeat), g.step, g.game);
             #ok(());
           };
           case null #err(#notSeated);
@@ -480,7 +485,7 @@ module {
   /// Participants get `leave` semantics (`gen`-checked); outsiders are
   /// gated by the idle timeout and never checked against `gen`, and can't
   /// reset a staging at all.
-  public func reset<S, M>(self : Table<S, M>, now : Int, session : T.SessionId, gen : Nat) : T.Res<()> {
+  public func reset<S, M, O>(self : Table<S, M, O>, now : Int, session : T.PlayerId, gen : Nat) : T.Res<()> {
     switch (self.phase) {
       case (#empty) #ok(());
 
@@ -524,7 +529,7 @@ module {
   /// Idle eviction with no visitor required, plus `pruneEnded`. Driven by
   /// the host's periodic timer. A staging survives while its occupant
   /// `isPresent`; a game or debrief is evicted regardless.
-  public func sweep<S, M>(self : Table<S, M>, now : Int, isPresent : T.SessionId -> Bool) {
+  public func sweep<S, M, O>(self : Table<S, M, O>, now : Int, isPresent : T.PlayerId -> Bool) {
     switch (self.phase) {
       case (#empty) {};
       case (#staging st) {
@@ -550,7 +555,7 @@ module {
 
   /// Acks this session's own `#endedByOther` notice; the entry is dropped
   /// once every participant it names has acked.
-  public func ackEnded<S, M>(self : Table<S, M>, session : T.SessionId) {
+  public func ackEnded<S, M, O>(self : Table<S, M, O>, session : T.PlayerId) {
     self.lastEnded := self.lastEnded.filterMap(
       func(e) {
         if (e.p1 != session and e.p2 != session) { return ?e };
@@ -564,7 +569,7 @@ module {
 
   /// Pure — safe as a query. Takes `spec` only to report `mode` and the
   /// per-mode meaning of `youSubmitted`/`oppSubmitted`.
-  public func status<S, M>(self : Table<S, M>, spec : T.Spec<S, M>, now : Int, session : T.SessionId) : T.View<S> {
+  public func status<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, now : Int, session : T.PlayerId) : T.TableView<V> {
     switch (self.phase) {
 
       case (#empty) {
@@ -603,23 +608,22 @@ module {
           case (?mySeat) {
             let mode : T.Mode = switch (spec) {
               case (#simultaneous _) #simultaneous;
-              case (#alternating _) #alternating;
+              case (#turnBased _) #turnBased;
             };
-            let (youSubmitted, oppSubmitted) = switch (spec) {
-              case (#simultaneous _) (
+            let toMove = toMoveOf(spec, g.game);
+            let (youSubmitted, oppSubmitted) = switch (toMove) {
+              case null (
                 (switch (mySeat) { case (#p1) g.pending1; case (#p2) g.pending2 }).isSome(),
                 (switch (mySeat) { case (#p1) g.pending2; case (#p2) g.pending1 }).isSome(),
               );
-              case (#alternating _) {
-                let onTurn = mySeat == toMove(g.turn);
-                (not onTurn, onTurn);
-              };
+              case (?onTurn) (onTurn != mySeat, onTurn == mySeat);
             };
             #inGame {
               seat = mySeat;
-              game = g.game;
-              turn = g.turn;
+              game = viewOf(spec, g.game, mySeat, false);
+              step = g.step;
               mode;
+              toMove;
               youSubmitted;
               oppSubmitted;
               gen = self.gen;
@@ -648,8 +652,8 @@ module {
             #debrief {
               seat = mySeat;
               end = d.end;
-              turns = d.turns;
-              finalGame = d.finalGame;
+              steps = d.steps;
+              finalGame = viewOf(spec, d.finalGame, mySeat, true);
               gen = self.gen;
             };
           };
@@ -665,18 +669,18 @@ module {
     };
   };
 
-  func getSessionSeat<S, M>(phase : T.Active<S, M> or T.Debrief<S>, session : T.SessionId) : ?T.Seat {
+  func getSessionSeat<S, M, O>(phase : T.Active<S, M> or T.Debrief<S>, session : T.PlayerId) : ?T.Seat {
     if (phase.p1 == session) { ?#p1 } else if (phase.p2 == session) { ?#p2 } else {
       null;
     };
   };
 
-  func pushAck(xs : [T.SessionId], x : T.SessionId) : [T.SessionId] {
+  func pushAck(xs : [T.PlayerId], x : T.PlayerId) : [T.PlayerId] {
     for (y in xs.values()) { if (y == x) return xs };
     xs.concat([x]);
   };
 
-  func member(xs : [T.SessionId], x : T.SessionId) : Bool {
+  func member(xs : [T.PlayerId], x : T.PlayerId) : Bool {
     for (y in xs.values()) { if (y == x) return true };
     false;
   };

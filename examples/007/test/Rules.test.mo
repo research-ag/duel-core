@@ -1,7 +1,10 @@
 // Unit checks for the pure 007 rules.
+import Rng "mo:duel-game-core/rng";
 import R "../src/Duel007Rules";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
+
+let rng = Rng.new(42);
 
 // Shorthand: run one round, trap if verdict shape unexpected.
 func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
@@ -11,7 +14,7 @@ func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
 };
 
 // 1. Both shoot → draw.
-var s = R.init("");
+var s = R.init({}, rng);
 s := round(s, #load, #load);
 let bothShoot = R.resolve(s, #shoot, #shoot);
 switch (bothShoot.verdict) {
@@ -21,7 +24,7 @@ switch (bothShoot.verdict) {
 Debug.print("1. both-shoot draw OK");
 
 // 2. Mirror reflects a normal shot back.
-s := R.init("");
+s := R.init({}, rng);
 s := round(s, #load, #load);
 let mirrored = R.resolve(s, #shoot, #mirror);
 switch (mirrored.verdict) {
@@ -31,7 +34,7 @@ switch (mirrored.verdict) {
 Debug.print("2. mirror reflect OK");
 
 // 3. Shield absorbs twice, 3rd absorb breaks it; broken shield is illegal.
-s := R.init("");
+s := R.init({}, rng);
 var i = 0;
 while (i < 3) {
   s := round(s, #load, #load); // p1 gains ammo
@@ -54,7 +57,7 @@ Debug.print("3. shield capacity + break OK");
 
 // 4. Laser: 5 consecutive loads charge it; it pierces shield AND mirror.
 func charged() : R.State {
-  var st = R.init("");
+  var st = R.init({}, rng);
   var j = 0;
   while (j < 5) { st := round(st, #load, #shield); j += 1 }; // p2 shields (absorbs nothing)
   assert st.p1.charge == 5;
@@ -73,7 +76,7 @@ switch (vsMirror.verdict) {
 Debug.print("4. laser pierces shield and mirror OK");
 
 // 5. Charge resets on any non-load action.
-s := R.init("");
+s := R.init({}, rng);
 var k = 0;
 while (k < 4) { s := round(s, #load, #load); k += 1 };
 assert s.p1.charge == 4;
@@ -84,12 +87,12 @@ assert s.p1.charge == 1; // counting restarts
 Debug.print("5. charge streak reset OK");
 
 // 6. validate rejects 0-ammo shoot and 0-mirror mirror.
-s := R.init("");
+s := R.init({}, rng);
 switch (R.validate(s, #p1, #shoot)) {
   case (?_) {};
   case null Runtime.trap("0-ammo shoot must be illegal");
 };
-var s2 = R.init("");
+var s2 = R.init({}, rng);
 var m = 0;
 while (m < 3) { s2 := round(s2, #load, #mirror); m += 1 };
 assert s2.p2.mirrors == 0;

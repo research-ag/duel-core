@@ -1,4 +1,4 @@
-# chopsticks duel — reference #alternating game built on duel-game-core
+# chopsticks duel — reference #turnBased game built on duel-game-core
 
 The two-hands finger game: attack (add your hand's count to an opponent's
 live hand) or split (redistribute your total). Put both opponent hands
@@ -7,20 +7,23 @@ This is the repo's reference for a variant that changes RESOLUTION as
 well as legality, and for a three-tier bot (Bunny/Fox/Bear). Not part of
 either package.
 
-- **`src/ChopsticksRules.mo`** — `#alternating`, `#p1` first. `State = {
-variant; p1 : Hands; p2 : Hands }`, `Hands = { l; r }` (0 = out,
-  otherwise 1..4). `Action = #attack { from; to }` (`to` is the
-  opponent's hand) or `#split { l; r }`. `init(raw)` parses
-  `"instructables"`; anything else is `#classic`. `validate` gates
-  attacks (both hands live) and splits per variant; `resolve` applies
-  `hit` (`>= 5` out in Classic; `sum % 5`, 0 = out, in Instructables) or
-  the split. `legalActions` enumerates by calling `validate` on each
+- **`src/ChopsticksRules.mo`** — `#turnBased`, `#p1` first. `Options =
+Variant = { #classic; #instructables }` (`checkOptions` accepts both);
+  `State = { variant; p1 : Hands; p2 : Hands; toMove }`, `Hands = { l; r }`
+  (0 = out, otherwise 1..4); `View = State`. `Action = #attack { from; to
+}` (`to` is the opponent's hand) or `#split { l; r }`. `init(options,
+rng)` stores the variant. `validate` gates attacks (both hands live)
+  and splits per variant; `resolve` applies `hit` (`>= 5` out in
+  Classic; `sum % 5`, 0 = out, in Instructables) or the split and flips
+  `toMove`; `move` = `validate` then `resolve`. `legalActions`
+  enumerates by calling `validate` on each
   candidate. `other`/`handsOf`/`get`/`liveHands`/`isOut` are helpers the
   bot reuses.
 - **`src/Host.mo`** — identical in shape to `examples/checkers/src/Host.mo`
-  (metrics, canister players, bot discovery, ELO). Variants are entirely
-  `Rules`' and the plugin's concern.
-- **`src/BotIface.mo`** — `make_move`.
+  (metrics, canister players, bot discovery, ELO). Options are entirely
+  `Rules`' and the plugin's concern; the host only names `Rules.Options`
+  in `duel_create_table`/`duel_lobby`.
+- **`src/BotIface.mo`** — `make_move` and `callBot`.
 - **`bot/BotLogic.mo`** — `COMPLEXITIES = ["Bunny", "Fox", "Bear"]`;
   `chooseMove` switches on `req.complexity`, reads the variant off
   `req.game.variant`, and always draws from `legalActions`. Bunny: no
@@ -32,7 +35,7 @@ depth`, live-hands heuristic — depth-limited because the position graph
   `unregister` (sends `COMPLEXITIES`, so the bot lists as
   "ChopsticksBot (Bunny)/(Fox)/(Bear)"):
   `icp canister call bot register '(principal "<backend-canister-id>", "ChopsticksBot")'`.
-- **`test/*.test.mo`** — `RulesUnit` (variant parsing, attack gating,
+- **`test/*.test.mo`** — `RulesUnit` (init per option, attack gating,
   Classic's free split minus stay-put/pure-swap/hand-of-five,
   Instructables' one-dead-and-even gate, `>= 5` vs exact-5 and wrap, win,
   `legalActions` counts); `Lifecycle` (an Instructables
@@ -48,7 +51,7 @@ depth`, live-hands heuristic — depth-limited because the position graph
   JetBrainsMono in `src/assets/fonts/`), over `duel-game-core/client.js`
   alone: nothing from `duel-game-core/app.js` or its stylesheet runs
   here. `chopsticks-plugin.js` is the `GamePlugin` (Candid types,
-  `variantChoices()` Classic first, `formatVariant()`, `renderBoard`/
+  `optionChoices()` Classic first, `formatOptions()`, `renderBoard`/
   `renderActions`, `applyLocal` mirroring `resolve`) plus what the UI shares with it: `renderHands`/
   `handCard` (the finger-emoji hand cards with selection, last-moved,
   targetable and replay states) and the cosmetic rules mirrors `hit`,
@@ -82,7 +85,7 @@ depth`, live-hands heuristic — depth-limited because the position graph
 
 ## Toolchain / Build & test
 
-Same as `examples/tic-tac-toe` (moc 1.11.2; `mops test`; build
+Same as `examples/tic-tac-toe` (moc 2.0.0; `mops test`; build
 `../../frontend` first, then `npm install --legacy-peer-deps && npm run
 build` in `frontend/`; `icp deploy`; then
 `icp canister call bot register ...`). `build.js` also copies
@@ -109,14 +112,14 @@ Everything in `../../CLAUDE.md`, plus:
 - Seats: "Player 1"/"Player 2"; `#p1` first. Both hands start at 1. A
   hand at 0 is out by any path and can neither attack nor be attacked.
 - ATTACK: target becomes `target + attacker`; both hands must be live.
-- **Classic** (`""` or unrecognized): 5 or more is out, no wrap. Split
+- **Classic** (`#classic`): 5 or more is out, no wrap. Split
   freely, except staying put, a pure swap, or a hand of 5+.
-- **Instructables** (`"instructables"`): exactly 5 is out; above 5 wraps
+- **Instructables** (`#instructables`): exactly 5 is out; above 5 wraps
   `mod 5`. Split only with one hand out and the other even, always half
   and half.
 - WIN: both opponent hands out. A split never ends the game. No draw
   condition; a cycling position is left to the players or `claimWin`.
-- `turn` counts plies.
+- `step` counts plies.
 
 ## Conventions
 

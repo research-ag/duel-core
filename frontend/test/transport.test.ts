@@ -20,14 +20,14 @@ afterEach(() => {
 
 function connect(
   canister: FakeCanister,
-  pingMs = 60000,
+  keepAliveMs = 60000,
   pollTimeoutMs = 3000
 ): DuelTransport {
   const transport = connectTransport({
     actor: canister,
     gameIdlTypes: sampleGameTypes,
     intervalMs: 5,
-    pingMs,
+    keepAliveMs,
     pollTimeoutMs,
   });
   live.push(transport);
@@ -65,13 +65,14 @@ test("the first status links: onopen fires once and the view is delivered", asyn
   await until(() => seen.length === 1, "the first view");
   assert.equal(opens, 1);
   assert.deepEqual(seen[0], { view: ENDED });
-  assert.deepEqual(canister.sent, [{ status: null }]);
+  assert.deepEqual(canister.sent, [], "a status is a query, not an update call");
   transport.close();
 });
 
-test("request() resolves with its own reply, straight from the update call", async () => {
+test("request() resolves with the view its ack promised", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister);
+  await transport.request(SID, { status: null }); // follow table 1
   canister.respond = (req) =>
     "rematch" in req ? { view: inGame(7n) } : { view: ENDED };
   const reply = await transport.request(SID, { rematch: null });
@@ -82,6 +83,7 @@ test("request() resolves with its own reply, straight from the update call", asy
 test("an engine error comes back as the reply, not a rejection", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister);
+  await transport.request(SID, { status: null }); // follow table 1
   canister.respond = () => ({ err: { notSeated: null } });
   assert.deepEqual(await transport.request(SID, { rematch: null }), {
     err: { notSeated: null },
@@ -107,6 +109,7 @@ test("a change made by the other seat arrives by polling", async () => {
 test("requests go out one at a time, in order", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister);
+  await transport.request(SID, { status: null }); // follow table 1
   const a = transport.request(SID, { rematch: null });
   const b = transport.request(SID, { ackEnded: null });
   await Promise.all([a, b]);
@@ -117,6 +120,7 @@ test("requests go out one at a time, in order", async () => {
 test("a thrown update call is resent", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister);
+  await transport.request(SID, { status: null }); // follow table 1
   canister.failRequests = 1;
   assert.deepEqual(await transport.request(SID, { rematch: null }), { view: ENDED });
   assert.equal(canister.attempts, 2);
@@ -127,47 +131,48 @@ test("a thrown update call is resent", async () => {
 test("a resend rejected as #stale settles with a fresh status instead", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister);
+  await transport.request(SID, { status: null }); // follow table 1
   canister.failRequests = 1;
   canister.landsBeforeFailing = true;
   let calls = 0;
-  canister.respond = (req) => {
-    if ("status" in req) return { view: BROWSING };
-    return calls++ === 0 ? { view: BROWSING } : { err: { stale: null } };
-  };
+  canister.respond = () => (calls++ === 0 ? { view: BROWSING } : { err: { stale: null } });
   assert.deepEqual(await transport.request(SID, { leave: { gen: 1n } }), {
     view: BROWSING,
   });
-  assert.deepEqual(canister.sent, [
-    { leave: { gen: 1n } },
-    { leave: { gen: 1n } },
-    { status: null },
-  ]);
+  // The resync after the #stale resend is a query: not in `sent`.
+  assert.deepEqual(canister.sent, [{ leave: { gen: 1n } }, { leave: { gen: 1n } }]);
   transport.close();
 });
 
-test("an update call that keeps failing rejects and fires onerror", async () => {
+test("an update call that keeps failing rejects after its resends", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister);
-  let errors = 0;
-  transport.onerror = () => errors++;
+  await transport.request(SID, { status: null }); // follow table 1
   canister.failRequests = 3;
   await assert.rejects(transport.request(SID, { rematch: null }), /network down/);
-  assert.equal(errors, 1);
+  assert.equal(canister.attempts, 3);
   transport.close();
 });
 
-test("a forgotten link is redone", async () => {
+test("a table that is gone sends the transport back to the lobby", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister);
-  let opens = 0;
-  let connecting = 0;
-  transport.onopen = () => opens++;
-  transport.onconnecting = () => connecting++;
+  const seen: TransportPayload[] = [];
+  transport.onmessage = (ev) => seen.push(ev.data);
   await transport.request(SID, { status: null });
-  canister.forget();
-  await until(() => opens === 2, "the relink");
-  assert.equal(connecting, 1);
-  assert.deepEqual(canister.sent, [{ status: null }, { status: null }]);
+  canister.push(BROWSING);
+  await until(() => seen.length === 2, "the lobby");
+  assert.deepEqual(seen[1], { view: BROWSING });
+  transport.close();
+});
+
+test("a table request with no table followed is #notSeated, never sent", async () => {
+  const canister = new FakeCanister();
+  canister.current = BROWSING;
+  const transport = connect(canister);
+  await transport.request(SID, { status: null });
+  assert.deepEqual(await transport.request(SID, { rematch: null }), { err: { notSeated: null } });
+  assert.deepEqual(canister.sent, []);
   transport.close();
 });
 
@@ -240,12 +245,12 @@ test("a poll answering after its timeout still delivers, without a relink", asyn
 test("hanging polls stop piling up at the limit", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister, 60000, 10);
-  let connecting = 0;
-  transport.onconnecting = () => connecting++;
   await transport.request(SID, { status: null });
   const polls = canister.polls;
   canister.pollBehavior = "hang";
-  await until(() => connecting === 3, "repeated relinks");
+  // Ticks, relink attempts included, keep waiting on the newest of at
+  // most three unanswered polls instead of asking again.
+  await new Promise((r) => setTimeout(r, 300));
   assert.equal(canister.polls - polls, 3);
   transport.close();
 });
@@ -271,12 +276,19 @@ test("a poll that throws synchronously is an ordinary failure", async () => {
   transport.close();
 });
 
-test("a quiet link sends a status as its heartbeat", async () => {
+test("a client waiting at its table keeps it alive, and only then", async () => {
   const canister = new FakeCanister();
-  const transport = connect(canister, 40);
-  await transport.request(SID, { status: null });
-  await until(() => canister.sent.length >= 2, "the heartbeat");
-  assert.deepEqual(canister.sent[1], { status: null });
+  const transport = connect(canister, 20);
+  await transport.request(SID, { status: null }); // ENDED: not waiting
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(canister.keepAlives, 0);
+  canister.push({
+    atTable: {
+      id: 1n,
+      view: { stagingYou: { seat: { p1: null }, reservedForPartner: false, gen: 1n, visibility: { open: null } } },
+    },
+  } as Status);
+  await until(() => canister.keepAlives >= 2, "keep-alives while waiting");
   transport.close();
 });
 
@@ -289,7 +301,7 @@ test("concurrent status sends are coalesced", async () => {
   transport.send({ req: { sid: SID, req: { status: null } } });
   await until(() => seen.length >= 1, "the view");
   await new Promise((r) => setTimeout(r, 30));
-  assert.equal(canister.sent.length, 1);
+  assert.equal(seen.length, 1, "one resync, one delivery");
   transport.close();
 });
 
@@ -300,8 +312,10 @@ test("close() sends nothing and rejects later requests", async () => {
   transport.onclose = () => closes++;
   await transport.request(SID, { status: null });
   transport.close();
+  const polls = canister.polls;
   await new Promise((r) => setTimeout(r, 30));
-  assert.equal(canister.sent.length, 1);
+  assert.equal(canister.polls, polls, "no more polls once closed");
+  assert.equal(canister.sent.length, 0);
   assert.equal(closes, 1);
   await assert.rejects(transport.request(SID, { status: null }), /closed/);
 });
@@ -314,7 +328,7 @@ test("a request the IDL cannot encode rejects without reaching the canister", as
   transport.close();
 });
 
-test("queryStatus() goes through the plain status query", async () => {
+test("queryStatus() composes the status from queries alone", async () => {
   const canister = new FakeCanister();
   const transport = connect(canister);
   assert.deepEqual(await transport.queryStatus(SID), ENDED);

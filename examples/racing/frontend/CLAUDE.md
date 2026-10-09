@@ -22,11 +22,11 @@ Plain TypeScript, no framework, one track and one car:
   via `body.in-race`). The only per-challenge actor is the chosen bot's
   own `play`, built from `buildBotPlayIdlFactory`.
 - `duel-app.js` uses `resolveIdentity()` — never the anonymous default
-  identity, which `isAuthorizedSid` rejects (`#unauthorized`; symptom: a
-  lobby stuck on loading). The keypair persists in `sessionStorage` and
-  `sid` derives from its principal.
-- `lobby-connection.service.ts` fires a `status` `request()` the moment
-  `getDuelTransport()` resolves. Safe because `DuelTransport`'s `send()`/
+  identity, which the canister refuses (`#unauthorized`; symptom: a
+  lobby stuck on loading). The keypair persists in `sessionStorage`; its
+  principal is the player, and `sid` is the tab's label for it.
+- `lobby-connection.service.ts` fires a `status` `request()` (a resync
+  by query) the moment `getDuelTransport()` resolves. Safe because `DuelTransport`'s `send()`/
   `request()` work at any time. Don't add a wait-for-onopen here.
 - `lobby-connection.service.ts` shares the ONE `DuelTransport` via
   `window.duelTransportReady` (an `EventTarget` listener, not `transport.onmessage`),

@@ -7,13 +7,13 @@ module {
   /// negamax, never loses. Unknown values play Easy.
   public let COMPLEXITIES : [Text] = ["Easy", "Hard"];
 
-  public func chooseMove(req : TP.MoveRequest<Rules.State, Rules.Action>) : Rules.Action {
+  public func chooseMove(req : TP.MoveRequest<Rules.View, Rules.Action>) : Rules.Action {
     if (req.complexity == "Hard") bestMove(req.game, req.seat) else easyMove(req);
   };
 
-  func easyMove(req : TP.MoveRequest<Rules.State, Rules.Action>) : Rules.Action {
+  func easyMove(req : TP.MoveRequest<Rules.View, Rules.Action>) : Rules.Action {
     let moves = Rules.legalActions(req.game, req.seat);
-    moves[req.turn % moves.size()];
+    moves[req.step % moves.size()];
   };
 
   func other(seat : TP.Seat) : TP.Seat = switch (seat) {

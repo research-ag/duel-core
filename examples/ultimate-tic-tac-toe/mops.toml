@@ -5,7 +5,7 @@ description = "ultimate tic-tac-toe — reference #alternating game built on due
 
 [dependencies]
 duel-game-core = "../../backend"
-core = "2.6.1"
+core = "2.6.2"
 
 [toolchain]
-moc = "1.11.2"
+moc = "2.0.0"

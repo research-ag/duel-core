@@ -1,16 +1,18 @@
-# tic-tac-toe duel — reference #alternating game built on duel-game-core
+# tic-tac-toe duel — reference #turnBased game built on duel-game-core
 
-Standard 3x3 tic-tac-toe: the smallest `#alternating` reference, and the
+Standard 3x3 tic-tac-toe: the smallest `#turnBased` reference, and the
 reference for a bot with two complexities. Not part of either package.
 
-- **`src/TicTacToeRules.mo`** — `#alternating`, X/`#p1` first.
-  `legalActions(s, seat)` is every empty cell (seat-independent).
+- **`src/TicTacToeRules.mo`** — `#turnBased`, X/`#p1` first; `toMove`
+  is derived from the number of marks (no turn field in `State = {
+board }`); `move` = `validate` then `resolve`; `View = State`, `Options
+= {}`. `legalActions(s, seat)` is every empty cell (seat-independent).
 - **`src/Host.mo`** — same shape as `examples/checkers/src/Host.mo`
   (metrics, canister players, bot discovery, ELO; 90s/60s, `STARTING_ELO
 = 1200`).
 - **`src/BotIface.mo`** — `make_move`.
 - **`bot/BotLogic.mo`** — `COMPLEXITIES = ["Easy", "Hard"]`. Easy:
-  `legalActions(...)[turn % n]`. Hard: negamax with alpha-beta over
+  `legalActions(...)[step % n]`. Hard: negamax with alpha-beta over
   `Rules.resolve` itself, never loses. Unknown complexities play Easy.
 - **`bot/Bot.mo`** — `make_move` (`query`), `play(...)`, `register`/
   `unregister` (sends `COMPLEXITIES`, listing "TicTacToeBot (Easy)" and
@@ -30,7 +32,7 @@ reference for a bot with two complexities. Not part of either package.
 
 ## Toolchain / Build & test
 
-Same as `examples/checkers` (moc 1.11.2; `mops test`; build
+Same as `examples/checkers` (moc 2.0.0; `mops test`; build
 `../../frontend` first; `npm install --legacy-peer-deps && npm run build`
 in `frontend/`; `icp deploy`). Play both seats in two tabs.
 
@@ -44,7 +46,7 @@ never vendored here.
 - 9 cells, row-major (`index = row*3 + col`); `#p1` = X first, `#p2` = O.
 - `LINES` is a fixed constant of the eight winning lines.
 - Any empty cell is legal for either seat.
-- `turn` counts plies. No configurable board size or win length.
+- `step` counts plies. No configurable board size or win length.
 
 ## Conventions
 

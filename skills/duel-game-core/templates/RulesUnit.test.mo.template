@@ -1,38 +1,49 @@
-// Unit checks for __RULES_MODULE__: init/validate/resolve called directly,
-// no engine. One block per illegal move in `validate` and per
-// win/lose/draw path in `resolve`. `assert` + `Runtime.trap`.
+// Unit checks for __RULES_MODULE__: init/validate/resolve (or move) called
+// directly, no engine. One block per illegal move and per win/lose/draw
+// path. `assert` + `Runtime.trap`.
 //
 // Run: moc -r --package core <path-to-core/src> --package duel-game-core
-//      <path-to-duel-game-core-backend/src> test/RulesUnit.test.mo
+//      <path-to-duel-game-core-backend/src> --package prng <path-to-prng/src>
+//      test/RulesUnit.test.mo
 import R "../src/__RULES_MODULE__";
 import TP "mo:duel-game-core";
+import Rng "mo:duel-game-core/rng";
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 
+// A fixed seed makes every run identical.
+let rng = Rng.new(42);
+let options : R.Options = {};
+
 // #simultaneous: one round, trapping if it ended unexpectedly.
 func round(s : R.State, a1 : R.Action, a2 : R.Action) : R.State {
-  let r = R.resolve(s, a1, a2);
+  let r = R.resolve(s, a1, a2, rng);
   switch (r.verdict) { case null {}; case (?_) Runtime.trap("unexpected end") };
   r.state;
 };
 
-// #alternating equivalent (see references/alternating-turn-games.md).
-func turnRound(s : R.State, seat : TP.Seat, a : R.Action) : R.State {
-  let r = R.resolve(s, seat, a);
-  switch (r.verdict) { case null {}; case (?_) Runtime.trap("unexpected end") };
-  r.state;
-};
+// #turnBased equivalent (see references/turn-based-games.md): one action,
+// trapping on a rejection or an unexpected end.
+// func step(s : R.State, seat : TP.Seat, a : R.Action) : R.State {
+//   switch (R.move(s, seat, a, rng)) {
+//     case (#err why) Runtime.trap("rejected: " # why);
+//     case (#ok { state; verdict = ?_ }) Runtime.trap("unexpected end");
+//     case (#ok { state; verdict = null }) state;
+//   };
+// };
 
-// 1. init("") is a clean slate and spec() hands out these functions. With
-// variants, also test init per variant key plus one unrecognized string.
-let s0 = R.init("");
-let sp = switch (R.spec()) {
+// 1. checkOptions accepts the default options, init is a clean slate and
+// `spec` hands out these functions. With options, also test init per
+// option value plus one `checkOptions` rejection.
+assert R.checkOptions(options) == null;
+let s0 = R.init(options, rng);
+let sp = switch (R.spec) {
   case (#simultaneous s) s;
-  case (#alternating _) Runtime.trap("expected a #simultaneous spec");
+  case (#turnBased _) Runtime.trap("expected a #simultaneous spec");
 };
-let s1 = sp.init("");
+let s1 = sp.init(options, rng);
 // assert <fields of s1 match your fresh-state expectations>;
-Debug.print("1. init + spec wiring OK");
+Debug.print("1. options + init + spec wiring OK");
 
 // 2. validate rejects each illegal move.
 // switch (R.validate(s0, #p1, #yourMove)) {
@@ -42,11 +53,16 @@ Debug.print("1. init + spec wiring OK");
 Debug.print("2. validate OK");
 
 // 3. resolve reaches each win/lose/draw path.
-// let r = R.resolve(s0, #move1, #move2);
+// let r = R.resolve(s0, #move1, #move2, rng);
 // switch (r.verdict) {
 //   case (?#p1Wins) {};
 //   case (_) Runtime.trap("expected p1 to win this exchange");
 // };
 Debug.print("3. resolve OK");
+
+// 4. view hides what it should (skip when View = State).
+// let v = R.view(s0, #p1, false);
+// assert v.opponentHandSize == 5;
+Debug.print("4. view OK");
 
 Debug.print("ALL __RULES_MODULE__ RULESUNIT CHECKS PASSED");

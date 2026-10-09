@@ -1,428 +1,460 @@
-/// duel-game-core/transport — the REQUIRED client transport: one update
-/// method for requests, one query polled for changes. The only way a
-/// client mutates game state: none of `Registry`'s mutating operations is
-/// a plain Candid method (two independent update calls have no guaranteed
-/// relative order). `status` stays a plain `query`.
+/// duel-game-core/transport — the REQUIRED client transport. A player is
+/// the caller's principal; every table request names its table.
 ///
-/// Every legal `sid` is principal-bound: `PRINCIPAL_SID_PREFIX` (`"ii:"`,
-/// Internet Identity) or `ANON_SID_PREFIX` (`"an:"`, a persisted local
-/// keypair), both `sidFor(prefix, p)`; anything else is `#unauthorized`.
-/// A request reuses `Registry`'s operations with `Time.now()`, replies
-/// with the caller's fresh `SessionStatus`, and bumps the `rev` of every
-/// other session whose status changed; `duel_poll` hands a session its
-/// status whenever its `rev` moved. Nothing is queued. Silence only ends
-/// presence; departure is the engine's own business.
+/// No classes. Two kinds of value:
+///   - `Duel<S, M, O>` — all the data: the registry (tables), the
+///     lobby's `rev`, presence, and the random-number generator the
+///     game's rules draw from. A plain record, declared as an ordinary —
+///     stable — actor field. Each table's `rev` lives on its `Table`.
+///   - `Env<S, M, V, O>` — the function values that cannot be stable,
+///     built by the host from its rules module: the game's `Spec`, and
+///     optionally the canister players (their stable `Store` plus the
+///     host's `CallBot`) and a leaderboard (its stable `Board` plus a
+///     rating). Passed to every function that needs it; never stored in
+///     `Duel`.
+/// Behaviour is module functions on them, written `duel.submit(env, …)`.
 ///
-/// Wiring — see `../README.md`, "Transport":
+/// Type parameters, all chosen by the game's rules module: `S` the full
+/// state, `M` one move, `V` what one seat may see of the state (the
+/// game's `view`), `O` the table options a creator picks.
 ///
-///   transient let hub : Transport.Hub = Transport.createHub();
-///   transient let attached = Transport.attach<Rules.State, Rules.Action>(
-///     Rules.spec(), registry, hub,
-///     { encode = func(m) = to_candid (m); decode = func(b) = from_candid (b) },
-///     null, null, null, // onSettled, onGameEnded, onGameStarted
-///   );
-///   include ActorMixin<system>(attached.endpoint, attached.sweep);
+/// Reading is by pure query, with no per-reader record:
+///   - `lobbyView(caller, rev)`: the open tables and the caller's own
+///     (`yours`), built only when the lobby's `rev` differs from `rev`.
+///   - `table(env, caller, id, rev)`: the caller's view of table `id`,
+///     built only when the table's `rev` differs from `rev`.
+/// `rev = 0` means "I hold nothing" and always gets the current state.
+///
+/// Mutation is by update, one at a time from a client (two in-flight
+/// update calls have no ordering guarantee): the lobby functions
+/// (create/join/rematch/leave/reset/claimWin/ackEnded) answer an `Ack`
+/// (the table and its `rev` after the call), `submit` the fresh view of
+/// its table. Each bumps its table's `rev`; all but `submit` also bump
+/// the lobby's. After every mutation the leaderboard is scored (on a
+/// fresh debrief) and canister players are settled.
+///
+/// Presence only keeps a waiting table open: a client waiting at a table
+/// sends `keepAlive` every `KEEP_ALIVE_SECS`, and `sweep` (every
+/// `SWEEP_SECS`) clears a waiting table past the idle timeout whose
+/// creator went silent for `PRESENCE_TTL_NS`.
+///
+/// Wiring — the methods whose signatures name none of the game's types
+/// come from `./transport_actor_mixin` (a mixin cannot take type
+/// parameters), through `duel.lobby(env)`; the host declares the four
+/// that do (`duel_create_table`, `duel_lobby`, `duel_submit`,
+/// `duel_table`) — see the skill's `templates/Host.mo.template`.
 
-import Array "mo:core/Array";
-import Int "mo:core/Int";
 import Map "mo:core/Map";
+import Nat "mo:core/Nat";
+import Nat64 "mo:core/Nat64";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
+import Timer "mo:core/Timer";
 
+import CanisterPlayers "./canister_players";
+import Elo "./elo";
+import Leaderboard "./leaderboard";
 import TP "./lib";
 import Registry "./registry";
+import Rng "./rng";
+import Table "./table";
 
 module {
 
-  /// Mirrors `Registry`'s operations plus `#status` (a resync, the
-  /// first request of a connection, and the heartbeat). `#submit`/
-  /// `#leave`/`#reset`/`#claimWin` carry the `gen` (and `#submit` the
-  /// `turn`) the client last observed, so a stale replay is rejected as
-  /// `#stale`.
-  public type Request<M> = {
-    #createTable : {
-      seat : TP.Seat;
-      visibility : TP.TableVisibility;
-      variant : Text;
+  /// Everything the transport keeps. Stable.
+  public type Duel<S, M, O> = {
+    registry : TP.Registry<S, M, O>;
+    /// Bumped whenever the open-table list or anyone's `yours` may have
+    /// changed.
+    var lobbyRev : Nat;
+    /// Last request per player; only keeps a waiting table open.
+    presence : Map.Map<TP.PlayerId, Int>;
+    /// Handed to the rules' `init`/`move`/`resolve`. Seeded from the
+    /// clock at install.
+    rng : TP.Rng;
+  };
+
+  public func new<S, M, O>() : Duel<S, M, O> = {
+    registry = Registry.new<S, M, O>();
+    var lobbyRev = 0;
+    presence = Map.empty<TP.PlayerId, Int>();
+    rng = Rng.new(Nat64.fromIntWrap(Time.now()));
+  };
+
+  /// Canister players: the stable store plus the host's `CallBot`.
+  public type Bots<V, M> = {
+    store : CanisterPlayers.Store;
+    call : CanisterPlayers.CallBot<V, M>;
+  };
+
+  /// How a finished game is scored — a game picks the one that fits.
+  /// `#elo`: a rating between players who play against each other; both
+  /// seats are re-rated (`#claimed`/`#aborted` count as wins). `#best`:
+  /// individual personal bests; the game scores each seat it credits
+  /// from the debrief (zero, one or two entries, e.g. a lap time turned
+  /// into higher-is-better), each kept only when it improves that
+  /// player's entry.
+  public type Rating<S> = {
+    #elo : { k : Nat };
+    #best : (TP.Debrief<S>) -> [(TP.Seat, Int)];
+  };
+
+  public type Scoring<S> = { board : Leaderboard.Board; rating : Rating<S> };
+
+  /// The function values a call needs, built by the host from its rules
+  /// module (and its bot call); never stored in `Duel`.
+  public type Env<S, M, V, O> = {
+    spec : TP.Spec<S, M, V, O>;
+    bots : ?Bots<V, M>;
+    scoring : ?Scoring<S>;
+  };
+
+  /// A lobby function's reply: the table it was about and that table's
+  /// `rev` after the call. The client polls `table` until it sees a view
+  /// at least that new.
+  public type Ack = TP.Res<{ tableId : TP.TableId; rev : Nat }>;
+
+  /// One table's view for the caller, at the table's `rev`.
+  public type Snapshot<V> = { rev : Nat; view : TP.TableView<V> };
+
+  /// What `duel_submit` returns.
+  public type Reply<V> = { #view : Snapshot<V>; #err : TP.Err };
+
+  /// What `duel_table` returns: `#unchanged` while the table is still at
+  /// the `rev` asked with; `#gone` once the table no longer exists.
+  public type TableResult<V> = { #unchanged; #changed : Snapshot<V>; #gone };
+
+  /// What `duel_lobby` returns. `yours`: every table the caller has
+  /// business at (seated, reserved for, or an unacked notice).
+  public type LobbyResult<O> = {
+    #unchanged;
+    #changed : {
+      rev : Nat;
+      tables : [TP.TableSummary<O>];
+      yours : [TP.TableId];
     };
-    #joinTable : { id : TP.TableId; seat : TP.Seat; code : ?Text };
-    #submit : { gen : Nat; turn : Nat; move : M };
-    #rematch;
-    #leave : { gen : Nat };
-    #reset : { gen : Nat };
-    #claimWin : { gen : Nat };
-    #ackEnded;
-    #status;
   };
 
-  /// One message type for both directions. `rev` orders views: a client
-  /// drops any view not newer than the last it applied.
-  public type Msg<S, M> = {
-    #req : { sid : TP.SessionId; req : Request<M> };
-    #view : { rev : Nat; view : TP.SessionStatus<S> };
-    #err : { err : TP.Err };
+  /// A player is the caller's principal; the anonymous one is refused.
+  public func playerOf(caller : Principal) : ?TP.PlayerId {
+    if (caller.isAnonymous()) null else ?caller.toText();
   };
 
-  /// `#unknown`: no link for this session (an upgrade, a pruned or
-  /// departed one) — the client sends `#status` again.
-  public type PollResult = { #unchanged; #changed : Blob; #unknown };
+  /// How long after its last request a player still counts as present.
+  public let PRESENCE_TTL_NS : Int = 60_000_000_000;
 
-  /// Built where `S`/`M` are concrete, via `to_candid`/`from_candid`.
-  public type Codec<S, M> = {
-    encode : (Msg<S, M>) -> Blob;
-    decode : (Blob) -> ?Msg<S, M>;
-  };
+  /// How often a client waiting at a table sends `duel_keep_alive`.
+  public let KEEP_ALIVE_SECS : Nat = 20;
 
-  public let PRINCIPAL_SID_PREFIX : Text = "ii:";
+  /// How often `sweep` runs. A waiting table whose creator went silent
+  /// is gone within the idle timeout plus about one interval.
+  public let SWEEP_SECS : Nat = 30;
 
-  public let ANON_SID_PREFIX : Text = "an:";
-
-  public func sidFor(prefix : Text, p : Principal.Principal) : TP.SessionId {
-    prefix # p.toText();
-  };
-
-  public func sidForPrincipal(p : Principal.Principal) : TP.SessionId {
-    sidFor(PRINCIPAL_SID_PREFIX, p);
-  };
-
-  /// Whether `sid` is legal for a caller authenticated as `p`; never for
-  /// the anonymous principal.
-  public func isAuthorizedSid(sid : TP.SessionId, p : Principal.Principal) : Bool {
-    if (p.isAnonymous()) return false;
-    if (sid.startsWith(#text PRINCIPAL_SID_PREFIX)) {
-      return sid.equal(sidFor(PRINCIPAL_SID_PREFIX, p));
+  public func isPresent<S, M, O>(self : Duel<S, M, O>, player : TP.PlayerId, now : Int) : Bool {
+    switch (self.presence.get(player)) {
+      case (?t) now - t < PRESENCE_TTL_NS;
+      case null false;
     };
-    if (sid.startsWith(#text ANON_SID_PREFIX)) {
-      return sid.equal(sidFor(ANON_SID_PREFIX, p));
-    };
-    false;
   };
 
-  /// Stable per-player key for a leaderboard: strips `ii:`/`an:` down to
-  /// the principal text. Any other sid (a per-table `cp:` session) is
-  /// returned unchanged — a host wiring canister players special-cases
-  /// `CanisterPlayers.leaderboardKeyOfSession` first.
-  public func playerKey(sid : TP.SessionId) : Text {
-    if (sid.startsWith(#text PRINCIPAL_SID_PREFIX)) {
-      return sid.trimStart(#text PRINCIPAL_SID_PREFIX);
-    };
-    if (sid.startsWith(#text ANON_SID_PREFIX)) {
-      return sid.trimStart(#text ANON_SID_PREFIX);
-    };
-    sid;
-  };
-
-  /// How long after its last request a session still counts as present.
-  /// The client sends a `#status` after 120s without any other request.
-  public let PRESENCE_TTL_NS : Int = 180_000_000_000;
-
-  /// One connected session: `rev` changes whenever its status may have,
-  /// `lastSeen` is its last request.
-  public type Link = { var rev : Nat; var lastSeen : Int };
-
-  /// `nextRev` is seeded from the clock by `attach`, so revisions keep
-  /// increasing across an upgrade that wipes this transient state.
-  public type Hub = {
-    links : Map.Map<TP.SessionId, Link>;
-    var nextRev : Nat;
-  };
-
-  public func createHub() : Hub = {
-    links = Map.empty<TP.SessionId, Link>();
-    var nextRev = 0;
-  };
-
-  func freshRev(hub : Hub) : Nat {
-    hub.nextRev += 1;
-    hub.nextRev;
-  };
-
-  /// Records a request from `sid`, creating its link on first contact.
-  public func seen(hub : Hub, sid : TP.SessionId, now : Int) : Link {
-    switch (hub.links.get(sid)) {
-      case (?l) {
-        l.lastSeen := now;
-        l;
-      };
-      case null {
-        let l : Link = {
-          var rev = freshRev(hub);
-          var lastSeen = now;
+  /// Applies `rating` to a freshly finished game.
+  public func score<S>(scoring : Scoring<S>, d : TP.Debrief<S>, now : Int) {
+    let board = scoring.board;
+    switch (scoring.rating) {
+      case (#elo { k }) {
+        let outcome : Elo.Outcome = switch (d.end) {
+          case (#finished(#p1Wins)) #aWins;
+          case (#finished(#p2Wins)) #bWins;
+          case (#finished(#draw)) #draw;
+          case (#claimed(#p1)) #aWins;
+          case (#claimed(#p2)) #bWins;
+          case (#aborted(#p1)) #bWins;
+          case (#aborted(#p2)) #aWins;
         };
-        hub.links.add(sid, l);
-        l;
+        let (r1, r2) = Elo.update(Leaderboard.scoreOf(board, d.p1), Leaderboard.scoreOf(board, d.p2), outcome, k);
+        Leaderboard.setScore(board, d.p1, r1, now);
+        Leaderboard.setScore(board, d.p2, r2, now);
+      };
+      case (#best pick) {
+        for ((seat, s) in pick(d).values()) {
+          let player = switch (seat) { case (#p1) d.p1; case (#p2) d.p2 };
+          ignore Leaderboard.recordIfBetter(board, player, s, now);
+        };
       };
     };
   };
 
-  /// Marks `sid`'s status as changed; a no-op for a session with no link.
-  public func touch(hub : Hub, sid : TP.SessionId) {
-    switch (hub.links.get(sid)) {
-      case (?l) l.rev := freshRev(hub);
+  func markSeen<S, M, O>(self : Duel<S, M, O>, player : TP.PlayerId, now : Int) = self.presence.add(player, now);
+
+  func bumpTable<S, M, O>(self : Duel<S, M, O>, id : TP.TableId) {
+    switch (self.registry.tables.get(id)) {
+      case (?t) t.rev += 1;
       case null {};
     };
   };
 
-  public func revOf(hub : Hub, sid : TP.SessionId) : Nat {
-    switch (hub.links.get(sid)) {
-      case (?l) l.rev;
+  func tableRev<S, M, O>(self : Duel<S, M, O>, id : TP.TableId) : Nat {
+    switch (self.registry.tables.get(id)) {
+      case (?t) t.rev;
       case null 0;
     };
   };
 
-  public func isPresent(hub : Hub, sid : TP.SessionId, now : Int) : Bool {
-    switch (hub.links.get(sid)) {
-      case (?l) now - l.lastSeen < PRESENCE_TTL_NS;
-      case null false;
-    };
-  };
-
-  /// Drops every link that stopped being present.
-  public func prune(hub : Hub, now : Int) {
-    for ((sid, l) in hub.links.toArray().values()) {
-      if (now - l.lastSeen >= PRESENCE_TTL_NS) hub.links.remove(sid);
-    };
-  };
-
-  /// What `actor_mixin.mo` exposes as `duel_request`/`duel_poll`.
-  public type Endpoint = {
-    request : (Principal, Blob) -> async* Blob;
-    poll : (Principal, TP.SessionId, Nat) -> PollResult;
-  };
-
-  /// `sweep` runs `Registry.sweep`, marks every linked session changed
-  /// when something was evicted (a bare `registry.sweep` would leave a
-  /// polling tab stale), and prunes links that stopped being present.
-  /// `afterMutation(now, sid, id, broadcastLobby)` is the fan-out a
-  /// request runs, exposed so `canister_players.mo` reuses it for a
-  /// canister-driven mutation.
-  public type Attached = {
-    endpoint : Endpoint;
-    sweep : (Int) -> async* ();
-    afterMutation : (Int, TP.SessionId, ?TP.TableId, Bool) -> async* ();
-  };
-
-  /// Runs after `afterMutation` for every successful mutation that touched
-  /// a table — wired to `canister_players.mo`'s `settle`.
-  public type OnSettled = (Int, TP.TableId) -> async* ();
-
-  /// Fires once per game ending: the mutating request left a `#debrief`
-  /// freshly created this call (`Debrief.since == now`). Synchronous. Never
-  /// fires for an idle-sweep eviction (no `Verdict` to score).
-  public type OnGameEnded<S> = (TP.TableId, TP.SessionId, TP.SessionId, TP.Debrief<S>) -> ();
-
-  /// Fires once per match, when a table freshly enters `#active` — see
-  /// `isFreshMatch`. Synchronous. For a host that needs real elapsed time.
-  public type OnGameStarted = (TP.TableId, TP.SessionId, TP.SessionId) -> ();
-
-  /// Whether a just-succeeded `#rematch` opened an unreserved staging
-  /// (the partner had already acked), which every browsing session must
-  /// hear about — otherwise a lobby tab shows "No open tables" for the
-  /// whole idle window. Pulled out of `attach()` so it is unit-testable.
-  public func rematchOpenedLobby<S, M>(registry : TP.Registry<S, M>, id : ?TP.TableId) : Bool {
-    switch (id) {
-      case null false;
-      case (?id) switch (registry.tables.get(id)) {
-        case null false;
-        case (?t) switch (t.phase) {
-          case (#staging st) st.reservedFor == null;
-          case (_) false;
+  /// The canister players' context for one call, or `null` without bots.
+  public func botCtx<S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>) : ?CanisterPlayers.Ctx<S, M, V, O> {
+    switch (env.bots) {
+      case null null;
+      case (?b) ?{
+        registry = self.registry;
+        spec = env.spec;
+        rng = self.rng;
+        store = b.store;
+        call = b.call;
+        afterMutation = func<system>(now : Int, id : TP.TableId, bumpLobbyToo : Bool) : async* () {
+          await* afterMutation<system, S, M, V, O>(self, env, now, id, bumpLobbyToo);
+        };
+        arm = func<system>(id : TP.TableId, secs : Nat) {
+          ignore Timer.setTimer<system>(#seconds secs, func() : async () { await* settle<system, S, M, V, O>(self, env, Time.now(), id) });
         };
       };
     };
   };
 
-  /// `Active` has no `since`, so a fresh match is the one field
-  /// combination only true at creation: turn 0, no pending move, touched
-  /// this call.
-  public func isFreshMatch<S, M>(g : TP.Active<S, M>, now : Int) : Bool {
-    let noPending = switch (g.pending1, g.pending2) {
-      case (null, null) true;
-      case (_, _) false;
+  func settle<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, now : Int, id : TP.TableId) : async* () {
+    switch (botCtx(self, env)) {
+      case (?ctx) await* CanisterPlayers.settle<system, S, M, V, O>(ctx, now, id);
+      case null {};
     };
-    g.turn == 0 and noPending and g.lastActivity == now;
   };
 
-  /// Binds the transport to one game's `Spec`/`Registry`.
-  public func attach<S, M>(
-    spec : TP.Spec<S, M>,
-    registry : TP.Registry<S, M>,
-    hub : Hub,
-    codec : Codec<S, M>,
-    onSettled : ?OnSettled,
-    onGameEnded : ?OnGameEnded<S>,
-    onGameStarted : ?OnGameStarted,
-  ) : Attached {
-    if (hub.nextRev == 0) hub.nextRev := Int.abs(Time.now());
-
-    func viewOf(now : Int, sid : TP.SessionId) : Blob {
-      codec.encode(#view({ rev = revOf(hub, sid); view = registry.status(spec, now, sid) }));
+  /// Bumps table `id`'s `rev` (and the lobby's with `bumpLobbyToo`),
+  /// scores a debrief this mutation created, then settles canister
+  /// players — the only await.
+  public func afterMutation<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, now : Int, id : TP.TableId, bumpLobbyToo : Bool) : async* () {
+    bumpTable(self, id);
+    if (bumpLobbyToo) self.lobbyRev += 1;
+    switch (env.scoring, self.registry.tables.get(id)) {
+      case (?sc, ?t) switch (t.phase) {
+        // Only the mutation that created it: a canister seat's ack runs in
+        // the same message (same `now`) and must not score it again.
+        case (#debrief d) if (d.since == now and t.debriefAcked.size() == 0) score(sc, d, now);
+        case (_) {};
+      };
+      case (_, _) {};
     };
+    await* settle<system, S, M, V, O>(self, env, now, id);
+  };
 
-    /// Marks changed: `sid`, the table's other occupants — including a
-    /// rematch reservation's partner — and, with `broadcastLobby`, every
-    /// other linked session not at a table. Then `onSettled`, the only
-    /// await.
-    func afterMutation(now : Int, sid : TP.SessionId, id : ?TP.TableId, broadcastLobby : Bool) : async* () {
-      touch(hub, sid);
-      switch (id) {
-        case null {};
-        case (?id) switch (registry.tables.get(id)) {
-          case null {};
-          case (?t) {
-            switch (t.phase) {
-              case (#empty) {};
-              case (#staging st) {
-                touch(hub, st.session);
-                switch (st.reservedFor) {
-                  case (?partner) touch(hub, partner);
-                  case null {};
-                };
-              };
-              case (#active g) {
-                touch(hub, g.p1);
-                touch(hub, g.p2);
-                if (isFreshMatch(g, now)) {
-                  switch (onGameStarted) {
-                    case (?f) f(id, g.p1, g.p2);
-                    case null {};
-                  };
-                };
-              };
-              case (#debrief d) {
-                touch(hub, d.p1);
-                touch(hub, d.p2);
-                if (d.since == now) {
-                  switch (onGameEnded) {
-                    case (?f) f(id, d.p1, d.p2, d);
-                    case null {};
-                  };
-                };
-              };
-            };
-          };
-        };
-      };
-      if (broadcastLobby) {
-        for (other in hub.links.keys()) {
-          if (other != sid) {
-            switch (registry.bySession.get(other)) {
-              case null touch(hub, other);
-              case (?_) {};
-            };
-          };
-        };
-      };
-      switch (onSettled, id) {
-        case (?f, ?id) await* f(now, id);
-        case (_, _) {};
+  /// The shared path of every human mutation: authorize, record
+  /// presence, run `op(now, player)` (which returns the table it was
+  /// about), fan out.
+  func mutate<system, S, M, V, O>(
+    self : Duel<S, M, O>,
+    env : Env<S, M, V, O>,
+    caller : Principal,
+    bumpLobbyToo : Bool,
+    op : (Int, TP.PlayerId) -> TP.Res<TP.TableId>,
+  ) : async* TP.Res<TP.TableId> {
+    let ?player = playerOf(caller) else return #err(#unauthorized);
+    let now = Time.now();
+    markSeen(self, player, now);
+    switch (op(now, player)) {
+      case (#err e) #err e;
+      case (#ok id) {
+        await* afterMutation<system, S, M, V, O>(self, env, now, id, bumpLobbyToo);
+        #ok id;
       };
     };
+  };
 
-    func request(caller : Principal, msg : Blob) : async* Blob {
-      let ?#req({ sid; req }) = codec.decode(msg) else {
-        return codec.encode(#err({ err = #unauthorized }));
-      };
-      if (not isAuthorizedSid(sid, caller)) {
-        return codec.encode(#err({ err = #unauthorized }));
-      };
-      let now = Time.now();
-      ignore seen(hub, sid, now);
-      // Captured before the request runs: submit/rematch/leave/reset/
-      // claimWin/ackEnded return no `TableId` of their own.
-      let priorId = registry.bySession.get(sid);
-      let res : TP.Res<(?TP.TableId, Bool)> = switch (req) {
-        case (#status) return viewOf(now, sid);
-        case (#createTable { seat; visibility; variant }) {
-          switch (registry.createTable(spec, now, sid, seat, visibility, variant)) {
-            case (#ok id) #ok(?id, true);
-            case (#err e) #err e;
-          };
-        };
-        case (#joinTable { id; seat; code }) {
-          switch (registry.joinTable(spec, now, sid, id, seat, code)) {
-            case (#ok _) #ok(?id, true);
-            case (#err e) #err e;
-          };
-        };
-        case (#submit { gen; turn; move }) {
-          switch (registry.submit(spec, now, sid, gen, turn, move)) {
-            case (#ok _) #ok(priorId, false);
-            case (#err e) #err e;
-          };
-        };
-        case (#claimWin { gen }) {
-          switch (registry.claimWin(spec, now, sid, gen)) {
-            case (#ok _) #ok(priorId, false);
-            case (#err e) #err e;
-          };
-        };
-        case (#rematch) {
-          switch (registry.rematch(spec, now, sid)) {
-            case (#ok _) #ok(priorId, rematchOpenedLobby(registry, priorId));
-            case (#err e) #err e;
-          };
-        };
-        case (#leave { gen }) {
-          switch (registry.leave(now, sid, gen)) {
-            case (#ok _) #ok(priorId, true);
-            case (#err e) #err e;
-          };
-        };
-        case (#reset { gen }) {
-          switch (registry.reset(now, sid, gen)) {
-            case (#ok _) #ok(priorId, true);
-            case (#err e) #err e;
-          };
-        };
-        case (#ackEnded) {
-          registry.ackEnded(sid);
-          #ok(priorId, true);
-        };
-      };
-      switch (res) {
-        case (#err err) codec.encode(#err({ err }));
-        case (#ok(id, broadcastLobby)) {
-          await* afterMutation(now, sid, id, broadcastLobby);
-          // `onSettled` may have awaited a canister player's move.
-          viewOf(Time.now(), sid);
+  func ack<S, M, O>(self : Duel<S, M, O>, r : TP.Res<TP.TableId>) : Ack {
+    switch (r) {
+      case (#err e) #err e;
+      case (#ok id) #ok { tableId = id; rev = tableRev(self, id) };
+    };
+  };
+
+  func at<R>(r : TP.Res<R>, id : TP.TableId) : TP.Res<TP.TableId> {
+    switch (r) {
+      case (#ok _) #ok id;
+      case (#err e) #err e;
+    };
+  };
+
+  /// Opens a table with the caller at `seat`. `#badOptions` when the
+  /// game's `checkOptions` rejects `options`.
+  public func createTable<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, seat : TP.Seat, visibility : TP.TableVisibility, options : O) : async* Ack {
+    ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = self.registry.createTable(env.spec, self.rng, now, p, seat, visibility, options)));
+  };
+
+  public func joinTable<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, seat : TP.Seat, code : ?Text) : async* Ack {
+    ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.joinTable(env.spec, self.rng, now, p, id, seat, code), id)));
+  };
+
+  public func rematch<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId) : async* Ack {
+    ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.rematch(env.spec, self.rng, now, p, id), id)));
+  };
+
+  public func leave<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, gen : Nat) : async* Ack {
+    ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.leave(now, p, id, gen), id)));
+  };
+
+  public func reset<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, gen : Nat) : async* Ack {
+    ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.reset(now, p, id, gen), id)));
+  };
+
+  public func claimWin<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, gen : Nat) : async* Ack {
+    ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.claimWin(env.spec, now, p, id, gen), id)));
+  };
+
+  public func ackEnded<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId) : async* Ack {
+    ack(
+      self,
+      await* mutate<system, S, M, V, O>(
+        self,
+        env,
+        caller,
+        true,
+        func(_ : Int, p : TP.PlayerId) : TP.Res<TP.TableId> {
+          self.registry.ackEnded(p, id);
+          #ok id;
+        },
+      ),
+    );
+  };
+
+  /// Keeps the caller's waiting table open; changes nothing else.
+  public func keepAlive<S, M, O>(self : Duel<S, M, O>, caller : Principal) : TP.Res<()> {
+    let ?player = playerOf(caller) else return #err(#unauthorized);
+    markSeen(self, player, Time.now());
+    #ok;
+  };
+
+  /// Runs a move and returns its error, if any; `reply` turns that into
+  /// `duel_submit`'s reply (two steps because an `async*` result must be
+  /// a shared type, which the generic `Reply<V>` is not).
+  public func submit<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, gen : Nat, step : Nat, move : M) : async* ?TP.Err {
+    switch (await* mutate<system, S, M, V, O>(self, env, caller, false, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.submit(env.spec, self.rng, now, p, id, gen, step, move), id))) {
+      case (#ok _) null;
+      case (#err e) ?e;
+    };
+  };
+
+  /// Read at `Time.now()`: a canister player may have answered in the
+  /// meantime.
+  public func reply<S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, err : ?TP.Err) : Reply<V> {
+    let ?player = playerOf(caller) else return #err(#unauthorized);
+    switch (err) {
+      case (?e) #err e;
+      case null switch (self.registry.tables.get(id)) {
+        case null #err(#noSuchTable);
+        case (?t) #view {
+          rev = t.rev;
+          view = t.status(env.spec, Time.now(), player);
         };
       };
     };
+  };
 
-    func poll(caller : Principal, sid : TP.SessionId, rev : Nat) : PollResult {
-      if (not isAuthorizedSid(sid, caller)) return #unknown;
-      switch (hub.links.get(sid)) {
-        case null #unknown;
-        case (?l) {
-          if (l.rev == rev) #unchanged else #changed(viewOf(Time.now(), sid));
+  /// The caller's view of table `id`, built only when its `rev` moved.
+  public func table<S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, rev : Nat) : TableResult<V> {
+    switch (self.registry.tables.get(id)) {
+      case null #gone;
+      case (?t) {
+        if (rev != 0 and t.rev == rev) return #unchanged;
+        #changed {
+          rev = t.rev;
+          view = t.status(env.spec, Time.now(), caller.toText());
         };
       };
     };
+  };
 
-    /// A present session keeps its waiting staging alive.
-    func sweep(now : Int) : async* () {
-      func isLive(t : TP.Table<S, M>) : Bool = switch (t.phase) {
-        case (#empty) false;
-        case (_) true;
+  /// The open tables and the caller's own, built only when the lobby's
+  /// `rev` moved.
+  public func lobbyView<S, M, O>(self : Duel<S, M, O>, caller : Principal, rev : Nat) : LobbyResult<O> {
+    if (rev != 0 and self.lobbyRev == rev) return #unchanged;
+    let yours = switch (playerOf(caller)) {
+      case (?p) self.registry.tablesOf(p);
+      case null [];
+    };
+    #changed {
+      rev = self.lobbyRev;
+      tables = self.registry.listTables(Time.now());
+      yours;
+    };
+  };
+
+  /// Clears expired tables (a waiting one stays while its creator is
+  /// present), bumps the `rev` of every table it changed and the
+  /// lobby's when anything changed, prunes presence, then settles
+  /// canister players everywhere (the slow fallback).
+  public func sweep<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, now : Int) : async* () {
+    func shape(t : TP.Table<S, M, O>) : (Nat, Nat) {
+      let tag = switch (t.phase) {
+        case (#empty) 0;
+        case (#staging _) 1;
+        case (#active _) 2;
+        case (#debrief _) 3;
       };
-      let live = registry.tables.toArray().filter(func((_, t)) = isLive(t));
-      registry.sweep(now, func(sid) = isPresent(hub, sid, now));
-      prune(hub, now);
-      var anyTableFreedUp = false;
-      for ((id, _) in live.values()) {
-        switch (registry.tables.get(id)) {
-          case (?t) if (not isLive(t)) anyTableFreedUp := true;
-          case null anyTableFreedUp := true;
+      (tag, t.lastEnded.size());
+    };
+    let before = Map.empty<TP.TableId, (Nat, Nat)>();
+    for ((id, t) in self.registry.tables.entries()) before.add(id, shape(t));
+    self.registry.sweep(now, func(p) = isPresent(self, p, now));
+    for ((p, t) in self.presence.toArray().values()) {
+      if (now - t >= PRESENCE_TTL_NS) self.presence.remove(p);
+    };
+    var changed = false;
+    for ((id, old) in before.entries()) {
+      switch (self.registry.tables.get(id)) {
+        case (?t) if (shape(t) != old) {
+          t.rev += 1;
+          changed := true;
         };
-      };
-      if (not anyTableFreedUp) return;
-      for (sid in hub.links.keys()) {
-        touch(hub, sid);
+        case null changed := true;
       };
     };
+    if (changed) self.lobbyRev += 1;
+    switch (botCtx(self, env)) {
+      case (?ctx) await* CanisterPlayers.sweep<system, S, M, V, O>(ctx, now);
+      case null {};
+    };
+  };
 
-    { endpoint = { request; poll }; sweep; afterMutation };
+  /// The methods `./transport_actor_mixin` exposes: none of them names
+  /// a game type.
+  public type Lobby = {
+    joinTable : <system>(Principal, TP.TableId, TP.Seat, ?Text) -> async* Ack;
+    rematch : <system>(Principal, TP.TableId) -> async* Ack;
+    leave : <system>(Principal, TP.TableId, Nat) -> async* Ack;
+    reset : <system>(Principal, TP.TableId, Nat) -> async* Ack;
+    claimWin : <system>(Principal, TP.TableId, Nat) -> async* Ack;
+    ackEnded : <system>(Principal, TP.TableId) -> async* Ack;
+    keepAlive : (Principal) -> TP.Res<()>;
+    sweep : <system>(Int) -> async* ();
+  };
+
+  /// Functions over `self` and `env` for the mixin; no data of their own.
+  /// The host keeps the result in a `transient let`.
+  public func lobby<S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>) : Lobby = {
+    joinTable = func<system>(c : Principal, id : TP.TableId, seat : TP.Seat, code : ?Text) : async* Ack = await* joinTable<system, S, M, V, O>(self, env, c, id, seat, code);
+    rematch = func<system>(c : Principal, id : TP.TableId) : async* Ack = await* rematch<system, S, M, V, O>(self, env, c, id);
+    leave = func<system>(c : Principal, id : TP.TableId, gen : Nat) : async* Ack = await* leave<system, S, M, V, O>(self, env, c, id, gen);
+    reset = func<system>(c : Principal, id : TP.TableId, gen : Nat) : async* Ack = await* reset<system, S, M, V, O>(self, env, c, id, gen);
+    claimWin = func<system>(c : Principal, id : TP.TableId, gen : Nat) : async* Ack = await* claimWin<system, S, M, V, O>(self, env, c, id, gen);
+    ackEnded = func<system>(c : Principal, id : TP.TableId) : async* Ack = await* ackEnded<system, S, M, V, O>(self, env, c, id);
+    keepAlive = func(c : Principal) : TP.Res<()> = keepAlive(self, c);
+    sweep = func<system>(now : Int) : async* () = await* sweep<system, S, M, V, O>(self, env, now);
+  };
+
+  /// The bot-facing functions for `./canister_players_actor_mixin`, or
+  /// `null` without bots. The host keeps the result in a `transient let`.
+  public func canisterPlayers<S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>) : ?CanisterPlayers.Endpoint {
+    switch (botCtx(self, env)) {
+      case (?ctx) ?CanisterPlayers.endpointOf(ctx);
+      case null null;
+    };
   };
 };

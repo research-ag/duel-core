@@ -104,7 +104,7 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
 
 ## Toolchain
 
-moc 1.11.2; `core` only, no `mo:base`. Frontend dependencies:
+moc 2.0.0; `core` only, no `mo:base`. Frontend dependencies:
 `@icp-sdk/core`, `@icp-sdk/auth`, `react`/`react-dom`, `react-easy-crop`;
 `npm install --legacy-peer-deps` (same `@icp-sdk/auth` peer skew as
 `../frontend`); `allowScripts` permits esbuild's postinstall.

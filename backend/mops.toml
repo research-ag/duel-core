@@ -5,13 +5,14 @@ description = "Generic 2-player global-board session engine"
 files = [ "src/**/*.mo" ]
 
 [dependencies]
-core = "2.6.1"
+core = "2.6.2"
 promtracker = "1.0.1"
+prng = "0.2.0"
 
 [optimize]
 
 [toolchain]
-moc = "1.11.2"
+moc = "2.0.0"
 pocket-ic = "15.0.0"
 wasm-opt = "132"
 
