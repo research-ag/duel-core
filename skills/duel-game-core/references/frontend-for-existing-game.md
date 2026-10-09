@@ -13,7 +13,7 @@ Everything you need comes from the backend canister id:
 
 | What                         | From                                                |
 | ---------------------------- | --------------------------------------------------- |
-| Rules, `State`, `Action`     | `GET /semantics` on the backend                     |
+| Rules, `View`, `Action`      | `GET /semantics` on the backend                     |
 | Service types (optional)     | the `candid:service` metadata section               |
 | The wasm, for a local copy   | `GET /wasm` on the backend                          |
 | Client library, UI contracts | this skill (`SKILL.md` Steps 1 and 6, `rich-ui.md`) |
@@ -49,13 +49,15 @@ curl -s https://$BACKEND.raw.icp0.io/semantics
 ```
 
 Plain text, written for a reader without the source: `MODE`
-(`simultaneous` — both seats submit every round; `alternating` — the
-seat on turn submits), `SEATS`, `VARIANTS`, the exact Candid of `State`
-and `Action` with every field explained, `RULES` (what each action does
-and what gets it rejected), `ENDINGS`, and `CLIENT NOTES`. Treat it as
-the specification. The Candid service (step 3) names `State` and
-`Action` in `duel_submit`/`duel_table`, but only `/semantics` says what
-they mean.
+(`simultaneous` — both seats submit every round; `turnBased` — the seat
+the rules put on turn submits, possibly several actions per turn),
+`SEATS`, `OPTIONS` (what a table's creator picks), the exact Candid of
+`View` (what a seat sees of the game) and `Action` with every field
+explained, `RULES` (what each action does and what gets it rejected),
+`ENDINGS`, and `CLIENT NOTES`. Treat it as the specification. The
+Candid service (step 3) names `View`, `Action` and `Options` in
+`duel_table`/`duel_submit`/`duel_create_table`, but only `/semantics`
+says what they mean.
 
 A 404 lists the paths the backend does serve; fetch any that
 `/semantics` refers to (a fixed map, for instance). If `/semantics`
@@ -68,10 +70,10 @@ the user.
 icp canister metadata $BACKEND candid:service -n ic > backend.did
 ```
 
-It confirms `State` and shows which optional features the game has:
+It confirms `View` and shows which optional features the game has:
 `get_leaderboard` (rankings), `list_bots` (challengeable canister
 players). You do not generate bindings from it; `duel-game-core/idl.js`
-already declares the engine's service, and your plugin supplies `State`
+already declares the engine's service, and your plugin supplies `View`
 and `Action`. Without icp-cli, assume both optional features may exist
 and let their calls fail quietly (`.catch(() => [])`).
 
@@ -171,16 +173,17 @@ foreign host.
 Follow `SKILL.md` Step 6, with the semantics text standing in for the
 rules module:
 
-- `idlTypes({ IDL })` — translate `STATE (Candid)` and `ACTION (Candid)`
-  literally. `nat` is `IDL.Nat` (a `bigint` in JS), `opt T` is
+- `idlTypes({ IDL })` — translate `VIEW (Candid)`, `ACTION (Candid)`
+  and `OPTIONS` literally (`Options` is `IDL.Record({})` when `OPTIONS`
+  is `none`). `nat` is `IDL.Nat` (a `bigint` in JS), `opt T` is
   `IDL.Opt(T)` (`[]` or `[value]`), `vec T` is `IDL.Vec(T)`, a variant
   with no payload is `IDL.Null`. One wrong field and every status fails
-  to decode, so check it against `backend.did`'s `State` when you have
+  to decode, so check it against `backend.did`'s `View` when you have
   it.
-- `legal()` and `applyLocal` mirror `RULES`; the backend's own `validate`
-  remains the judge.
-- `VARIANTS` other than `none` → `variantChoices()`/`formatVariant()`,
-  each `key` being the variant text listed there.
+- `legal()` and `applyLocal` mirror `RULES`; the backend's own rules
+  remain the judge.
+- `OPTIONS` other than `none` → `optionChoices()`/`formatOptions()`,
+  each entry's `options` being one typed value the text lists.
 - Show the opponent's last move the way `CLIENT NOTES` says it can be
   found.
 

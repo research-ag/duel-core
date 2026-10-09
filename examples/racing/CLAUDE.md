@@ -10,19 +10,21 @@ either package.
 - **`src/Track.mo`** — baked geometry for the one "island" map (boundary
   polygons and road centerline), generated from
   `frontend/src/assets/maps/island/scene.meta`.
-- **`src/Host.mo`** — stable `state` (300s/45s), bots store and
-  leaderboard, one transient `Transport.Duel` (same wiring as
-  `examples/checkers`), metrics with a `/metrics` route, bot discovery,
-  and a best-lap leaderboard as the `Duel`'s `#best bestLap` rating: `Leaderboard.new(50, 0)` (the default score is inert),
+- **`src/Host.mo`** — stable `duel` (300s/45s), bots store and
+  leaderboard, one transient `env` (same wiring as `examples/checkers`),
+  metrics with a `/metrics` route, bot discovery, and a best-lap
+  leaderboard as the `env`'s `#best bestLap` rating:
+  `Leaderboard.new(50, 0)` (the default score is inert),
   `scoreFromLapMs(ms) = max(0, 3_600_000 - ms)`, and `lapMsFor` computing
-  the exact in-game time from `Debrief.turns × STEP_DURATION_MS` (1000,
+  the exact in-game time from `Debrief.steps × STEP_DURATION_MS` (1000,
   in sync with `game-state.service.ts`'s `stepDuration`) minus the
   winning car's final-round overshoot (`distanceFromStart / speed`,
-  clamped to `[0, 1)`). Only a clean `#finished` win records
-  (`recordIfBetter`, per player id — a bot per complexity).
-- **`src/BotIface.mo`** — `make_move`, imported by `Host.mo`.
+  clamped to `[0, 1)`). `bestLap` returns `[(winner, score)]` for a
+  clean `#finished` win and `[]` otherwise (`recordIfBetter`, per player
+  id — a bot per complexity).
+- **`src/BotIface.mo`** — `make_move` and `callBot`.
 - **`bot/BotLogic.mo`** — `SCRIPT_P1`/`SCRIPT_P2`, fixed arcs derived
-  offline (legal forever once at cruising speed), indexed by `req.turn`;
+  offline (legal forever once at cruising speed), indexed by `req.step`;
   past the script, hold `{ l = max(5, speed * 0.75); c = 0 }`.
 - **`bot/Bot.mo`** — `make_move` (`query`), `play(...)`, `register`/
   `unregister` (registers `[]`):

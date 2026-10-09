@@ -4,17 +4,18 @@ A deployable `#simultaneous` example on `../../backend` and
 `../../frontend`. Not part of either package.
 
 - **`src/Duel007Rules.mo`** — the rules as pure functions (no actor, no
-  storage, no `Time`), plugged in via `spec() : TP.Spec<State, Action>`.
+  storage, no `Time`), exported as `spec : TP.Spec<State, Action, View,
+Options>` (`View = State`, `Options = {}`).
 - **`src/Host.mo`** — the host actor, same shape as
-  `../checkers/src/Host.mo`: stable `state` (90s idle timeout, 60s claim
-  window), bots store and leaderboard; one transient `Transport.Duel`
-  binding them with the rules, `callBot` and an Elo rating (k=32, every
-  ending re-rates both seats, read via `include
+  `../checkers/src/Host.mo`: stable `duel` (90s idle timeout, 60s claim
+  window), bots store and leaderboard; one transient `env` carrying the
+  rules, `BotIface.callBot` and an Elo rating (k=32, every ending
+  re-rates both seats, read via `include
 LeaderboardActorMixin(leaderboard, 25)`); the transport and
-  canister-player mixins, the host's own `duel_submit`/`duel_table`, and
-  Prometheus metrics (`attachMetrics` + a `/metrics` route on
-  `HttpActorMixin`).
-- **`src/BotIface.mo`** — `make_move`.
+  canister-player mixins, the host's own `duel_create_table`/
+  `duel_lobby`/`duel_submit`/`duel_table`, and Prometheus metrics
+  (`attachMetrics` + a `/metrics` route on `HttpActorMixin`).
+- **`src/BotIface.mo`** — the bot's `make_move` type and `callBot`.
 - **`bot/BotLogic.mo`** — `COMPLEXITIES = ["Easy", "Medium"]`.
   `chooseMove(req, entropy)` (`entropy` = `Time.now()` from `Bot.mo`,
   hashed with the seat) picks from `legalActions` (every `Action`
@@ -120,7 +121,7 @@ Everything in `../../CLAUDE.md` applies. Additionally:
   raising a broken shield is rejected by `validate`.
 - Mirror: 3 uses, consumed whether or not a shot arrives; reflects normal
   shots only. Both shoot (any weapon mix) → both die → `#draw`.
-- `turn` counts COMPLETED rounds; a fresh game is `turn == 0`.
+- `step` counts COMPLETED rounds; a fresh game is `step == 0`.
 
 ## Conventions
 

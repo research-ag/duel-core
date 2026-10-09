@@ -1,7 +1,7 @@
 // GamePlugin for __GAME_TITLE__ — the only game-specific client code.
-// Action/State must mirror ../src/__RULES_MODULE__.mo exactly. `legal()`
-// is a cosmetic echo of that module's `validate`, `applyLocal` of its
-// `resolve`.
+// Action/View/Options must mirror ../src/__RULES_MODULE__.mo exactly.
+// `legal()` is a cosmetic echo of that module's `validate`, `applyLocal`
+// of its `resolve`.
 
 import { actionAttr, esc } from "duel-game-core/render.js";
 
@@ -30,13 +30,20 @@ export const plugin = {
       p1Action: Action,
       p2Action: Action,
     });
-    const State = IDL.Record({
+    // What a seat sees (the rules module's `View`).
+    const View = IDL.Record({
       p1: Side,
       p2: Side,
       lastRound: IDL.Opt(Round),
       // variant: IDL.Variant({ classic: IDL.Null, yourOtherVariant: IDL.Null }),
     });
-    return { Action, State };
+    // A table's options; the empty record for a game without any.
+    const Options = IDL.Record({});
+    // const Options = IDL.Record({
+    //   variant: IDL.Variant({ classic: IDL.Null, yourOtherVariant: IDL.Null }),
+    //   roundsToWin: IDL.Nat,
+    // });
+    return { Action, View, Options };
   },
 
   seatLabel(seat) {
@@ -79,16 +86,19 @@ export const plugin = {
   //   ...format ms as a time string...
   // },
 
-  // Optional pair — only for a game with rules variants. First entry is
-  // the default; `key` is what the backend's init(variant) receives.
+  // Optional pair — only for a game with table options. First entry is
+  // the default; `options` is the typed value `duel_create_table`
+  // receives (Nat fields as bigint), `key` only names the radio button.
+  // `formatOptions` labels a table's stored options in the lobby.
   //
-  // variantChoices() {
+  // optionChoices() {
   //   return [
-  //     { key: "classic", label: "Classic" },
-  //     { key: "yourOtherVariant", label: "Your Other Variant" },
+  //     { key: "classic", label: "Classic", options: { variant: { classic: null }, roundsToWin: 3n } },
+  //     { key: "other", label: "Your Other Variant", options: { variant: { yourOtherVariant: null }, roundsToWin: 3n } },
   //   ];
   // },
-  // formatVariant(variant) {
-  //   return { classic: "Classic", yourOtherVariant: "Your Other Variant" }[variant] ?? variant;
+  // formatOptions(options) {
+  //   const variant = Object.keys(options.variant)[0];
+  //   return `${{ classic: "Classic", yourOtherVariant: "Your Other Variant" }[variant]} · first to ${options.roundsToWin}`;
   // },
 };

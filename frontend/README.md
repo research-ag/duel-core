@@ -22,8 +22,8 @@ game takes as much or as little of as it wants:
   replaceable in place (`screens`, `confirm`, `promptCode`), and `start()`
   returns the client it built.
 
-In every layer a game supplies the same small **GamePlugin**: two Candid
-types, seat labels, and how to draw the board and action buttons.
+In every layer a game supplies the same small **GamePlugin**: three
+Candid types, seat labels, and how to draw the board and action buttons.
 
 TypeScript, published pre-compiled: `npm run build` produces `dist/`,
 which every import (`duel-game-core/app.js`, ...) resolves to. Consumers
@@ -43,17 +43,23 @@ range on `@icp-sdk/core@^5`, one major behind the `^6.1.0` in use.
 
 ```js
 const plugin = {
-  // Candid types for the game's move and state.
+  // Candid types for the game's action, what a seat sees of the state
+  // (the rules module's `View`), and a table's options (`IDL.Record({})`
+  // for a game without any).
   idlTypes({ IDL }) {
-    return { Action: IDL.Variant({/* ... */}), State: IDL.Record({/* ... */}) };
+    return {
+      Action: IDL.Variant({/* ... */}),
+      View: IDL.Record({/* ... */}),
+      Options: IDL.Record({}),
+    };
   },
 
   seatLabel(seat) {
     return { p1: "White", p2: "Black" }[seat];
   },
 
-  // Board markup from `mySeat`'s point of view. Called for a live game
-  // and for a debrief's final state, and must show the opponent's most
+  // Board markup from `mySeat`'s point of view, from the seat's `View`.
+  // Called for a live game and for a debrief's final view, and must show the opponent's most
   // recent move in both (see "Showing moves"). `yourTurn` (true/false
   // live, undefined in a debrief) is for a game whose interaction lives
   // on the board itself; a plugin with a separate action panel can
@@ -82,23 +88,36 @@ const plugin = {
     return score.toString();
   },
 
-  // Optional pair for a game with rules variants. The first choice is the
-  // default; `key` is what `Spec.init(variant)` receives on the backend.
-  variantChoices() {
+  // Optional pair for a game with table options. The first choice is the
+  // default; `options` is the typed value sent to `duel_create_table`
+  // (the rules module's `Options`, Nat fields as bigint), `key` only
+  // names the radio button. `formatOptions` labels a table's stored
+  // options in the lobby listing.
+  optionChoices() {
     return [
-      { key: "classic", label: "Classic" },
-      { key: "well", label: "Well" },
+      {
+        key: "classic",
+        label: "Classic",
+        options: { variant: { classic: null }, winsNeeded: 3n },
+      },
+      {
+        key: "well",
+        label: "Well",
+        options: { variant: { well: null }, winsNeeded: 3n },
+      },
     ];
   },
-  formatVariant(variant) {
-    return { classic: "Classic", well: "Well" }[variant] ?? variant;
+  formatOptions(options) {
+    const variant = Object.keys(options.variant)[0];
+    return `${{ classic: "Classic", well: "Well" }[variant]} · first to ${options.winsNeeded}`;
   },
 };
 ```
 
 Only `renderBoard`/`renderActions` return game markup. Everything else
-(turn counter, "opponent is deciding"/"locked in" or "Your turn"/
-"Opponent's turn" for an `#alternating` table, verdict banner,
+(step counter, "opponent is deciding"/"locked in" or "Your turn"/
+"Opponent's turn" for a `turnBased` table — `InGameView.toMove` says
+whose, `step` counts applied actions —, verdict banner,
 rematch/leave/forfeit buttons, claim-win controls) is the default chrome
 driven by `InGameView`, replaceable per screen (below) or wholesale
 ("The headless client").
@@ -112,7 +131,7 @@ Two things a player must always see, whatever the UI:
   the board, so a debrief that drops the board (a custom one showing
   only a score) drops it too. Mark it on the board (a highlighted cell,
   the origin and landing of a piece, captured pieces as ghosts), replay
-  it as an animation, or show both picks of the last round. When `State`
+  it as an animation, or show both picks of the last round. When `View`
   carries no record of the last move, diff consecutive `game`s in the
   plugin; `examples/tic-tac-toe`, `checkers` and `chopsticks` do.
 - **Your own move, at once.** A submit is a round trip, and against a
@@ -120,13 +139,14 @@ Two things a player must always see, whatever the UI:
   reply. With `applyLocal`, `start()` draws the in-game screen from
   `withLocalMove(status, pending, plugin.applyLocal)` while the submit is
   out: the board with your move applied and the seat already waiting
-  (for `#alternating`, the opponent on turn and the turn counter
-  advanced). The reply, a later view, or a rejection (which leaves
-  `status` untouched) puts the real view back in the same frame. A
-  `#simultaneous` game whose hidden pick changes nothing visible returns
-  `gameState` as-is, which still flips the screen to "locked in".
-  `applyLocal` mirrors `resolve` the way move highlighting mirrors
-  `validate`: purely cosmetic, never sent, and `validate` still decides.
+  (for `turnBased`, `toMove` cleared and the step counter advanced). The
+  reply, a later view, or a rejection (which leaves `status` untouched)
+  puts the real view back in the same frame. A `simultaneous` game whose
+  hidden pick changes nothing visible returns `gameState` as-is, which
+  still flips the screen to "locked in". Return `null` for an action
+  whose outcome only the server knows (a draw from a face-down pile).
+  `applyLocal` mirrors the rules the way move highlighting does: purely
+  cosmetic, never sent, and the backend still decides.
 
 ## Wiring it up
 
@@ -215,14 +235,14 @@ each with the same signature as the `render*` function it replaces. A
 custom screen keeps the shell's click handling, spinner, and countdowns
 by using the same hooks the defaults do:
 
-| Hook                                                                                                 | Dispatches                      |
-| ---------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `data-create-table="p1"` + the `table-visibility` radios, `#create-code`, `table-variant` radios     | `createTable`                   |
-| `data-join-table-id="3" data-join-table="p2"` (+ bare `data-protected` to prompt for a code)         | `joinTable`                     |
-| `data-act='<json>'` (via `actionAttr`)                                                               | `submit`                        |
-| `data-rematch`, `data-leave`, `data-reset`, `data-claim-win`, `data-ack`                             | the matching call               |
-| `data-confirm="Sure?"` on any of the above                                                           | asks first                      |
-| `id="duel-idle-warning"`, `id="duel-claim-warning"`, `id="duel-claim-button"`, `data-wait-base="12"` | patched by the local countdowns |
+| Hook                                                                                                                                         | Dispatches                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `data-create-table="p1"` + the `table-visibility` radios, `#create-code`, `table-variant` radios (one per `optionChoices()` entry, by `key`) | `createTable`                   |
+| `data-join-table-id="3" data-join-table="p2"` (+ bare `data-protected` to prompt for a code)                                                 | `joinTable`                     |
+| `data-act='<json>'` (via `actionAttr`)                                                                                                       | `submit`                        |
+| `data-rematch`, `data-leave`, `data-reset`, `data-claim-win`, `data-ack`                                                                     | the matching call               |
+| `data-confirm="Sure?"` on any of the above                                                                                                   | asks first                      |
+| `id="duel-idle-warning"`, `id="duel-claim-warning"`, `id="duel-claim-button"`, `data-wait-base="12"`                                         | patched by the local countdowns |
 
 `confirm` (`(msg) => Promise<boolean>`) and `promptCode` (`() =>
 Promise<string>`, resolving `null` to cancel) replace the two overlays the
@@ -261,9 +281,10 @@ client.subscribe((state, prev) => {
 | `authPending`    | a login/logout/regenerate is under way                                                                                                                     |
 | `identityLocked` | disable "new sid" and login/logout: seated, a join in flight, an identity change in flight, or closed                                                      |
 
-Actions: `createTable(seat, visibility?, variant?)`, `joinTable(id, seat,
-code?)`, `submit(move)`, `rematch()`, `leave()`, `reset()`, `claimWin()`,
-`ackEnded()`. Each stamps `gen`/`turn` from the last status and resolves
+Actions: `createTable(seat, visibility?, options?)` (`options` is the
+game's typed `Options`, `{}` by default), `joinTable(id, seat, code?)`,
+`submit(move)`, `rematch()`, `leave()`, `reset()`, `claimWin()`,
+`ackEnded()`. Each stamps `gen`/`step` from the last status and resolves
 with a `CallOutcome`: `{ ok: true, view }`, or `{ ok: false, reason }`
 where `reason` is `"inFlight"` (one is already out), `"closed"`,
 `"stale"` (a `#wrongPhase` create/join or `#stale` mutation: the view was
@@ -280,7 +301,7 @@ UI's own messages on the same lifetime. `login()`, `logout()`,
 `authPending`. `dispose()` detaches from `transport`.
 
 Selectors, all pure: `viewTagOf(status)`, `viewOf(status, "inGame")`,
-`isSeated`, `genOf`, `turnOf`, `claimRoleOf(inGame)` (`"waiting"` may
+`isSeated`, `genOf`, `stepOf`, `claimRoleOf(inGame)` (`"waiting"` may
 claim, `"atRisk"` is the mirror), `oppSeatOf`, `localSecondsLeft`,
 `localSecondsElapsed`, `pendingKeyOf(req)`, `pendingMoveOf(pending)`,
 `withLocalMove(status, pending, applyLocal)`, plus `tag`/`val`/`errText`.
@@ -486,7 +507,7 @@ const res = await transport.request(session.sid, {
   createTable: {
     seat: { [chosenSeat]: null },
     visibility: { open: null },
-    variant: "",
+    options: {}, // the game's `Options`; `plugin.optionChoices()[0].options` with options
   },
 });
 // res.view.atTable.id / .view.stagingYou give the table, seat, and code for `play`.
@@ -521,9 +542,9 @@ sets (canister ids, root key), use `safeGetCanisterEnv()` from
 
 | Module             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `idl.js`           | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, State})`, `buildBotPlayIdlFactory({IDL})`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `idl.js`           | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, View, Options})`, `buildBotPlayIdlFactory({IDL})`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `render.js`        | `renderStatus(status, plugin, screens?)`, `renderView`, `defaultScreens`, `resolveScreens`, one `render*` per screen (`renderBrowsing`, `renderTableRow`, `renderLobby`, `renderBusy`, `renderStagingYou`, `renderAwaitingRematch`, `renderInGame`, `renderDebrief`, `renderEndedByOther`, `renderConnecting`, `renderTableBadge`), `debriefVerdict`, `opponentStatusText`, `renderLeaderboard(entries, plugin, opts?)`, `renderBotList`, `renderSeatChoice`, `playerKeyOf`, `isCanisterPlayer`, `parseCanisterPlayer`, `botDisplayName`, `displayPlayerId`, `DEFAULT_BOT_COMPLEXITY`, `errText`, `actionAttr`, `tag`, `val`, `esc` |
-| `client.js`        | `createDuelClient({ transport, session, errorTtlMs? })` -> `DuelClient`; `viewTagOf`, `viewOf`, `isSeated`, `genOf`, `turnOf`, `claimRoleOf`, `oppSeatOf`, `localSecondsLeft`, `localSecondsElapsed`, `pendingKeyOf`, `pendingMoveOf`, `withLocalMove`, `deepEqual`, `tag`, `val`, `errText`                                                                                                                                                                                                                                                                                                                                        |
+| `client.js`        | `createDuelClient({ transport, session, errorTtlMs? })` -> `DuelClient`; `viewTagOf`, `viewOf`, `isSeated`, `genOf`, `stepOf`, `claimRoleOf`, `oppSeatOf`, `localSecondsLeft`, `localSecondsElapsed`, `pendingKeyOf`, `pendingMoveOf`, `withLocalMove`, `deepEqual`, `tag`, `val`, `errText`                                                                                                                                                                                                                                                                                                                                        |
 | `app.js`           | `start({ plugin, transport, session, screens?, confirm?, promptCode?, errorTtlMs?, ...elIds })` -> `DuelClient`; `buttonKey`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `identity.js`      | `resolveIdentity()`, `sidForPrincipal(principalText)`; depends on `@icp-sdk/auth`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `anon-identity.js` | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX`; depends only on `@icp-sdk/core/identity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |

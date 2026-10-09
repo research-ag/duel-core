@@ -1,7 +1,9 @@
 # duel-game-core
 
-A generic 2-player, turn-based game framework for the Internet Computer —
-two rules-agnostic packages, both published as `duel-game-core`:
+A generic 2-player game framework for the Internet Computer — for
+games where both seats act at once and games where the rules say whose
+turn it is — in two rules-agnostic packages, both published as
+`duel-game-core`:
 
 - [`backend/`](backend/README.md) — Motoko mops package: the engine
   (tables, seating, rounds, debrief, rematch, idle takeover, claims),

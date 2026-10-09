@@ -12,7 +12,7 @@ Everything you need comes from the backend canister id:
 
 | What                       | From                                                               |
 | -------------------------- | ------------------------------------------------------------------ |
-| Rules, `State`, `Action`   | `GET /semantics` on the backend                                    |
+| Rules, `View`, `Action`    | `GET /semantics` on the backend                                    |
 | Whether it takes bots      | the `candid:service` metadata section                              |
 | The wasm, for a local copy | `GET /wasm` on the backend                                         |
 | `make_move`'s contract     | `canister-player-bots.md`, the backend README's "Canister players" |
@@ -40,7 +40,7 @@ mops.toml
 backend.wasm
 backend.did
 src/
-  GameTypes.mo     State and Action, from the semantics
+  GameTypes.mo     View, Action and Options, from the semantics
   GameRules.mo     the rules your strategy needs, from RULES
   BotLogic.mo      chooseMove; no actor, no Time, no storage
   Bot.mo           the canister
@@ -101,20 +101,21 @@ mainnet. Keep `.icp/data/mappings/ic.ids.json` in version control.
 | `bool`/`text`/`principal`      | `Bool`/`Text`/`Principal`   |
 
 Motoko types are structural, so `variant { p1; p2 }` is `TP.Seat`
-itself. Field and tag names must match exactly: the game sends `State`
+itself. Field and tag names must match exactly: the game sends its `View`
 inside every `MoveRequest` and decodes your `Action` reply against its
-own type. A mismatch fails the call, which the engine treats as silence.
+own type. `Options` is only needed by `Sparring.mo` (step 5), to open
+tables. A mismatch fails the call, which the engine treats as silence.
 
 `GameRules.mo` re-implements, from `RULES`, only what the strategy
 needs (typically the legal moves and the effect of one). The game's own
-`validate` stays the judge: an illegal reply comes back once with
+rules stay the judge: an illegal reply comes back once with
 `retryReason` set to its rejection text, then the engine falls silent
 and its timeouts apply.
 
 ## 4. Write the bot
 
 `BotLogic.mo` follows `canister-player-bots.md`: `chooseMove(req)` over
-`TP.MoveRequest<Game.State, Game.Action>`, the simple shape unless the
+`TP.MoveRequest<Game.View, Game.Action>`, the simple shape unless the
 strategy needs memory. If the user asked for several difficulty
 levels, list them in `COMPLEXITIES` and switch on `req.complexity`,
 treating unknown values as the default.
@@ -153,7 +154,7 @@ actor {
     await h.unregister_bot();
   };
 
-  public query func make_move(req : TP.MoveRequest<Game.State, Game.Action>) : async Game.Action {
+  public query func make_move(req : TP.MoveRequest<Game.View, Game.Action>) : async Game.Action {
     BotLogic.chooseMove(req);
   };
 
@@ -195,12 +196,12 @@ import Game "GameTypes";
 // request per call. The table it plays at is the one it opened last.
 actor Sparring {
 
-  type Reply = Transport.Reply<Game.State>;
+  type Reply = Transport.Reply<Game.View>;
   type Host = actor {
-    duel_create_table : (TP.Seat, TP.TableVisibility, Text) -> async Transport.Ack;
+    duel_create_table : (TP.Seat, TP.TableVisibility, Game.Options) -> async Transport.Ack;
     duel_ack_ended : (TP.TableId) -> async Transport.Ack;
     duel_submit : (TP.TableId, Nat, Nat, Game.Action) -> async Reply;
-    duel_table : query (TP.TableId, Nat) -> async Transport.TableResult<Game.State>;
+    duel_table : query (TP.TableId, Nat) -> async Transport.TableResult<Game.View>;
   };
 
   var tableId : TP.TableId = 0;
@@ -216,8 +217,8 @@ actor Sparring {
   };
 
   // Answers the new table's id (and rev), which `bot play` needs next.
-  public func open_table(host : Principal.Principal, seat : TP.Seat, variant : Text) : async Transport.Ack {
-    let ack = await hostOf(host).duel_create_table(seat, #open, variant);
+  public func open_table(host : Principal.Principal, seat : TP.Seat, options : Game.Options) : async Transport.Ack {
+    let ack = await hostOf(host).duel_create_table(seat, #open, options);
     switch ack {
       case (#ok { tableId = id }) tableId := id;
       case (#err _) {};
@@ -236,15 +237,15 @@ actor Sparring {
           seat = g.seat;
           game = g.game;
           mode = g.mode;
-          turn = g.turn;
+          step = g.step;
           gen = g.gen;
           complexity;
           retryReason = null;
           opponent = "";
           opponentLastMove = null;
-          lastRoundDurationNs = null;
+          lastStepDurationNs = null;
         });
-        await hostOf(host).duel_submit(tableId, g.gen, g.turn, move);
+        await hostOf(host).duel_submit(tableId, g.gen, g.step, move);
       };
       case _ current;
     };
@@ -262,7 +263,7 @@ actor Sparring {
 icp network start -d
 icp deploy
 HOST=$(icp canister status backend -i)
-icp canister call sparring open_table "(principal \"$HOST\", variant { p1 }, \"\")"
+icp canister call sparring open_table "(principal \"$HOST\", variant { p1 }, record {})"   # the game's Options; record {} without any
 # (variant { ok = record { tableId = <table id> : nat; rev = 1 : nat } })
 icp canister call bot play "(principal \"$HOST\", <table id> : nat, variant { p2 }, null, \"<complexity>\")"
 # (variant { ok = variant { started = variant { p2 } } })
@@ -270,10 +271,11 @@ icp canister call sparring step "(principal \"$HOST\", \"<complexity>\")"
 ```
 
 Repeat `step` until its reply is a `debrief`: `end` says how the game
-ended (`finished` with the verdict, for a game played out), `turns`
-how long it took, `finalGame` the last state. Each `step` reply shows
-`turn` moving on by two in `#alternating` (sparring's move, then the
-bot's) and by one in `#simultaneous`. A `step` that returns the same
+ended (`finished` with the verdict, for a game played out), `steps`
+how long it took, `finalGame` the last view. Each `step` reply shows
+`step` moving on by two in `#turnBased` (sparring's action, then the
+bot's; more when a turn is several actions) and by one in
+`#simultaneous`. A `step` that returns the same
 `inGame` view with `youSubmitted = true` means the bot did not reply:
 its move was rejected twice (compare with `RULES`) or did not decode
 (compare `GameTypes.mo` with `backend.did`); a sparring call whose
@@ -283,7 +285,7 @@ the game is over, a bot acks its own debrief right away; `ack_ended`
 
 Play at least one game per complexity, with the bot in each seat
 (`open_table`'s seat is sparring's; give `play` the other one), and
-one per variant `VARIANTS` lists (`open_table`'s last argument).
+one per value `OPTIONS` lists (`open_table`'s last argument).
 
 ```bash
 icp network stop

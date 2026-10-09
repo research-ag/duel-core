@@ -30,12 +30,13 @@
 ///
 /// Design guarantees (see `../README.md`, "Design"): race-free rematch
 /// (create-then-join with a reserved seat), no ghost lobbies (every phase
-/// timestamped), server-side legality (`validate` for both seats), no
+/// timestamped), server-side legality (the rules check every action), no
 /// silent endings (`#aborted`/`#claimed`/`#endedByOther`), leave means
 /// left (an acked debrief seat is no longer a participant), replay-safe
-/// (`gen`/`turn` mismatches come back `#stale`). `Spec` is tagged by
-/// `Mode`; in `#alternating` the engine tracks whose turn it is and only
-/// the waiting seat may `claimWin`.
+/// (`gen`/`step` mismatches come back `#stale`), hidden information stays
+/// hidden (every view goes through the game's `view`). `Spec` is tagged
+/// by `Mode`; in `#turnBased` the rules' `toMove` says whose action is
+/// next and only the waiting seat may `claimWin`.
 
 import Array "mo:core/Array";
 import Int "mo:core/Int";

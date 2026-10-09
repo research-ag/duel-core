@@ -11,7 +11,8 @@ A game on duel-game-core is two players at a table on the Internet
 Computer. The framework does everything except the game itself:
 tables and seating, rounds, timeouts, endings, rematches, canister
 bots, a leaderboard, and the browser client with its screens. A game
-supplies three pure functions — its rules — and a board to draw.
+supplies a rules module — a few pure functions over its own types — and
+a board to draw.
 
 ```mermaid
 flowchart LR
@@ -25,11 +26,12 @@ flowchart LR
   subgraph canister["Game canister (one per game)"]
     direction TB
     methods["Candid methods<br/>duel_lobby · duel_table · duel_submit<br/>duel_create_table · duel_join_table · …"]
-    duel["Duel class<br/>(transient: spec, callBot, rating)"]
-    state[("Stable data<br/>State · Registry · Tables<br/>Bots store · Leaderboard")]
-    rules["Rules module<br/>Spec: init · validate · resolve"]
+    duel["Transport module functions<br/>(duel, env, …)"]
+    state[("Stable data: Duel<br/>Registry · Tables · lobby rev · presence · rng<br/>Bots store · Leaderboard")]
+    env["Env (transient)<br/>spec · callBot · rating"]
+    rules["Rules module<br/>Spec: checkOptions · init · view<br/>toMove · move | validate · resolve"]
     methods --> duel --> state
-    duel --> rules
+    duel --> env --> rules
   end
 
   bot["Bot canister<br/>make_move(MoveRequest)"]
@@ -42,7 +44,7 @@ flowchart LR
 
 | Piece            | Where                                                   | Role                                                                    |
 | ---------------- | ------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Rules            | the game's `XRules.mo`                                  | `Spec<S, M>`: `init`, `validate`, `resolve`. Pure.                      |
+| Rules            | the game's `XRules.mo`                                  | `Spec<S, M, V, O>`: options, init, view, and the moves. Pure.           |
 | Table            | `backend/src/table.mo`                                  | One board: phases, rounds, timeouts, rematch, claim.                    |
 | Registry         | `backend/src/registry.mo`                               | Many tables; who is at which.                                           |
 | Transport        | `backend/src/transport.mo` + `transport_actor_mixin.mo` | The only client interface: revs, queries, mutations, keep-alive, sweep. |
@@ -50,6 +52,75 @@ flowchart LR
 | Leaderboard      | `leaderboard.mo`, `elo.mo` + mixin                      | Optional scores (Elo or a game's best).                                 |
 | HTTP             | `http_actor_mixin.mo`                                   | `/semantics`, `/wasm`, `/metrics`.                                      |
 | Client           | `frontend/src/*`                                        | Transport, headless client, default screens, identity.                  |
+
+## What a game supplies
+
+A rules module exports four types and a handful of pure functions, and
+bundles the functions as a constant `spec`:
+
+| Type | Meaning                                                                                                       |
+| ---- | ------------------------------------------------------------------------------------------------------------- |
+| `S`  | the full game state — what the canister keeps                                                                 |
+| `M`  | one action a seat submits                                                                                     |
+| `V`  | what one seat may see of the state: `S` minus anything hidden from that seat (`V = S` when nothing is hidden) |
+| `O`  | the table's options, picked by its creator (`{}` when there are none; a variant or a record with parameters)  |
+
+```motoko
+public type Spec<S, M, V, O> = {
+  #turnBased : {
+    checkOptions : (O) -> ?Text; // null = sensible; ?why = refuse to open the table
+    init : (O, Rng) -> S;
+    toMove : (S) -> Seat; // whose action the game is waiting for
+    move : (S, Seat, M, Rng) -> {
+      #ok : { state : S; verdict : ?Verdict };
+      #err : Text;
+    };
+    view : (S, Seat, Bool) -> V; // the Bool: the game is over
+  };
+  #simultaneous : {
+    checkOptions : (O) -> ?Text;
+    init : (O, Rng) -> S;
+    validate : (S, Seat, M) -> ?Text; // only checks a submission
+    resolve : (S, M, M, Rng) -> { state : S; verdict : ?Verdict };
+    view : (S, Seat, Bool) -> V;
+  };
+};
+
+```
+
+Two modes, because they resolve differently:
+
+- **Turn-based.** One seat acts at a time, and the rules decide who:
+  `toMove(s)` reads it off the state, so a turn may take several
+  actions (Rack-O: draw, then place), an action may grant another turn
+  (a rolled six, an UNO "go again"), and the order is the game's own —
+  which is also what a third seat will need. The engine only refuses a
+  seat `toMove` does not name (`#notYourTurn`). `move` checks and applies
+  one action in a single call: checking often means computing the
+  effect anyway.
+- **Simultaneous.** Both seats act every step. A submission is checked
+  at once (`validate`) but applied only when both are in (`resolve`).
+
+**Hidden information.** The canister keeps `S`, but nothing ever leaves
+it except through `view(s, seat, over)`: the in-game view a client
+polls, the debrief's final view, and what a bot is asked with. A game
+decides what each seat sees — Rack-O hides the opponent's rack and the
+draw pile, and reveals a drawn card only to the seat that drew it. The
+flag `over` is set once the game has ended by a verdict, a leave or a
+claim, so a game may reveal everything in the debrief without having to
+record "over" in its state.
+
+**Options.** A table is opened with a typed `O`, listed in the lobby
+with it, and `init` builds the first state from it. The game's
+`checkOptions` decides whether the value is sensible (rock-paper-
+scissors accepts `winsNeeded` from 1 to 9); a rejected value never
+opens a table (`#badOptions`).
+
+**Randomness.** The framework keeps one random-number generator per
+game canister, in the stable data, and hands it to `init`, `move` and
+`resolve`. A rules module draws from it (`rng.below(n)`,
+`rng.shuffle(xs)`) and holds no generator of its own; tests pass a
+seeded one for reproducible games.
 
 ## Core concepts
 
@@ -99,64 +170,72 @@ themselves (`Registry.tablesOf`), never kept separately.
 ## Data and behaviour
 
 Everything the game canister knows is stable data in plain records,
-declared as ordinary actor fields. Behaviour lives in modules and in one
-transient class that binds the data to the function values Motoko
-cannot store — the same split as promtracker's `Tracker` (data) and
-`Renderer` (closures).
+declared as ordinary actor fields. Behaviour is module functions. There
+are no classes: the function values Motoko cannot store — the game's
+`spec`, the bot call, a rating rule — travel in a small transient
+`Env` record the host builds once and passes to every call.
 
 ```mermaid
 flowchart TB
   subgraph stable["Stable actor fields — survive upgrades"]
-    st["state = Transport.new()<br/>registry (tables, timeouts, id nonce)<br/>lobbyRev · presence"]
+    st["duel = Transport.new()<br/>registry (tables, timeouts, id nonce)<br/>lobbyRev · presence · rng"]
     bots["bots = CanisterPlayers.newStore()<br/>directory · in-flight asks"]
     lb["leaderboard = Leaderboard.new(keep, default)"]
   end
   subgraph transient["transient let — rebuilt on every upgrade"]
-    duelc["duel = Transport.Duel(state, spec,<br/>?{ store = bots; call = callBot },<br/>?{ board = leaderboard; rating })"]
+    envr["env = { spec = Rules.spec;<br/>bots = ?{ store = bots; call = BotIface.callBot };<br/>scoring = ?{ board = leaderboard; rating } }"]
   end
-  st --> duelc
-  bots --> duelc
-  lb --> duelc
-  duelc --> lobby["duel.lobby → TransportActorMixin"]
-  duelc --> cp["duel.canisterPlayers → CanisterPlayersActorMixin"]
-  duelc --> own["duel.submit / duel.table → the host's own two methods"]
+  bots --> envr
+  lb --> envr
+  st --> fns["Transport.submit(duel, env, …)<br/>Transport.table(duel, env, …)<br/>…"]
+  envr --> fns
+  fns --> lobby["duel.lobby(env) → TransportActorMixin"]
+  fns --> cp["duel.canisterPlayers(env) → CanisterPlayersActorMixin"]
+  fns --> own["the host's own four methods"]
 ```
 
-The only function values are those that have to be code:
+The only function values are those that have to be code, and they
+reach the framework as arguments, never as stored state:
 
-- **`spec`** — the game's rules. The engine is generic over `S`/`M` and
-  Motoko has no interfaces, so rules arrive as functions.
+- **`spec`** — the game's rules. The framework is generic over the
+  game's types and is type-checked once, on its own, so it cannot name
+  `Rules.move`; the host, which imports `Rules`, passes the functions
+  in. (Motoko's dot notation and implicit arguments are resolved where a
+  call is written, so they could only shorten the host's calls, not
+  replace this.)
 - **`callBot`** — the inter-canister call to a bot's `make_move`. A call
-  returning a generic `M` does not type-check inside the library, so the
-  host, where `M` is concrete, makes it.
+  returning a generic `M` does not type-check inside the library, so it
+  lives in the game's `BotIface.mo`, where `M` is concrete.
 - **`rating`** — `#elo { k }`, or a game's own `#best` function that
-  scores a finished game (racing turns a lap time into a score).
+  scores the seats a finished game credits (racing turns a lap time
+  into a score; Flag Duel records each player's correct answers).
 
-**Why the host still declares two methods.** A mixin cannot take type
-parameters, and the Candid types of `duel_submit` (it takes an `Action`)
-and `duel_table` (it returns a `State`) depend on the game. Everything
-else is non-generic and comes from mixins. The host's part is two
-one-line pass-throughs:
+**Why the host declares four methods.** A mixin cannot take type
+parameters, so every method whose Candid signature names a game type is
+the host's own one-line pass-through: `duel_create_table` and
+`duel_lobby` (the options), `duel_submit` (an action in, a view out) and
+`duel_table` (a view out). Everything else comes from the mixins.
 
 ```motoko
-public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, turn : Nat, move : Rules.Action) : async Transport.Reply<Rules.State> {
-  duel.reply(caller, tableId, await* duel.submit<system>(caller, tableId, gen, turn, move));
+public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, step : Nat, action : Rules.Action) : async Transport.Reply<Rules.View> {
+  duel.reply(env, caller, tableId, await* duel.submit<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, tableId, gen, step, action));
 };
 
-public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.State> {
-  duel.table(caller, tableId, rev);
+public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.View> {
+  duel.table(env, caller, tableId, rev);
 };
 
 ```
 
 `submit` and `reply` are two steps because an `async*` result must be a
-shared type, which the generic `Reply<S>` is not: `submit` does the
+shared type, which the generic `Reply<V>` is not: `submit` does the
 work and returns only `?Err`; `reply` builds the view synchronously.
 
-**Upgrades.** Tables, ratings and bot registrations survive an upgrade
-untouched. The `Duel` is rebuilt from the same data, polling clients
-notice nothing, and timeouts are re-applied from the source on the line
-after the declaration (`state.registry.setTimeouts(...)`).
+**Upgrades.** Tables, ratings, bot registrations and the random
+generator survive an upgrade untouched. The `Env` is rebuilt from the
+rules module, polling clients notice nothing, and timeouts are
+re-applied from the source on the line after the declaration
+(`duel.registry.setTimeouts(...)`).
 
 ## Reading: queries and revs
 
@@ -210,17 +289,26 @@ the player meant; the canister itself never queues anything.
 
 There are two kinds of reply:
 
-- **`duel_submit`** replies with the table's fresh view — the move, and
-  in `#alternating` against a bot, the bot's answer too.
+- **`duel_submit`** replies with the table's fresh view — the action
+  applied, and against a bot, the bot's answer too. In a turn-based game
+  the view says whose turn it is next (`toMove`), so a client needs no
+  poll to learn that it stays on turn after a draw or a repeat turn.
 - **Every other mutation** (`duel_create_table`, `duel_join_table`,
   `duel_rematch`, `duel_leave`, `duel_reset`, `duel_claim_win`,
   `duel_ack_ended`) replies with an `Ack`: the table and its `rev` after
   the call. The client then polls that table until its view has reached
   that `rev`. These calls are not on the hot path (starting a game can
-  afford one poll), and keeping them free of `State` is what lets a
-  non-generic mixin supply them.
+  afford one poll), and keeping them free of the game's types is what
+  lets a non-generic mixin supply them.
 
-An alternating game between two browsers:
+**Steps, not turns.** The engine counts `step`: every applied action in
+a turn-based game, every resolved round in a simultaneous one. A client
+stamps the step it saw on each submit, which is what makes replays
+detectable. What a _turn_ is — Rack-O's draw-then-place is one turn and
+two steps — only the game knows, so a game that wants to show turns
+counts them in its own state.
+
+A turn-based game between two browsers:
 
 ```mermaid
 sequenceDiagram
@@ -229,7 +317,7 @@ sequenceDiagram
   participant C as Game canister
   participant B as Bob (tab)
 
-  A->>C: duel_create_table(#p1, #open, "")
+  A->>C: duel_create_table(#p1, #open, options)
   C-->>A: Ack { tableId = 7, rev = 1 }
   A->>C: duel_table(7, 0)
   C-->>A: changed { rev = 1, #stagingYou }
@@ -240,11 +328,14 @@ sequenceDiagram
   B->>C: duel_table(7, 0)
   C-->>B: changed { rev = 2, #inGame }
   A->>C: duel_table(7, 1)
-  C-->>A: changed { rev = 2, #inGame, your turn }
-  A->>C: duel_submit(7, gen, turn 0, move)
-  C-->>A: view { rev = 3, #inGame, waiting }
+  C-->>A: changed { rev = 2, #inGame, toMove = p1 }
+  A->>C: duel_submit(7, gen, step 0, action)
+  Note over C: toMove(state)? still p1 → a two-step turn
+  C-->>A: view { rev = 3, #inGame, toMove = p1, step 1 }
+  A->>C: duel_submit(7, gen, step 1, action)
+  C-->>A: view { rev = 4, #inGame, toMove = p2 }
   B->>C: duel_table(7, 2)
-  C-->>B: changed { rev = 3, #inGame, your turn }
+  C-->>B: changed { rev = 4, #inGame, toMove = p2 }
 ```
 
 A `#simultaneous` round: each seat submits; the second submission
@@ -256,19 +347,19 @@ sequenceDiagram
   participant A as Alice
   participant C as Game canister
   participant B as Bob
-  A->>C: duel_submit(7, gen, turn 4, a)
+  A->>C: duel_submit(7, gen, step 4, a)
   C-->>A: view { #inGame, youSubmitted, oppSubmitted = false }
-  B->>C: duel_submit(7, gen, turn 4, b)
-  Note over C: both moves in:<br/>resolve(state, a, b)
-  C-->>B: view { #inGame, turn 5, new state }
+  B->>C: duel_submit(7, gen, step 4, b)
+  Note over C: both moves in:<br/>resolve(state, a, b, rng)
+  C-->>B: view { #inGame, step 5, new state }
   A->>C: duel_table(7, rev)
-  C-->>A: changed { #inGame, turn 5, new state }
+  C-->>A: changed { #inGame, step 5, new state }
 ```
 
 **Replay safety.** A call that throws may or may not have landed, so
 the client resends it (twice, to the same table). `submit`, `leave`,
 `reset` and `claimWin` carry the `gen` (match generation) and `submit`
-the `turn` the client last saw; a replay against a later round or a new
+the `step` the client last saw; a replay against a later step or a new
 match is `#stale`, and on a resend the client settles with a resync
 instead of showing an error.
 
@@ -307,8 +398,12 @@ were.
 
 ## Canister players
 
-A bot is a canister that implements `make_move(MoveRequest<S, M>) :
-async M`. The game canister calls it and treats the reply as the move —
+A bot is a canister that implements `make_move(MoveRequest<V, M>) :
+async M`. It is asked with the game's `view` for its seat — the same
+thing a human at that seat sees — so a bot is fair by construction: it
+cannot read the opponent's hand or an undrawn card, because they are
+not in the request. The game canister calls it and treats the reply as
+the move —
 an `await` is an ordered request/response channel, so the bot never
 makes a second, unordered call into the game. After every mutation the
 transport settles the table: it asks a due bot, claims an overdue win
@@ -326,33 +421,35 @@ sequenceDiagram
   C-->>H: Ack { tableId = 7 }
   H->>K: play(host, 7, #p2, null, "Hard")
   K->>C: join_table_as_canister(7, #p2, null, "Hard")
-  Note over C: game starts — settle(7):<br/>is a bot seat due? not yet (p1 moves first)
+  Note over C: game starts — settle(7):<br/>is a bot seat due? toMove says p1, not yet
   C-->>K: #ok(#started)
-  H->>C: duel_submit(7, gen, 0, move)
-  Note over C: settle(7): the bot's seat is due
-  C->>K: make_move(MoveRequest { game, seat, turn, complexity, … })
-  K-->>C: move
-  Note over C: validate + resolve, then settle again
-  C-->>H: view { the human's move and the bot's answer }
+  H->>C: duel_submit(7, gen, 0, action)
+  Note over C: settle(7): toMove is the bot's seat
+  C->>K: make_move(MoveRequest { game = view(s, p2), seat, step, complexity, … })
+  K-->>C: action
+  Note over C: move(s, p2, action, rng), then settle again
+  C-->>H: view { the human's action and the bot's answer }
 ```
 
-An illegal reply is retried once, with `retryReason` set to
-`validate`'s text; a trap or rejection is treated as silence and left
-to the timeouts. Two bots at one table never play a whole match inside
-one call: a bot seat that becomes due inside the other bot's reply is
-asked from a fresh message, through a zero-second timer.
+An illegal reply is retried once, with `retryReason` set to the rules'
+rejection text; a trap or rejection is treated as silence and left to
+the timeouts. A bot still on turn after its own action (a multi-step
+turn, an extra turn) is asked again from a fresh message, and two bots
+at one table never play a whole match inside one call: a bot seat that
+becomes due inside the other bot's reply is asked through a zero-second
+timer.
 
 ```mermaid
 sequenceDiagram
   participant C as Game canister
   participant K1 as Bot 1
   participant K2 as Bot 2
-  C->>K1: make_move (turn 0)
-  K1-->>C: move → bot 2 is due,<br/>but we are inside bot 1's reply
+  C->>K1: make_move (step 0)
+  K1-->>C: action → toMove is bot 2,<br/>but we are inside bot 1's reply
   Note over C: arm a 0 s timer
-  C->>K2: (timer) make_move (turn 1)
-  K2-->>C: move → arm a 0 s timer
-  C->>K1: (timer) make_move (turn 2)
+  C->>K2: (timer) make_move (step 1)
+  K2-->>C: action → arm a 0 s timer
+  C->>K1: (timer) make_move (step 2)
 ```
 
 Bots register themselves in the game's directory (`register_bot`), and
@@ -361,10 +458,13 @@ challenge one without knowing its id.
 
 ## Leaderboard
 
-Optional. A finished game is scored by the `Duel` itself when the
-transport sees a fresh debrief: `#elo { k }` re-rates both seats
-(claimed and aborted games count as wins), `#best pick` keeps a game's
-own score for one seat when it improves that player's entry. Keys are
+Optional, and each game picks the kind that fits. A finished game is
+scored by the transport when it sees a fresh debrief: `#elo { k }` is a
+rating between players who play against each other (claimed and
+aborted games count as wins for the other seat); `#best pick` is for
+individual results — the game returns a score for each seat it credits
+(racing: the winner's lap; Flag Duel: both players' correct answers),
+each kept only when it improves that player's personal best. Keys are
 player ids, so a bot is rated per complexity. `get_leaderboard()` comes
 from `LeaderboardActorMixin`.
 
@@ -389,12 +489,17 @@ alone.
 4. **No silent endings.** `#aborted`, `#claimed`, `#endedByOther`.
 5. **Leave means left.** Once a player acknowledged a debrief, the
    table is no longer theirs.
-6. **Replay-safe.** `gen`/`turn` mismatches are `#stale`.
+6. **Replay-safe.** `gen`/`step` mismatches are `#stale`.
 7. **Ordered requests.** One update at a time per client.
 8. **Cheap idle reads.** An unchanged table or lobby costs one counter
    comparison; nothing is stored per reader.
-9. **Nothing lost on upgrade.** All data is stable; only closures are
+9. **Nothing lost on upgrade.** All data is stable; only the `Env` is
    rebuilt.
+10. **Hidden information stays hidden.** Every view, for a client or a
+    bot, goes through the game's `view`; the full state never leaves
+    the canister.
+11. **No class, no stored functions.** The game's functions arrive with
+    each call; the stable data holds only data.
 
 ## Where to go next
 
