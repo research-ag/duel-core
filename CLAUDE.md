@@ -332,8 +332,10 @@ deploys all of them to the IC.
 - `skills/duel-game-core/SKILL.md` (tracked, installable via `npx skills
 add research-ag/duel-core --skill duel-game-core`) — building a game
   from a rules description: `Spec` design, templates, and `references/`
-  for canister bots, turn-based games, rich UIs, long-game testing, and
-  a new frontend or a bot for an already-deployed game.
+  for canister bots, turn-based games, rich UIs, long-game testing,
+  going live (the backend with icp-cli and cycles, the frontend on
+  hosty.live by MCP or web UI, then the dashboard), and a new frontend
+  or a bot for an already-deployed game.
   Read it first for any game-building task, here or elsewhere.
 - `.agents/skills/` (local, untracked) — general Motoko playbooks:
   `motoko-general-style-guidelines` (2-space indent, 80 cols),

@@ -33,6 +33,15 @@ Tracked in git, so it installs standalone into your own game's repo:
 npx skills add research-ag/duel-core --skill duel-game-core
 ```
 
+Putting a game online needs no prior Internet Computer knowledge: the
+backend deploys from your computer with `icp-cli` on a few dollars of
+cycles bought by card, and the frontend is hosted by
+[hosty.live](https://hosty.live/) (a canister bought there by card for
+about a dollar), from its web UI or by your coding agent over its MCP
+server; icp-cli points the hosted page at its backend. The skill's
+[`references/going-live.md`](skills/duel-game-core/references/going-live.md)
+is the walkthrough.
+
 ## Building your own frontend or bot for a listed game
 
 Every game's backend serves its rules as plain text

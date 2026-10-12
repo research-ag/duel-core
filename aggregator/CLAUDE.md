@@ -65,8 +65,11 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   backend id). `FrontendTutorialWizard.tsx` ("Make your own frontend")
   is written for a player with no ICP or coding background: two routes,
   caffeine.ai (chat builder, builds and hosts itself, paid plan) or an
-  AI coding tool on their own computer (icp-cli, identity and cycles
-  only appear in the "Put it online" step), ending in the register
+  AI coding tool on their own computer (the page then goes online
+  through hosty.live, in a canister paid by card, by the tool over
+  hosty's MCP server or by hand in its web UI; icp-cli appears only to
+  set the `PUBLIC_CANISTER_ID:backend` environment variable on the
+  hosted canister, with no cycles involved), ending in the register
   flow. Its prompt step shows `frontendPrompt.ts`'s prompt, filled with
   the game's title, URL and backend id, which adapts to what the
   builder can run (local wasm copy with icp-cli, else the live backend

@@ -26,8 +26,9 @@ semantics text is sufficient to build from.
 
 Given a backend canister id, use it. Given the game's address (what the
 Duel dashboard lists), the page publishes its backend in the `ic_env`
-cookie it sets (every page deployed with icp-cli next to, or linked to,
-its backend has it):
+cookie its canister sets (from the `PUBLIC_CANISTER_ID:backend`
+environment variable every frontend going live sets on its canister,
+`going-live.md`):
 
 ```bash
 curl -sI <game-url>/ \
@@ -160,13 +161,13 @@ they depend only on `@icp-sdk/core` and `@icp-sdk/auth`. Never rewrite
 the wire protocol yourself.
 
 **Backend id in the frontend.** Read `PUBLIC_CANISTER_ID:backend` from
-the `ic_env` cookie when present (the local copy, or a deploy that
-linked the backend) and fall back to `BACKEND` hardcoded (any other
-hosting, caffeine.ai included). Whenever the page talks to the live
-backend, build the `HttpAgent` with `host: "https://icp0.io"` and no
-`rootKey`: `deriveHost()` assumes the backend sits behind the page's
-own origin, which is false for a page served from `localhost` or a
-foreign host.
+the `ic_env` cookie when present (the local copy, or the live page once
+its canister carries that environment variable, `going-live.md`) and
+fall back to `BACKEND` hardcoded (a builder's own preview, caffeine.ai).
+Whenever the page talks to the live backend, build the `HttpAgent` with
+`host: "https://icp0.io"` and no `rootKey`: `deriveHost()` assumes the
+backend sits behind the page's own origin, which is false for a page
+served from `localhost` or a foreign host.
 
 ## 6. Write the client
 
@@ -228,27 +229,21 @@ drawn into your tests. Keep the testing short.
 
 ## 8. Going live
 
-Never deploy anything yourself: going live spends the user's money and
-is theirs to trigger. Finish by telling them, step by step, what comes
-next. With icp-cli, that is these commands, left in the project's
-`README.md` and in your final message:
+The page goes online through hosty.live: `going-live.md`, section 2
+(there is no backend of the user's own to deploy, so section 1 does
+not apply). No cycles to handle: the user creates the canister on
+hosty.live for about a dollar by card; icp-cli is needed once, to point
+that canister at the backend. Deploy through the
+`hosty_*` tools when the user has connected hosty.live's MCP server to
+your session and asks for it; otherwise finish by telling them the
+steps, and leave them in the project's `README.md` as well: the
+environment variable, `cd frontend && npm run build && zip -r dist.zip
+dist -x "*.map"`, then the upload, through the web UI or an agent.
 
-```bash
-icp canister link backend <backend-id> -e ic --force   # step 5's link
-icp deploy frontend -e ic                              # the frontend only
-icp canister status frontend -e ic -i                  # its canister id
-```
-
-The `link` line repeats step 5 (`--force` makes it a no-op when it
-already ran, and covers a project built without icp-cli), so the
-deployed frontend's cookie names the live backend. Always name `frontend` on the deploy line: a bare
-`icp deploy -e ic` also attempts `backend`, which fails on a canister
-the user does not control.
-
-In a builder with its own "go live" action, tell the user to trigger
-it, and how to read the live page's address and its frontend canister
-id afterwards.
+In a builder with its own "go live" action (caffeine.ai), tell the
+user to trigger it instead, and how to read the live page's address
+and its frontend canister id afterwards.
 
 The user then registers the new frontend's canister id on the Duel
-dashboard as its own entry, with their own title, description and
-banner.
+dashboard as its own entry (`going-live.md`, section 3), with their
+own title, description and banner.

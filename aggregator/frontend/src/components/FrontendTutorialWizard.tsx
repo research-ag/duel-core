@@ -2,7 +2,8 @@
 // game already listed here, written for someone who knows nothing about
 // the Internet Computer or coding. Two ways through: caffeine.ai (chat,
 // builds and hosts the app itself, paid plan) or an AI coding agent on
-// their own computer (free tools, pays hosting directly). Opened from a
+// their own computer (free tools; the page goes online through
+// hosty.live, in a canister paid by card). Opened from a
 // game's info dialog it starts filled in for that game; from the header
 // it starts by picking one.
 
@@ -122,9 +123,12 @@ function HowItWorksStep() {
         <li>
           <strong>An AI coding tool on your own computer</strong> — Claude Code,
           Cursor, Codex and the like. Free to build with (beyond the tool's own
-          subscription); putting the page online then takes a few one-time
-          steps, explained in step 5. Choose this if you already use one of
-          these tools.
+          subscription); the page then goes online through{" "}
+          <a href="https://hosty.live" target="_blank" rel="noreferrer">
+            hosty.live
+          </a>
+          , for about a dollar by card, as step 5 explains. Choose this if you
+          already use one of these tools.
         </li>
       </ol>
       <p className="hint">
@@ -185,9 +189,9 @@ function BuildStep() {
       <p className="hint">
         While you test, the page talks to the real game; the prompt tells the AI
         to use tables with an access code so other players don't wander in. (If
-        a coding tool finds <code>icp-cli</code> from step 5 already installed,
-        it runs a private copy of the game on your computer instead and leaves
-        the real one alone.)
+        a coding tool finds <code>icp-cli</code> installed on your computer, it
+        runs a private copy of the game there instead and leaves the real one
+        alone.)
       </p>
     </>
   );
@@ -205,13 +209,29 @@ function GoLiveStep({ backend }: { backend: string }) {
           frontend canister id?” — write both down for the next step.
         </li>
         <li>
-          <strong>From your own computer</strong>, three one-time things, then
-          two commands. The AI tool can walk you through each of them if you
-          paste these instructions to it.
+          <strong>From your own computer</strong>, through{" "}
+          <a href="https://hosty.live" target="_blank" rel="noreferrer">
+            hosty.live
+          </a>
+          , a website that puts a finished page online for you.
           <ol className="tutorial-list">
             <li>
-              Install <code>icp-cli</code>, the program that publishes to the
-              Internet Computer — see the{" "}
+              Sign in at hosty.live. It uses Internet Identity: a passkey on
+              your device, no password and no email.
+            </li>
+            <li>
+              Get a space for the page (a “canister”):{" "}
+              <strong>Canisters</strong> → <strong>Create New Canister</strong>,
+              paid from the <strong>Cycles</strong> balance that you top up by
+              card (about a dollar at the time of writing). The free rental
+              offered next to it does not work for this: hosty.live does not let
+              you change a rented canister's controllers, which the next step
+              needs.
+            </li>
+            <li>
+              Tell the canister which game it plays. This is the one step that
+              needs <code>icp-cli</code>, the command-line program for the
+              Internet Computer (see the{" "}
               <a
                 href="https://github.com/dfinity/icp-cli"
                 target="_blank"
@@ -219,37 +239,44 @@ function GoLiveStep({ backend }: { backend: string }) {
               >
                 icp-cli project
               </a>{" "}
-              for your system — and create your publishing key (keep it; it is
-              what proves the page is yours):
+              for your system; your AI tool can install it and run these for
+              you). Create a key and print its address:
               <CodeBlock
                 code={
                   "icp identity new my-frontend\nicp identity default my-frontend\nicp identity principal"
                 }
               />
-            </li>
-            <li>
-              Pay for hosting. Pages on the Internet Computer run on prepaid
-              “cycles”; about 1–2T cycles (a few dollars) is comfortable for a
-              frontend. The simplest way is by card at{" "}
-              <a href="https://cycle.express/" target="_blank" rel="noreferrer">
-                cycle.express
-              </a>
-              : paste the long address that the last command above printed (your
-              “principal”) into its Canister ID field. Check it arrived:
-              <CodeBlock code="icp cycles balance -e ic" />
-            </li>
-            <li>
-              Publish. The AI left these commands in the project's{" "}
-              <code>README.md</code> too; run them in the project folder:
+              In hosty.live open the canister →{" "}
+              <strong>Transfer Canister Ownership</strong> →{" "}
+              <strong>Add Controller</strong>, paste that address. Then, with
+              your canister's id from its page:
               <CodeBlock
-                code={`icp canister link backend ${backend} -e ic --force\nicp deploy frontend -e ic`}
+                code={`icp canister settings update <canister-id> -n ic --add-environment-variable PUBLIC_CANISTER_ID:backend=${backend}`}
               />
-              The first line points your page at the real game. Then get your
-              page's canister id for the next step:
-              <CodeBlock code="icp canister status frontend -e ic -i" />
-              Your page is at <code>https://&lt;that id&gt;.icp0.io</code>.
+              Nothing to pay here.
+            </li>
+            <li>
+              Let your AI tool publish for you: <strong>Settings</strong> →{" "}
+              <strong>AI agent access</strong> → create a token. The page shows
+              a one-line command that connects your tool to hosty.live; run it,
+              restart the tool, then tell it:
+              <CodeBlock
+                code={`Put my frontend online through hosty.live into canister <canister-id>.`}
+              />
+              It builds the page, uploads it, and gives you the page's web
+              address. Write it and the canister id (the{" "}
+              <code>xxxxx-…-cai</code> code) down for the next step.
+            </li>
+            <li>
+              Without the tool: in hosty.live open the canister →{" "}
+              <strong>Deploy</strong> → <strong>ZIP Upload</strong>, upload a
+              zip of the built <code>dist</code> folder (your tool's README says
+              how to make it) with the already-built option on, output directory{" "}
+              <code>dist</code>. The canister's page shows the address.
             </li>
           </ol>
+          Later changes are another upload. Your own web address (a custom
+          domain) can be set up from the canister's page.
         </li>
       </ol>
     </>
@@ -264,8 +291,9 @@ function RegisterStep({ isLoggedIn }: { isLoggedIn: boolean }) {
         original. The form asks for your page's <strong>canister id</strong>{" "}
         (the <code>xxxxx-…-cai</code> code from the previous step), a title that
         tells the two apart, a short description, and a banner image. If your
-        page has its own web address (caffeine.ai gives it one), put that in the
-        “custom domain” field so players open it there.
+        page has its own web address (caffeine.ai gives it one; hosty.live can
+        attach yours), put that in the “custom domain” field so players open it
+        there.
       </p>
       {isLoggedIn ? (
         <p>

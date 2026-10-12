@@ -293,9 +293,12 @@ icp network stop
 
 ## 6. Going live
 
-Never deploy anything yourself: going live spends the user's money and
-is theirs to trigger. Finish by telling them, step by step, what comes
-next, and leave the same in `README.md`:
+Going live spends the user's money and is theirs to trigger: run these
+only when asked. Finish by telling them, step by step, what comes next,
+and leave the same in `README.md`. The identity and the cycles are
+`going-live.md`, section 1 (a bot is a canister like a backend, deployed
+from the user's computer; about 3T cycles bought by card at
+cycle.express), then:
 
 ```bash
 icp canister link backend <backend-id> -e ic --force   # step 2's link
