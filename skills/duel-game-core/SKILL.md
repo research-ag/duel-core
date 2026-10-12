@@ -1,6 +1,6 @@
 ---
 name: duel-game-core
-description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko rules module (Spec<S,M,V,O>), Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, or a game whose ending takes many rounds to reach in a test) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
+description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko rules module (Spec<S,M,V,O>), Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, a game whose ending takes many rounds to reach in a test, or putting the result online: the backend with icp-cli, the frontend on hosty.live) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
 ---
 
 # Building a duel-game-core Game From Rules Alone
@@ -37,12 +37,14 @@ A finished game is six pieces of game-specific code:
    names.
 
 Every template lives in `templates/`; read each one right before adapting
-it. `references/` covers six situations the templates don't:
+it. `references/` covers seven situations the templates don't:
 `turn-based-games.md`, `canister-player-bots.md`, `rich-ui.md`,
-`testing-deep-dive.md`, and, for a game someone else already deployed,
-from its canister id alone, `frontend-for-existing-game.md` (a new
-frontend) and `bot-for-existing-game.md` (a canister player) — read
-them only when you hit that situation.
+`testing-deep-dive.md`, `going-live.md` (putting any of this online:
+the backend with icp-cli, the frontend on hosty.live), and, for a game
+someone else already deployed, from its canister id alone,
+`frontend-for-existing-game.md` (a new frontend) and
+`bot-for-existing-game.md` (a canister player) — read them only when
+you hit that situation.
 
 ## Step 1 — Get the packages into the project
 
@@ -473,7 +475,8 @@ From `templates/plugin.js.template`, write `frontend/src/<game>-plugin.js`:
 Copy `index.html.template`, `app.js.template`, `style.css.template` into
 `frontend/src/`, filling `__GAME_TITLE__`, `__PLUGIN_FILE__`,
 `__IDLE_TIMEOUT_SECONDS__`. `style.css` may stay empty but must exist
-(`build.js` copies it). `app.js` resolves a non-spoofable anonymous
+(`build.js` copies it). `app.js` reads the backend's id from the `ic_env`
+cookie the frontend canister sets, resolves a non-spoofable anonymous
 identity, builds the actor, connects the transport, and calls
 `start({ plugin, transport, session })`; esbuild inlines every dependency, so
 no CDN or import map. For Internet Identity login, swap
@@ -507,8 +510,8 @@ the player most wants to see. If the UI genuinely doesn't fit that
 mops install && mops test
 cd frontend && npm install --legacy-peer-deps && npm run build && cd ..
 node --check frontend/dist/app.js
-icp deploy                 # local; `icp network start` must be running
-icp deploy --network ic    # mainnet — spends cycles
+icp network start -d       # once; a private copy of the Internet Computer
+icp deploy                 # both canisters, locally; prints the frontend's URL
 ```
 
 The backend always serves its own wasm: the template's `icp.yaml` runs
@@ -529,8 +532,8 @@ curl -s http://$ID.raw.localhost:8000/wasm | shasum -a 256   # equals module_has
 icp canister status backend --json
 ```
 
-The frontend deploys through the `@dfinity/static-site` recipe. Its
-`build` step runs `npm run build`, so deploys always bundle current
+The local frontend deploys through the `@dfinity/static-site` recipe.
+Its `build` step runs `npm run build`, so deploys always bundle current
 source; `npm install` remains a manual step. The canister sends no
 headers of its own: to add a CSP or `Cache-Control`, put a `_headers`
 file in `frontend/src/` and copy it into `dist/` from `build.js` (see
@@ -542,6 +545,20 @@ works. Check that your move appears the instant you click, that the
 opponent's move is marked when it lands, and that the debrief still
 shows the final move. Tests passing and the frontend building are
 necessary, not sufficient.
+
+## Step 8 — Go live
+
+Do this only when the user asks, following `references/going-live.md`
+step by step; leave the same steps in the project's `README.md`. In
+short: the backend goes up from the user's computer (`icp identity
+new`, a few dollars of cycles bought by card at cycle.express, `icp
+deploy backend -e ic`); the frontend goes up on hosty.live, which
+hosts static pages in a canister the user creates there (about a
+dollar, paid by card), either from its web UI or, once the user has
+connected its MCP server to your session,
+through the `hosty_*` tools: point the hosted canister at the backend
+once (`icp canister settings update`), build, zip `dist`, upload,
+wait. Then the user lists the frontend on the Duel dashboard.
 
 ## Common pitfalls
 

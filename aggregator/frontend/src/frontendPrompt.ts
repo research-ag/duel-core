@@ -31,10 +31,7 @@ Work in this order.
    - If you can run icp-cli: the backend serves its own wasm. Download it (curl -s https://${backend}.raw.icp0.io/wasm -o backend.wasm), check its SHA-256 against the module_hash from icp canister status ${backend} -n ic -p --json, declare it as a canister named backend with the @dfinity/prebuilt recipe (path + that sha256), run icp canister link backend ${backend} -e ic once (steps 4 and 5 of the reference), and test against the private local copy icp deploy creates; never touch the live backend while developing.
    - If you cannot: serve the page from a local web server, or this tool's preview, and test against the live backend, always on a table with an access code (never an open one), so real players are not disturbed.
 
-6. Do not put anything online yourself. Finish by telling me, step by step, what to do next: where the page is now, how to take it live from here, and how to find the live page's address and its canister id afterwards. If you worked on my computer, also write those steps into a README.md, with these commands:
-     icp canister link backend ${backend} -e ic --force
-     icp deploy frontend -e ic
-     icp canister status frontend -e ic -i
+6. Put the page online only when I ask. If you worked on my computer, it goes online through hosty.live (https://hosty.live/), which hosts a built static page in a canister of my own: ${RAW}/skills/duel-game-core/references/going-live.md, section 2, has the procedure, including the one icp-cli command that points the hosted canister at the backend (PUBLIC_CANISTER_ID:backend=${backend}). If I have connected hosty.live's MCP server to you, deploy through its hosty_* tools: build, zip the dist folder, hosty_prepare_zip_upload with pureAssets, run the curl it returns, hosty_wait_for_deployment, and give me the frontendUrl and the canister id. Otherwise finish by telling me, step by step, what to do next, and write the same steps into a README.md.
 
 If the semantics page is missing, stop and tell me instead of guessing the rules.
 
