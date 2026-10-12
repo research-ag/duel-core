@@ -239,8 +239,9 @@ function GoLiveStep({ backend }: { backend: string }) {
               >
                 icp-cli project
               </a>{" "}
-              for your system; your AI tool can install it and run these for
-              you). Create a key and print its address:
+              for your system; your AI tool can install it). Create your key
+              yourself, in a terminal, and copy the address it prints; the key
+              stays on your computer and the tool only ever needs the address:
               <CodeBlock
                 code={
                   "icp identity new my-frontend\nicp identity default my-frontend\nicp identity principal"
@@ -249,11 +250,13 @@ function GoLiveStep({ backend }: { backend: string }) {
               In hosty.live open the canister →{" "}
               <strong>Transfer Canister Ownership</strong> →{" "}
               <strong>Add Controller</strong>, paste that address. Then, with
-              your canister's id from its page:
+              your canister's id from its page (your tool can run this):
               <CodeBlock
                 code={`icp canister settings update <canister-id> -n ic --add-environment-variable PUBLIC_CANISTER_ID:backend=${backend}`}
               />
-              Nothing to pay here.
+              Afterwards remove that address from the controllers again on the
+              same page; it is only needed for this one command. Nothing to pay
+              here.
             </li>
             <li>
               Let your AI tool publish for you: <strong>Settings</strong> →{" "}

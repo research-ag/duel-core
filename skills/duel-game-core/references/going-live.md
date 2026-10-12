@@ -14,10 +14,10 @@ A game is two kinds of canister, put online two different ways:
 | The backend, a bot (Motoko) | `icp-cli` from the user's computer, paid in cycles | a few dollars of cycles, bought by card at cycle.express |
 | The frontend (static files) | hosty.live, from its web UI or through its MCP     | about a dollar of cycles, paid by card on hosty.live     |
 
-Going live spends the user's money. Run a deploy only when the user
-asks for it. A hosty.live MCP server connected to your session is that
-go-ahead for the frontend; the backend's `icp deploy` is the user's
-command to run, or yours when they say so.
+Going live spends the user's money. Run a deploy, of either kind, only
+when the user asks for that deploy; a hosty.live MCP server connected
+to your session is the means, never the permission. The backend's `icp
+deploy` is the user's command to run, or yours when they say so.
 
 ## 1. The backend (and a bot): icp-cli and cycles
 
@@ -25,7 +25,8 @@ Skip this section for a frontend to an existing game: its backend is
 somebody else's and already live.
 
 **An identity.** `icp-cli` signs every call with a key it keeps on the
-user's computer. Once, with a name of the user's choosing:
+user's computer. The user creates it once, in a terminal of their own,
+with a name of their choosing:
 
 ```bash
 icp identity new my-game
@@ -34,8 +35,10 @@ icp identity principal        # the long xxxxx-...-xxx address: the user's princ
 ```
 
 That key is what makes the user the canister's controller: the only one
-who can upgrade or delete it. `icp identity export my-game` prints
-the key; the user should keep a copy somewhere safe.
+who can upgrade or delete it. Backing it up (`icp identity export`) is
+the user's own step in that same terminal; never run it yourself or
+ask for the key. All you need is the principal, and every `icp`
+command you run uses the default identity by itself.
 
 **Cycles.** Canisters pay for their own computation and storage in
 cycles, prepaid. Creating one through `icp deploy` takes 2T cycles off
@@ -111,6 +114,13 @@ identity principal` prints. Every other controller stays.
    ```
 
    A "not a controller" error means step 1 has not happened yet.
+
+3. The user, back on the same page: remove that principal from the
+   controllers again (the X next to it), leaving hosty.live and their
+   Internet Identity in charge of the page. The identity is needed on
+   this canister only for another `settings update`, such as a change
+   of backend, when steps 1 to 3 are repeated. It stays a controller of
+   the backend, where it belongs.
 
 The asset canister refreshes the cookie at the next upload, so do this
 before the first deploy into that canister; a variable set afterwards
