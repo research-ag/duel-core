@@ -76,9 +76,11 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   on code-protected tables; client package from npm, else its source
   files from GitHub). `BotTutorialWizard.tsx` ("Build a bot") has only
   the coding-tool route, since the bot is tested against a local copy
-  of the game: `botPrompt.ts`'s prompt, then deploy and the bot's own
-  `register` call with the backend id filled in (a bot is never listed
-  on this dashboard). The prompts condense
+  of the game: `botPrompt.ts`'s prompt, then going live through
+  hosty.live or with icp-cli, each ending in the bot's own `register`
+  call with the backend id filled in (a bot is never listed on this
+  dashboard). `TutorialWizard.tsx`'s deploy step offers the same two
+  routes for a whole game (`going-live.md`). The prompts condense
   `../skills/duel-game-core/references/frontend-for-existing-game.md`
   and `bot-for-existing-game.md`; change each pair together. Pricing
   facts in the wizards are dated "at the time of writing".

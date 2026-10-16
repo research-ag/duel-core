@@ -7,9 +7,8 @@
 /// `./registry` (`mo:duel-game-core/registry`, the multi-table router).
 ///
 /// Every client read and mutation goes through `mo:duel-game-core/transport`
-/// — never a plain Candid method; `http_request` and the
-/// controllers-only `wasm_upload_*` of `./http_actor_mixin` touch no
-/// game state. The overall design, with diagrams: `../../DESIGN.md`.
+/// — never a plain Candid method; `http_request` of `./http_actor_mixin`
+/// touches no game state. The overall design, with diagrams: `../../DESIGN.md`.
 ///
 ///   import TP "mo:duel-game-core";
 ///   import Registry "mo:duel-game-core/registry";

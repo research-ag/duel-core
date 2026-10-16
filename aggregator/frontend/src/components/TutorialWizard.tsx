@@ -55,14 +55,14 @@ function PrerequisitesStep() {
   return (
     <>
       <p>
-        Every duel-game-core game deploys as two canisters (backend + frontend)
-        on the Internet Computer. Before writing any code, make sure your
-        machine can create and deploy them.
+        Every duel-game-core game is two canisters (backend + frontend) on the
+        Internet Computer. You build and test them on your own machine first;
+        nothing costs anything until you put the game online in the last steps.
       </p>
       <ol className="tutorial-list">
         <li>
-          Install <code>icp-cli</code>, the tool used to build and deploy — see
-          the{" "}
+          Install <code>icp-cli</code>, the tool that builds the game and runs
+          a private copy of the Internet Computer to test it on — see the{" "}
           <a
             href="https://github.com/dfinity/icp-cli"
             target="_blank"
@@ -74,44 +74,14 @@ function PrerequisitesStep() {
           <CodeBlock code="icp --version" />
         </li>
         <li>
-          Already have an identity you want to deploy with? Skip this — it's
-          optional. Otherwise, check what you have and switch to the right one:
-          <CodeBlock
-            code={
-              "icp identity list       # your existing identities\nicp identity default    # which one is currently selected"
-            }
-          />
-          Or create a fresh one and switch to it (this is your deploy key — keep
-          it safe, it controls your canisters):
-          <CodeBlock
-            code={"icp identity new my-game\nicp identity default my-game"}
-          />
-          <p className="hint">
-            By default `icp identity new` stores the private key in your OS's
-            own secure keyring (Keychain / Secret Service / Credential Manager)
-            — not a plaintext file on disk.
-          </p>
-        </li>
-        <li>
-          Get enough cycles to create and deploy 2 canisters, with some margin —
-          aim for at least ~4–6T cycles to start comfortably. Check what you
-          already have:
-          <CodeBlock code="icp cycles balance -e ic" />
-          If that's already enough, skip ahead. Otherwise, get your principal —
-          the address cycles attach to:
-          <CodeBlock code="icp identity principal" />
-          Already hold some ICP? Convert it directly:
-          <CodeBlock code="icp cycles mint --icp 2 -e ic" />
-          Don't have any ICP? The easiest option is buying cycles straight with
-          a credit card via{" "}
-          <a href="https://cycle.express/" target="_blank" rel="noreferrer">
-            cycle.express
+          Sign in at{" "}
+          <a href="https://hosty.live/" target="_blank" rel="noreferrer">
+            hosty.live
           </a>{" "}
-          — no exchange account needed. Paste your principal (from above) into
-          its <strong>Canister ID</strong> field, or open this URL with your
-          principal in place of <code>&lt;principal&gt;</code> to have it filled
-          in:
-          <CodeBlock code="https://cycle.express/?to=<principal>" />
+          with Internet Identity (a passkey; no password, no email). Whichever
+          way your game goes online, its module is published in hosty.live's
+          module store, so others can build their own frontends and bots for
+          it.
         </li>
       </ol>
     </>
@@ -188,14 +158,86 @@ function DeployStep() {
         }
       />
       <p>
-        Then deploy to the Internet Computer mainnet — this is the step that
-        spends cycles:
+        Then put it on the Internet Computer mainnet — this is the step that
+        costs money. Pick one way and keep the whole game on it; the
+        step-by-step procedure for both is{" "}
+        <a
+          href="https://github.com/research-ag/duel-core/blob/main/skills/duel-game-core/references/going-live.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          going-live.md
+        </a>
+        , which an AI assistant with the skill follows by itself.
       </p>
-      <CodeBlock code="icp deploy -e ic -y" />
       <p>
-        Note the <strong>frontend canister id</strong> it prints — the
-        registration form in the next step needs it, and it is also what
-        you'll share with players as the game's URL.
+        <strong>Through hosty.live</strong> (simplest; paid by card, no keys
+        on your machine)
+      </p>
+      <ol className="tutorial-list">
+        <li>
+          In hosty.live, <strong>Canisters</strong> →{" "}
+          <strong>Create New Canister</strong> twice: a{" "}
+          <strong>Backend</strong> and a <strong>Frontend</strong> (0.84 TC
+          each, about a dollar at the time of writing, from a balance you top
+          up by card under <strong>Cycles</strong>).
+        </li>
+        <li>
+          <strong>Settings</strong> → <strong>AI agent access</strong> →
+          create a token, and connect your AI assistant with the command shown
+          next to it. Then ask it to put the game online through hosty.live:
+          it builds the backend, installs it after you approve a deploy
+          session in the hosty.live tab, points the page at the backend, and
+          uploads the page.
+        </li>
+      </ol>
+      <p>
+        <strong>With icp-cli</strong> (your own key and cycles)
+      </p>
+      <ol className="tutorial-list">
+        <li>
+          Create a deploy key (keep it safe, it controls your canisters), or
+          use an <code>icp</code> identity you already have:
+          <CodeBlock
+            code={
+              "icp identity new my-game\nicp identity default my-game\nicp identity principal"
+            }
+          />
+        </li>
+        <li>
+          Get about 5T cycles for the two canisters. If you hold ICP,{" "}
+          <code>icp cycles mint --icp 2 -e ic</code> converts it; otherwise buy
+          them by card at{" "}
+          <a href="https://cycle.express/" target="_blank" rel="noreferrer">
+            cycle.express
+          </a>
+          , pasting your principal (from above) into its{" "}
+          <strong>Canister ID</strong> field, or open this URL with it in place
+          of <code>&lt;principal&gt;</code>:
+          <CodeBlock code="https://cycle.express/?to=<principal>" />
+          Check it arrived:
+          <CodeBlock code="icp cycles balance -e ic" />
+        </li>
+        <li>
+          In hosty.live, <strong>Settings</strong> →{" "}
+          <strong>AI agent access</strong> → create a token, and keep it where
+          only you can read it; the deploy uses it to publish the backend's
+          module:
+          <CodeBlock
+            code={
+              "mkdir -p ~/.config/hosty && printf %s 'hl_...' > ~/.config/hosty/token && chmod 600 ~/.config/hosty/token"
+            }
+          />
+        </li>
+        <li>
+          Deploy both canisters:
+          <CodeBlock code="HOSTY_TOKEN=$(cat ~/.config/hosty/token) icp deploy -e ic -y" />
+        </li>
+      </ol>
+      <p>
+        Either way, note the <strong>frontend canister id</strong> — the
+        registration form in the next step needs it, and its page is the
+        game's URL you share with players.
       </p>
     </>
   );

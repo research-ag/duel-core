@@ -538,6 +538,44 @@ on icp.net, `icp-api.io` as a last resort). `start()` never calls it. For the `i
 sets (canister ids, root key), use `safeGetCanisterEnv()` from
 `@icp-sdk/core/agent/canister-env`.
 
+## Fetching a game's module
+
+`module-store.js` gets the exact wasm a game canister runs, for a local
+copy to build a frontend or a bot against:
+
+```js
+import { fetchGameModule, rawWasm } from "duel-game-core/module-store.js";
+
+const mod = await fetchGameModule(backendId); // { hash, bytes, gzipped }
+const wasm = await rawWasm(mod); // gunzipped only if stored gzipped
+```
+
+1. `readModuleHash(canisterId, agent?)` reads `canister/<id>/module_hash`
+   from the IC state tree with `HttpAgent.readState`, which verifies the
+   certificate against the root key (a mainnet agent on
+   `https://icp-api.io` unless one is passed). No module: an error.
+2. The bytes come from hosty.live's public module store,
+   `GET https://api.hosty.live/modules/<hash>`. Every module hosty.live
+   installs is stored there first, keyed by the hex SHA-256 of the
+   module exactly as installed (of the gzipped bytes for a gzipped
+   module), which is the IC's `module_hash`.
+3. The SHA-256 of the body must equal that hash, or the call rejects;
+   so does a module the store does not have (404). `gzipped` is read off
+   the verified bytes.
+
+`fetch`, in browsers and in Node, decodes `Content-Encoding: gzip`,
+which the store sets on a gzipped module, so such a body no longer
+hashes to its key and is rejected. In Node, import the same API from
+`module-store-node.js`, whose `fetchGameModule` downloads through
+`node:https` (`rawDownload`) and keeps the body as sent. Any other
+runtime passes its own `download` option.
+
+`moduleMeta(hash)` reads `GET /modules/<hash>/meta` (`size`, `gzipped`,
+`verified`, `candid`). The store deletes an unverified module after 24
+hours; `requestVerification(hash, canisterId)` (`POST
+/modules/<hash>/verify`) asks hosty.live to re-read the canister's
+module hash and keep the module when it matches.
+
 ## Modules
 
 | Module             | Exports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -549,6 +587,7 @@ sets (canister ids, root key), use `safeGetCanisterEnv()` from
 | `identity.js`      | `resolveIdentity()`, `sidForPrincipal(principalText)`; depends on `@icp-sdk/auth`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `anon-identity.js` | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX`; depends only on `@icp-sdk/core/identity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `ic-env.js`        | `deriveHost()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `module-store.js`  | `fetchGameModule(canisterId, { agent?, readModuleHash?, download? })` -> `{ hash, bytes, gzipped }`, `readModuleHash`, `moduleMeta`, `requestVerification`, `rawWasm`, `sha256Hex`, `isGzip`, `fetchDownload`, `MODULE_STORE`; depends on `@icp-sdk/core/agent`; `module-store-node.js` re-exports it with `rawDownload` as the default `download`                                                                                                                                                                                                                                                                                  |
 | `transport.js`     | `connectTransport({ actor, gameIdlTypes, intervalMs?, keepAliveMs?, pollTimeoutMs? })`, `DuelTransport` — lobby/table queries, serialized requests, keep-alive, relink policy                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `style.css`        | generic layout primitives                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 

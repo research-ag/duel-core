@@ -50,7 +50,7 @@ flowchart LR
 | Transport        | `backend/src/transport.mo` + `transport_actor_mixin.mo` | The only client interface: revs, queries, mutations, keep-alive, sweep. |
 | Canister players | `backend/src/canister_players.mo` + mixin               | Bots as players; the bot directory.                                     |
 | Leaderboard      | `leaderboard.mo`, `elo.mo` + mixin                      | Optional scores (Elo or a game's best).                                 |
-| HTTP             | `http_actor_mixin.mo`                                   | `/semantics`, `/wasm`, `/metrics`.                                      |
+| HTTP             | `http_actor_mixin.mo`                                   | `/semantics`, `/metrics`.                                               |
 | Client           | `frontend/src/*`                                        | Transport, headless client, default screens, identity.                  |
 
 ## What a game supplies
@@ -473,10 +473,12 @@ from `LeaderboardActorMixin`.
 `HttpActorMixin` serves plain-text routes: `/semantics` (the rules,
 written for someone without the source — the contract a third-party
 frontend or bot is built from), `/metrics` (promtracker), anything a
-game adds, and `/wasm`, the exact module the canister runs, uploaded
-by the deploy. Together with the Candid metadata, that is everything
-needed to build and test a new frontend or bot from the canister id
-alone.
+game adds. The canister's module itself lives in
+hosty.live's module store, keyed by the canister's certified
+`module_hash`: hosty.live stores what it installs, and an icp-cli
+deploy's sync step uploads it there. Together with the Candid metadata,
+that is everything needed to build and test a new frontend or bot from
+the canister id alone.
 
 ## Guarantees
 

@@ -15,7 +15,7 @@ Everything you need comes from the backend canister id:
 | ---------------------------- | --------------------------------------------------- |
 | Rules, `View`, `Action`      | `GET /semantics` on the backend                     |
 | Service types (optional)     | the `candid:service` metadata section               |
-| The wasm, for a local copy   | `GET /wasm` on the backend                          |
+| The wasm, for a local copy   | hosty.live's module store, by its module hash       |
 | Client library, UI contracts | this skill (`SKILL.md` Steps 1 and 6, `rich-ui.md`) |
 
 Fetching the Candid and running the local copy need `icp-cli`. Without
@@ -80,20 +80,29 @@ and let their calls fail quietly (`.catch(() => [])`).
 
 ## 4. Download the wasm (with icp-cli)
 
+The canister's `module_hash` is public and certified; icp-cli reads it
+from the state tree. hosty.live's module store keeps every game's
+module under that hash (the SHA-256 of the module exactly as installed,
+gzipped or not):
+
 ```bash
-curl -s https://$BACKEND.raw.icp0.io/wasm -o backend.wasm
-shasum -a 256 backend.wasm
-icp canister status $BACKEND -n ic -p --json   # "module_hash":"0x<hash>"
+HASH=$(icp canister status $BACKEND -n ic -p --json | sed -n 's/.*"module_hash":"0x\([0-9a-f]*\)".*/\1/p')
+curl -sf https://api.hosty.live/modules/$HASH -o backend.wasm
+shasum -a 256 backend.wasm   # must print $HASH
 ```
 
-The two hashes must be equal (drop the `0x`): that proves the file is
-the module the canister runs right now. Keep `backend.wasm` and the
-hash. Without icp-cli there is no local copy to run: skip this step
-and the `icp.yaml` half of step 5.
+Never pass `--compressed` to curl here: the store marks a gzipped
+module `Content-Encoding: gzip`, and the hash is of the gzipped bytes.
+The two hashes must be equal: that proves the file is the module the
+canister runs right now. Keep `backend.wasm` and
+the hash. Without icp-cli there is no local copy to run: skip this step
+and the `icp.yaml` half of step 5. (From JavaScript, the client
+package's `module-store.js` does the same: `fetchGameModule(BACKEND)`,
+see its README, "Fetching a game's module".)
 
-A 404 at `/wasm`, or a hash mismatch, means the backend does not serve
-its current wasm at the moment. Stop and tell the user; do not fall
-back to the live canister on your own.
+An empty `HASH` (no module), a 404 from the store, or a hash mismatch
+means the module the backend runs is not available at the moment. Stop
+and tell the user; do not fall back to the live canister on your own.
 
 ## 5. Lay out the project
 
@@ -229,21 +238,29 @@ drawn into your tests. Keep the testing short.
 
 ## 8. Going live
 
-The page goes online through hosty.live: `going-live.md`, section 2
-(there is no backend of the user's own to deploy, so section 1 does
-not apply). No cycles to handle: the user creates the canister on
-hosty.live for about a dollar by card; icp-cli is needed once, to point
-that canister at the backend. Deploy through the
-`hosty_*` tools when the user has connected hosty.live's MCP server to
-your session and asks for it; otherwise finish by telling them the
-steps, and leave them in the project's `README.md` as well: the
-environment variable, `cd frontend && npm run build && zip -r dist.zip
-dist -x "*.map"`, then the upload, through the web UI or an agent.
+There is no backend of the user's own to deploy: only the page goes
+online, by either route of `going-live.md`.
+
+- **Through hosty.live** (section 2, "The frontend", after section 1's
+  account): no cycles to handle; the user creates the canister on
+  hosty.live for about a dollar by card, and icp-cli is needed once, to
+  point that canister at the backend. Deploy through the `hosty_*`
+  tools when the user has connected hosty.live's MCP server to your
+  session and asks for it.
+- **With icp-cli** (section 3, the identity and the cycles): `icp
+deploy frontend -e ic`, 2T cycles, after step 5's `icp canister link
+backend $BACKEND -e ic`; the deploy sets the environment variable
+  itself.
+
+Otherwise finish by telling the user the steps, and leave them in the
+project's `README.md` as well: for hosty.live, the environment
+variable, `cd frontend && npm run build && zip -r dist.zip dist -x
+"*.map"`, then the upload, through the web UI or an agent.
 
 In a builder with its own "go live" action (caffeine.ai), tell the
 user to trigger it instead, and how to read the live page's address
 and its frontend canister id afterwards.
 
 The user then registers the new frontend's canister id on the Duel
-dashboard as its own entry (`going-live.md`, section 3), with their
+dashboard as its own entry (`going-live.md`, section 4), with their
 own title, description and banner.

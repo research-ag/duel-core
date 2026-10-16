@@ -83,17 +83,25 @@ CanisterPlayersActorMixin(duel.canisterPlayers(env), bots.directory, ?leaderboar
     table, and there is no `submit_as_canister`, no
     `rematch_as_canister`) plus
     `register_bot(name, complexities)`/`unregister_bot()`/`list_bots()`.
-  - `http.mo`, `wasm.mo`, `http_actor_mixin.mo` — MANDATORY. `include
+  - `http.mo`, `http_actor_mixin.mo` — MANDATORY. `include
 HttpActorMixin(routes)` supplies `http_request` over plain-text
     `(path, () -> Text)` routes; every host routes `/semantics` to its
     rules module's `SEMANTICS` text (`/metrics` and game data such as
     racing's `/track` ride the same list). `Http.respond` is the pure
-    router. The same mixin serves the canister's own wasm: a stable
-    `Wasm.Store` holds the canister's own module, filled by the
-    controllers-only `wasm_upload_begin`/`wasm_upload_chunk`/
-    `wasm_upload_commit(size)` that `publish_wasm.sh` calls from the
-    `icp.yaml` sync step, and streamed to anyone at `GET /wasm`
-    (`http_request_streaming_callback`).
+    router. The module itself is never served by the canister; it lives
+    in hosty.live's module store (rule 15).
+  - `drop_wasm_migration.mo`, `legacy_layout_migration.mo` — ONE-OFF
+    upgrade migrations. `DropWasmMigration.run` drops the stable `wasm`
+    field an older mixin kept (its own module, once served at `/wasm`).
+    `LegacyLayoutMigration.run` lifts a host from the session layout
+    (top-level `registry`/`botDirectory`/`wasm`, session-id tables with
+    `variant : Text`) to `duel`/`bots`, keeping every table, given the
+    game's `options`/`state` converters. Every example's `src/Migration.mo`
+    supplies those and its `Host.mo` carries `(with migration =
+Migration.run)` until the live canister has been upgraded; then
+    delete the file, the import and the clause (a second upgrade with
+    them traps). See `backend/README.md`, "Upgrading from the session
+    layout".
   - `leaderboard.mo`, `elo.mo`, `leaderboard_actor_mixin.mo` — OPTIONAL,
     game-agnostic. A top-N highest-first `Board` (`new(keep,
 defaultScore)`, `setScore`, `recordIfBetter`, `scoreOf`, `top`), the
@@ -125,7 +133,11 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   every 20 s while waiting at a table), and Candid IDL scaffolding (`idl.js`, which also declares
   `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots`
   unconditionally, and `buildBotPlayIdlFactory` for calling a discovered
-  bot's `play`). See `frontend/README.md` for the `GamePlugin` contract,
+  bot's `play`). `module-store.js` is standalone: `fetchGameModule(id)`
+  reads the certified `module_hash`, downloads
+  `https://api.hosty.live/modules/<hash>`, and rejects a missing module
+  or a body whose SHA-256 differs; `module-store-node.js` swaps in a raw
+  `node:https` download so gzipped modules still hash to their key. See `frontend/README.md` for the `GamePlugin` contract,
   "Replacing screens", and "The headless client".
 - **`backend/test/*.test.mo`** — interpreter suites (`mops test`
   discovers the `.test.mo` suffix only). `Engine`/`Lifecycle` cover
@@ -136,7 +148,7 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   `CanisterPlayers` covers `canister_players.mo` with a hand-built
   context whose fan-out settles and whose timers are only recorded (the
   interpreter has none);
-  `Leaderboard`/`Elo`/`Http`/`Wasm`/`Rng` cover their modules directly. `FakeGame.mo`/
+  `Leaderboard`/`Elo`/`Http`/`Rng`/`LegacyLayoutMigration` cover their modules directly. `FakeGame.mo`/
   `FakeTurnGame.mo` are throwaway specs for these suites.
 - **`backend/bench/engine.bench.mo`** — `mops bench`, engine overhead
   only.
@@ -180,8 +192,9 @@ game on the engine. See `aggregator/CLAUDE.md`.
 - Frontend: `app.js`, `render.js`, `idl.js`, `ic-env.js` have zero npm
   dependencies. `transport.js` depends on `@icp-sdk/core/candid`;
   `identity.js` on `@icp-sdk/auth` + `@icp-sdk/core/identity`;
-  `anon-identity.js` on `@icp-sdk/core/identity` only. Nothing else may
-  grow a dependency.
+  `anon-identity.js` on `@icp-sdk/core/identity` only; `module-store.js`
+  on `@icp-sdk/core/agent` + `/principal` (and `module-store-node.js`
+  on `node:https`). Nothing else may grow a dependency.
 
 ## Build & test
 
@@ -286,9 +299,8 @@ deploys all of them to the IC.
     logic.** Every request dispatches to `Registry`'s operations; none
     is also a plain Candid method. The `*_as_canister` methods are the
     one deliberate exception, acting only as the caller's own `cp:`
-    player, and `submit` is never exposed even there. The
-    `wasm_upload_*` methods touch no game state and are
-    controllers-only. A client sends one update at a time: two in-flight
+    player, and `submit` is never exposed even there. A client sends
+    one update at a time: two in-flight
     update calls have no ordering guarantee.
 12. **Leave means left.** `status`/`join`/`rematch`/`tablesOf` use
     `activeDebriefSeat` so a player who acked their debrief stops being
@@ -309,16 +321,21 @@ deploys all of them to the IC.
     further change to either stable type needs an explicit actor
     migration or a reinstall.
 
-15. **Every backend serves its own wasm and describes itself.** Its `icp.yaml`
-    entry carries the sync step `sh publish_wasm.sh backend` (the script
-    sits next to `icp.yaml`, copied from the skill's template), which
-    after every install/reinstall/upgrade uploads the module the
-    canister now runs to the canister itself, so `GET /wasm` serves it;
-    `snapshot_visibility` is never set to `public`, because a snapshot
-    is the whole heap, access codes and pending moves included. Its host serves
-    `Rules.SEMANTICS` at `/semantics`. That text, the `candid:service`
-    metadata and the wasm at `/wasm` are all a third party has to build
-    a frontend or a bot
+15. **Every backend's module is in hosty.live's module store, and it
+    describes itself.** Clients fetch
+    `https://api.hosty.live/modules/<module_hash>` by the canister's
+    certified `module_hash` and always check the bytes' SHA-256 against
+    it. A backend deployed through hosty.live is stored by hosty.live
+    itself; one deployed with icp-cli carries the `icp.yaml` sync step
+    `sh publish_wasm.sh backend` (the script sits next to `icp.yaml`,
+    copied from the skill's template), which after every
+    install/reinstall/upgrade on `ic` uploads the module the canister now
+    runs to the store (`HOSTY_TOKEN`) and has it verified against the
+    canister. `snapshot_visibility` is never set to `public`, because a
+    snapshot is the whole heap, access codes and pending moves included.
+    Its host serves `Rules.SEMANTICS` at `/semantics`. That text, the
+    `candid:service` metadata and the module are all a third party has
+    to build a frontend or a bot
     (`skills/duel-game-core/references/frontend-for-existing-game.md`
     and `bot-for-existing-game.md`, which the aggregator's
     `frontendPrompt.ts`/`botPrompt.ts` condense); `Action` is
