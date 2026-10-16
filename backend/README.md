@@ -103,11 +103,11 @@ createdBy, options)` plus `join`/`submit`/`rematch`/`leave`/`reset`/
   table, sparing a waiting table whose creator passes the `isPresent`
   predicate. `attachMetrics(pt)` is optional (see Metrics).
   `peekNextTableId` is a pure read of the id nonce.
-- `src/http.mo` + `src/wasm.mo` + `src/http_actor_mixin.mo`
+- `src/http.mo` + `src/http_actor_mixin.mo`
   (`mo:duel-game-core/http_actor_mixin`) — `http_request` over a list of
   plain-text routes; every host serves its rules at `/semantics` (see
-  "Semantics over HTTP") and its own module at `/wasm`, uploaded by its
-  deploy (see "Downloadable wasm").
+  "Semantics over HTTP"). The module itself lives in hosty.live's module
+  store (see "Downloadable wasm").
 - Every mutating operation takes `spec`, the `rng` and `now : Int`
   (nanoseconds).
   At the `Registry` layer they are called only from
@@ -628,11 +628,10 @@ actor {
 
 `HttpActorMixin(routes)` supplies `http_request`; each `Http.Route` is a
 path and a `() -> Text` answered as `text/plain` on `GET`. An unknown
-path is a 404 listing the routes and `/wasm`. A host adds its own routes
+path is a 404 listing the routes. A host adds its own routes
 to the same list — `/metrics` above, or data a client cannot recover
 from `State` (`examples/racing` serves its track polygons at `/track`).
-`http.mo`'s `respond` is the pure function behind it; `/wasm` is the
-mixin's own (next section).
+`http.mo`'s `respond` is the pure function behind it.
 
 `SEMANTICS` is the whole contract a frontend author gets besides the
 canister's Candid, and the only place the game's types are explained:
@@ -665,51 +664,69 @@ Update `SEMANTICS` in the same change as any edit to `View`, `Action`,
 
 Anyone can download the exact wasm a backend runs and install a copy on
 a local network — what lets a third party build and test a new frontend
-against a game without its source. The IC itself hands out only a
-canister's `module_hash`, never its module, so every backend on this
-engine serves the module itself: `HttpActorMixin` keeps a copy of
-the canister's own module in a stable `Wasm.Store` and streams it at
-`GET /wasm` (first chunk in the body, the rest through
-`http_request_streaming_callback`); the deploy puts it there. In
-`icp.yaml`:
+or a bot against a game without its source. The IC hands out a
+canister's `module_hash` to anyone (the public state-tree path
+`canister/<id>/module_hash`, certified), never its module. The module
+lives in hosty.live's module store, `https://api.hosty.live/modules/<hash>`,
+put there by every deploy:
 
-```yaml
-- name: backend
-  recipe:
-    type: "@dfinity/motoko@v4.1.0"
-    configuration:
-      main: src/Host.mo
-  sync:
-    steps:
-      - type: script
-        commands:
-          - sh publish_wasm.sh backend
-```
+- **Through hosty.live** (the skill's `references/going-live.md`, route
+  A): hosty.live stores every module before it installs it.
+- **With icp-cli** (route B): the backend's `icp.yaml` sync step runs
+  `publish_wasm.sh` (the skill's `templates/publish_wasm.sh.template`,
+  copied unchanged, next to `icp.yaml`) after every install, reinstall
+  and upgrade on the `ic` environment, and does nothing on any other:
 
-`publish_wasm.sh` sits next to `icp.yaml` (the skill's
-`templates/publish_wasm.sh.template`, copied unchanged) and runs after
-every install, reinstall and upgrade. It takes the artifact icp-cli just
-installed (`.icp/cache/artifacts/backend`), refuses to go on unless its
-SHA-256 equals the canister's `module_hash`, and uploads it in 1 MiB
-chunks through the mixin's controllers-only methods:
-`wasm_upload_begin()` discards any staged chunks, `wasm_upload_chunk(blob)`
-appends one, `wasm_upload_commit(size)` swaps the staged chunks in as
-the served module, or traps and keeps the previous one when they do not
-add up to `size` bytes. The methods run `Principal.isController` on the
-caller; the deploying identity is a controller. Only the module is ever
-published: the canister's heap, access codes of `#code` tables and
-pending moves stay where they are. Never set `snapshot_visibility:
-public` on a backend: a snapshot is the whole heap.
+  ```yaml
+  - name: backend
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: src/Host.mo
+    sync:
+      steps:
+        - type: script
+          commands:
+            - sh publish_wasm.sh backend
+  ```
 
-Downloading needs only the id; `icp-cli` supplies the hash to check
-it against:
+  It takes the artifact icp-cli just installed
+  (`.icp/cache/artifacts/backend`), refuses to go on unless its SHA-256
+  equals the canister's `module_hash`, uploads it (`POST /modules`, with
+  the hosty.live API token in `HOSTY_TOKEN`), asks the store to verify
+  it against the canister (`POST /modules/<hash>/verify`) and checks the
+  result. Without `HOSTY_TOKEN` the step fails and says so; set it and
+  run `icp sync backend -e ic`.
+
+The store's key is the hex SHA-256 of the module exactly as installed —
+of the gzipped bytes for a gzipped module — which is the IC's
+`module_hash`, so the hash read from the state tree is the store key.
+The response is `application/wasm`, with `Content-Encoding: gzip` on a
+gzipped module whose body is still the stored bytes: hash the raw body,
+not a decompressed one (`curl` without `--compressed` keeps it raw;
+`fetch` does not). `GET /modules/<hash>/meta` answers `{ hash, size,
+gzipped, verified, candid?, ... }`; `verified` means hosty.live has seen
+a mainnet canister running that hash. An unverified module is deleted
+after 24 hours; `POST /modules/<hash>/verify` with `{ "canisterId":
+"<id>" }` asks hosty.live to re-read that canister's hash and keep the
+module when it matches. Only the module is ever published: the
+canister's heap, access codes of `#code` tables and pending moves stay
+where they are. Never set `snapshot_visibility: public` on a backend: a
+snapshot is the whole heap.
+
+**Fetching.** From JavaScript, `fetchGameModule(canisterId)` in the
+frontend package's `module-store.js` (Node: `module-store-node.js`)
+reads the certified `module_hash`, asks the store and rejects a missing
+module or any body whose SHA-256 is not the live hash; see `../frontend/README.md`,
+"Fetching a game's module". From a shell, `icp canister status -p`
+reads the certified hash:
 
 ```bash
 ID=<backend-id>
-curl -s https://$ID.raw.icp0.io/wasm -o backend.wasm
-shasum -a 256 backend.wasm                 # equals `module_hash` (without 0x) from
-icp canister status $ID -n ic -p --json
-icp canister metadata $ID candid:service -n ic > backend.did
+HASH=$(icp canister status $ID -n ic -p --json | sed -n 's/.*"module_hash":"0x\([0-9a-f]*\)".*/\1/p')
+curl -sf https://api.hosty.live/modules/$HASH -o backend.wasm &&
+  [ "$(shasum -a 256 backend.wasm | cut -d' ' -f1)" = "$HASH" ] &&
+  icp canister metadata $ID candid:service -n ic > backend.did
 ```
 
 `backend.wasm` then becomes a local copy through the
@@ -718,12 +735,6 @@ on every build), with `icp canister link backend $ID -e ic` tying the
 name to the live canister for the `ic` environment only; the skill's
 `references/frontend-for-existing-game.md` and
 `references/bot-for-existing-game.md` have the whole procedure.
-
-A 404 at `/wasm` ("No module uploaded yet") means the sync step has not
-run against this install: run `icp sync backend -e <env>`. A hash that
-differs from `module_hash` means the same, after a deploy whose sync
-step failed; the script's own hash check makes that the only way the two
-can disagree.
 
 ### Build, test, benchmark
 

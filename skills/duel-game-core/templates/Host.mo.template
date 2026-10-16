@@ -1,7 +1,6 @@
 // Host actor for __GAME_SLUG__. Copy verbatim; only the `Rules` import
-// and the two timeouts change between games. `http_request` and the HTTP
-// mixin's controllers-only `wasm_upload_*` are the only plain Candid
-// methods — every game read and mutation goes through
+// and the two timeouts change between games. `http_request` is the only
+// plain Candid method — every game read and mutation goes through
 // `mo:duel-game-core/transport`.
 
 import TP "mo:duel-game-core";
@@ -56,7 +55,7 @@ actor {
   };
 
   // GET /semantics — the rules text a third-party frontend is built from;
-  // GET /metrics — the metrics above. GET /wasm is the mixin's own.
+  // GET /metrics — the metrics above.
   include HttpActorMixin([
     ("/semantics", func() : Text = Rules.SEMANTICS),
     ("/metrics", renderer.renderExposition),

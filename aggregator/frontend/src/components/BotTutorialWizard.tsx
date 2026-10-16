@@ -1,7 +1,7 @@
 // "Build a bot": a canister player for a game already listed here, built
 // by an AI coding agent on the developer's own computer from
 // botPrompt.ts's prompt. The agent tests it against a local copy of the
-// game made from the backend's own wasm; the developer then deploys it
+// game made from the module the backend runs; the developer then deploys it
 // and has it register itself with the game (a bot is never listed on
 // this dashboard). Opened from a game's info dialog it starts filled in
 // for that game; from the header it starts by picking one.
@@ -161,8 +161,35 @@ function GoLiveStep({ target }: { target: Target }) {
   return (
     <>
       <p>
-        Two one-time things, then three commands. Your coding tool can walk you
-        through each of them if you paste these instructions to it.
+        Putting the bot online costs a few dollars, one of two ways. Your coding
+        tool can walk you through either if you paste these instructions to it.
+      </p>
+      <p>
+        <strong>Through hosty.live</strong> (paid by card, no keys on your
+        machine)
+      </p>
+      <ol className="tutorial-list">
+        <li>
+          Sign in at{" "}
+          <a href="https://hosty.live/" target="_blank" rel="noreferrer">
+            hosty.live
+          </a>{" "}
+          with Internet Identity, then <strong>Canisters</strong> →{" "}
+          <strong>Create New Canister</strong> → <strong>Backend</strong> (0.84
+          TC, about a dollar at the time of writing, from a balance you top up
+          by card under <strong>Cycles</strong>).
+        </li>
+        <li>
+          <strong>Settings</strong> → <strong>AI agent access</strong> → create
+          a token and connect your coding tool with the command shown next to
+          it. Then ask it to put the bot online through hosty.live and register
+          it with the game under the name players should see: it installs the
+          bot after you approve a deploy session in the hosty.live tab, and
+          calls the bot's <code>register</code> in that same session.
+        </li>
+      </ol>
+      <p>
+        <strong>With icp-cli</strong> (your own key and cycles)
       </p>
       <ol className="tutorial-list">
         <li>
@@ -203,7 +230,8 @@ function GoLiveStep({ target }: { target: Target }) {
           {game.title}
         </a>{" "}
         and challenge your bot from its list of bots. Running{" "}
-        <code>register</code> again renames it; this takes it off the list:
+        <code>register</code> again renames it; <code>unregister</code> takes it
+        off the list (through hosty.live, ask your coding tool; with icp-cli):
       </p>
       <CodeBlock
         code={`icp canister call bot unregister '(principal "${backend}")' -e ic`}

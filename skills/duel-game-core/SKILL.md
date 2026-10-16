@@ -1,6 +1,6 @@
 ---
 name: duel-game-core
-description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko rules module (Spec<S,M,V,O>), Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, a game whose ending takes many rounds to reach in a test, or putting the result online: the backend with icp-cli, the frontend on hosty.live) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
+description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko rules module (Spec<S,M,V,O>), Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, a game whose ending takes many rounds to reach in a test, or putting the result online, through hosty.live or with icp-cli) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
 ---
 
 # Building a duel-game-core Game From Rules Alone
@@ -39,8 +39,8 @@ A finished game is six pieces of game-specific code:
 Every template lives in `templates/`; read each one right before adapting
 it. `references/` covers seven situations the templates don't:
 `turn-based-games.md`, `canister-player-bots.md`, `rich-ui.md`,
-`testing-deep-dive.md`, `going-live.md` (putting any of this online:
-the backend with icp-cli, the frontend on hosty.live), and, for a game
+`testing-deep-dive.md`, `going-live.md` (putting any of this online,
+through hosty.live or with icp-cli), and, for a game
 someone else already deployed, from its canister id alone,
 `frontend-for-existing-game.md` (a new frontend) and
 `bot-for-existing-game.md` (a canister player) — read them only when
@@ -242,10 +242,8 @@ null; scoring = null }` — your rules (function values cannot be
 - promtracker metrics and `HttpActorMixin`, whose routes answer
   `GET /semantics` with `Rules.SEMANTICS` and `GET /metrics` with the
   metrics; data a client needs but `State` does not carry (a fixed map,
-  a deck list) goes in as a further `(path, () -> Text)` route. The same
-  mixin serves the canister's own module at `GET /wasm`, taken in
-  through the controllers-only `wasm_upload_*` methods that
-  `publish_wasm.sh` calls at deploy time (Step 7); nothing to wire.
+  a deck list) goes in as a further `(path, () -> Text)` route; nothing
+  else to wire.
 
 Do not add plain Candid methods for any game operation:
 `mo:duel-game-core/transport` is the only path, and the frontend sends
@@ -514,22 +512,24 @@ icp network start -d       # once; a private copy of the Internet Computer
 icp deploy                 # both canisters, locally; prints the frontend's URL
 ```
 
-The backend always serves its own wasm: the template's `icp.yaml` runs
-`sh publish_wasm.sh backend` as the backend's sync step, so every
-install, reinstall and upgrade uploads the module the canister now runs
-to the canister itself, and anyone can download it at `GET /wasm` and
-test a frontend of their own against a local copy (backend README,
-"Downloadable wasm"). Keep the step when adapting the file, and
-never set `snapshot_visibility: public`: a snapshot would publish the
-whole heap, access codes included. If the backend canister is renamed, pass
-the new name to the script. After the first deploy, check the two
-public faces of the game:
+Anyone can download the module a backend runs and test a frontend or a
+bot of their own against a local copy: clients look it up in
+hosty.live's module store by the canister's certified `module_hash`
+(backend README, "Downloadable wasm"). A backend that goes live through
+hosty.live is stored there by hosty.live; for one deployed with `icp
+deploy -e ic`, the template's `icp.yaml` runs `sh publish_wasm.sh
+backend` as the backend's sync step, which uploads the module the
+canister now runs to the store after every mainnet install, reinstall
+and upgrade (with the user's hosty.live token in `HOSTY_TOKEN`), and
+does nothing on a local deploy. Keep the step when adapting the file,
+and never set `snapshot_visibility: public`: a snapshot would publish
+the whole heap, access codes included. If the backend canister is
+renamed, pass the new name to the script. After the first deploy,
+check the game's public face:
 
 ```bash
 ID=$(icp canister status backend -i)
 curl http://$ID.raw.localhost:8000/semantics
-curl -s http://$ID.raw.localhost:8000/wasm | shasum -a 256   # equals module_hash in
-icp canister status backend --json
 ```
 
 The local frontend deploys through the `@dfinity/static-site` recipe.
@@ -549,23 +549,27 @@ necessary, not sufficient.
 ## Step 8 — Go live
 
 Do this only when the user asks, following `references/going-live.md`
-step by step; leave the same steps in the project's `README.md`. In
-short: the backend goes up from the user's computer (`icp identity
-new`, a few dollars of cycles bought by card at cycle.express, `icp
-deploy backend -e ic`); the frontend goes up on hosty.live, which
-hosts static pages in a canister the user creates there (about a
-dollar, paid by card), either from its web UI or, once the user has
-connected its MCP server to your session,
-through the `hosty_*` tools: point the hosted canister at the backend
-once (`icp canister settings update`), build, zip `dist`, upload,
-wait. Then the user lists the frontend on the Duel dashboard.
+step by step; leave the same steps in the project's `README.md`. Ask
+the user which route first, and keep the whole game on it:
+
+- **Through hosty.live** (route A; best for a user new to the Internet
+  Computer): an Internet Identity login and a balance paid by card, one
+  canister per backend, bot and page created in hosty.live's web UI.
+  You install the backend's module (`icp build backend`) through the
+  `hosty_*` tools after the user approves a deploy session, and upload
+  the zipped `dist` the same way; icp-cli runs once, with no cycles, to
+  point the page at the backend (`icp canister settings update`).
+- **With icp-cli** (route B): the user's own identity (`icp identity
+new`), cycles bought by card at cycle.express, and `icp deploy
+backend -e ic` / `icp deploy frontend -e ic`, with the hosty.live API
+  token in `HOSTY_TOKEN` so the sync step can publish the module.
+
+Either way, the user then lists the frontend on the Duel dashboard.
 
 ## Common pitfalls
 
 - **No plain Candid method for any game mutation**, not even "to test
-  with a canister call". Use the frontend or a `transport`-speaking client. (The
-  HTTP mixin's `wasm_upload_*` are the engine's own, controllers-only,
-  and touch no game state.)
+  with a canister call". Use the frontend or a `transport`-speaking client.
 - **Never let a client value stand in for something the rules should
   compute** (Step 2, point 2).
 - **The rules are the only legality gate** (`validate`, or `move`'s

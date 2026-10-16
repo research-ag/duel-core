@@ -46,7 +46,8 @@ is the walkthrough.
 
 Every game's backend serves its rules as plain text
 (`https://<backend-id>.raw.icp0.io/semantics`), carries its Candid as
-public metadata, and serves the wasm it runs at `/wasm`, so a new
+public metadata, and its exact module can be downloaded from
+hosty.live's module store by the canister's public `module_hash`, so a new
 frontend or a bot can be built and tested locally from the canister id
 alone. The "Make your own frontend" and "Build a bot" buttons in a
 game's info dialog on the aggregator hand you a prompt for an AI coding

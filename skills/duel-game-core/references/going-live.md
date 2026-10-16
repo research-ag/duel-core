@@ -7,105 +7,148 @@ existing game (`frontend-for-existing-game.md`), or a bot
 nothing about the Internet Computer: follow it with them, one step at a
 time, and leave the same steps in the project's `README.md`.
 
-A game is two kinds of canister, put online two different ways:
+A game is up to three kinds of canister: the backend and a bot
+(compiled Motoko modules) and the frontend (static files). They go
+online one of two ways; ask the user which, and keep every canister of
+a project on the same one.
 
-| What                        | How                                                | Costs                                                    |
-| --------------------------- | -------------------------------------------------- | -------------------------------------------------------- |
-| The backend, a bot (Motoko) | `icp-cli` from the user's computer, paid in cycles | a few dollars of cycles, bought by card at cycle.express |
-| The frontend (static files) | hosty.live, from its web UI or through its MCP     | about a dollar of cycles, paid by card on hosty.live     |
+|                  | Route A: hosty.live                                             | Route B: icp-cli                                                   |
+| ---------------- | --------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Who signs        | the user's Internet Identity, in the hosty.live tab             | an icp-cli identity, a key on the user's computer                  |
+| Paid with        | the hosty.live balance, by card: 0.84 TC per canister           | cycles bought by card at cycle.express: 2T per canister            |
+| Backend, bot     | `hosty_*` tools (or the web UI), after one approval per session | `icp deploy backend -e ic`, `icp deploy bot -e ic`                 |
+| Frontend         | a ZIP upload, plus one icp-cli command naming the backend       | `icp deploy frontend -e ic`                                        |
+| The module store | hosty.live stores every module it installs                      | `publish_wasm.sh` uploads it, with a hosty.live API token          |
+| Suits            | a user new to the Internet Computer, an AI agent at the wheel   | a user who already has an identity and cycles, or scripted deploys |
 
-Going live spends the user's money. Run a deploy, of either kind, only
+Prices are those at the time of writing (0.84 TC is about a dollar).
+Either way the backend's module ends up in hosty.live's module store,
+where other people's frontends and bots fetch it by the canister's
+public module hash (backend README, "Downloadable wasm"); both routes
+need a hosty.live account for that, route B only its API token.
+
+Going live spends the user's money. Run a deploy, of either route, only
 when the user asks for that deploy; a hosty.live MCP server connected
-to your session is the means, never the permission. The backend's `icp
+to your session is the means, never the permission. In route B, `icp
 deploy` is the user's command to run, or yours when they say so.
 
-## 1. The backend (and a bot): icp-cli and cycles
+The development loop stays local (`icp network start -d`, `icp
+deploy`): a mainnet install is for the finished build. For the first
+one, a rented hosty.live backend canister (`hosty_rent_canister {
+kind: "backend" }`, free, wiped after 24 hours) is a staging target
+that costs nothing.
 
-Skip this section for a frontend to an existing game: its backend is
-somebody else's and already live.
+## 1. A hosty.live account and its API token (both routes)
 
-**An identity.** `icp-cli` signs every call with a key it keeps on the
-user's computer. The user creates it once, in a terminal of their own,
-with a name of their choosing:
+The user, once, in the browser:
+
+1. Sign in at https://hosty.live/ with Internet Identity (a passkey; no
+   password, no email).
+2. **Settings** → **AI agent access** → name the token (say, "Claude
+   Code on my laptop") → create. The page shows the token (`hl_...`)
+   once, and next to it the one-line command that connects Claude Code
+   to hosty.live's MCP server:
+
+   ```bash
+   claude mcp add --transport http hosty https://api.hosty.live/mcp --header "Authorization: Bearer hl_..."
+   ```
+
+   (and the equivalent JSON for Cursor, Windsurf and other MCP
+   clients). The token is a password to the user's canisters: revoke it
+   on the same page when done, never commit it.
+
+3. Route A: run that command and restart the agent session, so the
+   `hosty_*` tools appear. `hosty_whoami` confirms the token and lists
+   the user's canisters. The server's own guide is
+   https://api.hosty.live/skill (the MCP resource `hosty://skill` is
+   the same text), with a REST equivalent of every tool.
+4. Route B: keep the token for the backend's sync step, in a file
+   outside the project that only the user can read:
+
+   ```bash
+   mkdir -p ~/.config/hosty && printf %s 'hl_...' > ~/.config/hosty/token && chmod 600 ~/.config/hosty/token
+   ```
+
+   The user runs that in a terminal of their own; never ask for the
+   token in the chat.
+
+## 2. Route A: everything through hosty.live
+
+### Canisters
+
+The user creates each canister in hosty.live: **Canisters** → **Create
+New Canister**, **Backend** for the backend and for each bot (created
+empty), **Frontend** for the page. Each takes 0.84 TC from the account
+balance; **Cycles** → **Deposit using Cycle Express** pays that balance
+by card. An install needs at least 0.5T cycles on the canister itself,
+topped up from the canister's page.
+
+hosty.live's rented canisters (24 hours) are for staging only: a rented
+backend is wiped when the rent ends, and a rented frontend cannot get
+the controller change below.
+
+### The backend (and a bot)
+
+Build the module you tested locally, from the project root:
 
 ```bash
-icp identity new my-game
-icp identity default my-game
-icp identity principal        # the long xxxxx-...-xxx address: the user's principal
+icp build backend           # .icp/cache/artifacts/backend
 ```
 
-That key is what makes the user the canister's controller: the only one
-who can upgrade or delete it. Backing it up (`icp identity export`) is
-the user's own step in that same terminal; never run it yourself or
-ask for the key. All you need is the principal, and every `icp`
-command you run uses the default identity by itself.
+Do not gzip it: the store would serve it with `Content-Encoding: gzip`,
+and a browser's `fetch` decompresses that before a client can check
+the hash. Then, through the `hosty_*` tools:
 
-**Cycles.** Canisters pay for their own computation and storage in
-cycles, prepaid. Creating one through `icp deploy` takes 2T cycles off
-the identity's balance by default and the canister keeps running on
-them for a long time; buy 3T (a few dollars) for one canister, 5T for
-a backend and a bot. The simplest way is by card at
-https://cycle.express/: paste the principal that `icp identity
-principal` printed into its recipient field, pay with Stripe. Then:
+1. `hosty_check_backend_canister { canisterId }`. With `ready: true`
+   (a deploy session already active, or unattended deploys allowed on
+   that canister), skip to step 3.
+2. `hosty_request_deploy_session { hours: 1 }`. Relay its `userAction`
+   to the user verbatim ("open hosty.live and approve the deploy
+   session"), say what you are going to install, and poll
+   `hosty_get_deploy_session` until `status: "ACTIVE"`. The approval
+   covers every canister the user controls until it expires.
+3. `hosty_prepare_wasm_upload { canisterId, wasmPath:
+".icp/cache/artifacts/backend" }`, plus `snapshotBeforeUpgrade: true`
+   whenever the canister already runs the game (an upgrade keeps its
+   tables; the snapshot is the way back). It returns a `curl` command
+   with a 15-minute upload token: run it from the project root. Its
+   JSON answer carries the deployment `id`.
+4. `hosty_wait_for_deployment { deploymentId }` until `finished: true`,
+   again if it is not. On `FAILED`, `statusReason` is the replica's
+   reject message verbatim (a trapped `post_upgrade`, too few cycles).
+5. Check the game's public faces:
 
-```bash
-icp cycles balance -n ic
-```
+   ```bash
+   curl https://<backend-id>.raw.icp0.io/semantics
+   ```
 
-**Deploy.** From the project root, naming the canister:
+   and `hosty_get_module { canisterId }`: the store holds the module
+   with `verified: true`.
 
-```bash
-icp deploy backend -e ic              # a game's backend
-icp deploy bot -e ic                  # a bot (bot-for-existing-game.md)
-```
+Without an agent, the backend canister's page in hosty.live takes the
+same file in its install form, after the same approval.
 
-Always name what to deploy: a bare `icp deploy -e ic` also creates
-every other canister in `icp.yaml` on mainnet, 2T cycles each, and for
-a project linked to somebody else's backend it fails on that one. The
-backend's sync step (`publish_wasm.sh`) runs by itself after the
-install, so the canister serves its own wasm at `/wasm` from the first
-deploy on. Then:
+A bot goes up the same way (`icp build bot`, its own Backend canister),
+then lists itself in the game's bot directory: during the deploy
+session, `hosty_call_canister` on the bot, method `register`, argument
+`(principal "<backend-id>", "<Bot Name>")`, as an update call. An
+update call in a session is signed as the user, the bot's controller,
+which `register` requires; `unregister` takes
+`(principal "<backend-id>")`.
 
-```bash
-icp canister status backend -e ic -i  # the backend's canister id: write it down
-curl https://<backend-id>.raw.icp0.io/semantics
-```
+Every later version is steps 1 to 5 again; the canister id stays.
 
-Later deploys of the same project upgrade the same canister and keep
-its tables. The canister's balance shows in `icp canister status
-backend -e ic`; topping it up is cycle.express again, with the
-canister id as the recipient, or `icp canister top-up backend -e ic
---amount 1t` from the identity's balance.
-
-## 2. The frontend: hosty.live
-
-hosty.live (https://hosty.live/) takes a folder of built static files
-and serves it from an asset canister of its own at
-`https://<frontend-id>.icp0.io/`. A login with Internet Identity (a
-passkey; no password, no email), a canister created there (0.84 TC
-from an account balance topped up by card: about a dollar at the time
-of writing), and either its web UI or, for an AI coding agent, its MCP
-server; icp-cli is used once, to name the backend, by the agent. The
-user keeps full control of the canister and can later attach a custom
-domain or make it immutable from the web UI.
-
-hosty.live also rents a free canister for 24 hours, but it is of no use
-for a duel frontend: hosty.live blocks controller changes on a rented
-canister, so the step below cannot be done on it and the page would
-not find its backend. Always use a created canister.
-
-### Point the hosted canister at the backend
+### The frontend
 
 The page finds its backend in the `ic_env` cookie its canister sets,
-built from the canister's `PUBLIC_*` environment variables (what `icp
-deploy` sets on a frontend it creates). On a hosty.live canister that
-one variable is set with icp-cli, once per canister, by the identity
-from section 1 or a fresh one (`icp identity new`; no cycles are
+built from the canister's `PUBLIC_*` environment variables. On a
+hosty.live canister that one variable is set with icp-cli, once per
+canister, by an icp-cli identity (`icp identity new`; no cycles are
 involved). The user does the browser half, you run the command:
 
-1. The user, in hosty.live: open the canister → **Transfer Canister
-   Ownership** → **Add Controller**, pasting the principal that `icp
-identity principal` prints. Every other controller stays.
+1. The user, in hosty.live: open the frontend canister → **Transfer
+   Canister Ownership** → **Add Controller**, pasting the principal
+   that `icp identity principal` prints. Every other controller stays.
 2. You, from any directory:
 
    ```bash
@@ -117,112 +160,130 @@ identity principal` prints. Every other controller stays.
 
 3. The user, back on the same page: remove that principal from the
    controllers again (the X next to it), leaving hosty.live and their
-   Internet Identity in charge of the page. The identity is needed on
-   this canister only for another `settings update`, such as a change
-   of backend, when steps 1 to 3 are repeated. It stays a controller of
-   the backend, where it belongs.
+   Internet Identity in charge of the page. Steps 1 to 3 are needed
+   again only for another `settings update`, such as a change of
+   backend.
 
 The asset canister refreshes the cookie at the next upload, so do this
-before the first deploy into that canister; a variable set afterwards
+before the first upload into that canister; a variable set afterwards
 takes effect with the next upload. Check on the live page:
 
 ```bash
 curl -sI https://<frontend-id>.icp0.io/ | grep -o 'ID%3Abackend%3D[a-z0-9%D-]*cai'
 ```
 
-The Duel dashboard (step 3) reads the same cookie to find the backend
-a listed page plays. Then build:
+The Duel dashboard (section 4) reads the same cookie to find the
+backend a listed page plays. Then build and pack, from `frontend/`:
 
 ```bash
-cd frontend && npm run build && cd ..
+npm run build && zip -r dist.zip dist -x "*.map"
 ```
 
-`frontend/dist/` is what goes online: `index.html`, `app.js`, the two
-stylesheets, and whatever else `build.js` copies.
+`dist/` is what goes online: `index.html`, `app.js`, the two
+stylesheets, and whatever else `build.js` copies. There is nothing to
+deploy from git: `duel-game-core` is a `file:` dependency the
+hosty.live build server cannot resolve, so the build always happens on
+the user's computer.
 
-### Route A: through the MCP server (an AI coding agent)
+**With the agent:**
 
-The user, once, in the browser:
-
-1. Sign in at https://hosty.live/ (Internet Identity).
-2. **Settings** → **AI agent access** → name the token (say, "Claude
-   Code on my laptop") → create. The page shows the token (`hl_...`)
-   once, and next to it the one-line command that connects Claude
-   Code to hosty.live:
-
-   ```bash
-   claude mcp add --transport http hosty https://api.hosty.live/mcp --header "Authorization: Bearer hl_..."
-   ```
-
-   (and the equivalent JSON for Cursor, Windsurf and other MCP
-   clients). The token is a password to the user's canisters: revoke
-   it on the same page when done.
-
-3. Restart the agent session so the `hosty_*` tools appear.
-
-Then the agent does the rest, in this order (the server's own guide is
-https://api.hosty.live/skill; the MCP resource `hosty://skill` is the
-same text):
-
-1. `hosty_whoami` — confirms the token and lists the user's canisters.
-2. The canister the user created (**Canisters** → **Create New
-   Canister**), picked from `hosty_list_canisters`; never
-   `hosty_rent_canister` (above).
-3. `hosty_check_canister { canisterId }` until it answers `ready:
+1. `hosty_check_canister { canisterId }` until it answers `ready:
 true`. A created canister needs **Grant agent deploy access** clicked
    once in **Settings**.
-4. The environment variable (above): ask the user for the controller
-   click, run the command (`hosty_check_canister` does not know about
-   it). Build, then from `frontend/`:
-
-   ```bash
-   zip -r dist.zip dist -x "*.map"
-   ```
-
-5. `hosty_prepare_zip_upload { canisterId, pureAssets: true, outputDir:
+2. `hosty_prepare_zip_upload { canisterId, pureAssets: true, outputDir:
 "dist" }` returns a `curl` command with a 15-minute upload token.
    Run it from `frontend/`. Its JSON answer carries the deployment
    `id`.
-6. `hosty_wait_for_deployment { deploymentId }` until `finished: true`,
+3. `hosty_wait_for_deployment { deploymentId }` until `finished: true`,
    again if it is not. On `SUCCESS` the answer carries `frontendUrl`;
    on `FAILED`, `statusReason` and `logsTail` say why.
-7. Open `frontendUrl` and play a round from two tabs against the live
+4. Open `frontendUrl` and play a round from two tabs against the live
    backend. Gateways cache for up to a minute after a deploy.
 
-Every later deploy is steps 4 to 7 again. There is nothing to deploy
-from git: `duel-game-core` is a `file:` dependency the hosty.live build
-server cannot resolve, so the build always happens on the user's
-computer.
+**In the web UI:** open the canister → **Deploy** → **ZIP Upload**,
+pick `dist.zip`, switch on the already-built option (no build on the
+server), output directory `dist`, deploy. The **Deployments** page
+follows the upload; the canister's page shows the URL.
 
-### Route B: through the web UI (no agent)
+Every later version is another build and upload into the same canister;
+the environment variable stays. The user keeps full control of the
+canister and can attach a custom domain or make it immutable from the
+web UI.
 
-1. Sign in at https://hosty.live/.
-2. **Canisters** → **Create New Canister** (0.84 TC from the account's
-   cycles balance; **Cycles** → **Deposit using Cycle Express** pays
-   that balance by card).
-3. The environment variable (above), then open the canister →
-   **Deploy** → **ZIP Upload**. Zip the built
-   `frontend/dist` folder, switch on the already-built option (no
-   build on the server), output directory `dist`, deploy. The
-   **Deployments** page follows the upload; the canister's page
-   shows the URL.
+## 3. Route B: everything with icp-cli
 
-### Later changes
+**An identity.** `icp-cli` signs every call with a key it keeps on the
+user's computer. The user creates it once, in a terminal of their own,
+with a name of their choosing:
 
-Every later version is another upload into the same canister (route A
-steps 4 to 7, or route B step 3); the environment variable stays.
+```bash
+icp identity new my-game
+icp identity default my-game
+icp identity principal        # the long xxxxx-...-xxx address: the user's principal
+```
 
-A frontend can also go through `icp-cli` instead (`icp deploy
-frontend -e ic`, 2T cycles from the identity's balance), which sets the
-`ic_env` cookie itself; nothing else changes.
+That key is what makes the user the canisters' controller: the only one
+who can upgrade or delete them. Backing it up (`icp identity export`)
+is the user's own step in that same terminal; never run it yourself or
+ask for the key. All you need is the principal, and every `icp`
+command you run uses the default identity by itself.
 
-## 3. List it on the Duel dashboard
+**Cycles.** Canisters pay for their own computation and storage in
+cycles, prepaid. Creating one through `icp deploy` takes 2T cycles off
+the identity's balance by default, and the canister keeps running on
+them for a long time: buy 5T (a few dollars) for a backend and its
+frontend, 7T with a bot. The simplest way is by card at
+https://cycle.express/: paste the principal that `icp identity
+principal` printed into its recipient field, pay with Stripe. Then:
+
+```bash
+icp cycles balance -n ic
+```
+
+**Deploy**, from the project root, naming each canister, with the
+hosty.live token from section 1 in the environment so the backend's
+sync step can put its module into the store:
+
+```bash
+export HOSTY_TOKEN=$(cat ~/.config/hosty/token)
+icp deploy backend -e ic              # a game's backend
+icp deploy frontend -e ic             # its page; sets the ic_env cookie itself
+icp deploy bot -e ic                  # a bot (bot-for-existing-game.md)
+```
+
+Always name what to deploy: a bare `icp deploy -e ic` also creates
+every other canister in `icp.yaml` on mainnet, 2T cycles each, and for
+a project linked to somebody else's backend it fails on that one. The
+backend's sync step (`publish_wasm.sh`) runs by itself after every
+install and upgrade: it uploads the module the canister now runs to
+the store and has the store verify it against the canister. When it
+fails (no token, a network error), the canister is installed but its
+module is not downloadable yet: fix the cause and run `icp sync
+backend -e ic`. Then:
+
+```bash
+icp canister status backend -e ic -i  # the backend's canister id: write it down
+curl https://<backend-id>.raw.icp0.io/semantics
+```
+
+`icp canister status frontend -e ic -i` is the page's id; the page is
+at `https://<frontend-id>.icp0.io/`. Later deploys of the same project
+upgrade the same canisters and keep the backend's tables. A canister's
+balance shows in `icp canister status <name> -e ic`; topping it up is
+cycle.express again, with the canister id as the recipient, or `icp
+canister top-up <name> -e ic --amount 1t` from the identity's balance.
+
+A route-B canister moves to route A later without a reinstall: add the
+user's hosty.live principal (`hosty_whoami`, or **Settings**) as a
+controller (`icp canister settings update <id> -n ic --add-controller
+<principal>`), then **Canisters** → **Import canister** in hosty.live.
+
+## 4. List it on the Duel dashboard
 
 The dashboard at https://n6plc-4yaaa-aaaaj-qshia-cai.icp.net/ is where
 players find games. The user logs in there (Internet Identity),
-registers the frontend by its canister id (`<frontend-id>` from
-hosty.live's canister page or `hosty_list_canisters`), with a title, a
-description and a banner, and, if hosty.live serves it under a custom
-domain, that domain. The dashboard reads the backend from the page's
-`ic_env` cookie, checks its `/semantics`, and offers "Make your own
-frontend" and "Build a bot" for it to everyone else.
+registers the frontend by its canister id, with a title, a description
+and a banner, and, if hosty.live serves it under a custom domain, that
+domain. The dashboard reads the backend from the page's `ic_env`
+cookie, checks its `/semantics`, and offers "Make your own frontend"
+and "Build a bot" for it to everyone else.

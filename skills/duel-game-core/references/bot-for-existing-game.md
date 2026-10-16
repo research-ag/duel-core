@@ -14,7 +14,7 @@ Everything you need comes from the backend canister id:
 | -------------------------- | ------------------------------------------------------------------ |
 | Rules, `View`, `Action`    | `GET /semantics` on the backend                                    |
 | Whether it takes bots      | the `candid:service` metadata section                              |
-| The wasm, for a local copy | `GET /wasm` on the backend                                         |
+| The wasm, for a local copy | hosty.live's module store, by its module hash                      |
 | `make_move`'s contract     | `canister-player-bots.md`, the backend README's "Canister players" |
 
 This needs `icp-cli` and `mops` on the user's computer. A bot cannot be
@@ -295,24 +295,36 @@ icp network stop
 
 Going live spends the user's money and is theirs to trigger: run these
 only when asked. Finish by telling them, step by step, what comes next,
-and leave the same in `README.md`. The identity and the cycles are
-`going-live.md`, section 1 (a bot is a canister like a backend, deployed
-from the user's computer; about 3T cycles bought by card at
-cycle.express), then:
+and leave the same in `README.md`. A bot is a canister like a backend;
+it goes up by either route of `going-live.md` (ask which):
 
-```bash
-icp canister link backend <backend-id> -e ic --force   # step 2's link
-icp deploy bot -e ic                                   # the bot only
-icp canister call bot register '(principal "<backend-id>", "<Bot Name>")' -e ic
-```
+- **Through hosty.live** (section 1's account, section 2's "The backend
+  (and a bot)"): a Backend canister created in hosty.live (0.84 TC by
+  card), `icp build bot`, the install through the `hosty_*` tools after
+  one approval, then `register` through `hosty_call_canister` in that
+  same deploy session. No `icp deploy` against mainnet, so step 2's
+  link is not needed.
+- **With icp-cli** (section 3's identity and cycles, about 3T bought by
+  card at cycle.express):
 
-Always name `bot` on the deploy line: a bare `icp deploy -e ic` also
-attempts `backend` (which fails) and `sparring` (a paid canister with
-no use on mainnet). `register` lists the bot, under its name and complexities,
-in the game's bot directory (`list_bots`), where every frontend that
-shows bots offers it as an opponent. Calling it again updates the
-entry; `unregister` takes it off:
+  ```bash
+  icp canister link backend <backend-id> -e ic --force   # step 2's link
+  icp deploy bot -e ic                                   # the bot only
+  icp canister call bot register '(principal "<backend-id>", "<Bot Name>")' -e ic
+  ```
+
+  Always name `bot` on the deploy line: a bare `icp deploy -e ic` also
+  attempts `backend` (which fails) and `sparring` (a paid canister with
+  no use on mainnet).
+
+`register` lists the bot, under its name and complexities, in the
+game's bot directory (`list_bots`), where every frontend that shows
+bots offers it as an opponent. Calling it again updates the entry;
+`unregister` takes it off:
 
 ```bash
 icp canister call bot unregister '(principal "<backend-id>")' -e ic
 ```
+
+or, through hosty.live, `hosty_call_canister` on the bot with method
+`unregister` and that argument, as an update call in a deploy session.
