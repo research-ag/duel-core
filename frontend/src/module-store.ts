@@ -2,8 +2,11 @@
 // store. The canister's `module_hash` is read from the IC state tree
 // (certificate verified by the agent), the store is asked for that hash,
 // and the bytes are accepted only if their SHA-256 equals it. See README,
-// "Fetching a game's module". Browser-safe; in Node, gzipped modules need
-// `module-store-node.js` (fetch decompresses `Content-Encoding: gzip`).
+// "Fetching a game's module". The default download, `fetch`, decodes the
+// store's `Content-Encoding: gzip` in browsers and Node alike, so it
+// verifies only a module stored uncompressed: a gzipped one fails the hash
+// check and is never accepted. For gzipped modules pass a `download` that
+// keeps the body as sent (Node: `module-store-node.js`).
 //
 //   const { hash, bytes, gzipped } = await fetchGameModule("ghjib-...-cai");
 
@@ -27,8 +30,7 @@ export interface Downloaded {
   contentEncoding: string | null;
 }
 
-/// A GET whose `bytes` are the body exactly as sent. The default is
-/// `fetch`, which decodes a `Content-Encoding` before handing it over.
+/// A GET whose `bytes` are the body exactly as sent.
 export type Download = (url: string) => Promise<Downloaded>;
 
 export interface FetchGameModuleOptions {
@@ -38,6 +40,8 @@ export interface FetchGameModuleOptions {
   download?: Download;
 }
 
+/// `fetch`: the body as sent only when it carries no `Content-Encoding`;
+/// a decoded gzipped module then fails the hash check.
 export const fetchDownload: Download = async (url) => {
   const res = await fetch(url);
   return {
@@ -100,7 +104,7 @@ async function checked(hash: string, got: Downloaded): Promise<GameModule> {
     // A gzipped module decoded by `fetch` hashes differently too.
     const hint = isGzip(got.bytes)
       ? ""
-      : " (if it was decompressed in transit, download it raw: module-store-node.js)";
+      : " (if it was decompressed in transit, pass a `download` that keeps the body as sent; Node: module-store-node.js)";
     throw new Error(`module ${hash}: body hashes to ${actual}${hint}`);
   }
   return { hash, bytes: got.bytes, gzipped: isGzip(got.bytes) };

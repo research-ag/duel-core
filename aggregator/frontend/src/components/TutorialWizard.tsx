@@ -231,7 +231,7 @@ function DeployStep() {
         </li>
         <li>
           Deploy both canisters:
-          <CodeBlock code="HOSTY_TOKEN=$(cat ~/.config/hosty/token) icp deploy -e ic -y" />
+          <CodeBlock code="HOSTY_TOKEN=$(cat ~/.config/hosty/token) icp deploy backend frontend -e ic -y" />
         </li>
       </ol>
       <p>

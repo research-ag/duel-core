@@ -87,8 +87,9 @@ gzipped or not):
 
 ```bash
 HASH=$(icp canister status $BACKEND -n ic -p --json | sed -n 's/.*"module_hash":"0x\([0-9a-f]*\)".*/\1/p')
-curl -sf https://api.hosty.live/modules/$HASH -o backend.wasm
-shasum -a 256 backend.wasm   # must print $HASH
+curl -sf https://api.hosty.live/modules/$HASH -o backend.wasm &&
+  [ "$(shasum -a 256 backend.wasm | cut -d' ' -f1)" = "$HASH" ] &&
+  echo "backend.wasm verified"
 ```
 
 Never pass `--compressed` to curl here: the store marks a gzipped
@@ -96,9 +97,11 @@ module `Content-Encoding: gzip`, and the hash is of the gzipped bytes.
 The two hashes must be equal: that proves the file is the module the
 canister runs right now. Keep `backend.wasm` and
 the hash. Without icp-cli there is no local copy to run: skip this step
-and the `icp.yaml` half of step 5. (From JavaScript, the client
-package's `module-store.js` does the same: `fetchGameModule(BACKEND)`,
-see its README, "Fetching a game's module".)
+and the `icp.yaml` half of step 5. (From Node, the client package's
+`module-store-node.js` does the same and keeps a gzipped module's bytes
+as stored: `fetchGameModule(BACKEND)`, see its README, "Fetching a
+game's module". `module-store.js` on its own downloads with `fetch`,
+which verifies only a module stored uncompressed.)
 
 An empty `HASH` (no module), a 404 from the store, or a hash mismatch
 means the module the backend runs is not available at the moment. Stop

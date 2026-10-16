@@ -731,9 +731,9 @@ reads the certified hash:
 ```bash
 ID=<backend-id>
 HASH=$(icp canister status $ID -n ic -p --json | sed -n 's/.*"module_hash":"0x\([0-9a-f]*\)".*/\1/p')
-curl -sf https://api.hosty.live/modules/$HASH -o backend.wasm
-shasum -a 256 backend.wasm                 # must print $HASH; otherwise stop
-icp canister metadata $ID candid:service -n ic > backend.did
+curl -sf https://api.hosty.live/modules/$HASH -o backend.wasm &&
+  [ "$(shasum -a 256 backend.wasm | cut -d' ' -f1)" = "$HASH" ] &&
+  icp canister metadata $ID candid:service -n ic > backend.did
 ```
 
 `backend.wasm` then becomes a local copy through the
