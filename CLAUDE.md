@@ -90,18 +90,6 @@ HttpActorMixin(routes)` supplies `http_request` over plain-text
     racing's `/track` ride the same list). `Http.respond` is the pure
     router. The module itself is never served by the canister; it lives
     in hosty.live's module store (rule 15).
-  - `drop_wasm_migration.mo`, `legacy_layout_migration.mo` — ONE-OFF
-    upgrade migrations. `DropWasmMigration.run` drops the stable `wasm`
-    field an older mixin kept (its own module, once served at `/wasm`).
-    `LegacyLayoutMigration.run` lifts a host from the session layout
-    (top-level `registry`/`botDirectory`/`wasm`, session-id tables with
-    `variant : Text`) to `duel`/`bots`, keeping every table, given the
-    game's `options`/`state` converters. Every example's `src/Migration.mo`
-    supplies those and its `Host.mo` carries `(with migration =
-Migration.run)` until the live canister has been upgraded; then
-    delete the file, the import and the clause (a second upgrade with
-    them traps). See `backend/README.md`, "Upgrading from the session
-    layout".
   - `leaderboard.mo`, `elo.mo`, `leaderboard_actor_mixin.mo` — OPTIONAL,
     game-agnostic. A top-N highest-first `Board` (`new(keep,
 defaultScore)`, `setScore`, `recordIfBetter`, `scoreOf`, `top`), the
@@ -148,7 +136,7 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   `CanisterPlayers` covers `canister_players.mo` with a hand-built
   context whose fan-out settles and whose timers are only recorded (the
   interpreter has none);
-  `Leaderboard`/`Elo`/`Http`/`Rng`/`LegacyLayoutMigration` cover their modules directly. `FakeGame.mo`/
+  `Leaderboard`/`Elo`/`Http`/`Rng` cover their modules directly. `FakeGame.mo`/
   `FakeTurnGame.mo` are throwaway specs for these suites.
 - **`backend/bench/engine.bench.mo`** — `mops bench`, engine overhead
   only.

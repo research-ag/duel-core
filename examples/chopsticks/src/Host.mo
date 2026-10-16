@@ -11,10 +11,8 @@ import PT "mo:promtracker";
 import Tracker "mo:promtracker/Tracker";
 
 import BotIface "BotIface";
-import Migration "Migration";
 import Rules "ChopsticksRules";
 
-(with migration = Migration.run)
 actor {
   let pt = PT.Tracker.new();
   transient let renderer = PT.Renderer();

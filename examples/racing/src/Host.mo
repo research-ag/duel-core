@@ -14,10 +14,8 @@ import PT "mo:promtracker";
 import Tracker "mo:promtracker/Tracker";
 
 import BotIface "BotIface";
-import Migration "Migration";
 import Rules "RacingRules";
 
-(with migration = Migration.run)
 actor {
 
   let pt = PT.Tracker.new();

@@ -108,13 +108,6 @@ createdBy, options)` plus `join`/`submit`/`rematch`/`leave`/`reset`/
   plain-text routes; every host serves its rules at `/semantics` (see
   "Semantics over HTTP"). The module itself lives in hosty.live's module
   store (see "Downloadable wasm").
-- `src/drop_wasm_migration.mo` (`mo:duel-game-core/drop_wasm_migration`)
-  — a one-off upgrade migration for a host whose live build still has
-  the mixin's stable `wasm` field (see "Downloadable wasm").
-- `src/legacy_layout_migration.mo`
-  (`mo:duel-game-core/legacy_layout_migration`) — a one-off upgrade
-  migration for a host whose live build predates player ids (see
-  "Upgrading from the session layout").
 - Every mutating operation takes `spec`, the `rng` and `now : Int`
   (nanoseconds).
   At the `Registry` layer they are called only from
@@ -742,80 +735,6 @@ on every build), with `icp canister link backend $ID -e ic` tying the
 name to the live canister for the `ic` environment only; the skill's
 `references/frontend-for-existing-game.md` and
 `references/bot-for-existing-game.md` have the whole procedure.
-
-**Upgrading a host whose live build kept its own module.** Earlier
-versions of `HttpActorMixin` stored a copy of the canister's module in a
-stable `wasm` field and served it at `GET /wasm`. A canister still
-running such a build drops the field on its next upgrade only through an
-explicit migration, one upgrade long:
-
-```motoko
-import DropWasmMigration "mo:duel-game-core/drop_wasm_migration";
-
-(with migration = DropWasmMigration.run)
-actor {
-  // ...
-};
-
-```
-
-Check the result against the live stable signature first (`moc
---stable-types`, then `moc --stable-compatible <live.most> <new.most>`;
-the live signature is the module's `motoko:stable-types` custom section,
-and the module is in the store), and remove the clause and the import
-once that upgrade is live: the next upgrade would find no `wasm` field
-to consume. The Candid loses `wasm_upload_begin`, `wasm_upload_chunk`,
-`wasm_upload_commit` and `http_request_streaming_callback`, and
-`http_request`'s response its `streaming_strategy`.
-
-### Upgrading from the session layout
-
-Builds before player ids kept `registry`, `botDirectory`, `wasm` and,
-for an ELO host, `ELO_K` and `STARTING_ELO` as top-level stable fields,
-with tables keyed by session ids (`ii:<principal>`, `an:<principal>`,
-`cp:<principal>:<tableId>:<complexity>`) and a `variant : Text` per
-table. `LegacyLayoutMigration.run` rebuilds them as `duel` and `bots`,
-keeping every table in every phase, the bot directory, the leaderboard,
-the metrics and the timeouts: a human session becomes its principal, a
-canister session `cp:<principal>:<complexity>`, `turn`/`turns` become
-`step`/`steps`, and each table gets `rev = 0`. The game supplies its
-part in a module of its own:
-
-```motoko
-import LegacyLayoutMigration "mo:duel-game-core/legacy_layout_migration";
-
-import Rules "CheckersRules";
-
-module {
-  type OldState = { board : Rules.Board };
-
-  public func run(old : LegacyLayoutMigration.OldWithElo<OldState, Rules.Action>) : LegacyLayoutMigration.New<Rules.State, Rules.Action, Rules.Options> = LegacyLayoutMigration.run(
-    old,
-    {
-      options = func(_ : Text) : Rules.Options = {};
-      state = func(s : OldState, turn : Nat) : Rules.State = {
-        board = s.board;
-        toMove = LegacyLayoutMigration.seatOnTurn(turn);
-      };
-    },
-  );
-};
-
-```
-
-and the host puts `(with migration = Migration.run)` before `actor`.
-`Old` is for a host without the two ELO constants, `OldWithElo` for one
-with them; `state` gets the old turn count, from which `seatOnTurn`
-recovers whose action it was (the old `#alternating` engine started with
-`#p1` and alternated). Every example's `src/Migration.mo` is one such
-module. Check against the live stable signature (`moc --stable-types`,
-then `moc --stable-compatible <live.most> <new.most>`, the live one read
-from the module's `motoko:stable-types` section) before deploying. The
-upgrade changes the Candid incompatibly, so icp-cli asks for `--yes`,
-and the game's frontend must go out with it. Once it is live, delete the
-module, its import and the clause: a second upgrade with them traps
-("Memory-incompatible program upgrade") and leaves the canister as it
-was.
 
 ### Build, test, benchmark
 
