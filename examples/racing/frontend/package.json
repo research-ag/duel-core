@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Turn-based racing duel client — a plain-TypeScript GamePlugin host for the duel-game-core npm package, bundled with esbuild (no framework).",
+  "description": "Turn-based racing duel client — a plain-TypeScript GamePlugin host for the @research-ag/duel-game-core npm package, bundled with esbuild (no framework).",
   "scripts": {
     "build": "node build.js",
     "watch": "node build.js --watch",
@@ -13,7 +13,7 @@
     "@gg-web-engine/core": "0.0.66",
     "@gg-web-engine/three": "0.0.66",
     "@icp-sdk/core": "^6.1.0",
-    "duel-game-core": "file:../../../frontend",
+    "@research-ag/duel-game-core": "file:../../../frontend",
     "point-in-polygon": "^1.1.0",
     "rxjs": "^7.8.2",
     "three": "0.185.1"

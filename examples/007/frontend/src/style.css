@@ -576,7 +576,7 @@ dialog input {
   margin-bottom: 1rem;
 }
 
-/* ── leaderboard overlay (rows from duel-game-core/render.js) ────────── */
+/* ── leaderboard overlay (rows from @research-ag/duel-game-core/render.js) ────────── */
 
 #leaderboard-panel,
 #bots-panel {

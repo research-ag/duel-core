@@ -86,7 +86,7 @@ token: make it once and keep the answer.
 
 The Candid confirms `View` and shows which optional features the game
 has: `get_leaderboard` (rankings), `list_bots` (challengeable canister
-players). You do not generate bindings from it; `duel-game-core/idl.js`
+players). You do not generate bindings from it; `@research-ag/duel-game-core/idl.js`
 already declares the engine's service, and your plugin supplies `View`
 and `Action`. Without it (a builder with no shell), assume both
 optional features may exist and let their calls fail quietly
@@ -109,11 +109,11 @@ backend.did     # step 3, when found
 
 The `frontend/` files come from this skill's templates exactly as for a
 new game: `package.json.template`, `build.js.template`, `index.html.template`, `app.js.template`,
-`style.css.template`. Get the `duel-game-core` npm package as `SKILL.md`
+`style.css.template`. Get the `@research-ag/duel-game-core` npm package as `SKILL.md`
 Step 1 describes (the frontend half only; there is no `mops.toml`).
 
 In a builder with its own project layout (caffeine.ai: React, Vite),
-keep its layout and add the `duel-game-core` npm package to it. Never
+keep its layout and add the `@research-ag/duel-game-core` npm package to it. Never
 rewrite the wire protocol yourself.
 
 **Backend id in the frontend.** Read `PUBLIC_CANISTER_ID:backend` from

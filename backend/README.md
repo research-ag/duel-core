@@ -43,7 +43,7 @@ diagrams; this page is the API.
   client polling with the `rev` it holds gets `#unchanged` until
   something changed. Nothing is stored per reader.
 
-Pair it with [`duel-game-core` for npm](../frontend/README.md).
+Pair it with [`@research-ag/duel-game-core` on npm](../frontend/README.md).
 
 ### Interface
 

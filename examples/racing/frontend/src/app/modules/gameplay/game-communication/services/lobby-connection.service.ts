@@ -56,7 +56,7 @@ export class LobbyConnectionService {
   // its View.youSubmitted, so startRace() can seed itself correctly.
   public raceStarted: Subject<{ resumedAtStep: number, youAlreadySubmitted: boolean }> = new Subject();
 
-  private transport: any; // shared DuelTransport — see duel-game-core/transport.js
+  private transport: any; // shared DuelTransport — see @research-ag/duel-game-core/transport.js
   private mySlot: number = -1;
   private wasInGame: boolean = false;
   private prevGame: RacingState | null = null;

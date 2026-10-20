@@ -1,16 +1,16 @@
 // Bootstrap for the chopsticks client: build the actor and push transport,
 // create duel-game-core's headless client, and mount chopsticks' own UI
-// over it (chopsticks-ui.js). Nothing from `duel-game-core/app.js` runs
+// over it (chopsticks-ui.js). Nothing from `@research-ag/duel-game-core/app.js` runs
 // here. Bundled by esbuild (../build.js).
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 import { Principal } from "@icp-sdk/core/principal";
-import { makeIdlFactory, buildBotPlayIdlFactory } from "duel-game-core/idl.js";
-import { createDuelClient } from "duel-game-core/client.js";
-import { connectTransport } from "duel-game-core/transport.js";
-import { resolveIdentity } from "duel-game-core/identity.js";
-import { deriveHost } from "duel-game-core/ic-env.js";
+import { makeIdlFactory, buildBotPlayIdlFactory } from "@research-ag/duel-game-core/idl.js";
+import { createDuelClient } from "@research-ag/duel-game-core/client.js";
+import { connectTransport } from "@research-ag/duel-game-core/transport.js";
+import { resolveIdentity } from "@research-ag/duel-game-core/identity.js";
+import { deriveHost } from "@research-ag/duel-game-core/ic-env.js";
 import { plugin } from "./chopsticks-plugin.js";
 import { mountChopsticksUi } from "./chopsticks-ui.js";
 

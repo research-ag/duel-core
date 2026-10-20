@@ -2,7 +2,7 @@
   "name": "duel-007-frontend",
   "private": true,
   "version": "0.1.0",
-  "description": "007 duel client — a GamePlugin for the duel-game-core npm package, bundled with esbuild (no framework).",
+  "description": "007 duel client — a GamePlugin for the @research-ag/duel-game-core npm package, bundled with esbuild (no framework).",
   "type": "module",
   "scripts": {
     "build": "node build.js",
@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@icp-sdk/core": "^6.1.0",
-    "duel-game-core": "file:../../../frontend"
+    "@research-ag/duel-game-core": "file:../../../frontend"
   },
   "devDependencies": {
     "esbuild": "^0.28.0"

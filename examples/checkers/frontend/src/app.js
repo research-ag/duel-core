@@ -5,12 +5,12 @@
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 import { Principal } from "@icp-sdk/core/principal";
-import { makeIdlFactory, buildBotPlayIdlFactory } from "duel-game-core/idl.js";
-import { start } from "duel-game-core/app.js";
-import { connectTransport } from "duel-game-core/transport.js";
-import { resolveIdentity } from "duel-game-core/identity.js";
-import { deriveHost } from "duel-game-core/ic-env.js";
-import { errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag } from "duel-game-core/render.js";
+import { makeIdlFactory, buildBotPlayIdlFactory } from "@research-ag/duel-game-core/idl.js";
+import { start } from "@research-ag/duel-game-core/app.js";
+import { connectTransport } from "@research-ag/duel-game-core/transport.js";
+import { resolveIdentity } from "@research-ag/duel-game-core/identity.js";
+import { deriveHost } from "@research-ag/duel-game-core/ic-env.js";
+import { errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag } from "@research-ag/duel-game-core/render.js";
 import { plugin } from "./checkers-plugin.js";
 
 const env = safeGetCanisterEnv();

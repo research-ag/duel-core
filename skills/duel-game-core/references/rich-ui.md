@@ -8,11 +8,11 @@ voice, `start({ screens })` (SKILL.md, Step 6) is enough.
 
 ## The split that makes this easy
 
-`duel-game-core/client.js` is everything the browser side does except
+`@research-ag/duel-game-core/client.js` is everything the browser side does except
 drawing: `createDuelClient({ transport, session })` owns the connection, the
 current `Status`, the one call in flight, error lifetime, the identity
 lock, and the stale-view resync, and hands subscribers an immutable
-`ClientState` after every change. `duel-game-core/app.js`'s `start()` is
+`ClientState` after every change. `@research-ag/duel-game-core/app.js`'s `start()` is
 one UI over it. Yours is another; nothing in `start()` is needed.
 
 ```js
@@ -20,7 +20,7 @@ import {
   createDuelClient,
   viewOf,
   localSecondsLeft,
-} from "duel-game-core/client.js";
+} from "@research-ag/duel-game-core/client.js";
 
 const client = createDuelClient({ transport, session });
 client.subscribe((state, prev) => {
@@ -63,7 +63,7 @@ The default shell draws a submitted move before the engine confirms it;
 a UI of your own does the same with one pure helper:
 
 ```js
-import { withLocalMove } from "duel-game-core/client.js";
+import { withLocalMove } from "@research-ag/duel-game-core/client.js";
 
 const shown = (state) =>
   withLocalMove(state.status, state.pending, plugin.applyLocal.bind(plugin));

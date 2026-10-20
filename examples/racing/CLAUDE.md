@@ -55,11 +55,12 @@ either package.
 moc **2.0.0** (`mops.toml`).
 Motoko dependencies: `duel-game-core` (path to `../../backend`), `core`;
 `promtracker` transitively. Never import `mo:base`.
-Frontend: `duel-game-core` (`file:../../../frontend`) and `@icp-sdk/core`
+Frontend: `@research-ag/duel-game-core` (`file:../../../frontend`) and `@icp-sdk/core`
 for `duel-app.js`; `@gg-web-engine/core`, `@gg-web-engine/three`,
 `point-in-polygon`, `rxjs`, `three` for the race. `build.js` runs
 esbuild twice (`main.ts` → `dist/main.js`, `src/duel/duel-app.js` →
-`dist/duel-app.js`). `install-links=true` copies `duel-game-core`; see
+`dist/duel-app.js`). `install-links=true` copies
+`@research-ag/duel-game-core`; see
 `../../CLAUDE.md` for the refresh procedure.
 
 ## Build & test

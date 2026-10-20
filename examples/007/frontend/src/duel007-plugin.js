@@ -1,7 +1,7 @@
 // GamePlugin for the 007 duel. Candid shapes mirror ../Duel007Rules.mo;
 // `legal()` is a cosmetic echo of that module's `validate`.
 
-import { actionAttr, esc } from "duel-game-core/render.js";
+import { actionAttr, esc } from "@research-ag/duel-game-core/render.js";
 
 const SHIELD_CAPACITY = 3n;
 const START_MIRRORS = 3n;

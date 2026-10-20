@@ -38,7 +38,7 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
 - **`frontend/`** — React + TypeScript, esbuild. `idl.ts` is a
   hand-written `IDL.InterfaceFactory` for `Main.mo` (verify against
   `moc --idl` when the service changes). `api.ts` builds the actor
-  (`ic-env.ts` is a local copy of `duel-game-core/ic-env.ts`'s logic).
+  (`ic-env.ts` is a local copy of `@research-ag/duel-game-core/ic-env.ts`'s logic).
   `hooks/useAuth.ts` wraps `AuthClient` (login required for writes;
   browsing is anonymous). `hooks/useBanner.ts` fetches `getBanner` into
   a cached object URL (`invalidateBanner` after a banner edit).

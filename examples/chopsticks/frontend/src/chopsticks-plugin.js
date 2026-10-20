@@ -3,7 +3,7 @@
 // `canSplit`, `splitReason`) of ../src/ChopsticksRules.mo. Candid shapes
 // mirror that module too.
 
-import { actionAttr, esc } from "duel-game-core/render.js";
+import { actionAttr, esc } from "@research-ag/duel-game-core/render.js";
 
 export const SEAT_NAME = { p1: "Player 1", p2: "Player 2" };
 export const HAND_NAME = { l: "Left", r: "Right" };

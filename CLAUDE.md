@@ -1,7 +1,7 @@
 # duel-game-core — generic 2-player session engine + client
 
-Two rules-agnostic packages, both named `duel-game-core` (one per
-registry), for 2-player games on the Internet Computer. A game is either
+Two rules-agnostic packages, `duel-game-core` on mops and
+`@research-ag/duel-game-core` on npm, for 2-player games on the Internet Computer. A game is either
 `#simultaneous` (both seats act every round) or `#turnBased` (the rules
 say whose action comes next — one or several per turn), chosen by the
 `Mode` tag on its `Spec`. Neither package knows any particular game.
@@ -203,17 +203,17 @@ node --check dist/app.js dist/render.js dist/idl.js dist/ic-env.js dist/transpor
 
 `frontend/dist/` is gitignored and produced by `npm run build`. Each
 example's `frontend/.npmrc` sets `install-links=true`, so
-`duel-game-core` is COPIED into its `node_modules`, and npm treats a
+`@research-ag/duel-game-core` is COPIED into its `node_modules`, and npm treats a
 `file:` dependency as up to date whenever the version matches — a plain
 `npm install` after editing `frontend/` silently keeps stale code. The
-examples' `allowScripts` gate also blocks `duel-game-core`'s `prepare`
+examples' `allowScripts` gate also blocks the package's `prepare`
 script, so nothing rebuilds `dist/` for you. Do this every time,
 unprompted:
 
 ```bash
 cd frontend && npm run build && cd ..
 for ex in examples/*/frontend; do
-  target="$ex/node_modules/duel-game-core"
+  target="$ex/node_modules/@research-ag/duel-game-core"
   rsync -a --delete frontend/dist/ "$target/dist/"
   cp frontend/package.json frontend/style.css frontend/README.md "$target/"
   (cd "$ex" && npm run build)

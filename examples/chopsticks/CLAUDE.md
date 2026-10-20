@@ -48,8 +48,8 @@ depth`, live-hands heuristic — depth-limited because the position graph
 - **`icp.yaml`** — `backend`, `bot`, `frontend/dist`.
 - **`frontend/`** — the game's own UI, a plain-JS/CSS port of the
   Chopsticks web app's design (dark arcade look, Fraunces/GeneralSans/
-  JetBrainsMono in `src/assets/fonts/`), over `duel-game-core/client.js`
-  alone: nothing from `duel-game-core/app.js` or its stylesheet runs
+  JetBrainsMono in `src/assets/fonts/`), over `@research-ag/duel-game-core/client.js`
+  alone: nothing from `@research-ag/duel-game-core/app.js` or its stylesheet runs
   here. `chopsticks-plugin.js` is the `GamePlugin` (Candid types,
   `optionChoices()` Classic first, `formatOptions()`, `renderBoard`/
   `renderActions`, `applyLocal` mirroring `resolve`) plus what the UI shares with it: `renderHands`/

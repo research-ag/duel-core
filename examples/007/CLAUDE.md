@@ -36,7 +36,7 @@ LeaderboardActorMixin(leaderboard, 25)`); the transport and
 - **`icp.yaml`** — deploys `src/Host.mo` as `backend`, `bot/Bot.mo` as
   `bot`, and `frontend/dist` as a static-site canister.
 - **`frontend/`** — vanilla JS bundled with esbuild, and the framework's
-  CUSTOM-UI reference: nothing from `duel-game-core/app.js` runs here,
+  CUSTOM-UI reference: nothing from `@research-ag/duel-game-core/app.js` runs here,
   and the look is its own (light paper, typewriter headings, red stamp
   buttons, a sticky sidebar). `duel007-plugin.js` is the `GamePlugin`
   (board and action buttons; `applyLocal` returns the state unchanged);
@@ -70,7 +70,7 @@ yourSid })`. Bots are `app.js`'s too: the 🤖 toggle opens
 
 moc 2.0.0 (`mops.toml`). Dependencies: `duel-game-core` (path to
 `../../backend`), `core`; `promtracker` arrives transitively. Never import `mo:base`. The frontend depends on
-`duel-game-core` (`file:../../../frontend`, copied via `install-links`)
+`@research-ag/duel-game-core` (`file:../../../frontend`, copied via `install-links`)
 and `@icp-sdk/core`; see `../../CLAUDE.md`'s "After touching anything
 under `frontend/`" for the refresh procedure.
 

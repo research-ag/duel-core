@@ -5,7 +5,7 @@
 // (`applyLocal`, mirroring `resolve`). The opponent's last mark is
 // highlighted by diffing consecutive boards.
 
-import { actionAttr, esc } from "duel-game-core/render.js";
+import { actionAttr, esc } from "@research-ag/duel-game-core/render.js";
 
 const SEAT_NAME = { p1: "X", p2: "O" };
 const GLYPH = { p1: "✕", p2: "◯" };
