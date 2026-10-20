@@ -107,13 +107,18 @@ test("Err round-trips every variant shape", () => {
     { seatTaken: null },
     { notSeated: null },
     { alreadySubmitted: null },
+    { notYourTurn: null },
     { illegalMove: "not your turn" },
     { wrongPhase: "game is over" },
     { reserved: { secondsLeft: 9n } },
     { notIdle: { secondsLeft: 1n } },
     { notOverdue: { secondsLeft: 5n } },
     { stale: null },
+    { noSuchTable: null },
+    { badCode: null },
     { unauthorized: null },
+    { tooManyTables: { max: 3n } },
+    { badOptions: "winsNeeded out of range" },
   ]) {
     const bytes = IDL.encode([t.Err], [err]);
     const [decoded] = IDL.decode(

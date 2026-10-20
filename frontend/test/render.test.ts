@@ -78,6 +78,7 @@ test("errText: fixed-text variants", () => {
 test("errText: variants carrying their own message", () => {
   assert.equal(errText({ illegalMove: "not your turn" }), "not your turn");
   assert.equal(errText({ wrongPhase: "game is over" }), "game is over");
+  assert.equal(errText({ badOptions: "winsNeeded out of range" }), "winsNeeded out of range");
 });
 
 test("errText: variants carrying a countdown", () => {
