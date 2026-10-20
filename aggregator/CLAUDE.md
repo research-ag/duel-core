@@ -67,14 +67,15 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   caffeine.ai (chat builder, builds and hosts itself, paid plan) or an
   AI coding tool on their own computer (the page then goes online
   through hosty.live, in a canister paid by card, by the tool over
-  hosty's MCP server or by hand in its web UI; icp-cli appears only to
-  set the `PUBLIC_CANISTER_ID:backend` environment variable on the
-  hosted canister, with no cycles involved), ending in the register
-  flow. Its prompt step shows `frontendPrompt.ts`'s prompt, filled with
-  the game's title, URL and backend id, which adapts to what the
-  builder can run (local wasm copy with icp-cli, else the live backend
-  on code-protected tables; client package from npm, else its source
-  files from GitHub). `BotTutorialWizard.tsx` ("Build a bot") has only
+  hosty's MCP server or by hand in its web UI, its
+  `PUBLIC_CANISTER_ID:backend` canister variable set on the canister's
+  page or with the upload; no icp-cli), ending in the register flow. Its
+  prompt step shows `frontendPrompt.ts`'s prompt, filled with the
+  game's title, URL and backend id, which adapts to what the builder
+  can run (a staging copy of the game in a rented hosty.live canister,
+  else a local wasm copy with icp-cli, else the live backend on
+  code-protected tables; client package from npm, else its source files
+  from GitHub). `BotTutorialWizard.tsx` ("Build a bot") has only
   the coding-tool route, since the bot is tested against a local copy
   of the game: `botPrompt.ts`'s prompt, then going live through
   hosty.live or with icp-cli, each ending in the bot's own `register`

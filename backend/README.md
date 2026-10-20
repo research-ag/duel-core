@@ -718,8 +718,12 @@ snapshot is the whole heap.
 frontend package's `module-store.js` (Node: `module-store-node.js`)
 reads the certified `module_hash`, asks the store and rejects a missing
 module or any body whose SHA-256 is not the live hash; see `../frontend/README.md`,
-"Fetching a game's module". From a shell, `icp canister status -p`
-reads the certified hash:
+"Fetching a game's module". `GET
+https://api.hosty.live/modules/canister/<id>` (no token) answers `{
+found, liveModuleHash, module }`, `module` being the record above for
+the module the canister runs; that hash is hosty.live's reading, not
+one the caller verified. From a shell, `icp canister status -p` reads
+the certified hash:
 
 ```bash
 ID=<backend-id>

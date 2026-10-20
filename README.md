@@ -38,7 +38,7 @@ backend deploys from your computer with `icp-cli` on a few dollars of
 cycles bought by card, and the frontend is hosted by
 [hosty.live](https://hosty.live/) (a canister bought there by card for
 about a dollar), from its web UI or by your coding agent over its MCP
-server; icp-cli points the hosted page at its backend. The skill's
+server. The skill's
 [`references/going-live.md`](skills/duel-game-core/references/going-live.md)
 is the walkthrough.
 
@@ -48,8 +48,8 @@ Every game's backend serves its rules as plain text
 (`https://<backend-id>.raw.icp0.io/semantics`), carries its Candid as
 public metadata, and its exact module can be downloaded from
 hosty.live's module store by the canister's public `module_hash`, so a new
-frontend or a bot can be built and tested locally from the canister id
-alone. The "Make your own frontend" and "Build a bot" buttons in a
+frontend or a bot can be built and tested against a private copy of
+the game from the canister id alone. The "Make your own frontend" and "Build a bot" buttons in a
 game's info dialog on the aggregator hand you a prompt for an AI coding
 agent;
 [`references/frontend-for-existing-game.md`](skills/duel-game-core/references/frontend-for-existing-game.md)

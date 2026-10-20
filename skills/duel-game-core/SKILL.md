@@ -557,8 +557,8 @@ the user which route first, and keep the whole game on it:
   canister per backend, bot and page created in hosty.live's web UI.
   You install the backend's module (`icp build backend`) through the
   `hosty_*` tools after the user approves a deploy session, and upload
-  the zipped `dist` the same way; icp-cli runs once, with no cycles, to
-  point the page at the backend (`icp canister settings update`).
+  the zipped `dist` the same way, setting the page's
+  `PUBLIC_CANISTER_ID:backend` canister variable with that upload.
 - **With icp-cli** (route B): the user's own identity (`icp identity
 new`), cycles bought by card at cycle.express, and `icp deploy
 backend -e ic` / `icp deploy frontend -e ic`, with the hosty.live API

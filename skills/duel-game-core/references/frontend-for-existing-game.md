@@ -14,13 +14,15 @@ Everything you need comes from the backend canister id:
 | What                         | From                                                |
 | ---------------------------- | --------------------------------------------------- |
 | Rules, `View`, `Action`      | `GET /semantics` on the backend                     |
-| Service types (optional)     | the `candid:service` metadata section               |
-| The wasm, for a local copy   | hosty.live's module store, by its module hash       |
+| Service types (optional)     | hosty.live's module store, by the canister id       |
+| A copy of the game to test   | the same module, installed into a canister of yours |
 | Client library, UI contracts | this skill (`SKILL.md` Steps 1 and 6, `rich-ui.md`) |
 
-Fetching the Candid and running the local copy need `icp-cli`. Without
-it — in a browser-based builder — skip those steps as they say; the
-semantics text is sufficient to build from.
+All of it is plain HTTPS and hosty.live; nothing here needs `icp-cli`.
+icp-cli is one option, for a copy of the game on the user's own
+computer (step 5). In a browser-based builder, which runs no shell,
+skip the steps that say so; the semantics text is sufficient to build
+from.
 
 ## 1. Resolve the backend id
 
@@ -65,25 +67,79 @@ A 404 lists the paths the backend does serve; fetch any that
 itself is missing, the backend predates this procedure: stop and tell
 the user.
 
-## 3. Fetch the Candid (with icp-cli)
+## 3. Look up the module
+
+hosty.live's module store keeps every game's module under the
+canister's `module_hash`, and looks it up by canister id, with no
+account or token:
 
 ```bash
-icp canister metadata $BACKEND candid:service -n ic > backend.did
+curl -s https://api.hosty.live/modules/canister/$BACKEND
 ```
 
-It confirms `View` and shows which optional features the game has:
-`get_leaderboard` (rankings), `list_bots` (challengeable canister
+`found: true` comes with `module`: `module.hash` (the module the
+canister runs right now), `module.candid` (the service Candid; save it
+as `backend.did`) and `module.downloadUrl`. With the hosty.live MCP
+server connected, `hosty_get_module { canisterId: BACKEND }` answers the
+same. The lookup allows 20 calls per hour from one address without a
+token: make it once and keep the answer.
+
+The Candid confirms `View` and shows which optional features the game
+has: `get_leaderboard` (rankings), `list_bots` (challengeable canister
 players). You do not generate bindings from it; `duel-game-core/idl.js`
 already declares the engine's service, and your plugin supplies `View`
-and `Action`. Without icp-cli, assume both optional features may exist
-and let their calls fail quietly (`.catch(() => [])`).
+and `Action`. Without it (a builder with no shell), assume both
+optional features may exist and let their calls fail quietly
+(`.catch(() => [])`).
 
-## 4. Download the wasm (with icp-cli)
+`found: false` with a `liveModuleHash` means the module the backend
+runs is not in the store at the moment: build from the semantics alone,
+and skip any copy of the game (steps 5 and 7). With icp-cli, `icp
+canister metadata $BACKEND candid:service -n ic > backend.did` reads
+the Candid from the canister itself.
 
-The canister's `module_hash` is public and certified; icp-cli reads it
-from the state tree. hosty.live's module store keeps every game's
-module under that hash (the SHA-256 of the module exactly as installed,
-gzipped or not):
+## 4. Lay out the project
+
+```
+frontend/
+  package.json  .npmrc  build.js
+  src/  index.html  app.js  style.css  <game>-plugin.js
+backend.did     # step 3, when found
+```
+
+The `frontend/` files come from this skill's templates exactly as for a
+new game: `package.json.template`, `.npmrc.template`,
+`build.js.template`, `index.html.template`, `app.js.template`,
+`style.css.template`. Get the `duel-game-core` npm package as `SKILL.md`
+Step 1 describes (the frontend half only; there is no `mops.toml`).
+
+In a builder with its own project layout (caffeine.ai: React, Vite),
+keep its layout and bring in the client as source instead: every file
+under `frontend/src/` of the framework repo
+(`client.ts`, `transport.ts`, `idl.ts`, `types.ts`, `anon-identity.ts`,
+`identity.ts`, `render.ts`, `app.ts`, `ic-env.ts`) copied in unchanged;
+they depend only on `@icp-sdk/core` and `@icp-sdk/auth`. Never rewrite
+the wire protocol yourself.
+
+**Backend id in the frontend.** Read `PUBLIC_CANISTER_ID:backend` from
+the `ic_env` cookie when present (the live page once its canister
+carries that environment variable, `going-live.md`; a local copy's
+page, step 5) and fall back to a backend id hardcoded in one constant
+(a page served from `localhost`, a builder's own preview, caffeine.ai).
+The constant is `BACKEND`, or the staging copy's id while testing
+against one (step 7). Whenever the page talks to a backend on mainnet,
+build the `HttpAgent` with `host: "https://icp0.io"` and no `rootKey`:
+`deriveHost()` assumes the backend sits behind the page's own origin,
+which is false for a page served from `localhost` or a foreign host.
+
+## 5. A local copy (with icp-cli, optional)
+
+With icp-cli on the user's computer, the game can also run on a local
+network beside the frontend. Skip this step without it; step 7's
+staging copy does the same job on mainnet.
+
+Download the module and check it against the canister's certified
+`module_hash` (icp-cli reads it from the state tree):
 
 ```bash
 HASH=$(icp canister status $BACKEND -n ic -p --json | sed -n 's/.*"module_hash":"0x\([0-9a-f]*\)".*/\1/p')
@@ -92,34 +148,17 @@ curl -sf https://api.hosty.live/modules/$HASH -o backend.wasm &&
   echo "backend.wasm verified"
 ```
 
-Never pass `--compressed` to curl here: the store marks a gzipped
-module `Content-Encoding: gzip`, and the hash is of the gzipped bytes.
-The two hashes must be equal: that proves the file is the module the
-canister runs right now. Keep `backend.wasm` and
-the hash. Without icp-cli there is no local copy to run: skip this step
-and the `icp.yaml` half of step 5. (From Node, the client package's
-`module-store-node.js` does the same and keeps a gzipped module's bytes
-as stored: `fetchGameModule(BACKEND)`, see its README, "Fetching a
-game's module". `module-store.js` on its own downloads with `fetch`,
-which verifies only a module stored uncompressed.)
+Never pass `--compressed` to curl here: the hash is of the module
+exactly as installed, gzipped or not. The two hashes must be equal:
+that proves the file is the module the canister runs right now. (From
+Node, the client package's `module-store-node.js` does the same:
+`fetchGameModule(BACKEND)`, see its README, "Fetching a game's
+module".) An empty `HASH`, a 404 or a mismatch means the module is not
+available at the moment: stop and tell the user; do not fall back to
+the live canister on your own.
 
-An empty `HASH` (no module), a 404 from the store, or a hash mismatch
-means the module the backend runs is not available at the moment. Stop
-and tell the user; do not fall back to the live canister on your own.
-
-## 5. Lay out the project
-
-With icp-cli, the downloaded wasm becomes a `prebuilt` canister named
-`backend` beside your frontend:
-
-```
-icp.yaml
-backend.wasm
-backend.did
-frontend/
-  package.json  .npmrc  build.js
-  src/  index.html  app.js  style.css  <game>-plugin.js
-```
+The downloaded wasm becomes a `prebuilt` canister named `backend`
+beside your frontend, in an `icp.yaml` at the project root:
 
 ```yaml
 canisters:
@@ -128,7 +167,7 @@ canisters:
       type: "@dfinity/prebuilt@v2.1.0"
       configuration:
         path: backend.wasm
-        sha256: <the hash from step 4, without 0x>
+        sha256: <the hash, without 0x>
   - name: frontend
     recipe:
       type: "@dfinity/static-site@v0.4.0"
@@ -157,29 +196,6 @@ instead of creating a second backend on mainnet. The id lands in
 
 The canister must be named `backend`: the frontend then finds the local
 copy as `PUBLIC_CANISTER_ID:backend` in its own `ic_env` cookie.
-
-The `frontend/` files come from this skill's templates exactly as for a
-new game: `package.json.template`, `.npmrc.template`,
-`build.js.template`, `index.html.template`, `app.js.template`,
-`style.css.template`. Get the `duel-game-core` npm package as `SKILL.md`
-Step 1 describes (the frontend half only; there is no `mops.toml`).
-
-In a builder with its own project layout (caffeine.ai: React, Vite),
-keep its layout and bring in the client as source instead: every file
-under `frontend/src/` of the framework repo
-(`client.ts`, `transport.ts`, `idl.ts`, `types.ts`, `anon-identity.ts`,
-`identity.ts`, `render.ts`, `app.ts`, `ic-env.ts`) copied in unchanged;
-they depend only on `@icp-sdk/core` and `@icp-sdk/auth`. Never rewrite
-the wire protocol yourself.
-
-**Backend id in the frontend.** Read `PUBLIC_CANISTER_ID:backend` from
-the `ic_env` cookie when present (the local copy, or the live page once
-its canister carries that environment variable, `going-live.md`) and
-fall back to `BACKEND` hardcoded (a builder's own preview, caffeine.ai).
-Whenever the page talks to the live backend, build the `HttpAgent` with
-`host: "https://icp0.io"` and no `rootKey`: `deriveHost()` assumes the
-backend sits behind the page's own origin, which is false for a page
-served from `localhost` or a foreign host.
 
 ## 6. Write the client
 
@@ -216,7 +232,35 @@ input (the backend's rejection text should surface, not a crash). A
 status that never arrives or a decode error in the console is an
 `idlTypes` mismatch.
 
-**Against the local copy (with icp-cli):**
+**Against a staging copy (through hosty.live):** the game's own module
+in a rented hosty.live backend canister, free, private to the user and
+wiped after 24 hours. It needs the user's hosty.live account and its
+MCP server connected to your session (`going-live.md`, section 1), and
+step 3's `module.hash`:
+
+1. `hosty_rent_canister { kind: "backend" }`. Its canister id is
+   `STAGING`. A user holds one rental at a time.
+2. `hosty_check_backend_canister { canisterId: STAGING }`. Without
+   `ready: true`, open a deploy session as in `going-live.md`, section
+   2, "The backend", step 2.
+3. `hosty_install_module { canisterId: STAGING, moduleHash,
+confirmReinstall: true }`, then `hosty_wait_for_deployment` until
+   `finished: true`. The rented canister still holds hosty.live's page
+   module, so the install is a reinstall; a game backend takes no init
+   argument.
+4. `curl -s https://$STAGING.raw.icp0.io/semantics` answers step 2's
+   text.
+
+Set the hardcoded backend constant to `STAGING`, build, and serve
+`frontend/dist` from any local web server. Like a local copy, the
+staging copy starts empty: no bots are registered and the leaderboard
+is blank, so a bot list or a rankings panel can only be checked for its
+empty state. Set the constant back to `BACKEND` before the build that
+goes online. Without the MCP server, the user does the same in the web
+UI: rent a canister, then install into it with **Install from module
+store** and the hash.
+
+**Against the local copy (with icp-cli, step 5):**
 
 ```bash
 cd frontend && npm install --legacy-peer-deps && npm run build && cd ..
@@ -225,19 +269,18 @@ icp deploy
 ```
 
 `icp deploy` prints the frontend's local URL. The local copy starts
-empty: no bots are registered and the leaderboard is blank, so a bot
-list or a rankings panel can only be checked for its empty state. Never
-point a development build at the live backend.
+empty, as the staging copy does.
 
 ```bash
 icp network stop
 ```
 
-**Against the live backend (no icp-cli):** build the page and serve it
-from any local web server (or the builder's own preview). Every table
-you open is on the real game: always create tables with an access code,
-never open ones, and leave them when done, so real players are not
-drawn into your tests. Keep the testing short.
+**Against the live backend (neither of the above):** build the page and
+serve it from any local web server (or the builder's own preview).
+Every table you open is on the real game: always create tables with an
+access code, never open ones, and leave them when done, so real players
+are not drawn into your tests. Keep the testing short. Whenever a copy
+is available, never point a development build at the live backend.
 
 ## 8. Going live
 
@@ -245,20 +288,22 @@ There is no backend of the user's own to deploy: only the page goes
 online, by either route of `going-live.md`.
 
 - **Through hosty.live** (section 2, "The frontend", after section 1's
-  account): no cycles to handle; the user creates the canister on
-  hosty.live for about a dollar by card, and icp-cli is needed once, to
-  point that canister at the backend. Deploy through the `hosty_*`
-  tools when the user has connected hosty.live's MCP server to your
-  session and asks for it.
+  account): no cycles and no icp-cli. The user creates the canister on
+  hosty.live for about a dollar by card; the backend id goes in as the
+  canister variable `PUBLIC_CANISTER_ID:backend`, with the upload
+  (`canisterEnv` on `hosty_prepare_zip_upload`) or on the canister's
+  page. Deploy through the `hosty_*` tools when the user has connected
+  hosty.live's MCP server to your session and asks for it.
 - **With icp-cli** (section 3, the identity and the cycles): `icp
 deploy frontend -e ic`, 2T cycles, after step 5's `icp canister link
 backend $BACKEND -e ic`; the deploy sets the environment variable
   itself.
 
 Otherwise finish by telling the user the steps, and leave them in the
-project's `README.md` as well: for hosty.live, the environment
-variable, `cd frontend && npm run build && zip -r dist.zip dist -x
-"*.map"`, then the upload, through the web UI or an agent.
+project's `README.md` as well: for hosty.live, `cd frontend && npm run
+build && zip -r dist.zip dist -x "*.map"`, then on the canister's page
+the variable `PUBLIC_CANISTER_ID:backend` set to the backend id and the
+ZIP upload, or the same through an agent.
 
 In a builder with its own "go live" action (caffeine.ai), tell the
 user to trigger it instead, and how to read the live page's address

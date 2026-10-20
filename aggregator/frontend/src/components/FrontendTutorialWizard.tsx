@@ -188,10 +188,10 @@ function BuildStep() {
       </p>
       <p className="hint">
         While you test, the page talks to the real game; the prompt tells the AI
-        to use tables with an access code so other players don't wander in. (If
-        a coding tool finds <code>icp-cli</code> installed on your computer, it
-        runs a private copy of the game there instead and leaves the real one
-        alone.)
+        to use tables with an access code so other players don't wander in. (A
+        coding tool connected to hosty.live, see the next step, tests against a
+        private copy of the game in a free 24-hour canister instead and leaves
+        the real one alone.)
       </p>
     </>
   );
@@ -224,39 +224,19 @@ function GoLiveStep({ backend }: { backend: string }) {
               <strong>Canisters</strong> → <strong>Create New Canister</strong>,
               paid from the <strong>Cycles</strong> balance that you top up by
               card (about a dollar at the time of writing). The free rental
-              offered next to it does not work for this: hosty.live does not let
-              you change a rented canister's controllers, which the next step
-              needs.
+              offered next to it is wiped after 24 hours, so it is only good for
+              trying things out.
             </li>
             <li>
-              Tell the canister which game it plays. This is the one step that
-              needs <code>icp-cli</code>, the command-line program for the
-              Internet Computer (see the{" "}
-              <a
-                href="https://github.com/dfinity/icp-cli"
-                target="_blank"
-                rel="noreferrer"
-              >
-                icp-cli project
-              </a>{" "}
-              for your system; your AI tool can install it). Create your key
-              yourself, in a terminal, and copy the address it prints; the key
-              stays on your computer and the tool only ever needs the address:
-              <CodeBlock
-                code={
-                  "icp identity new my-frontend\nicp identity default my-frontend\nicp identity principal"
-                }
-              />
-              In hosty.live open the canister →{" "}
-              <strong>Transfer Canister Ownership</strong> →{" "}
-              <strong>Add Controller</strong>, paste that address. Then, with
-              your canister's id from its page (your tool can run this):
-              <CodeBlock
-                code={`icp canister settings update <canister-id> -n ic --add-environment-variable PUBLIC_CANISTER_ID:backend=${backend}`}
-              />
-              Afterwards remove that address from the controllers again on the
-              same page; it is only needed for this one command. Nothing to pay
-              here.
+              Tell the canister which game it plays: on its page, under{" "}
+              <strong>Canister environment variables</strong>, click{" "}
+              <strong>Add variable</strong> and enter
+              <CodeBlock code={`PUBLIC_CANISTER_ID:backend`} />
+              as the name and
+              <CodeBlock code={backend} />
+              as the value, then <strong>Save and publish</strong>. If your AI
+              tool puts the page online for you (next step), it can set this
+              itself with the upload.
             </li>
             <li>
               Let your AI tool publish for you: <strong>Settings</strong> →{" "}

@@ -17,7 +17,7 @@ a project on the same one.
 | Who signs        | the user's Internet Identity, in the hosty.live tab             | an icp-cli identity, a key on the user's computer                  |
 | Paid with        | the hosty.live balance, by card: 0.84 TC per canister           | cycles bought by card at cycle.express: 2T per canister            |
 | Backend, bot     | `hosty_*` tools (or the web UI), after one approval per session | `icp deploy backend -e ic`, `icp deploy bot -e ic`                 |
-| Frontend         | a ZIP upload, plus one icp-cli command naming the backend       | `icp deploy frontend -e ic`                                        |
+| Frontend         | a ZIP upload, with the backend id as a canister variable        | `icp deploy frontend -e ic`                                        |
 | The module store | hosty.live stores every module it installs                      | `publish_wasm.sh` uploads it, with a hosty.live API token          |
 | Suits            | a user new to the Internet Computer, an AI agent at the wheel   | a user who already has an identity and cycles, or scripted deploys |
 
@@ -84,8 +84,7 @@ by card. An install needs at least 0.5T cycles on the canister itself,
 topped up from the canister's page.
 
 hosty.live's rented canisters (24 hours) are for staging only: a rented
-backend is wiped when the rent ends, and a rented frontend cannot get
-the controller change below.
+canister is wiped when the rent ends.
 
 ### The backend (and a bot)
 
@@ -141,46 +140,23 @@ Every later version is steps 1 to 5 again; the canister id stays.
 ### The frontend
 
 The page finds its backend in the `ic_env` cookie its canister sets,
-built from the canister's `PUBLIC_*` environment variables. On a
-hosty.live canister that one variable is set with icp-cli, once per
-canister, by an icp-cli identity (`icp identity new`; no cycles are
-involved). The user does the browser half, you run the command:
+built from the canister's `PUBLIC_*` environment variables; the Duel
+dashboard (section 4) reads the same cookie to find the backend a
+listed page plays. On the frontend canister that variable is
+`PUBLIC_CANISTER_ID:backend`, with the backend's canister id as its
+value (the colon is part of the name), and hosty.live sets it: with the
+first upload through the agent, or on the canister's page by hand. It
+stays through every later upload and reset.
 
-1. The user, in hosty.live: open the frontend canister → **Transfer
-   Canister Ownership** → **Add Controller**, pasting the principal
-   that `icp identity principal` prints. Every other controller stays.
-2. You, from any directory:
-
-   ```bash
-   icp canister settings update <frontend-id> -n ic \
-     --add-environment-variable PUBLIC_CANISTER_ID:backend=<backend-id>
-   ```
-
-   A "not a controller" error means step 1 has not happened yet.
-
-3. The user, back on the same page: remove that principal from the
-   controllers again (the X next to it), leaving hosty.live and their
-   Internet Identity in charge of the page. Steps 1 to 3 are needed
-   again only for another `settings update`, such as a change of
-   backend.
-
-The asset canister refreshes the cookie at the next upload, so do this
-before the first upload into that canister; a variable set afterwards
-takes effect with the next upload. Check on the live page:
-
-```bash
-curl -sI https://<frontend-id>.icp0.io/ | grep -o 'ID%3Abackend%3D[a-z0-9%D-]*cai'
-```
-
-The Duel dashboard (section 4) reads the same cookie to find the
-backend a listed page plays. Then build and pack, from `frontend/`:
+Build and pack, from `frontend/`:
 
 ```bash
 npm run build && zip -r dist.zip dist -x "*.map"
 ```
 
 `dist/` is what goes online: `index.html`, `app.js`, the two
-stylesheets, and whatever else `build.js` copies. There is nothing to
+stylesheets, and whatever else `build.js` copies, a `_headers` file
+included (hosty.live applies it as icp-cli does). There is nothing to
 deploy from git: `duel-game-core` is a `file:` dependency the
 hosty.live build server cannot resolve, so the build always happens on
 the user's computer.
@@ -189,26 +165,48 @@ the user's computer.
 
 1. `hosty_check_canister { canisterId }` until it answers `ready:
 true`. A created canister needs **Grant agent deploy access** clicked
-   once in **Settings**.
-2. `hosty_prepare_zip_upload { canisterId, pureAssets: true, outputDir:
-"dist" }` returns a `curl` command with a 15-minute upload token.
-   Run it from `frontend/`. Its JSON answer carries the deployment
-   `id`.
-3. `hosty_wait_for_deployment { deploymentId }` until `finished: true`,
+   once in **Settings**. Its `environment` shows what the page
+   publishes now; an `environment.module` of `LEGACY_ASSETS` means the
+   canister can publish no cookie at all, and the user first clicks
+   **Reset canister** on its page.
+2. Unless `environment` already shows `PUBLIC_CANISTER_ID:backend` with
+   this backend's id, setting it signs as the user: open a deploy
+   session as for the backend (`hosty_request_deploy_session`, relay
+   its `userAction`, poll until `ACTIVE`).
+3. `hosty_prepare_zip_upload { canisterId, pureAssets: true, outputDir:
+"dist", canisterEnv: { set: { "PUBLIC_CANISTER_ID:backend":
+"<backend-id>" } } }` returns a `curl` command with a 15-minute upload
+   token. hosty.live sets the variable right before the upload, which
+   publishes it. Run the command from `frontend/`. Its JSON answer
+   carries the deployment `id`.
+4. `hosty_wait_for_deployment { deploymentId }` until `finished: true`,
    again if it is not. On `SUCCESS` the answer carries `frontendUrl`;
-   on `FAILED`, `statusReason` and `logsTail` say why.
-4. Open `frontendUrl` and play a round from two tabs against the live
-   backend. Gateways cache for up to a minute after a deploy.
+   on `FAILED`, `statusReason` and `logsTail` say why (a malformed
+   `_headers` names its line).
+5. Check the cookie, then open `frontendUrl` and play a round from two
+   tabs against the live backend. Gateways cache for up to a minute
+   after a deploy.
 
-**In the web UI:** open the canister → **Deploy** → **ZIP Upload**,
-pick `dist.zip`, switch on the already-built option (no build on the
-server), output directory `dist`, deploy. The **Deployments** page
-follows the upload; the canister's page shows the URL.
+   ```bash
+   curl -sI https://<frontend-id>.icp0.io/ | grep -o 'ID%3Abackend%3D[a-z0-9%D-]*cai'
+   ```
+
+A later switch to another backend is `hosty_set_canister_env {
+canisterId, set: { "PUBLIC_CANISTER_ID:backend": "<backend-id>" } }` in
+a deploy session; it publishes at once, with no upload.
+
+**In the web UI:** open the canister → **Canister environment
+variables** → **Add variable**, name `PUBLIC_CANISTER_ID:backend`,
+value the backend id → **Save and publish** (signed with the user's
+Internet Identity, no deploy session). Then **Deploy** → **ZIP
+Upload**, pick `dist.zip`, switch on the already-built option (no
+build on the server), output directory `dist`, deploy. The
+**Deployments** page follows the upload; the canister's page shows the
+URL.
 
 Every later version is another build and upload into the same canister;
-the environment variable stays. The user keeps full control of the
-canister and can attach a custom domain or make it immutable from the
-web UI.
+the variable stays. The user keeps full control of the canister and can
+attach a custom domain or make it immutable from the web UI.
 
 ## 3. Route B: everything with icp-cli
 
