@@ -130,7 +130,7 @@ function inGame(v, plugin) {
   const role = claimRoleOf(v);
   return `
     <div class="strip">
-      <span class="tw">Round ${v.turn + 1n}</span>
+      <span class="tw">Round ${v.step + 1n}</span>
       <span class="${v.oppSubmitted ? "ok" : "faint"}">${v.oppSubmitted ? `${esc(opp)} has committed` : `${esc(opp)} is deciding…`}</span>
       <button class="plain small" data-op="forfeit">Forfeit</button>
     </div>
@@ -171,7 +171,7 @@ function debrief(v, plugin) {
   return `
     <div class="strip">
       <span class="tw">Debrief</span>
-      <span class="faint">${v.turns} round${v.turns === 1n ? "" : "s"}</span>
+      <span class="faint">${v.steps} round${v.steps === 1n ? "" : "s"}</span>
     </div>
     <div class="stamp-box ${outcome}"><span>${title}</span></div>
     <p class="center">${note}</p>
@@ -319,7 +319,7 @@ export function mountMissionUi({ client, plugin, els, onAddBot }) {
         if ("code" in visibility && visibility.code === "") return client.showError("Set an access code, or use an open channel.");
         const seat = createSeat();
         b.dataset.key = `create:${seat}`;
-        return void client.createTable(seat, visibility, "");
+        return void client.createTable(seat, visibility, {});
       }
       case "join": {
         let code = null;
@@ -409,7 +409,7 @@ export function mountMissionUi({ client, plugin, els, onAddBot }) {
     const live = viewOf(state.status, "inGame");
     const done = viewOf(state.status, "debrief");
     const game = live ? live.game : done ? done.finalGame : null;
-    const round = live ? live.turn : done ? done.turns : null;
+    const round = live ? live.step : done ? done.steps : null;
     const last = game && game.lastRound.length === 1 ? game.lastRound[0] : null;
     if (last && !logLines.some((l) => l.round === round)) {
       logLines.push({ round, text: last.narration });
