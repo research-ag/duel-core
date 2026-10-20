@@ -1,10 +1,12 @@
 // rng.mo: `below` stays in range, is exactly uniform over 2^64 (every
-// residue has the same number of preimages), and `shuffle` is a permutation.
+// residue has the same number of preimages), and `shuffle` is a uniform
+// permutation.
 import Debug "mo:core/Debug";
 import Runtime "mo:core/Runtime";
 import Array "mo:core/Array";
 import Nat "mo:core/Nat";
 import Nat64 "mo:core/Nat64";
+import VarArray "mo:core/VarArray";
 import Rng "../src/rng";
 
 let rng = Rng.new(7);
@@ -50,5 +52,23 @@ assert ys.size() == 40;
 let sorted = ys.sort<Nat>(func(a, b) = if (a < b) #less else if (a > b) #greater else #equal);
 assert sorted == xs;
 Debug.print("3. shuffle OK");
+
+// 4. shuffle is uniform: 6000 shuffles of [0, 1, 2] hit each of the six
+// permutations about 1000 times (one standard deviation is ~29; the seed
+// is fixed, so this is deterministic, and +-150 is over 5 of them).
+do {
+  let counts = [var 0, 0, 0, 0, 0, 0];
+  var k = 0;
+  while (k < 6000) {
+    let p = rng.shuffle([0, 1, 2]);
+    let code = p[0] * 2 + (if (p[1] < p[2]) 0 else 1); // first element, then the order of the rest
+    counts[code] += 1;
+    k += 1;
+  };
+  for (c in counts.vals()) {
+    if (c < 850 or c > 1150) Runtime.trap("4: a permutation was hit " # debug_show c # " times in 6000");
+  };
+  Debug.print("4. shuffle uniform: " # debug_show counts.toArray());
+};
 
 Debug.print("ALL RNG CHECKS PASSED");
