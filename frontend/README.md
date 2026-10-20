@@ -1,7 +1,7 @@
 # duel-game-core
 
 Rules-agnostic browser client for any canister built on the
-[`duel-game-core`](../backend/README.md) Motoko engine, in three layers a
+[`duel-game-core`](https://github.com/research-ag/duel-core/blob/main/backend/README.md) Motoko engine, in three layers a
 game takes as much or as little of as it wants:
 
 - **`client.js`, the headless client.** `createDuelClient({ transport, session })`
@@ -27,17 +27,15 @@ Candid types, seat labels, and how to draw the board and action buttons.
 
 TypeScript, published pre-compiled: `npm run build` produces `dist/`,
 which every import (`duel-game-core/app.js`, ...) resolves to. Consumers
-need no build step. Dependency-free except for three documented files:
+need no build step. Dependency-free except for four documented files:
 `transport.js` (`@icp-sdk/core/candid`), `identity.js`
-(`@icp-sdk/auth`, `@icp-sdk/core/identity`), and `anon-identity.js`
-(`@icp-sdk/core/identity` only).
+(`@icp-sdk/auth`, `@icp-sdk/core/identity`), `anon-identity.js`
+(`@icp-sdk/core/identity` only), and `module-store.js`
+(`@icp-sdk/core/agent`, `@icp-sdk/core/principal`).
 
 ```
-npm install duel-game-core --legacy-peer-deps
+npm install duel-game-core
 ```
-
-`--legacy-peer-deps` is needed because `@icp-sdk/auth` declares a peer
-range on `@icp-sdk/core@^5`, one major behind the `^6.1.0` in use.
 
 ## The GamePlugin contract
 
@@ -335,7 +333,7 @@ era; the old names are gone, so a game written against them must be
 renamed.)
 
 `connectTransport()` builds a `DuelTransport` (`transport.js`) that
-speaks `mo:duel-game-core/transport`'s methods; [`../DESIGN.md`](../DESIGN.md)
+speaks `mo:duel-game-core/transport`'s methods; [`DESIGN.md`](https://github.com/research-ag/duel-core/blob/main/DESIGN.md)
 has the flows as diagrams. The caller's principal is the player; the
 `sid` the client passes around is only this tab's label for it.
 
@@ -435,6 +433,9 @@ of opening a second one. `transport.send(msg)` is fire-and-forget;
   `sessionStorage` (survives a reload of this tab; a second tab is a
   second player), `sid = "an:" + principal`. Import only
   `anon-identity.js` for a login-free game without `@icp-sdk/auth`.
+- Takes an optional `identityProvider: { authorizeUrl, canisterId }`
+  (both or neither; omitted means mainnet Internet Identity), e.g. for a
+  local Internet Identity.
 - Returns `login()`/`logout()` (each reloads the page) and `regenerate()`
   (anonymous only; discards the keypair and reloads). Identity changes
   always take effect by reload — nothing rebuilds actor/transport in place.
@@ -591,5 +592,5 @@ module hash and keep the module when it matches.
 | `transport.js`     | `connectTransport({ actor, gameIdlTypes, intervalMs?, keepAliveMs?, pollTimeoutMs? })`, `DuelTransport` — lobby/table queries, serialized requests, keep-alive, relink policy                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `style.css`        | generic layout primitives                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
-See [`../backend/README.md`](../backend/README.md) for the `Spec`
+See [`backend/README.md`](https://github.com/research-ag/duel-core/blob/main/backend/README.md) for the `Spec`
 contract.

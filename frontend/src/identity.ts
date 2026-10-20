@@ -18,8 +18,8 @@ export function sidForPrincipal(principalText: string): string {
 }
 
 export interface ResolveIdentityOptions {
-  /// Overrides `@icp-sdk/auth`'s default identity provider.
-  identityProvider?: string | URL;
+  /// Overrides `@icp-sdk/auth`'s default (mainnet) identity provider.
+  identityProvider?: { authorizeUrl: string | URL; canisterId: Principal | string };
 }
 
 export interface ResolvedIdentity {
@@ -32,7 +32,7 @@ export interface ResolvedIdentity {
   isLoggedIn: boolean;
   /// Opens the login flow, then reloads (nothing rebuilds actor/transport in
   /// place). Rejects without reloading if the flow fails.
-  login(opts?: { maxTimeToLive?: bigint; targets?: Principal[] }): Promise<void>;
+  login(opts?: { maxTimeToLive?: bigint; maxTimeToIdle?: bigint }): Promise<void>;
   /// Signs out, then reloads.
   logout(opts?: { returnTo?: string }): Promise<void>;
   /// Discards the anonymous keypair, then reloads. No-op when logged in.

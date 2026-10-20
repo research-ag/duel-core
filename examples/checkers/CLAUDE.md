@@ -74,7 +74,7 @@ moc --check $(mops sources) src/Host.mo
 mops test                  # all three; `mops test Bot` for the bot
 
 (cd ../../frontend && npm run build)
-cd frontend && npm install --legacy-peer-deps && npm run build && node --check dist/app.js && cd ..
+cd frontend && npm install && npm run build && node --check dist/app.js && cd ..
 
 icp deploy
 icp deploy --network ic

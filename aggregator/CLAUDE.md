@@ -111,8 +111,8 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
 
 moc 2.0.0; `core` only, no `mo:base`. Frontend dependencies:
 `@icp-sdk/core`, `@icp-sdk/auth`, `react`/`react-dom`, `react-easy-crop`;
-`npm install --legacy-peer-deps` (same `@icp-sdk/auth` peer skew as
-`../frontend`); `allowScripts` permits esbuild's postinstall.
+`npm install --legacy-peer-deps` (`@icp-sdk/auth` 8 declares a peer
+range on `@icp-sdk/core@^5`); `allowScripts` permits esbuild's postinstall.
 
 ## Build & test
 

@@ -28,7 +28,7 @@ npm run typecheck    # tsc --noEmit — esbuild doesn't type-check
 `node_modules` ships. `icp deploy` runs `npm run build` itself.
 
 `--legacy-peer-deps` works around `@gg-web-engine/three` pinning
-`rxjs@7.8.1` and `@icp-sdk/auth`'s peer range on `@icp-sdk/core@^5`.
+`rxjs@7.8.1`.
 
 ## What lives where
 

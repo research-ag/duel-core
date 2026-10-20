@@ -102,20 +102,18 @@ the Candid from the canister itself.
 
 ```
 frontend/
-  package.json  .npmrc  build.js
+  package.json  build.js
   src/  index.html  app.js  style.css  <game>-plugin.js
 backend.did     # step 3, when found
 ```
 
 The `frontend/` files come from this skill's templates exactly as for a
-new game: `package.json.template`, `.npmrc.template`,
-`build.js.template`, `index.html.template`, `app.js.template`,
+new game: `package.json.template`, `build.js.template`, `index.html.template`, `app.js.template`,
 `style.css.template`. Get the `duel-game-core` npm package as `SKILL.md`
 Step 1 describes (the frontend half only; there is no `mops.toml`).
 
 In a builder with its own project layout (caffeine.ai: React, Vite),
-keep its layout and add the `duel-game-core` npm package to it, with
-`legacy-peer-deps=true` in its `.npmrc` as the template sets. Never
+keep its layout and add the `duel-game-core` npm package to it. Never
 rewrite the wire protocol yourself.
 
 **Backend id in the frontend.** Read `PUBLIC_CANISTER_ID:backend` from
@@ -260,7 +258,7 @@ store** and the hash.
 **Against the local copy (with icp-cli, step 5):**
 
 ```bash
-cd frontend && npm install --legacy-peer-deps && npm run build && cd ..
+cd frontend && npm install && npm run build && cd ..
 icp network start -d
 icp deploy
 ```

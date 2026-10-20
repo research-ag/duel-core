@@ -33,7 +33,7 @@ board }`); `move` = `validate` then `resolve`; `View = State`, `Options
 ## Toolchain / Build & test
 
 Same as `examples/checkers` (moc 2.0.0; `mops test`; build
-`../../frontend` first; `npm install --legacy-peer-deps && npm run build`
+`../../frontend` first; `npm install && npm run build`
 in `frontend/`; `icp deploy`). Play both seats in two tabs.
 
 ## Architecture rules

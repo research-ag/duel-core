@@ -108,7 +108,7 @@ jobs:
           node-version: latest
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Run tests
         run: npm test

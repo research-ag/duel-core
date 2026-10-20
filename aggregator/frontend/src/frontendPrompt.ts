@@ -23,7 +23,7 @@ Work in this order.
 
 2. Read how a frontend talks to the backend: ${RAW}/frontend/README.md (the GamePlugin contract, the headless client, the transport) and the step "Write the frontend GamePlugin" in ${RAW}/skills/duel-game-core/SKILL.md. The full procedure for exactly this task is ${RAW}/skills/duel-game-core/references/frontend-for-existing-game.md — read it and follow it.
 
-3. Get the client library: the npm package duel-game-core, installed with legacy-peer-deps=true in the project's .npmrc (its @icp-sdk/auth declares a peer range one major behind the @icp-sdk/core it runs with). Never rewrite the wire protocol yourself.
+3. Get the client library: the npm package duel-game-core. Never rewrite the wire protocol yourself.
 
 4. Wire the backend id into the frontend: use PUBLIC_CANISTER_ID:backend from the ic_env cookie when present, otherwise a backend id hardcoded in one constant (${backend}, or a staging copy's id while testing). When the page talks to a backend on mainnet, the agent host is https://icp0.io whatever the page's own address is.
 

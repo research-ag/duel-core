@@ -154,7 +154,7 @@ function DeployStep() {
       <p>Once your skeleton is filled in, build and test locally first:</p>
       <CodeBlock
         code={
-          "mops install\nmops test\n\ncd frontend && npm install --legacy-peer-deps && npm run build && cd .."
+          "mops install\nmops test\n\ncd frontend && npm install && npm run build && cd .."
         }
       />
       <p>

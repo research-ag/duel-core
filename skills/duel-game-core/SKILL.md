@@ -33,8 +33,7 @@ A finished game is six pieces of game-specific code:
 5. `frontend/src/index.html` + `app.js` + `style.css` — copy the
    templates.
 6. `icp.yaml`, `publish_wasm.sh`, `mops.toml`, `frontend/package.json`,
-   `frontend/.npmrc`, `frontend/build.js` — copy the templates, fill in
-   names.
+   `frontend/build.js` — copy the templates, fill in names.
 
 Every template lives in `templates/`; read each one right before adapting
 it. `references/` covers seven situations the templates don't:
@@ -78,10 +77,6 @@ run `mops add promtracker`. (`prng`, which the framework's `rng` is
 built on, arrives transitively.)
 
 Frontend: `cd frontend && npm install duel-game-core --save-exact`.
-Copy `templates/.npmrc.template` to `frontend/.npmrc` first: its
-`legacy-peer-deps=true` is needed by every install of the package
-(`@icp-sdk/auth` declares a peer range one major behind the
-`@icp-sdk/core` it runs with), a build server's `npm ci` included.
 
 The installed package ships both READMEs:
 `.mops/duel-game-core@<version>/README.md` (or
@@ -495,14 +490,13 @@ the player most wants to see. If the UI genuinely doesn't fit that
 | -------------------------- | ----------------------- | --------------------------------------- |
 | `mops.toml.template`       | `mops.toml`             | `__GAME_SLUG__`                         |
 | `package.json.template`    | `frontend/package.json` | `__GAME_SLUG__`                         |
-| `.npmrc.template`          | `frontend/.npmrc`       | —                                       |
 | `build.js.template`        | `frontend/build.js`     | `__PLUGIN_FILE__` (header comment only) |
 | `icp.yaml.template`        | `icp.yaml`              | — (unless renaming canisters)           |
 | `publish_wasm.sh.template` | `publish_wasm.sh`       | — (next to `icp.yaml`)                  |
 
 ```bash
 mops install && mops test
-cd frontend && npm install --legacy-peer-deps && npm run build && cd ..
+cd frontend && npm install && npm run build && cd ..
 node --check frontend/dist/app.js
 icp network start -d       # once; a private copy of the Internet Computer
 icp deploy                 # both canisters, locally; prints the frontend's URL

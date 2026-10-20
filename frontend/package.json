@@ -2,6 +2,27 @@
   "name": "duel-game-core",
   "version": "0.3.0",
   "description": "Rules-agnostic client for a duel-game-core game: session identity, polling transport, a headless client, and default lobby/staging/rematch/debrief screens any of which a game can replace.",
+  "keywords": [
+    "internet-computer",
+    "icp",
+    "dfinity",
+    "motoko",
+    "canister",
+    "game",
+    "multiplayer",
+    "two-player",
+    "turn-based"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/research-ag/duel-core.git",
+    "directory": "frontend"
+  },
+  "homepage": "https://github.com/research-ag/duel-core/tree/main/frontend#readme",
+  "bugs": {
+    "url": "https://github.com/research-ag/duel-core/issues"
+  },
   "type": "module",
   "main": "./dist/app.js",
   "types": "./dist/app.d.ts",
@@ -54,8 +75,10 @@
   },
   "files": [
     "dist",
+    "src",
     "style.css",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "sideEffects": [
     "*.css"
@@ -67,11 +90,12 @@
     "build": "tsc -p tsconfig.json",
     "prepare": "npm run build",
     "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/**/*.test.js\"",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm test"
   },
   "dependencies": {
-    "@icp-sdk/auth": "^8.0.3",
-    "@icp-sdk/core": "^6.1.0"
+    "@icp-sdk/auth": "^11.0.0",
+    "@icp-sdk/core": "^6.1.1"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",

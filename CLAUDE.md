@@ -195,13 +195,9 @@ mops bench
 ```
 
 ```bash
-cd frontend && npm install --legacy-peer-deps && npm run build && npm test
+cd frontend && npm install && npm run build && npm test
 node --check dist/app.js dist/render.js dist/idl.js dist/ic-env.js dist/transport.js dist/identity.js dist/anon-identity.js
 ```
-
-`--legacy-peer-deps` is needed everywhere `duel-game-core` is installed:
-`@icp-sdk/auth` declares a peer range on `@icp-sdk/core@^5`, one major
-behind the `^6.1.0` actually used.
 
 ### After touching anything under `frontend/`: refresh every example
 
@@ -226,7 +222,8 @@ done
 
 If `frontend/package.json`'s `dependencies` changed, the copy is not
 enough — wipe and reinstall each example (`rm -rf node_modules
-package-lock.json && npm install --legacy-peer-deps`); a stale lockfile
+package-lock.json && npm install`; `racing` still needs
+`--legacy-peer-deps` for its own `rxjs` pin); a stale lockfile
 entry otherwise makes npm skip the new sub-dependencies. Verify with
 `ls node_modules/<new package>`.
 

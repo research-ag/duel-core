@@ -85,7 +85,7 @@ moc --check $(mops sources) bot/Bot.mo
 mops test                  # all four; `mops test Rules` matches Rules and RulesUnit
 
 (cd ../../frontend && npm run build)
-cd frontend && npm install --legacy-peer-deps && npm run build && node --check dist/app.js && cd ..
+cd frontend && npm install && npm run build && node --check dist/app.js && cd ..
 
 icp deploy                 # local; `icp network start` must be running
 icp deploy --network ic    # mainnet — spends cycles

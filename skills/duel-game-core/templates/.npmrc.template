@@ -1,5 +1,0 @@
-# @icp-sdk/auth, a dependency of duel-game-core, declares a peer range on
-# @icp-sdk/core one major behind the version both actually run with;
-# without this, every install (a build server's npm ci included) fails
-# to resolve.
-legacy-peer-deps=true

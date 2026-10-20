@@ -86,9 +86,8 @@ depth`, live-hands heuristic — depth-limited because the position graph
 ## Toolchain / Build & test
 
 Same as `examples/tic-tac-toe` (moc 2.0.0; `mops test`; build
-`../../frontend` first, then `npm install --legacy-peer-deps && npm run
-build` in `frontend/`; `icp deploy`; then
-`icp canister call bot register ...`). `build.js` also copies
+`../../frontend` first, then `npm install && npm run build` in
+`frontend/`; `icp deploy`; then `icp canister call bot register ...`). `build.js` also copies
 `src/assets/` (the fonts) into `dist/`. Play a bot from "Play vs AI",
 and both seats of a friend table in two tabs, trying both variants.
 
