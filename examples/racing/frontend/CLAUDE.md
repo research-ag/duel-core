@@ -18,7 +18,7 @@ Plain TypeScript, no framework, one track and one car:
   and after a race. `duel-app.js` also wires, by hand and off the shared
   `transport`/`session`/`actor`, the `#leaderboard-toggle`/`#leaderboard-panel`
   and `#bot-challenge-toggle`/`#bot-challenge-panel` overlays (both
-  styled by the shared `duel-game-core/style.css`, hidden during a race
+  styled by the shared `@research-ag/duel-game-core/style.css`, hidden during a race
   via `body.in-race`). The only per-challenge actor is the chosen bot's
   own `play`, built from `buildBotPlayIdlFactory`.
 - `duel-app.js` uses `resolveIdentity()` — never the anonymous default

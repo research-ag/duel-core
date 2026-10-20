@@ -1,4 +1,4 @@
-# duel-game-core
+# @research-ag/duel-game-core
 
 Rules-agnostic browser client for any canister built on the
 [`duel-game-core`](https://github.com/research-ag/duel-core/blob/main/backend/README.md) Motoko engine, in three layers a
@@ -26,7 +26,7 @@ In every layer a game supplies the same small **GamePlugin**: three
 Candid types, seat labels, and how to draw the board and action buttons.
 
 TypeScript, published pre-compiled: `npm run build` produces `dist/`,
-which every import (`duel-game-core/app.js`, ...) resolves to. Consumers
+which every import (`@research-ag/duel-game-core/app.js`, ...) resolves to. Consumers
 need no build step. Dependency-free except for four documented files:
 `transport.js` (`@icp-sdk/core/candid`), `identity.js`
 (`@icp-sdk/auth`, `@icp-sdk/core/identity`), `anon-identity.js`
@@ -34,7 +34,7 @@ need no build step. Dependency-free except for four documented files:
 (`@icp-sdk/core/agent`, `@icp-sdk/core/principal`).
 
 ```
-npm install duel-game-core
+npm install @research-ag/duel-game-core
 ```
 
 ## The GamePlugin contract
@@ -154,10 +154,10 @@ polling mode):
 
 ```js
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
-import { makeIdlFactory } from "duel-game-core/idl.js";
-import { start } from "duel-game-core/app.js";
-import { connectTransport } from "duel-game-core/transport.js";
-import { resolveIdentity } from "duel-game-core/identity.js"; // or anon-identity.js
+import { makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
+import { start } from "@research-ag/duel-game-core/app.js";
+import { connectTransport } from "@research-ag/duel-game-core/transport.js";
+import { resolveIdentity } from "@research-ag/duel-game-core/identity.js"; // or anon-identity.js
 import { plugin } from "./my-game-plugin.js";
 
 const session = await resolveIdentity();
@@ -185,7 +185,10 @@ Element ids `start()` uses (all overridable, `start({ ..., sidElId })`):
 <button id="duel-auth-btn"></button>
 <p id="error" hidden></p>
 <main id="screen"></main>
-<link rel="stylesheet" href="node_modules/duel-game-core/style.css" />
+<link
+  rel="stylesheet"
+  href="node_modules/@research-ag/duel-game-core/style.css"
+/>
 ```
 
 - `sid` — the session id (per tab; a second tab is a second player).
@@ -208,7 +211,7 @@ Element ids `start()` uses (all overridable, `start({ ..., sidElId })`):
 over `defaultScreens`:
 
 ```js
-import { debriefVerdict } from "duel-game-core/render.js";
+import { debriefVerdict } from "@research-ag/duel-game-core/render.js";
 
 start({
   plugin,
@@ -258,7 +261,7 @@ import {
   createDuelClient,
   localSecondsLeft,
   viewOf,
-} from "duel-game-core/client.js";
+} from "@research-ag/duel-game-core/client.js";
 
 const client = createDuelClient({ transport, session });
 client.subscribe((state, prev) => {
@@ -449,7 +452,7 @@ A host wiring `mo:duel-game-core/leaderboard` exposes `get_leaderboard()`,
 a plain query `idl.js` declares on every actor:
 
 ```js
-import { renderLeaderboard } from "duel-game-core/render.js";
+import { renderLeaderboard } from "@research-ag/duel-game-core/render.js";
 
 const [entries, bots] = await Promise.all([
   actor.get_leaderboard(),
@@ -480,8 +483,11 @@ A host wiring bot discovery exposes `list_bots()`, `register_bot`, and
 only calls `list_bots()`.
 
 ```js
-import { renderBotList, renderSeatChoice } from "duel-game-core/render.js";
-import { buildBotPlayIdlFactory } from "duel-game-core/idl.js";
+import {
+  renderBotList,
+  renderSeatChoice,
+} from "@research-ag/duel-game-core/render.js";
+import { buildBotPlayIdlFactory } from "@research-ag/duel-game-core/idl.js";
 
 const bots = await actor.list_bots(); // highest-rated first, unrated last
 botPanelEl.innerHTML = renderBotList(bots, plugin);
@@ -545,7 +551,10 @@ sets (canister ids, root key), use `safeGetCanisterEnv()` from
 copy to build a frontend or a bot against:
 
 ```js
-import { fetchGameModule, rawWasm } from "duel-game-core/module-store.js";
+import {
+  fetchGameModule,
+  rawWasm,
+} from "@research-ag/duel-game-core/module-store.js";
 
 const mod = await fetchGameModule(backendId); // { hash, bytes, gzipped }
 const wasm = await rawWasm(mod); // gunzipped only if stored gzipped

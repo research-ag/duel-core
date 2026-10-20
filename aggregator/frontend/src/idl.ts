@@ -3,7 +3,7 @@
 // for that actor — keep this in sync if Main.mo's service surface ever
 // changes.
 //
-// Unlike duel-game-core/idl.ts (a factory parameterized over a game's own
+// Unlike @research-ag/duel-game-core/idl.ts (a factory parameterized over a game's own
 // Action/State), this canister's interface is fixed — there is nothing
 // game-specific about the aggregator itself — so this is a plain
 // `idlFactory`, not a factory-of-factories.

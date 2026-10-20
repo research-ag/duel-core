@@ -3,7 +3,7 @@
 // live game state says `variant: well`. The last round's two picks stay on
 // screen through the debrief (`renderLastRound`).
 
-import { actionAttr, esc } from "duel-game-core/render.js";
+import { actionAttr, esc } from "@research-ag/duel-game-core/render.js";
 
 const SEAT_NAME = { p1: "Player 1", p2: "Player 2" };
 const GLYPH = { rock: "🪨", paper: "📄", scissors: "✂️", well: "🪣" };

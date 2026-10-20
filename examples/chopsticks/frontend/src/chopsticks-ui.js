@@ -3,12 +3,12 @@
 // history, tutorial, leaderboard, opponent and rules pickers). Every
 // screen is a function of `ClientState` plus this module's local state;
 // every control calls one client method. Nothing here comes from
-// `duel-game-core/render.js` but pure text helpers; the hand cards are
+// `@research-ag/duel-game-core/render.js` but pure text helpers; the hand cards are
 // chopsticks-plugin.js's. See ../../../../frontend/README.md, "The
 // headless client".
 
-import { atTableOf, claimRoleOf, errText, localSecondsElapsed, localSecondsLeft, oppSeatOf, tag, viewOf, withLocalMove } from "duel-game-core/client.js";
-import { esc, isCanisterPlayer, parseCanisterPlayer, playerKeyOf, truncatePlayerId } from "duel-game-core/render.js";
+import { atTableOf, claimRoleOf, errText, localSecondsElapsed, localSecondsLeft, oppSeatOf, tag, viewOf, withLocalMove } from "@research-ag/duel-game-core/client.js";
+import { esc, isCanisterPlayer, parseCanisterPlayer, playerKeyOf, truncatePlayerId } from "@research-ag/duel-game-core/render.js";
 import { HAND_NAME, RULE_SETS, SEAT_NAME, SIDES, canSplit, handsOf, hit, renderHands, ruleSetOf, splitReason, splitValid, variantOf } from "./chopsticks-plugin.js";
 
 const IDLE_WARNING_SECS = 30n;

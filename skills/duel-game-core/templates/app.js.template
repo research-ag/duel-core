@@ -5,11 +5,11 @@
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
-import { makeIdlFactory } from "duel-game-core/idl.js";
-import { start } from "duel-game-core/app.js";
-import { connectTransport } from "duel-game-core/transport.js";
-import { resolveAnonymousIdentity } from "duel-game-core/anon-identity.js";
-import { deriveHost } from "duel-game-core/ic-env.js";
+import { makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
+import { start } from "@research-ag/duel-game-core/app.js";
+import { connectTransport } from "@research-ag/duel-game-core/transport.js";
+import { resolveAnonymousIdentity } from "@research-ag/duel-game-core/anon-identity.js";
+import { deriveHost } from "@research-ag/duel-game-core/ic-env.js";
 import { plugin } from "./__PLUGIN_FILE__";
 
 const env = safeGetCanisterEnv();

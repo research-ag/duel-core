@@ -4,7 +4,7 @@
 // real principal once a login resolves — and exposes login()/logout(),
 // which reload the page on success (the simplest way for a freshly
 // authenticated identity to take effect everywhere at once; the same
-// approach `duel-game-core/identity.ts` uses for the same reason).
+// approach `@research-ag/duel-game-core/identity.ts` uses for the same reason).
 
 import { useCallback, useEffect, useState } from "react";
 import { AuthClient } from "@icp-sdk/auth/client";

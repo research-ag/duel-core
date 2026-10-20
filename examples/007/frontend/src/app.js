@@ -1,17 +1,17 @@
 // Bootstrap for the 007 duel client: build the actor and push transport,
 // create duel-game-core's headless client, and mount 007's own UI over
-// it (mission-ui.js). Nothing from `duel-game-core/app.js` runs here.
+// it (mission-ui.js). Nothing from `@research-ag/duel-game-core/app.js` runs here.
 // Bundled by esbuild (../build.js).
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 import { Principal } from "@icp-sdk/core/principal";
-import { buildBotPlayIdlFactory, makeIdlFactory } from "duel-game-core/idl.js";
-import { atTableOf, createDuelClient, errText, tag, viewOf } from "duel-game-core/client.js";
-import { connectTransport } from "duel-game-core/transport.js";
-import { resolveIdentity } from "duel-game-core/identity.js";
-import { deriveHost } from "duel-game-core/ic-env.js";
-import { botDisplayName, renderBotList, renderLeaderboard, renderSeatChoice } from "duel-game-core/render.js";
+import { buildBotPlayIdlFactory, makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
+import { atTableOf, createDuelClient, errText, tag, viewOf } from "@research-ag/duel-game-core/client.js";
+import { connectTransport } from "@research-ag/duel-game-core/transport.js";
+import { resolveIdentity } from "@research-ag/duel-game-core/identity.js";
+import { deriveHost } from "@research-ag/duel-game-core/ic-env.js";
+import { botDisplayName, renderBotList, renderLeaderboard, renderSeatChoice } from "@research-ag/duel-game-core/render.js";
 import { plugin } from "./duel007-plugin.js";
 import { mountMissionUi } from "./mission-ui.js";
 

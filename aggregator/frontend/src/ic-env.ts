@@ -2,13 +2,14 @@
 // canister — the same pattern every canister deployed with icp-cli
 // needs, independent of anything about this particular app. Kept as a
 // small local copy rather than a dependency on the sibling
-// `duel-game-core` npm package, since the aggregator is a standalone
-// product built on this repo's tooling, not a game on its engine.
+// `@research-ag/duel-game-core` npm package, since the aggregator is a
+// standalone product built on this repo's tooling, not a game on its
+// engine.
 
 /// Derives the right `HttpAgent` host for the page's current location:
 /// localhost during local development, the parent domain on icp0.io /
 /// ic0.app, the page's own origin unchanged on icp.net, or the dedicated
-/// API gateway as a last resort. See `duel-game-core/ic-env.ts`'s own
+/// API gateway as a last resort. See `@research-ag/duel-game-core/ic-env.ts`'s own
 /// (much longer) doc comment for the full reasoning — identical logic,
 /// copied here rather than imported.
 export function deriveHost(): string {

@@ -3,7 +3,7 @@
 // strip. Candid shapes mirror ../../../src/RacingRules.mo; `LAPS_TO_WIN`
 // and `ONE_HOUR_MS` must match that module's and Host.mo's constants.
 
-import { esc } from 'duel-game-core/render.js';
+import { esc } from '@research-ag/duel-game-core/render.js';
 
 // `lap` counts wrap crossings; the first move crosses once for free, so
 // finishing takes LAPS_TO_WIN + 1 (see RacingRules.mo's `resolve`).

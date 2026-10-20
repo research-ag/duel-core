@@ -76,12 +76,12 @@ promtracker = "1.0.1"
 run `mops add promtracker`. (`prng`, which the framework's `rng` is
 built on, arrives transitively.)
 
-Frontend: `cd frontend && npm install duel-game-core --save-exact`.
+Frontend: `cd frontend && npm install @research-ag/duel-game-core --save-exact`.
 
 The installed package ships both READMEs:
 `.mops/duel-game-core@<version>/README.md` (or
 `../duel-core/backend/README.md`) and
-`node_modules/duel-game-core/README.md`.
+`node_modules/@research-ag/duel-game-core/README.md`.
 
 ## Step 2 — Turn the rules into `State` / `Action` / `View` / `Options`
 

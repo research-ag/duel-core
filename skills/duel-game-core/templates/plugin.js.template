@@ -3,7 +3,7 @@
 // `legal()` is a cosmetic echo of that module's `validate`, `applyLocal`
 // of its `resolve`.
 
-import { actionAttr, esc } from "duel-game-core/render.js";
+import { actionAttr, esc } from "@research-ag/duel-game-core/render.js";
 
 const SEAT_NAME = { p1: "__P1_NAME__", p2: "__P2_NAME__" };
 

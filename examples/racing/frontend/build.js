@@ -35,7 +35,7 @@ const staticAssets = [
   ['src/style.css', `${outdir}/style.css`],
   ['src/favicon.ico', `${outdir}/favicon.ico`],
   ['src/assets', `${outdir}/assets`],
-  ['node_modules/duel-game-core/style.css', `${outdir}/duel-game-core.css`],
+  ['node_modules/@research-ag/duel-game-core/style.css', `${outdir}/duel-game-core.css`],
 ];
 
 function copyStaticAssets() {

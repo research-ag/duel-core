@@ -1,5 +1,5 @@
 {
-  "name": "duel-game-core",
+  "name": "@research-ag/duel-game-core",
   "version": "0.3.0",
   "description": "Rules-agnostic client for a duel-game-core game: session identity, polling transport, a headless client, and default lobby/staging/rematch/debrief screens any of which a game can replace.",
   "keywords": [
@@ -80,6 +80,9 @@
     "README.md",
     "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": [
     "*.css"
   ],

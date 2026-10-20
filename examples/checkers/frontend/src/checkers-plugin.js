@@ -11,7 +11,7 @@
 // highlighted by diffing consecutive boards; State carries no move history.
 // Your own move shows the moment you submit it (`applyLocal`).
 
-import { actionAttr, esc } from "duel-game-core/render.js";
+import { actionAttr, esc } from "@research-ag/duel-game-core/render.js";
 
 const SIZE = 8;
 const DIAGS = [

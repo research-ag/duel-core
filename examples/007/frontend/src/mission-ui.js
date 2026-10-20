@@ -1,13 +1,13 @@
 // 007's own UI over duel-game-core's headless client: a paper dossier.
 // Every screen, the sidebar (agent identity, channel light, running
 // mission log), the alert strip, the two dialogs, and the local clocks
-// are this file's. Nothing here comes from `duel-game-core/render.js`
+// are this file's. Nothing here comes from `@research-ag/duel-game-core/render.js`
 // except `esc`; the in-game board and action buttons are still
 // `duel007-plugin.js`'s. See ../../../../frontend/README.md, "The
 // headless client".
 
-import { claimRoleOf, localSecondsElapsed, localSecondsLeft, oppSeatOf, tag, viewOf, withLocalMove } from "duel-game-core/client.js";
-import { esc } from "duel-game-core/render.js";
+import { claimRoleOf, localSecondsElapsed, localSecondsLeft, oppSeatOf, tag, viewOf, withLocalMove } from "@research-ag/duel-game-core/client.js";
+import { esc } from "@research-ag/duel-game-core/render.js";
 
 const IDLE_WARNING_SECS = 30n;
 const CLAIM_WARNING_SECS = 15n;
