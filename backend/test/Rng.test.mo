@@ -65,7 +65,7 @@ do {
     counts[code] += 1;
     k += 1;
   };
-  for (c in counts.vals()) {
+  for (c in counts.values()) {
     if (c < 850 or c > 1150) Runtime.trap("4: a permutation was hit " # debug_show c # " times in 6000");
   };
   Debug.print("4. shuffle uniform: " # debug_show counts.toArray());
