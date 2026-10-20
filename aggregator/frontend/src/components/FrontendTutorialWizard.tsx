@@ -202,11 +202,12 @@ function GoLiveStep({ backend }: { backend: string }) {
     <>
       <ol className="tutorial-list">
         <li>
-          <strong>In caffeine.ai:</strong> the AI ends with the steps to follow;
-          in short, click <strong>Go live</strong>. It puts the page online at a
-          permanent address and keeps it there as long as your plan is active.
-          Then ask the chat: “What is the address of my live app, and its
-          frontend canister id?” — write both down for the next step.
+          <strong>In caffeine.ai:</strong> click <strong>Go live</strong> (if
+          you can't find it, ask the chat how to put the app online). It puts
+          the page online at a permanent address and keeps it there as long as
+          your plan is active. Then ask the chat: “What is the address of my
+          live app, and its frontend canister id?” — write both down for the
+          next step.
         </li>
         <li>
           <strong>From your own computer</strong>, through{" "}

@@ -281,6 +281,15 @@ is available, never point a development build at the live backend.
 
 ## 8. Going live
 
+Building ends at step 7. Before going live, leave the steps in the
+project's `README.md`: for hosty.live, `cd frontend && npm run build &&
+zip -r dist.zip dist -x "*.map"`, then on the canister's page the
+variable `PUBLIC_CANISTER_ID:backend` set to the backend id and the ZIP
+upload, or the same through an agent. Then stop: the page goes online
+only when the user asks, into a canister they name. Create or rent no
+canister for it on your own; step 7's staging copy is the only one you
+touch.
+
 There is no backend of the user's own to deploy: only the page goes
 online, by either route of `going-live.md`.
 
@@ -296,11 +305,8 @@ deploy frontend -e ic`, 2T cycles, after step 5's `icp canister link
 backend $BACKEND -e ic`; the deploy sets the environment variable
   itself.
 
-Otherwise finish by telling the user the steps, and leave them in the
-project's `README.md` as well: for hosty.live, `cd frontend && npm run
-build && zip -r dist.zip dist -x "*.map"`, then on the canister's page
-the variable `PUBLIC_CANISTER_ID:backend` set to the backend id and the
-ZIP upload, or the same through an agent.
+Without a way to deploy for the user, tell them the steps from the
+`README.md` instead.
 
 In a builder with its own "go live" action (caffeine.ai), tell the
 user to trigger it instead, and how to read the live page's address
