@@ -46,10 +46,6 @@
       "types": "./dist/module-store.d.ts",
       "default": "./dist/module-store.js"
     },
-    "./module-store-node.js": {
-      "types": "./dist/module-store-node.d.ts",
-      "default": "./dist/module-store-node.js"
-    },
     "./types.js": {
       "types": "./dist/types.d.ts",
       "default": "./dist/types.js"

@@ -2,11 +2,9 @@
 // store. The canister's `module_hash` is read from the IC state tree
 // (certificate verified by the agent), the store is asked for that hash,
 // and the bytes are accepted only if their SHA-256 equals it. See README,
-// "Fetching a game's module". The default download, `fetch`, decodes the
-// store's `Content-Encoding: gzip` in browsers and Node alike, so it
-// verifies only a module stored uncompressed: a gzipped one fails the hash
-// check and is never accepted. For gzipped modules pass a `download` that
-// keeps the body as sent (Node: `module-store-node.js`).
+// "Fetching a game's module". The store sends a gzipped module as
+// `application/gzip`, never with a `Content-Encoding`, so the default
+// download, `fetch`, keeps the bytes as stored for every module.
 //
 //   const { hash, bytes, gzipped } = await fetchGameModule("ghjib-...-cai");
 
@@ -40,8 +38,8 @@ export interface FetchGameModuleOptions {
   download?: Download;
 }
 
-/// `fetch`: the body as sent only when it carries no `Content-Encoding`;
-/// a decoded gzipped module then fails the hash check.
+/// `fetch`: the body as sent when it carries no `Content-Encoding`, which
+/// the store never sets; a body decoded on the way fails the hash check.
 export const fetchDownload: Download = async (url) => {
   const res = await fetch(url);
   return {
@@ -101,10 +99,10 @@ export async function requestVerification(hash: string, canisterId: string): Pro
 async function checked(hash: string, got: Downloaded): Promise<GameModule> {
   const actual = await sha256Hex(got.bytes);
   if (actual !== hash) {
-    // A gzipped module decoded by `fetch` hashes differently too.
+    // The store sends a gzipped module as stored; a proxy may still decode it.
     const hint = isGzip(got.bytes)
       ? ""
-      : " (if it was decompressed in transit, pass a `download` that keeps the body as sent; Node: module-store-node.js)";
+      : " (if it was decompressed in transit, pass a `download` that keeps the body as sent)";
     throw new Error(`module ${hash}: body hashes to ${actual}${hint}`);
   }
   return { hash, bytes: got.bytes, gzipped: isGzip(got.bytes) };

@@ -94,9 +94,9 @@ Build the module you tested locally, from the project root:
 icp build backend           # .icp/cache/artifacts/backend
 ```
 
-Do not gzip it: the store would serve it with `Content-Encoding: gzip`,
-and a browser's `fetch` decompresses that before a client can check
-the hash. Then, through the `hosty_*` tools:
+A gzipped copy (`gzip -k`) installs the same way; the store keeps
+whichever file was installed, byte for byte. Then, through the
+`hosty_*` tools:
 
 1. `hosty_check_backend_canister { canisterId }`. With `ready: true`
    (a deploy session already active, or unattended deploys allowed on
@@ -156,10 +156,7 @@ npm run build && zip -r dist.zip dist -x "*.map"
 
 `dist/` is what goes online: `index.html`, `app.js`, the two
 stylesheets, and whatever else `build.js` copies, a `_headers` file
-included (hosty.live applies it as icp-cli does). There is nothing to
-deploy from git: `duel-game-core` is a `file:` dependency the
-hosty.live build server cannot resolve, so the build always happens on
-the user's computer.
+included (hosty.live applies it as icp-cli does).
 
 **With the agent:**
 

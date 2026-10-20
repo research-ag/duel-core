@@ -74,8 +74,7 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   game's title, URL and backend id, which adapts to what the builder
   can run (a staging copy of the game in a rented hosty.live canister,
   else a local wasm copy with icp-cli, else the live backend on
-  code-protected tables; client package from npm, else its source files
-  from GitHub). `BotTutorialWizard.tsx` ("Build a bot") has only
+  code-protected tables). `BotTutorialWizard.tsx` ("Build a bot") has only
   the coding-tool route, since the bot is tested against a local copy
   of the game: `botPrompt.ts`'s prompt, then going live through
   hosty.live or with icp-cli, each ending in the bot's own `register`

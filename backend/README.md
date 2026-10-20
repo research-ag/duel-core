@@ -701,10 +701,10 @@ put there by every deploy:
 The store's key is the hex SHA-256 of the module exactly as installed —
 of the gzipped bytes for a gzipped module — which is the IC's
 `module_hash`, so the hash read from the state tree is the store key.
-The response is `application/wasm`, with `Content-Encoding: gzip` on a
-gzipped module whose body is still the stored bytes: hash the raw body,
-not a decompressed one (`curl` without `--compressed` keeps it raw;
-`fetch` does not). `GET /modules/<hash>/meta` answers `{ hash, size,
+The response body is the stored bytes, `application/wasm`, or
+`application/gzip` for a gzipped module, never with a
+`Content-Encoding` and with `Cache-Control: no-transform`, so `curl`
+and `fetch` alike receive exactly the bytes that hash to the key. `GET /modules/<hash>/meta` answers `{ hash, size,
 gzipped, verified, candid?, ... }`; `verified` means hosty.live has seen
 a mainnet canister running that hash. An unverified module is deleted
 after 24 hours; `POST /modules/<hash>/verify` with `{ "canisterId":
@@ -715,8 +715,7 @@ where they are. Never set `snapshot_visibility: public` on a backend: a
 snapshot is the whole heap.
 
 **Fetching.** From JavaScript, `fetchGameModule(canisterId)` in the
-frontend package's `module-store.js` (Node: `module-store-node.js`)
-reads the certified `module_hash`, asks the store and rejects a missing
+frontend package's `module-store.js` (browsers and Node alike) reads the certified `module_hash`, asks the store and rejects a missing
 module or any body whose SHA-256 is not the live hash; see `../frontend/README.md`,
 "Fetching a game's module". `GET
 https://api.hosty.live/modules/canister/<id>` (no token) answers `{

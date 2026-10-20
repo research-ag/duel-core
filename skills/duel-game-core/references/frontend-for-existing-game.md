@@ -114,12 +114,9 @@ new game: `package.json.template`, `.npmrc.template`,
 Step 1 describes (the frontend half only; there is no `mops.toml`).
 
 In a builder with its own project layout (caffeine.ai: React, Vite),
-keep its layout and bring in the client as source instead: every file
-under `frontend/src/` of the framework repo
-(`client.ts`, `transport.ts`, `idl.ts`, `types.ts`, `anon-identity.ts`,
-`identity.ts`, `render.ts`, `app.ts`, `ic-env.ts`) copied in unchanged;
-they depend only on `@icp-sdk/core` and `@icp-sdk/auth`. Never rewrite
-the wire protocol yourself.
+keep its layout and add the `duel-game-core` npm package to it, with
+`legacy-peer-deps=true` in its `.npmrc` as the template sets. Never
+rewrite the wire protocol yourself.
 
 **Backend id in the frontend.** Read `PUBLIC_CANISTER_ID:backend` from
 the `ic_env` cookie when present (the live page once its canister
@@ -150,8 +147,8 @@ curl -sf https://api.hosty.live/modules/$HASH -o backend.wasm &&
 
 Never pass `--compressed` to curl here: the hash is of the module
 exactly as installed, gzipped or not. The two hashes must be equal:
-that proves the file is the module the canister runs right now. (From
-Node, the client package's `module-store-node.js` does the same:
+that proves the file is the module the canister runs right now. (In
+JavaScript, the client package's `module-store.js` does the same:
 `fetchGameModule(BACKEND)`, see its README, "Fetching a game's
 module".) An empty `HASH`, a 404 or a mismatch means the module is not
 available at the moment: stop and tell the user; do not fall back to

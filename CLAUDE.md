@@ -124,8 +124,7 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   bot's `play`). `module-store.js` is standalone: `fetchGameModule(id)`
   reads the certified `module_hash`, downloads
   `https://api.hosty.live/modules/<hash>`, and rejects a missing module
-  or a body whose SHA-256 differs; `module-store-node.js` swaps in a raw
-  `node:https` download so gzipped modules still hash to their key. See `frontend/README.md` for the `GamePlugin` contract,
+  or a body whose SHA-256 differs. See `frontend/README.md` for the `GamePlugin` contract,
   "Replacing screens", and "The headless client".
 - **`backend/test/*.test.mo`** — interpreter suites (`mops test`
   discovers the `.test.mo` suffix only). `Engine`/`Lifecycle` cover
@@ -181,8 +180,8 @@ game on the engine. See `aggregator/CLAUDE.md`.
   dependencies. `transport.js` depends on `@icp-sdk/core/candid`;
   `identity.js` on `@icp-sdk/auth` + `@icp-sdk/core/identity`;
   `anon-identity.js` on `@icp-sdk/core/identity` only; `module-store.js`
-  on `@icp-sdk/core/agent` + `/principal` (and `module-store-node.js`
-  on `node:https`). Nothing else may grow a dependency.
+  on `@icp-sdk/core/agent` + `/principal`. Nothing else may grow a
+  dependency.
 
 ## Build & test
 

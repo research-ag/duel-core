@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { fetchGameModule, readModuleHash } from "../src/module-store-node.js";
+import { fetchGameModule, readModuleHash } from "../src/module-store.js";
 
 // Against mainnet, opt-in: DUEL_HOSTY_CANISTER=<id of a game installed
 // through hosty.live> npm test

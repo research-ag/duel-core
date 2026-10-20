@@ -77,15 +77,11 @@ promtracker = "1.0.1"
 run `mops add promtracker`. (`prng`, which the framework's `rng` is
 built on, arrives transitively.)
 
-Frontend: `npm view duel-game-core version`. If it resolves, keep
-`"duel-game-core": "*"` and `npm install duel-game-core --save-exact`.
-Otherwise set it to `"file:../duel-core/frontend"` (the template `.npmrc`'s
-`install-links=true` is required for a `file:` dependency) and **build the
-clone's frontend first**: `cd ../duel-core/frontend && npm install
---legacy-peer-deps && npm run build` — the package ships from `dist/`,
-which a fresh clone lacks. A `file:` dependency is a copy: after a `git
-pull` of the clone, rebuild it and reinstall here (see the framework's
-root `CLAUDE.md`, "After touching anything under `frontend/`").
+Frontend: `cd frontend && npm install duel-game-core --save-exact`.
+Copy `templates/.npmrc.template` to `frontend/.npmrc` first: its
+`legacy-peer-deps=true` is needed by every install of the package
+(`@icp-sdk/auth` declares a peer range one major behind the
+`@icp-sdk/core` it runs with), a build server's `npm ci` included.
 
 The installed package ships both READMEs:
 `.mops/duel-game-core@<version>/README.md` (or

@@ -1,4 +1,5 @@
-# esbuild needs real files to bundle from, not a symlink an asset-sync
-# step may not follow — install-links forces npm to copy duel-game-core
-# into node_modules/duel-game-core instead of the default symlink.
-install-links=true
+# @icp-sdk/auth, a dependency of duel-game-core, declares a peer range on
+# @icp-sdk/core one major behind the version both actually run with;
+# without this, every install (a build server's npm ci included) fails
+# to resolve.
+legacy-peer-deps=true
