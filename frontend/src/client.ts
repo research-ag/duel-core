@@ -76,6 +76,8 @@ export function errText(e: EngineErr): string {
       return "An anonymous identity can't play — reload the page.";
     case "tooManyTables":
       return `You are already at ${(v as { max: bigint }).max} tables — leave one first.`;
+    case "badOptions":
+      return v as string;
     default:
       return t;
   }

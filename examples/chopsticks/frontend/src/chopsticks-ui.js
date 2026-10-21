@@ -303,7 +303,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
   // ── Screens ────────────────────────────────────────────────────────────
 
   function tableRow(r) {
-    const rs = ruleSetOf(r.variant);
+    const rs = ruleSetOf(Object.keys(r.options)[0]);
     const seatCell = (seat, open, occupant) => {
       if (open) {
         return `<button type="button" class="btn-small primary" data-op="join" data-table="${r.id}" data-seat="${seat}" data-key="jointable:${r.id}:${seat}"${r.protected ? " data-protected" : ""}>Join as ${esc(SEAT_NAME[seat])}</button>`;
@@ -866,7 +866,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
       return;
     }
     const me = tag((live ?? done).seat);
-    const turn = live ? live.turn : done.turns;
+    const turn = live ? live.step : done.steps;
     const key = `${at.id}:${(live ?? done).gen}`;
     if (history.key !== key) {
       history = { key, game, turn, moves: [] };
@@ -896,7 +896,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     const at = atTableOf(state.status);
     const done = viewOf(state.status, "debrief");
     if (at === null || done === null) return;
-    const key = `${at.id}:${done.gen}:${done.turns}`;
+    const key = `${at.id}:${done.gen}:${done.steps}`;
     if (record.last === key) return;
     const me = tag(done.seat);
     const t = tag(done.end);
@@ -946,7 +946,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     pendingBotInvite = { bot, stage: "creating" };
     createdVariant = { tableId: null, variant };
     redraw(client.getState());
-    const res = await client.createTable("p1", { open: null }, variant);
+    const res = await client.createTable("p1", { open: null }, { [variant]: null });
     const staging = res.ok ? stagingOf(res.view) : null;
     if (staging === null) {
       pendingBotInvite = null;
@@ -1036,7 +1036,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     if (coded && code === "") return client.showError("Set an access code, or open the table to everyone.");
     start = null;
     createdVariant = { tableId: null, variant };
-    void client.createTable(seat, coded ? { code } : { open: null }, variant).then((res) => {
+    void client.createTable(seat, coded ? { code } : { open: null }, { [variant]: null }).then((res) => {
       const staging = res.ok ? stagingOf(res.view) : null;
       if (staging) createdVariant = { tableId: staging.tableId, variant };
     });

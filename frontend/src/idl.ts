@@ -75,6 +75,7 @@ export function buildEngineTypes({
     badCode: IDL.Null,
     unauthorized: IDL.Null,
     tooManyTables: IDL.Record({ max: IDL.Nat }),
+    badOptions: IDL.Text,
   });
   // No JoinOk/SubmitOk/RematchOk: only a fresh `View` ever crosses the
   // wire, in a `#view`.
