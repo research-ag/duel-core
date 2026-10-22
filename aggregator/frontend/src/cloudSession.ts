@@ -7,15 +7,12 @@ export const MCP_JSON = `{
   "mcpServers": {
     "hosty": {
       "type": "http",
-      "url": "https://api.hosty.live/mcp",
-      "headers": {
-        "Authorization": "Bearer \${HOSTY_TOKEN}"
-      }
+      "url": "https://api.hosty.live/mcp"
     }
   }
 }`;
 
-export const ENV_VARS = "HOSTY_TOKEN=hl_...";
+export const SECRET_HOST = "api.hosty.live";
 
 export const NETWORK_DOMAINS = [
   "api.hosty.live",

@@ -3,9 +3,9 @@
 // texts).
 
 import {
-  ENV_VARS,
   MCP_JSON,
   NETWORK_DOMAINS,
+  SECRET_HOST,
   SETUP_SCRIPT,
 } from "../cloudSession";
 import { CodeBlock } from "./CodeBlock";
@@ -45,7 +45,8 @@ export function CloudSessionSetup() {
         </a>{" "}
         (empty is fine). Add one file at its root (<strong>Add file</strong> →{" "}
         <strong>Create new file</strong>) named <code>.mcp.json</code>, with
-        this content. It names your token without holding it:
+        exactly this content. It tells the session where hosty.live is; your
+        token never goes into the repository:
         <CodeBlock code={MCP_JSON} />
       </li>
       <li>
@@ -56,9 +57,14 @@ export function CloudSessionSetup() {
         , create an environment (or edit the default one):
         <ul>
           <li>
-            <strong>Environment variables</strong>, with your token in place
-            of <code>hl_...</code>:
-            <CodeBlock code={ENV_VARS} />
+            <strong>Network secrets</strong> → <strong>Add secret</strong>:
+            type <strong>Bearer</strong>, name <code>hosty.live</code>, allowed
+            website
+            <CodeBlock code={SECRET_HOST} />
+            and your <code>hl_</code> token as the value of the{" "}
+            <code>Authorization</code> header row (prefix <code>Bearer</code>).
+            Claude's servers add it to every request to hosty.live, so the
+            session itself never sees your token.
           </li>
           <li>
             <strong>Network access</strong>: <strong>Custom</strong>, with
