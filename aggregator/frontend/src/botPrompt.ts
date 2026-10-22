@@ -1,8 +1,9 @@
-// The prompt a developer hands to an AI coding agent to get a bot for a
-// listed game. The procedure behind it is
+// The prompt a developer hands to an AI coding agent (a Claude Code cloud
+// session first) to get a bot for a listed game. The procedure behind it is
 // skills/duel-game-core/references/bot-for-existing-game.md. Keep the
 // two in step.
 
+import { SESSION_RULES } from "./cloudSession";
 import { RAW, REPO } from "./frontendPrompt";
 import type { Target } from "./types";
 import { gameUrl } from "./types";
@@ -16,7 +17,7 @@ The game is "${game.title}", playable at ${url}. Its backend canister is ${backe
 
 Work in this order.
 
-1. Tools: this needs icp-cli (https://github.com/dfinity/icp-cli) and mops (https://mops.one) on this computer. Check icp --version and mops --version; install whatever is missing, or tell me how if you can't.
+1. Tools: this needs icp-cli (https://github.com/dfinity/icp-cli) and mops (https://mops.one). Check icp --version and mops --version; install whatever is missing (npm install -g @icp-sdk/icp-cli ic-mops), or tell me how if you can't. ${SESSION_RULES}
 
 2. Learn the game from https://${backend}.raw.icp0.io/semantics — plain text with the rules, who moves when, the variants, and the exact Candid types of State and Action. This is the whole specification; there is no source code to read. Fetch any other path it mentions.
 
@@ -28,7 +29,7 @@ Work in this order.
 
 4. Test: unit-test the move logic with mops test. Then deploy locally (icp network start -d, icp deploy) and play whole games against the bot on the local copy of the game with the reference's sparring canister: every difficulty level, the bot in both seats, every variant. Every game must reach its real ending, with the bot answering every move.
 
-5. Do not put anything online yourself. Finish by telling me, step by step, what to do next, and write the same into a README.md, for both ways of going live in ${ref}/going-live.md (ask me which I want when I ask you to deploy): through hosty.live (a Backend canister I create there, icp build bot, the install through its hosty_* tools after I approve a deploy session, then register through hosty_call_canister in that session), or with icp-cli:
+5. Do not put anything online until I ask. Then it goes through hosty.live (${ref}/going-live.md, section 3), in one deploy session I approve in its web app: hosty_create_canister with kind "backend" (1.5 TC from my balance) unless I name a canister, icp build bot, the install with hosty_prepare_wasm_upload, then hosty_call_canister on the bot, method register, argument (principal "${backend}", "<bot name>"), as an update call; check the reply's caller is my principal. Write the same steps into README.md, plus, for my own computer only, the icp-cli way:
      icp canister link backend ${backend} -e ic --force
      icp deploy bot -e ic
      icp canister call bot register '(principal "${backend}", "<bot name>")' -e ic

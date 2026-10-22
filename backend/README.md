@@ -670,9 +670,10 @@ canister's `module_hash` to anyone (the public state-tree path
 lives in hosty.live's module store, `https://api.hosty.live/modules/<hash>`,
 put there by every deploy:
 
-- **Through hosty.live** (the skill's `references/going-live.md`, route
-  A): hosty.live stores every module before it installs it.
-- **With icp-cli** (route B): the backend's `icp.yaml` sync step runs
+- **Through hosty.live** (the skill's `references/going-live.md`,
+  section 3, from a Claude Code cloud session or a computer): hosty.live
+  stores every module before it installs it.
+- **With icp-cli** (section 4): the backend's `icp.yaml` sync step runs
   `publish_wasm.sh` (the skill's `templates/publish_wasm.sh.template`,
   copied unchanged, next to `icp.yaml`) after every install, reinstall
   and upgrade on the `ic` environment, and does nothing on any other:

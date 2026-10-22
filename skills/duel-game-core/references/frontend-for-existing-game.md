@@ -18,11 +18,19 @@ Everything you need comes from the backend canister id:
 | A copy of the game to test   | the same module, installed into a canister of yours |
 | Client library, UI contracts | this skill (`SKILL.md` Steps 1 and 6, `rich-ui.md`) |
 
-All of it is plain HTTPS and hosty.live; nothing here needs `icp-cli`.
-icp-cli is one option, for a copy of the game on the user's own
-computer (step 5). In a browser-based builder, which runs no shell,
-skip the steps that say so; the semantics text is sufficient to build
-from.
+All of it is plain HTTPS and hosty.live. Where you work decides the
+rest:
+
+- **A Claude Code cloud session** (claude.ai/code; `going-live.md`,
+  section 2, is its setup): icp-cli and mops run in the session's VM,
+  so you test against a local copy of the game there (steps 5 and 7),
+  and the user, who cannot open anything the VM serves, plays the page
+  in a free rented hosty.live canister (step 7).
+- **A coding agent on the user's computer**: the same local copy, with
+  icp-cli on the computer, and the page on `localhost`.
+- **A browser-based builder** (caffeine.ai), which runs no shell: skip
+  the steps that say so; the semantics text is sufficient to build
+  from.
 
 ## 1. Resolve the backend id
 
@@ -94,7 +102,9 @@ optional features may exist and let their calls fail quietly
 
 `found: false` with a `liveModuleHash` means the module the backend
 runs is not in the store at the moment: build from the semantics alone,
-and skip any copy of the game (steps 5 and 7). With icp-cli, `icp
+and skip every copy of the game: step 5, and step 7's local and staging
+copies. Step 7's rented preview page and its access-code tests against
+the live backend still apply. With icp-cli, `icp
 canister metadata $BACKEND candid:service -n ic > backend.did` reads
 the Candid from the canister itself.
 
@@ -102,14 +112,14 @@ the Candid from the canister itself.
 
 ```
 frontend/
-  package.json  build.js
+  package.json  build.js  play-test.mjs
   src/  index.html  app.js  style.css  <game>-plugin.js
 backend.did     # step 3, when found
 ```
 
 The `frontend/` files come from this skill's templates exactly as for a
 new game: `package.json.template`, `build.js.template`, `index.html.template`, `app.js.template`,
-`style.css.template`. Get the `@research-ag/duel-game-core` npm package as `SKILL.md`
+`style.css.template`, `play-test.mjs.template`. Get the `@research-ag/duel-game-core` npm package as `SKILL.md`
 Step 1 describes (the frontend half only; there is no `mops.toml`).
 
 In a builder with its own project layout (caffeine.ai: React, Vite),
@@ -121,17 +131,19 @@ the `ic_env` cookie when present (the live page once its canister
 carries that environment variable, `going-live.md`; a local copy's
 page, step 5) and fall back to a backend id hardcoded in one constant
 (a page served from `localhost`, a builder's own preview, caffeine.ai).
-The constant is `BACKEND`, or the staging copy's id while testing
-against one (step 7). Whenever the page talks to a backend on mainnet,
+The constant is `BACKEND` (a rented preview page in a cloud session
+reads it too, step 7), or the staging copy's id while testing against
+one (step 7). Whenever the page talks to a backend on mainnet,
 build the `HttpAgent` with `host: "https://icp0.io"` and no `rootKey`:
 `deriveHost()` assumes the backend sits behind the page's own origin,
 which is false for a page served from `localhost` or a foreign host.
 
-## 5. A local copy (with icp-cli, optional)
+## 5. A local copy (with icp-cli)
 
-With icp-cli on the user's computer, the game can also run on a local
-network beside the frontend. Skip this step without it; step 7's
-staging copy does the same job on mainnet.
+With icp-cli, in a cloud session's VM or on the user's computer, the
+game runs on a local network beside the frontend. Skip this step only
+in a builder without a shell; step 7's staging copy does the same job
+on mainnet.
 
 Download the module and check it against the canister's certified
 `module_hash` (icp-cli reads it from the state tree):
@@ -220,62 +232,89 @@ the lobby and debrief are part of the game.
 
 ## 7. Test
 
-Play both seats in two browser tabs: create a table in one, join from
+Every check below plays both seats: create a table in one, join from
 the other, play a whole game to an ending, rematch once, leave once.
 Exercise every action the semantics lists and at least one illegal
 input (the backend's rejection text should surface, not a crash). A
 status that never arrives or a decode error in the console is an
 `idlTypes` mismatch.
 
-**Against a staging copy (through hosty.live):** the game's own module
-in a rented hosty.live backend canister, free, private to the user and
-wiped after 24 hours. It needs the user's hosty.live account and its
-MCP server connected to your session (`going-live.md`, section 1), and
+**Headless, against the local copy (step 5):**
+
+```bash
+cd frontend && npm install && npm run build && cd ..
+icp network start -d
+icp deploy
+cd frontend && node play-test.mjs && cd ..
+```
+
+`play-test.mjs` (`SKILL.md` Step 7) plays a whole game per
+`optionChoices()` entry through your plugin's own buttons, rematches,
+leaves and acks; it is your own check, before any human looks. On the
+user's computer, `icp deploy` also printed the frontend's local URL:
+the user plays there in two browser tabs. The local copy starts empty:
+no bots are registered and the leaderboard is blank, so a bot list or a
+rankings panel can only be checked for its empty state.
+
+```bash
+icp network stop
+```
+
+**The user's look, in a cloud session: a rented page.** Nothing the VM
+serves reaches the user, so once the play-test passes, the page goes
+into a hosty.live rental: free, private to the user, wiped after 24
+hours, one per user. It plays the live backend, so every table opened
+from it must be access-code protected:
+
+1. `hosty_rent_canister {}` (a frontend canister, ready for uploads; no
+   deploy session needed). Its id is `PREVIEW`.
+2. Build with the hardcoded constant at `BACKEND`: the rented page's
+   cookie names no backend, so the page falls back to it. Then `cd
+frontend && npm run build && zip -r dist.zip dist -x "*.map"`.
+3. `hosty_prepare_zip_upload { canisterId: PREVIEW, pureAssets: true,
+outputDir: "dist" }`, run the `curl` command it returns from
+   `frontend/`, and `hosty_wait_for_deployment` until `finished: true`.
+4. Give the user `frontendUrl`, saying that it plays the real game:
+   create every table with an access code, never an open one, and
+   leave when done, so real players are not drawn in. Two browser tabs
+   (or a computer and a phone) play both seats.
+
+Each change is another build and upload into `PREVIEW`. When the
+rental runs out, rent again; the id changes.
+
+**Against a staging copy (through hosty.live, on the user's
+computer):** the game's own module in a rented hosty.live backend
+canister, free, private to the user and wiped after 24 hours, for a
+user without icp-cli. It needs the user's hosty.live account and its
+MCP server connected to your session (`going-live.md`, section 3), and
 step 3's `module.hash`:
 
 1. `hosty_rent_canister { kind: "backend" }`. Its canister id is
    `STAGING`. A user holds one rental at a time.
-2. `hosty_check_backend_canister { canisterId: STAGING }`. Without
-   `ready: true`, open a deploy session as in `going-live.md`, section
-   2, "The backend", step 2.
+2. `hosty_check_backend_canister { canisterId: STAGING }`; a rental is
+   ready without a deploy session.
 3. `hosty_install_module { canisterId: STAGING, moduleHash,
 confirmReinstall: true }`, then `hosty_wait_for_deployment` until
    `finished: true`. The rented canister still holds hosty.live's page
    module, so the install is a reinstall; a game backend takes no init
    argument.
 4. `curl -s https://$STAGING.raw.icp0.io/semantics` answers step 2's
-   text.
+   text, and `(cd frontend && node play-test.mjs $STAGING --ic)` plays
+   it, leaving you in the project root.
 
 Set the hardcoded backend constant to `STAGING`, build, and serve
-`frontend/dist` from any local web server. Like a local copy, the
-staging copy starts empty: no bots are registered and the leaderboard
-is blank, so a bot list or a rankings panel can only be checked for its
-empty state. Set the constant back to `BACKEND` before the build that
-goes online. Without the MCP server, the user does the same in the web
-UI: rent a canister, then install into it with **Install from module
-store** and the hash.
+`frontend/dist` from any local web server. The staging copy starts
+empty, as the local copy does. Set the constant back to `BACKEND`
+before the build that goes online. Without the MCP server, the user
+does the same in the web UI: rent a canister, then install into it
+with **Install from module store** and the hash.
 
-**Against the local copy (with icp-cli, step 5):**
-
-```bash
-cd frontend && npm install && npm run build && cd ..
-icp network start -d
-icp deploy
-```
-
-`icp deploy` prints the frontend's local URL. The local copy starts
-empty, as the staging copy does.
-
-```bash
-icp network stop
-```
-
-**Against the live backend (neither of the above):** build the page and
-serve it from any local web server (or the builder's own preview).
-Every table you open is on the real game: always create tables with an
-access code, never open ones, and leave them when done, so real players
-are not drawn into your tests. Keep the testing short. Whenever a copy
-is available, never point a development build at the live backend.
+**Against the live backend (a builder without a shell):** build the
+page and serve it from the builder's own preview. Every table you open
+is on the real game: always create tables with an access code, never
+open ones, and leave them when done. Keep the testing short. Outside a
+rented preview page, whenever a copy is available, never point a
+development build at the live backend.
 
 ## 8. Going live
 
@@ -284,24 +323,25 @@ project's `README.md`: for hosty.live, `cd frontend && npm run build &&
 zip -r dist.zip dist -x "*.map"`, then on the canister's page the
 variable `PUBLIC_CANISTER_ID:backend` set to the backend id and the ZIP
 upload, or the same through an agent. Then stop: the page goes online
-only when the user asks, into a canister they name. Create or rent no
-canister for it on your own; step 7's staging copy is the only one you
-touch.
+only when the user asks, into a canister they name or one they agree
+you create. Create no canister for it on your own; step 7's rental is
+the only one you take unasked.
 
 There is no backend of the user's own to deploy: only the page goes
 online, by either route of `going-live.md`.
 
-- **Through hosty.live** (section 2, "The frontend", after section 1's
-  account): no cycles and no icp-cli. The user creates the canister on
-  hosty.live for about a dollar by card; the backend id goes in as the
-  canister variable `PUBLIC_CANISTER_ID:backend`, with the upload
-  (`canisterEnv` on `hosty_prepare_zip_upload`) or on the canister's
-  page. Deploy through the `hosty_*` tools when the user has connected
-  hosty.live's MCP server to your session and asks for it.
-- **With icp-cli** (section 3, the identity and the cycles): `icp
-deploy frontend -e ic`, 2T cycles, after step 5's `icp canister link
-backend $BACKEND -e ic`; the deploy sets the environment variable
-  itself.
+- **Through hosty.live** (section 3, after section 1's account; the
+  only route from a cloud session): no cycles and no icp-cli of the
+  user's. `hosty_create_canister { kind: "frontend" }` (0.84 TC from
+  the hosty.live balance, about a dollar, in a deploy session the user
+  approves) or a canister they created in the web UI; the backend id
+  goes in as the canister variable `PUBLIC_CANISTER_ID:backend`, with
+  the upload (`canisterEnv` on `hosty_prepare_zip_upload`) or on the
+  canister's page.
+- **With icp-cli** (section 4, the identity and the cycles, on the
+  user's own computer only): `icp deploy frontend -e ic`, 2T cycles,
+  after step 5's `icp canister link backend $BACKEND -e ic`; the deploy
+  sets the environment variable itself.
 
 Without a way to deploy for the user, tell them the steps from the
 `README.md` instead.
@@ -311,5 +351,5 @@ user to trigger it instead, and how to read the live page's address
 and its frontend canister id afterwards.
 
 The user then registers the new frontend's canister id on the Duel
-dashboard as its own entry (`going-live.md`, section 4), with their
+dashboard as its own entry (`going-live.md`, section 5), with their
 own title, description and banner.

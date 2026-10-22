@@ -54,35 +54,48 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   `Modal`). `Modal.tsx` is the one dialog shell
   (blurred backdrop, Escape/backdrop close, scroll lock) and `Wizard.tsx`
   the two-pane stepper every guide is built on (`initialStep`, and
-  `reachable` locking later steps). `TutorialWizard.tsx` ("Build a new
-  game", 5 copy-pasteable steps ending in the register flow) stands
-  alone. The other two guides are about one listed game, opened either
+  `reachable` locking later steps). Every guide puts a Claude Code
+  cloud session first: `CloudSessionSetup.tsx` (the hosty.live account
+  and token, then the GitHub repository with its `.mcp.json`, the
+  claude.ai environment's variable, network domains and setup script;
+  the texts in `cloudSession.ts`, with `SESSION_RULES`, the paragraph
+  every prompt carries). `TutorialWizard.tsx` ("Build a new game")
+  stands alone: how it works, the account, the session's setup,
+  `gamePrompt.ts`'s prompt finished with the user's rules (build, test
+  with `play-test.mjs`, then create both canisters through hosty.live,
+  unlisted, once the user agrees), playing it online, and the register
+  flow. The other two guides are about one listed game, opened either
   from the header on step 0, `GamePicker.tsx` (every listing, each
   checked by `support.ts` and disabled with its reason when the guide
   can't be followed for it: no published backend, no `/semantics`, or,
   for a bot, no `list_bots`), or from `GameInfoModal.tsx`'s two actions
   already filled in for that game (`Target`: the listing plus its
   backend id). `FrontendTutorialWizard.tsx` ("Make your own frontend")
-  is written for a player with no ICP or coding background: two routes,
-  caffeine.ai (chat builder, builds and hosts itself, paid plan) or an
-  AI coding tool on their own computer (the page then goes online
-  through hosty.live, in a canister paid by card, by the tool over
-  hosty's MCP server or by hand in its web UI, its
-  `PUBLIC_CANISTER_ID:backend` canister variable set on the canister's
-  page or with the upload; no icp-cli), ending in the register flow. Its
-  prompt step shows `frontendPrompt.ts`'s prompt, filled with the
-  game's title, URL and backend id, which adapts to what the builder
-  can run (a staging copy of the game in a rented hosty.live canister,
-  else a local wasm copy with icp-cli, else the live backend on
-  code-protected tables). `BotTutorialWizard.tsx` ("Build a bot") has only
-  the coding-tool route, since the bot is tested against a local copy
-  of the game: `botPrompt.ts`'s prompt, then going live through
-  hosty.live or with icp-cli, each ending in the bot's own `register`
+  is written for a player with no ICP or coding background: three
+  routes, Claude Code on the web, caffeine.ai (chat builder, builds and
+  hosts itself, paid plan) or an AI coding tool on their own computer
+  (the page goes online through hosty.live in both coding routes, in a
+  canister paid by card, by the tool over hosty's MCP server or by hand
+  in its web UI, its `PUBLIC_CANISTER_ID:backend` canister variable set
+  on the canister's page or with the upload; no icp-cli), ending in the
+  register flow. Its prompt step shows `frontendPrompt.ts`'s prompt,
+  filled with the game's title, URL and backend id, which adapts to
+  what the builder can run (a local wasm copy with icp-cli and the
+  play-test, in a cloud session or on a computer; then, in a cloud
+  session, a rented hosty.live page on the live backend's
+  code-protected tables for the user's look; on a computer without
+  icp-cli, a staging copy of the game in a rented hosty.live canister;
+  in a builder without a shell, the live backend on code-protected
+  tables). `BotTutorialWizard.tsx` ("Build a bot") has the two coding
+  routes, cloud session first, since the bot is tested against a local
+  copy of the game: `botPrompt.ts`'s prompt, then going live through
+  hosty.live (the agent creates, installs and registers in one deploy
+  session) or with icp-cli, each ending in the bot's own `register`
   call with the backend id filled in (a bot is never listed on this
-  dashboard). `TutorialWizard.tsx`'s deploy step offers the same two
-  routes for a whole game (`going-live.md`). The prompts condense
-  `../skills/duel-game-core/references/frontend-for-existing-game.md`
-  and `bot-for-existing-game.md`; change each pair together. Pricing
+  dashboard). The prompts condense `../skills/duel-game-core/SKILL.md`
+  with `references/going-live.md` (`gamePrompt.ts`),
+  `references/frontend-for-existing-game.md` and
+  `bot-for-existing-game.md`; change each pair together. Pricing
   facts in the wizards are dated "at the time of writing".
   `GameInfoModal.tsx` (the card's info button) shows a listing's details
   and, one click further, its backend: `/metrics` and `/semantics`

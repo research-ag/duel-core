@@ -17,16 +17,20 @@ Everything you need comes from the backend canister id:
 | The wasm, for a local copy | hosty.live's module store, by its module hash                      |
 | `make_move`'s contract     | `canister-player-bots.md`, the backend README's "Canister players" |
 
-This needs `icp-cli` and `mops` on the user's computer. A bot cannot be
-tested against the live game without first being deployed, so there is
-no browser-only route.
+This needs `icp-cli` and `mops`: in a Claude Code cloud session's VM
+(`going-live.md`, section 2, is its setup) or on the user's computer.
+A bot cannot be tested against the live game without first being
+deployed, so there is no route through a builder without a shell. All
+testing is local (step 5), which a cloud session does as well as a
+computer.
 
 ## 1. Resolve, read, download
 
-Steps 1–4 of `frontend-for-existing-game.md`, unchanged: the backend id
-(`BACKEND`), the semantics text, `backend.did`, and `backend.wasm` with
-its hash checked against the live `module_hash`. Every stop condition
-there applies here too.
+Steps 1–3 of `frontend-for-existing-game.md`, unchanged, and the
+download at the top of its step 5 (step 2 below has this project's
+`icp.yaml`): the backend id (`BACKEND`), the semantics text,
+`backend.did`, and `backend.wasm` with its hash checked against the
+live `module_hash`. Every stop condition there applies here too.
 
 Then check `backend.did` for `register_bot` and
 `join_table_as_canister`. Without them the game seats no canister
@@ -296,16 +300,18 @@ icp network stop
 Going live spends the user's money and is theirs to trigger: run these
 only when asked. Finish by telling them, step by step, what comes next,
 and leave the same in `README.md`. A bot is a canister like a backend;
-it goes up by either route of `going-live.md` (ask which):
+it goes up by either route of `going-live.md`:
 
-- **Through hosty.live** (section 1's account, section 2's "The backend
-  (and a bot)"): a Backend canister created in hosty.live (0.84 TC by
-  card), `icp build bot`, the install through the `hosty_*` tools after
-  one approval, then `register` through `hosty_call_canister` in that
-  same deploy session. No `icp deploy` against mainnet, so step 2's
-  link is not needed.
-- **With icp-cli** (section 3's identity and cycles, about 3T bought by
-  card at cycle.express):
+- **Through hosty.live** (section 1's account, section 3's "The
+  backend (and a bot)"; the only route from a cloud session): in one
+  deploy session the user approves, `hosty_create_canister { kind:
+"backend" }` (1.5 TC from the hosty.live balance, a few dollars) or a
+  backend canister they created in the web UI, `icp build bot`, the
+  install with `hosty_prepare_wasm_upload`, then `register` through
+  `hosty_call_canister` with `update: true`. No `icp deploy` against
+  mainnet, so step 2's link is not needed.
+- **With icp-cli** (section 4's identity and cycles, about 3T bought by
+  card at cycle.express, on the user's own computer only):
 
   ```bash
   icp canister link backend <backend-id> -e ic --force   # step 2's link
@@ -320,11 +326,13 @@ it goes up by either route of `going-live.md` (ask which):
 `register` lists the bot, under its name and complexities, in the
 game's bot directory (`list_bots`), where every frontend that shows
 bots offers it as an opponent. Calling it again updates the entry;
-`unregister` takes it off:
+`unregister` takes it off: through hosty.live, `hosty_call_canister` on
+the bot with method `unregister`, argument `(principal "<backend-id>")`,
+`update: true`, in a deploy session; with icp-cli:
 
 ```bash
 icp canister call bot unregister '(principal "<backend-id>")' -e ic
 ```
 
-or, through hosty.live, `hosty_call_canister` on the bot with method
-`unregister` and that argument, as an update call in a deploy session.
+Then the user challenges it from any frontend of the game, from its
+list of bots.

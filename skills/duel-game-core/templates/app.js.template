@@ -18,8 +18,8 @@ if (!canisterId) {
   document.body.innerHTML =
     "<p style='color:#ff7b72;padding:2rem'>Could not find " +
     "<code>PUBLIC_CANISTER_ID:backend</code> in the <code>ic_env</code> " +
-    "cookie. Serve this page from the frontend canister after " +
-    "<code>icp deploy</code>.</p>";
+    "cookie. Serve this page from its frontend canister, with that " +
+    "canister environment variable set to the backend's id.</p>";
   throw new Error("missing canister id");
 }
 
