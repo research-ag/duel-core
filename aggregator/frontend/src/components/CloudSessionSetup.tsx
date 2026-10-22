@@ -64,7 +64,12 @@ export function CloudSessionSetup() {
             and your <code>hl_</code> token as the value of the{" "}
             <code>Authorization</code> header row (prefix <code>Bearer</code>).
             Claude's servers add it to every request to hosty.live, so the
-            session itself never sees your token.
+            session itself never sees your token. On a Team plan without an
+            organization admin role the form is shorter: host{" "}
+            <code>{SECRET_HOST}</code>, secret type <strong>Token</strong>, your
+            token as the value. Then make sure it arrives as a Bearer token: the
+            session's first <code>hosty_whoami</code> must answer, not fail with
+            401.
           </li>
           <li>
             <strong>Network access</strong>: <strong>Custom</strong>, with

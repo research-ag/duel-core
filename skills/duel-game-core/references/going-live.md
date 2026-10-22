@@ -108,7 +108,11 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
      header row (`Authorization`, prefix `Bearer`) section 1's token as
      the value. Anthropic's proxy adds it to every request to
      `api.hosty.live` after the request leaves the session's VM, so the
-     session never sees the token.
+     session never sees the token. On a Team plan without an
+     organization admin role the form is shorter: host
+     `api.hosty.live`, secret type **Token**, the token as the value;
+     the session's first `hosty_whoami` confirms it arrives as a Bearer
+     token.
    - **Network access**: **Custom**, with "Also include default list"
      on, and these domains: `api.hosty.live`, `icp-api.io`, `icp0.io`,
      `*.icp0.io`, `ic0.app`. hosty.live's tools answer with `curl`
@@ -132,13 +136,16 @@ Anyone who uses that environment, and every command the session runs,
 can read such a variable; revoke the token when the project is done.
 
 **In the session, you:** check `icp --version`, `mops --version` and
-`hosty_whoami` first. A missing `hosty_*` tool, or a `401` from
-`hosty_whoami`, means `.mcp.json` or the network secret is not in
-place. Without the file, write it from the template, commit and push
-it; without the secret, the user adds it to the environment. Either
-way the tools appear in the next session on that branch: tell the
-user, and build meanwhile. Never ask for the token, and never write it
-into a file or a command. Unless
+`hosty_whoami` first. A missing `hosty_*` tool means the setup is
+incomplete: without `.mcp.json`, write it from the template, commit
+and push it; without the network secret, the user adds it to the
+environment; the tools appear in the next session on that branch. A
+`401` from `hosty_whoami` means the server was reached but the token
+was not accepted: the user checks `.mcp.json`, that the network
+secret's host is `api.hosty.live` and sends the token as `Bearer`, and
+that the token is not revoked (**Settings** → **AI agent access**).
+Either way, tell the user and build meanwhile. Never ask for the token,
+and never write it into a file or a command. Unless
 `.claude/skills/duel-game-core/` is already there, install this skill
 into the repository and commit it:
 
