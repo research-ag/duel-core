@@ -330,10 +330,11 @@ icp cycles balance -n ic
 
 **The token.** The backend's sync step needs section 1's token, in a
 file outside the project that only the user can read. The user runs
-this in a terminal of their own:
+this in a terminal of their own and pastes the token at the prompt,
+which does not echo it or keep it in the shell's history:
 
 ```bash
-mkdir -p ~/.config/hosty && printf %s 'hl_...' > ~/.config/hosty/token && chmod 600 ~/.config/hosty/token
+mkdir -p ~/.config/hosty && printf 'hosty.live token: ' && read -rs t && echo && (umask 077 && printf %s "$t" > ~/.config/hosty/token); unset t
 ```
 
 **Deploy**, from the project root, naming each canister:

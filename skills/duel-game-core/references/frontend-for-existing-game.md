@@ -102,7 +102,9 @@ optional features may exist and let their calls fail quietly
 
 `found: false` with a `liveModuleHash` means the module the backend
 runs is not in the store at the moment: build from the semantics alone,
-and skip any copy of the game (steps 5 and 7). With icp-cli, `icp
+and skip every copy of the game: step 5, and step 7's local and staging
+copies. Step 7's rented preview page and its access-code tests against
+the live backend still apply. With icp-cli, `icp
 canister metadata $BACKEND candid:service -n ic > backend.did` reads
 the Candid from the canister itself.
 
@@ -297,7 +299,8 @@ confirmReinstall: true }`, then `hosty_wait_for_deployment` until
    module, so the install is a reinstall; a game backend takes no init
    argument.
 4. `curl -s https://$STAGING.raw.icp0.io/semantics` answers step 2's
-   text, and `node play-test.mjs $STAGING --ic` plays it.
+   text, and `(cd frontend && node play-test.mjs $STAGING --ic)` plays
+   it, leaving you in the project root.
 
 Set the hardcoded backend constant to `STAGING`, build, and serve
 `frontend/dist` from any local web server. The staging copy starts

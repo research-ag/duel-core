@@ -19,7 +19,7 @@ Work in this order.
 
 4. Test it before I look at it: mops test, a local network with icp deploy, and node play-test.mjs in frontend/, until every game reaches its ending.
 
-5. Then ask me before anything goes online. Through hosty.live, in a deploy session I approve in its web app: create the game's two canisters in my account (hosty_create_canister, a backend and a frontend, about 2.5 TC from my balance), install the backend (icp build backend, hosty_prepare_wasm_upload), upload the page with PUBLIC_CANISTER_ID:backend set to the backend (hosty_prepare_zip_upload with canisterEnv), run node play-test.mjs <backend-id> --ic, and give me the page's address and both canister ids. The game stays unlisted until I register it on the Duel dashboard.
+5. Then ask me before anything goes online. Through hosty.live, in a deploy session I approve in its web app: create the game's two canisters in my account (hosty_create_canister, a backend and a frontend, about 2.5 TC from my balance), install the backend (icp build backend, hosty_prepare_wasm_upload), upload the page with PUBLIC_CANISTER_ID:backend set to the backend (hosty_prepare_zip_upload with canisterEnv), run node play-test.mjs <backend-id> --ic in frontend/, and give me the page's address and both canister ids. The game stays unlisted until I register it on the Duel dashboard.
 
 6. Every later change: test locally again, then upgrade the same two canisters (snapshotBeforeUpgrade for the backend). If I ask for a bot or a leaderboard, the skill covers both.
 

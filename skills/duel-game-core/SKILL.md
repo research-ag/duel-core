@@ -584,7 +584,8 @@ the whole game on one route:
   `hosty_prepare_zip_upload`, setting the page's
   `PUBLIC_CANISTER_ID:backend` canister variable with that upload, all
   after the user approves one deploy session in the hosty.live web app.
-  Then `node play-test.mjs <backend-id> --ic` and the `frontendUrl` for
+  Then `(cd frontend && node play-test.mjs <backend-id> --ic)` and the
+  `frontendUrl` for
   the user.
 - **With icp-cli** (setup 3, on the user's own computer only): the
   user's own identity (`icp identity new`), cycles bought by card at
