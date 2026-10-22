@@ -1,9 +1,10 @@
 // "Build a bot": a canister player for a game already listed here, built
-// by an AI coding agent on the developer's own computer from
-// botPrompt.ts's prompt. The agent tests it against a local copy of the
-// game made from the module the backend runs; the developer then deploys it
-// and has it register itself with the game (a bot is never listed on
-// this dashboard). Opened from a game's info dialog it starts filled in
+// by an AI coding agent from botPrompt.ts's prompt, in a Claude Code
+// cloud session first or on the developer's own computer. The agent tests
+// it against a local copy of the game made from the module the backend
+// runs, then puts it online through hosty.live (or the developer does with
+// icp-cli) and has it register itself with the game (a bot is never
+// listed on this dashboard). Opened from a game's info dialog it starts filled in
 // for that game; from the header it starts by picking one.
 
 import { useState } from "react";
@@ -11,6 +12,7 @@ import { useState } from "react";
 import { botPrompt } from "../botPrompt";
 import type { AggregatorActor, GameView, Target } from "../types";
 import { gameUrl } from "../types";
+import { CloudSessionSetup, HostyAccountSteps } from "./CloudSessionSetup";
 import { CodeBlock } from "./CodeBlock";
 import { GamePicker } from "./GamePicker";
 import { Wizard } from "./Wizard";
@@ -18,6 +20,7 @@ import { Wizard } from "./Wizard";
 const STEPS = [
   "Pick a game",
   "How it works",
+  "Set up",
   "Copy the prompt",
   "Build and test",
   "Go live",
@@ -72,9 +75,10 @@ export function BotTutorialWizard({
             </>
           )}
           {target && step === 1 && <HowItWorksStep />}
-          {target && step === 2 && <PromptStep target={target} />}
-          {target && step === 3 && <BuildStep />}
-          {target && step === 4 && <GoLiveStep target={target} />}
+          {target && step === 2 && <SetupStep />}
+          {target && step === 3 && <PromptStep target={target} />}
+          {target && step === 4 && <BuildStep />}
+          {target && step === 5 && <GoLiveStep target={target} />}
         </>
       )}
     />
@@ -92,17 +96,44 @@ function HowItWorksStep() {
         else. The game itself stays untouched.
       </p>
       <p>
-        You don't write it yourself. An AI coding tool on your own computer
-        (Claude Code, Cursor, Codex and the like) does, from a prompt we give
-        you plus your own description of how the bot should play. It tests the
-        bot against a private copy of the game on your computer before anything
-        goes online.
+        You don't write it yourself. An AI coding tool does, from a prompt we
+        give you plus your own description of how the bot should play: simplest
+        is{" "}
+        <a href="https://claude.ai/code" target="_blank" rel="noreferrer">
+          Claude Code on the web
+        </a>
+        , with nothing to install, or a coding tool on your own computer
+        (Claude Code, Cursor, Codex and the like). It tests the bot against a
+        private copy of the game before anything goes online.
       </p>
       <p className="hint">
-        A bot needs a computer: unlike a frontend, it can't be built in a
-        browser-based builder, since it is tested next to a copy of the game.
-        Building and testing are free; keeping the bot online costs a few
-        dollars, paid in step 5.
+        A browser-based app builder can't make a bot, since the bot is tested
+        next to a copy of the game. Building and testing are free; the bot goes
+        online through{" "}
+        <a href="https://hosty.live" target="_blank" rel="noreferrer">
+          hosty.live
+        </a>{" "}
+        for 1.5 TC (a few dollars at the time of writing), paid in the last
+        step.
+      </p>
+    </>
+  );
+}
+
+function SetupStep() {
+  return (
+    <>
+      <p>Once, a hosty.live account:</p>
+      <HostyAccountSteps />
+      <p>
+        <strong>For Claude Code on the web</strong>, once per bot, a session
+        that can reach it with your token:
+      </p>
+      <CloudSessionSetup />
+      <p className="hint">
+        <strong>In a coding tool on your computer</strong>, connect it to
+        hosty.live with the one-line command shown next to your token; the AI
+        installs the build tools it needs, or tells you how.
       </p>
     </>
   );
@@ -112,8 +143,9 @@ function PromptStep({ target }: { target: Target }) {
   return (
     <>
       <p>
-        This prompt is filled in for <strong>{target.game.title}</strong>. Make
-        an empty folder, start your coding tool in it, and paste the prompt:
+        This prompt is filled in for <strong>{target.game.title}</strong>. Paste
+        it into the session (on your computer: start your coding tool in an
+        empty folder and paste it there):
       </p>
       <CodeBlock code={botPrompt(target)} wrap />
       <p>Finish it with your own description after its last line:</p>
@@ -142,9 +174,9 @@ function BuildStep() {
         </li>
         <li>It writes the bot and tests its move choices one by one.</li>
         <li>
-          It starts a private copy of the game on your computer and plays whole
-          games against your bot there, at every level, until every game ends
-          cleanly.
+          It starts a private copy of the game, in the session or on your
+          computer, and plays whole games against your bot there, at every
+          level, until every game ends cleanly.
         </li>
       </ol>
       <p>
@@ -161,35 +193,19 @@ function GoLiveStep({ target }: { target: Target }) {
   return (
     <>
       <p>
-        Putting the bot online costs a few dollars, one of two ways. Your coding
-        tool can walk you through either if you paste these instructions to it.
+        <strong>Through hosty.live</strong> (from Claude Code on the web or a
+        coding tool connected to hosty.live): tell it
+      </p>
+      <CodeBlock code="Put my bot online through hosty.live and register it as <bot name>." />
+      <p>
+        with the name players should see. It asks you to approve a deploy
+        session in hosty.live (with your passkey; a phone works), creates the
+        bot's canister in your account (1.5 TC from your balance), installs
+        the bot, and adds it to the game's list of bots in that same session.
       </p>
       <p>
-        <strong>Through hosty.live</strong> (paid by card, no keys on your
-        machine)
-      </p>
-      <ol className="tutorial-list">
-        <li>
-          Sign in at{" "}
-          <a href="https://hosty.live/" target="_blank" rel="noreferrer">
-            hosty.live
-          </a>{" "}
-          with Internet Identity, then <strong>Canisters</strong> →{" "}
-          <strong>Create New Canister</strong> → <strong>Backend</strong> (0.84
-          TC, about a dollar at the time of writing, from a balance you top up
-          by card under <strong>Cycles</strong>).
-        </li>
-        <li>
-          <strong>Settings</strong> → <strong>AI agent access</strong> → create
-          a token and connect your coding tool with the command shown next to
-          it. Then ask it to put the bot online through hosty.live and register
-          it with the game under the name players should see: it installs the
-          bot after you approve a deploy session in the hosty.live tab, and
-          calls the bot's <code>register</code> in that same session.
-        </li>
-      </ol>
-      <p>
-        <strong>With icp-cli</strong> (your own key and cycles)
+        <strong>With icp-cli</strong> (on your own computer, with your own key
+        and cycles)
       </p>
       <ol className="tutorial-list">
         <li>
@@ -229,9 +245,9 @@ function GoLiveStep({ target }: { target: Target }) {
         <a href={gameUrl(game)} target="_blank" rel="noreferrer">
           {game.title}
         </a>{" "}
-        and challenge your bot from its list of bots. Running{" "}
-        <code>register</code> again renames it; <code>unregister</code> takes it
-        off the list (through hosty.live, ask your coding tool; with icp-cli):
+        and challenge your bot from its list of bots. Registering again renames
+        it; unregistering takes it off the list (through hosty.live, ask your
+        AI; with icp-cli):
       </p>
       <CodeBlock
         code={`icp canister call bot unregister '(principal "${backend}")' -e ic`}

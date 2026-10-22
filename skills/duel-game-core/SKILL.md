@@ -1,6 +1,6 @@
 ---
 name: duel-game-core
-description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko rules module (Spec<S,M,V,O>), Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, a game whose ending takes many rounds to reach in a test, or putting the result online, through hosty.live or with icp-cli) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
+description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko rules module (Spec<S,M,V,O>), Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, a game whose ending takes many rounds to reach in a test, or putting the result online, through hosty.live from a Claude Code cloud session or a computer, or with icp-cli) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
 ---
 
 # Building a duel-game-core Game From Rules Alone
@@ -33,13 +33,15 @@ A finished game is six pieces of game-specific code:
 5. `frontend/src/index.html` + `app.js` + `style.css` — copy the
    templates.
 6. `icp.yaml`, `publish_wasm.sh`, `mops.toml`, `frontend/package.json`,
-   `frontend/build.js` — copy the templates, fill in names.
+   `frontend/build.js`, `frontend/play-test.mjs` — copy the templates,
+   fill in names.
 
 Every template lives in `templates/`; read each one right before adapting
 it. `references/` covers seven situations the templates don't:
 `turn-based-games.md`, `canister-player-bots.md`, `rich-ui.md`,
-`testing-deep-dive.md`, `going-live.md` (putting any of this online,
-through hosty.live or with icp-cli), and, for a game
+`testing-deep-dive.md`, `going-live.md` (a Claude Code cloud
+session's setup, and putting any of this online, through hosty.live or
+with icp-cli), and, for a game
 someone else already deployed, from its canister id alone,
 `frontend-for-existing-game.md` (a new frontend) and
 `bot-for-existing-game.md` (a canister player) — read them only when
@@ -47,7 +49,17 @@ you hit that situation.
 
 ## Step 1 — Get the packages into the project
 
-You are very likely in a new repo, separate from `research-ag/duel-core`.
+You are very likely in a new repo, separate from `research-ag/duel-core`,
+and quite possibly in a Claude Code cloud session (claude.ai/code): a
+VM the user never sees into, where you build and test and from which
+everything goes online through hosty.live's MCP server.
+`references/going-live.md`, section 2, is that session's setup; check
+it before anything else. Wherever you run, the build needs `icp`
+(icp-cli) and `mops`:
+
+```bash
+icp --version && mops --version || npm install -g @icp-sdk/icp-cli ic-mops
+```
 
 If there is no `mops.toml`, create one from `templates/mops.toml.template`
 first; likewise `frontend/package.json` from
@@ -342,7 +354,9 @@ public shared ({ caller }) func register(host : Principal.Principal, name : Text
 ("Easy"/"Hard", ...) — `[]` for one way, listed as "Default". A
 challenger picks one per game; every `make_move` carries it as
 `req.complexity`, and each is rated separately. Trigger with
-`icp canister call bot register '(principal "<host-canister-id>", "MyBot")'`.
+`icp canister call bot register '(principal "<host-canister-id>", "MyBot")'`
+on a local network; on mainnet through hosty.live, `hosty_call_canister`
+with the same method and argument (`going-live.md`, section 3).
 The bot then appears in every player's "🤖 Bots" dialog and the
 leaderboard's Challenge buttons (`frontend/README.md`, "Bot registry"),
 and a Rematch against it re-invites it automatically.
@@ -486,13 +500,15 @@ the player most wants to see. If the UI genuinely doesn't fit that
 
 ## Step 7 — Project/deploy config
 
-| Template                   | Destination             | Fill in                                 |
-| -------------------------- | ----------------------- | --------------------------------------- |
-| `mops.toml.template`       | `mops.toml`             | `__GAME_SLUG__`                         |
-| `package.json.template`    | `frontend/package.json` | `__GAME_SLUG__`                         |
-| `build.js.template`        | `frontend/build.js`     | `__PLUGIN_FILE__` (header comment only) |
-| `icp.yaml.template`        | `icp.yaml`              | — (unless renaming canisters)           |
-| `publish_wasm.sh.template` | `publish_wasm.sh`       | — (next to `icp.yaml`)                  |
+| Template                   | Destination              | Fill in                                 |
+| -------------------------- | ------------------------ | --------------------------------------- |
+| `mops.toml.template`       | `mops.toml`              | `__GAME_SLUG__`                         |
+| `package.json.template`    | `frontend/package.json`  | `__GAME_SLUG__`                         |
+| `build.js.template`        | `frontend/build.js`      | `__PLUGIN_FILE__` (header comment only) |
+| `icp.yaml.template`        | `icp.yaml`               | — (unless renaming canisters)           |
+| `publish_wasm.sh.template` | `publish_wasm.sh`        | — (next to `icp.yaml`)                  |
+| `play-test.mjs.template`   | `frontend/play-test.mjs` | `__GAME_TITLE__`, `__PLUGIN_FILE__`     |
+| `mcp.json.template`        | `.mcp.json`              | — (cloud session only, `going-live.md`) |
 
 ```bash
 mops install && mops test
@@ -500,7 +516,19 @@ cd frontend && npm install && npm run build && cd ..
 node --check frontend/dist/app.js
 icp network start -d       # once; a private copy of the Internet Computer
 icp deploy                 # both canisters, locally; prints the frontend's URL
+cd frontend && node play-test.mjs && cd ..
 ```
+
+`play-test.mjs` is the browser test without a browser: two players
+with fresh keys play a whole game per `optionChoices()` entry through
+the real client, every move taken from the plugin's own `actionAttr`
+buttons (board and action panel), then a rematch, a leave, and both
+debriefs acked. A rejected move from an enabled button, a seat due with
+nothing enabled to click, or a game that never ends fails it with the
+last status. It also tries one disabled button's move and expects the
+rules to refuse it. A game whose moves are not single clicks (a
+two-click selection, a canvas) lists its legal moves in
+`offeredMoves` itself.
 
 Anyone can download the module a backend runs and test a frontend or a
 bot of their own against a local copy: clients look it up in
@@ -529,32 +557,43 @@ headers of its own: to add a CSP or `Cache-Control`, put a `_headers`
 file in `frontend/src/` and copy it into `dist/` from `build.js` (see
 `examples/tic-tac-toe/frontend/src/_headers`).
 
-Then play both seats in two browser tabs: create a table in one, join
-from the other, and confirm a round resolves and the debrief/rematch loop
-works. Check that your move appears the instant you click, that the
-opponent's move is marked when it lands, and that the debrief still
-shows the final move. Tests passing and the frontend building are
-necessary, not sufficient.
+Then the game wants human eyes: both seats in two browser tabs, a table
+created in one and joined from the other, a round resolved and the
+debrief/rematch loop. Check that your move appears the instant you
+click, that the opponent's move is marked when it lands, and that the
+debrief still shows the final move. On the user's computer that is the
+local URL `icp deploy` printed. In a cloud session nobody can open it:
+once the three checks above pass, tell the user the game is ready for
+its first look, which is online in its own two canisters (about 2.5 TC
+from their hosty.live balance, kept unlisted until they register it),
+and go on with Step 8 when they agree. Tests passing and the frontend
+building are necessary, not sufficient.
 
 ## Step 8 — Go live
 
 Do this only when the user asks, following `references/going-live.md`
-step by step; leave the same steps in the project's `README.md`. Ask
-the user which route first, and keep the whole game on it:
+step by step; leave the same steps in the project's `README.md`. Keep
+the whole game on one route:
 
-- **Through hosty.live** (route A; best for a user new to the Internet
-  Computer): an Internet Identity login and a balance paid by card, one
-  canister per backend, bot and page created in hosty.live's web UI.
-  You install the backend's module (`icp build backend`) through the
-  `hosty_*` tools after the user approves a deploy session, and upload
-  the zipped `dist` the same way, setting the page's
-  `PUBLIC_CANISTER_ID:backend` canister variable with that upload.
-- **With icp-cli** (route B): the user's own identity (`icp identity
-new`), cycles bought by card at cycle.express, and `icp deploy
-backend -e ic` / `icp deploy frontend -e ic`, with the hosty.live API
-  token in `HOSTY_TOKEN` so the sync step can publish the module.
+- **Through hosty.live** (setups 1 and 2; the only one in a cloud
+  session, and the right one for a user new to the Internet Computer):
+  an Internet Identity login and a balance paid by card. You create the
+  backend, bot and page canisters with `hosty_create_canister`, install
+  the backend's module (`icp build backend`) with
+  `hosty_prepare_wasm_upload`, and upload the zipped `dist` with
+  `hosty_prepare_zip_upload`, setting the page's
+  `PUBLIC_CANISTER_ID:backend` canister variable with that upload, all
+  after the user approves one deploy session in the hosty.live web app.
+  Then `node play-test.mjs <backend-id> --ic` and the `frontendUrl` for
+  the user.
+- **With icp-cli** (setup 3, on the user's own computer only): the
+  user's own identity (`icp identity new`), cycles bought by card at
+  cycle.express, and `icp deploy backend -e ic` / `icp deploy frontend
+-e ic`, with the hosty.live API token in `HOSTY_TOKEN` so the sync
+  step can publish the module.
 
-Either way, the user then lists the frontend on the Duel dashboard.
+Either way, the user then lists the frontend on the Duel dashboard;
+until then the game is online but unlisted.
 
 ## Common pitfalls
 

@@ -1,5 +1,5 @@
 // A copy-to-clipboard code snippet, shared by every step-by-step wizard
-// (TutorialWizard.tsx, BotTutorialWizard.tsx) — each wizard page is
+// (TutorialWizard.tsx, BotTutorialWizard.tsx, ...) — each wizard page is
 // nothing but copy-pasteable commands for the developer's own terminal,
 // since this is a browser page and can't run anything on their machine
 // itself.

@@ -1,16 +1,18 @@
 // "Make your own frontend": a player's route to their own client for a
 // game already listed here, written for someone who knows nothing about
-// the Internet Computer or coding. Two ways through: caffeine.ai (chat,
-// builds and hosts the app itself, paid plan) or an AI coding agent on
-// their own computer (free tools; the page goes online through
-// hosty.live, in a canister paid by card). Opened from a
-// game's info dialog it starts filled in for that game; from the header
-// it starts by picking one.
+// the Internet Computer or coding. Three ways through: a Claude Code
+// cloud session (the page goes online through hosty.live, in a canister
+// paid by card, with a free rented preview first), caffeine.ai (chat,
+// builds and hosts the app itself, paid plan), or an AI coding agent on
+// their own computer (hosty.live again). Opened from a game's info dialog
+// it starts filled in for that game; from the header it starts by picking
+// one.
 
 import { useState } from "react";
 
 import { frontendPrompt } from "../frontendPrompt";
 import type { AggregatorActor, GameView, Target } from "../types";
+import { CloudSessionSetup, HostyAccountSteps } from "./CloudSessionSetup";
 import { CodeBlock } from "./CodeBlock";
 import { GamePicker } from "./GamePicker";
 import { Wizard } from "./Wizard";
@@ -18,6 +20,7 @@ import { Wizard } from "./Wizard";
 const STEPS = [
   "Pick a game",
   "How it works",
+  "Set up",
   "Copy the prompt",
   "Describe and build",
   "Put it online",
@@ -81,10 +84,11 @@ export function FrontendTutorialWizard({
             </>
           )}
           {target && step === 1 && <HowItWorksStep />}
-          {target && step === 2 && <PromptStep target={target} />}
-          {target && step === 3 && <BuildStep />}
-          {target && step === 4 && <GoLiveStep backend={target.backend} />}
-          {target && step === 5 && <RegisterStep isLoggedIn={isLoggedIn} />}
+          {target && step === 2 && <SetupStep />}
+          {target && step === 3 && <PromptStep target={target} />}
+          {target && step === 4 && <BuildStep />}
+          {target && step === 5 && <GoLiveStep backend={target.backend} />}
+          {target && step === 6 && <RegisterStep isLoggedIn={isLoggedIn} />}
         </>
       )}
     />
@@ -108,6 +112,21 @@ function HowItWorksStep() {
       <ol className="tutorial-list">
         <li>
           <strong>
+            <a href="https://claude.ai/code" target="_blank" rel="noreferrer">
+              Claude Code on the web
+            </a>{" "}
+            — nothing to install.
+          </strong>{" "}
+          Part of a Claude plan: it builds and tests the page on Anthropic's
+          servers, shows it to you in a free 24-hour preview, and puts it online
+          through{" "}
+          <a href="https://hosty.live" target="_blank" rel="noreferrer">
+            hosty.live
+          </a>{" "}
+          for about a dollar, paid by card. Works from a phone too.
+        </li>
+        <li>
+          <strong>
             <a href="https://caffeine.ai" target="_blank" rel="noreferrer">
               caffeine.ai
             </a>{" "}
@@ -122,18 +141,34 @@ function HowItWorksStep() {
         </li>
         <li>
           <strong>An AI coding tool on your own computer</strong> — Claude Code,
-          Cursor, Codex and the like. Free to build with (beyond the tool's own
-          subscription); the page then goes online through{" "}
-          <a href="https://hosty.live" target="_blank" rel="noreferrer">
-            hosty.live
-          </a>
-          , for about a dollar by card, as step 5 explains. Choose this if you
-          already use one of these tools.
+          Cursor, Codex and the like. The page goes online through hosty.live,
+          as with Claude Code on the web. Choose this if you already work
+          with one of these tools.
         </li>
       </ol>
       <p className="hint">
         Either way the result is yours: the page lives at its own address, and
         you list it here as a game of its own, next to the original.
+      </p>
+    </>
+  );
+}
+
+function SetupStep() {
+  return (
+    <>
+      <p>
+        <strong>For Claude Code on the web</strong>, once: a hosty.live
+        account,
+      </p>
+      <HostyAccountSteps />
+      <p>and a session that can reach it with your token:</p>
+      <CloudSessionSetup />
+      <p>
+        <strong>In caffeine.ai</strong> there is nothing to set up.{" "}
+        <strong>In a coding tool on your computer</strong>, the hosty.live
+        account above is enough for now; connecting the tool to it comes when
+        the page goes online.
       </p>
     </>
   );
@@ -150,7 +185,7 @@ function PromptStep({ target }: { target: Target }) {
       <p className="hint">
         You don't need to understand it. It tells the AI where to find the
         game's rules, how to talk to the game, how to test, and what not to
-        touch. It works both in caffeine.ai and in a coding tool.
+        touch. It works in Claude Code, in caffeine.ai and in a coding tool.
       </p>
     </>
   );
@@ -170,6 +205,12 @@ function BuildStep() {
       />
       <ol className="tutorial-list">
         <li>
+          <strong>In Claude Code on the web:</strong> paste it into the
+          session. It tests the page against a private copy of the game first,
+          then gives you a preview address: the page in a free hosty.live
+          canister that lasts 24 hours.
+        </li>
+        <li>
           <strong>In caffeine.ai:</strong> start a new app and paste it into the
           chat. If it asks questions first, answer them or say “just build it”.
           It shows you a preview of the page when it is done.
@@ -187,11 +228,10 @@ function BuildStep() {
         to here.
       </p>
       <p className="hint">
-        While you test, the page talks to the real game; the prompt tells the AI
-        to use tables with an access code so other players don't wander in. (A
-        coding tool connected to hosty.live, see the next step, tests against a
-        private copy of the game in a free 24-hour canister instead and leaves
-        the real one alone.)
+        The preview plays the real game, so start every table with an access
+        code (the prompt tells the AI the same) and other players won't wander
+        in. A coding tool on your computer tests against a private copy of the
+        game instead and leaves the real one alone.
       </p>
     </>
   );
@@ -201,6 +241,16 @@ function GoLiveStep({ backend }: { backend: string }) {
   return (
     <>
       <ol className="tutorial-list">
+        <li>
+          <strong>In Claude Code on the web:</strong> tell the session
+          <CodeBlock code="Put my frontend online through hosty.live." />
+          It asks you to approve a deploy session in hosty.live (with your
+          passkey; a phone works), creates the page's canister in your account
+          (0.84 TC, about a dollar at the time of writing), uploads the page
+          pointed at the game, and gives you its address and the canister id
+          (the <code>xxxxx-…-cai</code> code). Write both down for the next
+          step.
+        </li>
         <li>
           <strong>In caffeine.ai:</strong> click <strong>Go live</strong> (if
           you can't find it, ask the chat how to put the app online). It puts
