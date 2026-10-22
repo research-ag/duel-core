@@ -92,20 +92,26 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
      "mcpServers": {
        "hosty": {
          "type": "http",
-         "url": "https://api.hosty.live/mcp",
-         "headers": {
-           "Authorization": "Bearer ${HOSTY_TOKEN}"
-         }
+         "url": "https://api.hosty.live/mcp"
        }
      }
    }
    ```
 
-   The file names the token, never holds it.
+   It holds no token, and none ever goes into the repository: the next
+   step adds it outside the session.
 
 2. At https://claude.ai/code creates an environment (or edits the
    default one):
-   - **Environment variables**: `HOSTY_TOKEN=hl_...`, section 1's
+   - **Network secrets** → **Add secret**: secret type **Bearer**, name
+     `hosty.live`, allowed website `api.hosty.live`, and in the custom
+     header row (`Authorization`, prefix `Bearer`) section 1's token as
+     the value. Anthropic's proxy adds it to every request to
+     `api.hosty.live` after the request leaves the session's VM, so the
+     session never sees the token. On a Team plan without an
+     organization admin role the form is shorter: host
+     `api.hosty.live`, secret type **Token**, the token as the value;
+     the session's first `hosty_whoami` confirms it arrives as a Bearer
      token.
    - **Network access**: **Custom**, with "Also include default list"
      on, and these domains: `api.hosty.live`, `icp-api.io`, `icp0.io`,
@@ -120,12 +126,26 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
 
 3. Starts a session on that repository with that environment.
 
+Where the user cannot add a network secret (an Enterprise seat without
+an organization admin role, an organization with customer-managed
+encryption keys), the fallback is an environment variable: add
+`"headers": { "Authorization": "Bearer ${HOSTY_TOKEN}" }` to the
+server in `.mcp.json` (still no token in the file) and
+`HOSTY_TOKEN=hl_...` under the environment's **Environment variables**.
+Anyone who uses that environment, and every command the session runs,
+can read such a variable; revoke the token when the project is done.
+
 **In the session, you:** check `icp --version`, `mops --version` and
-`hosty_whoami` first. A missing `hosty_*` tool means `.mcp.json` or
-`HOSTY_TOKEN` is not in place. Without the file, write it from the
-template, commit and push it; without the variable, the user adds it
-to the environment. Either way the tools appear in the next session on
-that branch: tell the user, and build meanwhile. Unless
+`hosty_whoami` first. A missing `hosty_*` tool means the setup is
+incomplete: without `.mcp.json`, write it from the template, commit
+and push it; without the network secret, the user adds it to the
+environment; the tools appear in the next session on that branch. A
+`401` from `hosty_whoami` means the server was reached but the token
+was not accepted: the user checks `.mcp.json`, that the network
+secret's host is `api.hosty.live` and sends the token as `Bearer`, and
+that the token is not revoked (**Settings** → **AI agent access**).
+Either way, tell the user and build meanwhile. Never ask for the token,
+and never write it into a file or a command. Unless
 `.claude/skills/duel-game-core/` is already there, install this skill
 into the repository and commit it:
 

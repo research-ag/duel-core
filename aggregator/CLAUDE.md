@@ -57,7 +57,8 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   `reachable` locking later steps). Every guide puts a Claude Code
   cloud session first: `CloudSessionSetup.tsx` (the hosty.live account
   and token, then the GitHub repository with its `.mcp.json`, the
-  claude.ai environment's variable, network domains and setup script;
+  claude.ai environment's network secret for `api.hosty.live`, network
+  domains and setup script;
   the texts in `cloudSession.ts`, with `SESSION_RULES`, the paragraph
   every prompt carries). `TutorialWizard.tsx` ("Build a new game")
   stands alone: how it works, the account, the session's setup,

@@ -2,10 +2,7 @@
   "mcpServers": {
     "hosty": {
       "type": "http",
-      "url": "https://api.hosty.live/mcp",
-      "headers": {
-        "Authorization": "Bearer ${HOSTY_TOKEN}"
-      }
+      "url": "https://api.hosty.live/mcp"
     }
   }
 }
