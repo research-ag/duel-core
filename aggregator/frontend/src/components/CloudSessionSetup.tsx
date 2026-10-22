@@ -54,7 +54,10 @@ export function CloudSessionSetup() {
         <a href="https://claude.ai/code" target="_blank" rel="noreferrer">
           claude.ai/code
         </a>
-        , create an environment (or edit the default one):
+        , on the screen where you start a new session, click the first control
+        in the row under the message box (the environment selector). Pick{" "}
+        <strong>New environment</strong>, or hover over <strong>Default</strong>{" "}
+        under <strong>Cloud</strong> and click its settings icon. In the dialog:
         <ul>
           <li>
             <strong>Network secrets</strong> → <strong>Add secret</strong>:
