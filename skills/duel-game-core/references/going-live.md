@@ -101,7 +101,9 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    It holds no token, and none ever goes into the repository: the next
    step adds it outside the session.
 
-2. At https://claude.ai/code, on the new-session screen, opens the
+2. Opens https://claude.ai/code in a browser (in the desktop app, its
+   **Code** tab, not the chat home) and, on a first visit, connects
+   GitHub for that repository. On the new-session screen, opens the
    environment selector (the first control under the message box) and
    either picks **New environment** or edits **Default** (the settings
    icon on its row under **Cloud**). In a running session the same

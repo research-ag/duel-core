@@ -50,14 +50,18 @@ export function CloudSessionSetup() {
         <CodeBlock code={MCP_JSON} />
       </li>
       <li>
-        At{" "}
+        Open{" "}
         <a href="https://claude.ai/code" target="_blank" rel="noreferrer">
           claude.ai/code
-        </a>
-        , on the screen where you start a new session, click the first control
-        in the row under the message box (the environment selector). Pick{" "}
-        <strong>New environment</strong>, or hover over <strong>Default</strong>{" "}
-        under <strong>Cloud</strong> and click its settings icon. In the dialog:
+        </a>{" "}
+        in a browser (in the Claude desktop app: its <strong>Code</strong> tab;
+        the chat home, with a <strong>Project</strong> selector under the
+        message box, is not it). On a first visit it asks you to connect GitHub:
+        allow it for the repository above. On the screen where you start a new
+        session, click the first control in the row under the message box (the
+        environment selector), then <strong>New environment</strong> at the
+        bottom of its menu, or hover over <strong>Default</strong> under{" "}
+        <strong>Cloud</strong> and click its settings icon. In the dialog:
         <ul>
           <li>
             <strong>Network secrets</strong> → <strong>Add secret</strong>:
@@ -84,10 +88,13 @@ export function CloudSessionSetup() {
             <CodeBlock code={SETUP_SCRIPT} />
           </li>
         </ul>
+        Then save the environment.
       </li>
       <li>
-        Start a session on that repository with that environment. It runs on
-        Anthropic's servers, so it works from a phone too.
+        Back on the new-session screen, with that environment selected, pick
+        your repository in the same row and send the prompt from the next step.
+        The session runs on Anthropic's servers, so you can follow it from a
+        phone too.
       </li>
     </ol>
   );
