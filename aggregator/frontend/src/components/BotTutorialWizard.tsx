@@ -202,6 +202,10 @@ function GoLiveStep({ target }: { target: Target }) {
         session in hosty.live (with your passkey; a phone works), creates the
         bot's canister in your account (1.5 TC from your balance), installs
         the bot, and adds it to the game's list of bots in that same session.
+        It checks the game lists it and gives you the bot's canister id (also
+        in its <code>README.md</code>). Ask for changes any time later: each
+        one is tested again and upgrades the same canister, so the bot keeps
+        its place in the list.
       </p>
       <p>
         <strong>With icp-cli</strong> (on your own computer, with your own key

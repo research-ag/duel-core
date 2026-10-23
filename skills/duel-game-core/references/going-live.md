@@ -101,8 +101,14 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    It holds no token, and none ever goes into the repository: the next
    step adds it outside the session.
 
-2. At https://claude.ai/code creates an environment (or edits the
-   default one):
+2. Opens https://claude.ai/code in a browser (in the desktop app, its
+   **Code** tab, not the chat home) and, on a first visit, connects
+   GitHub for that repository. On the new-session screen, opens the
+   environment selector (the first control under the message box) and
+   either picks **New environment** or edits **Default** (the settings
+   icon on its row under **Cloud**). In a running session the same
+   dialog is the caret after the session title → **Edit cloud
+   environment**. In it:
    - **Network secrets** → **Add secret**: secret type **Bearer**, name
      `hosty.live`, allowed website `api.hosty.live`, and in the custom
      header row (`Authorization`, prefix `Bearer`) section 1's token as
