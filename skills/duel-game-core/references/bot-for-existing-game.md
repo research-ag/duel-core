@@ -339,8 +339,10 @@ the canister there.
 the same canister, never a new one: through hosty.live,
 `hosty_prepare_wasm_upload` with the bot's canister id and
 `snapshotBeforeUpgrade: true`; with icp-cli, `icp deploy bot -e ic`
-again. A new canister would be paid for again and listed as a second
-bot. When the name or the complexities change, call `register` again
+again, after `icp canister link bot <bot-id> -e ic` when
+`.icp/data/mappings/ic.ids.json` has no `bot` entry (the bot went up
+through hosty.live, or from another checkout). A new canister would be
+paid for again and listed as a second bot. When the name or the complexities change, call `register` again
 and check `list_bots`.
 
 `register` lists the bot, under its name and complexities, in the
