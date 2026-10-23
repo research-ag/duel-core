@@ -323,6 +323,26 @@ it goes up by either route of `going-live.md`:
   attempts `backend` (which fails) and `sparring` (a paid canister with
   no use on mainnet).
 
+Then check the game lists the bot. `list_bots` is a query anybody may
+send; in a cloud session, which has no identity of its own, send it
+anonymously:
+
+```bash
+icp canister call <backend-id> list_bots '()' -n ic --query --identity anonymous
+```
+
+Write the bot's canister id into `README.md`, with how to build, test
+and update it: a cloud session keeps nothing, and the next one finds
+the canister there.
+
+**Every later version** is tested locally again (step 5), then upgrades
+the same canister, never a new one: through hosty.live,
+`hosty_prepare_wasm_upload` with the bot's canister id and
+`snapshotBeforeUpgrade: true`; with icp-cli, `icp deploy bot -e ic`
+again. A new canister would be paid for again and listed as a second
+bot. When the name or the complexities change, call `register` again
+and check `list_bots`.
+
 `register` lists the bot, under its name and complexities, in the
 game's bot directory (`list_bots`), where every frontend that shows
 bots offers it as an opponent. Calling it again updates the entry;
