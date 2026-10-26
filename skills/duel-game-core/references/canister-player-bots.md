@@ -192,6 +192,19 @@ actor {
 
 ```
 
+## Testing a bot that searches
+
+`test/Bot.test.mo` runs in the interpreter (`moc -r`, what `mops test`
+uses by default), which is far slower than a canister: a minimax that
+answers well within a call on-chain can take minutes per move there.
+Give `chooseMove` its search depth as a parameter (each complexity
+maps to a depth in `BotLogic`) and test legality and tactics at a
+shallow depth: a win in one taken, a loss in one blocked, every reply
+legal. If the full depth needs a test of its own, run that file as
+wasm: `// @testmode wasi` as its first line, and `wasmtime` pinned
+under `[toolchain]` in `mops.toml` (`wasmtime = "36.0.0"` installs on
+Linux) so `mops test` can run it.
+
 ## What NOT to do
 
 - Don't look for the opponent's current pending move — there is no

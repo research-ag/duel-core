@@ -29,7 +29,8 @@ validate; resolve; view }`. Modules, each on its own import subpath:
     `peekNextTableId`, the table-scoped operations (`submit`/`rematch`/
     `leave`/`reset`/`claimWin`/`ackEnded`/`view`, each naming its table
     by id), `tablesOf(player)` (read off the tables, never stored),
-    `MAX_TABLES_PER_PLAYER` (3, `#tooManyTables`), `sweep`,
+    `MAX_TABLES_PER_PLAYER` (3, `#tooManyTables`; a `cp:` player
+    `MAX_TABLES_PER_CANISTER_PLAYER`, 25), `sweep`,
     `setTimeouts` (every host calls it on the line after the
     declaration: a stable `duel` skips `Transport.new` on upgrade), and
     the optional `attachMetrics(pt)` (`mo:promtracker`). Tables are
@@ -111,7 +112,10 @@ n)` supplying `get_leaderboard`. Filled by the transport on every
   `view -> HTML` function per generic screen (lobby/staging/rematch/
   busy/debrief/...), collected in `defaultScreens`, plus
   `renderLeaderboard`/`renderBotList`/`renderSeatChoice`, which a game
-  mounts itself. `app.js` is the default shell: `start({ plugin, transport,
+  mounts itself. `bots.js` mounts those as the default 🏆 and 🤖
+  overlays (`mountLeaderboard`, `mountBotChallenge`) over the headless
+  `createBotInviter` (seats a bot through its `play`, re-invites it on a
+  rematch), which a custom UI uses alone. `app.js` is the default shell: `start({ plugin, transport,
 session, screens?, confirm?, promptCode? })` binds client to screens in
   `#screen` (delegated clicks, spinner, countdowns, header controls,
   error banner, overlays) and returns the client. Also session identity,
@@ -179,8 +183,8 @@ game on the engine. See `aggregator/CLAUDE.md`.
 - Frontend: `app.js`, `render.js`, `idl.js`, `ic-env.js` have zero npm
   dependencies. `transport.js` depends on `@icp-sdk/core/candid`;
   `identity.js` on `@icp-sdk/auth` + `@icp-sdk/core/identity`;
-  `anon-identity.js` on `@icp-sdk/core/identity` only; `module-store.js`
-  on `@icp-sdk/core/agent` + `/principal`. Nothing else may grow a
+  `anon-identity.js` on `@icp-sdk/core/identity` only; `bots.js` and
+  `module-store.js` on `@icp-sdk/core/agent` + `/principal`. Nothing else may grow a
   dependency.
 
 ## Build & test
@@ -196,7 +200,7 @@ mops bench
 
 ```bash
 cd frontend && npm install && npm run build && npm test
-node --check dist/app.js dist/render.js dist/idl.js dist/ic-env.js dist/transport.js dist/identity.js dist/anon-identity.js
+node --check dist/app.js dist/render.js dist/idl.js dist/ic-env.js dist/transport.js dist/identity.js dist/anon-identity.js dist/bots.js
 ```
 
 ### After touching anything under `frontend/`: refresh every example
@@ -337,7 +341,11 @@ add research-ag/duel-core --skill duel-game-core`) — building a game
   going live (a Claude Code cloud session's setup first, then
   hosty.live by MCP or web UI, or icp-cli and cycles, then the
   dashboard), a headless whole-game check (`play-test.mjs.template`),
-  and a new frontend or a bot for an already-deployed game.
+  changing a live game (bot support, a leaderboard; the
+  `check-upgrade.mjs.template` stable-compatibility check against the
+  module the canister runs), and a new frontend or a bot for an
+  already-deployed game. The Host/app/index templates carry bot support
+  and the leaderboard as commented lines marked BOTS/LEADERBOARD.
   Read it first for any game-building task, here or elsewhere.
 - `.agents/skills/` (local, untracked) — general Motoko playbooks:
   `motoko-general-style-guidelines` (2-space indent, 80 cols),

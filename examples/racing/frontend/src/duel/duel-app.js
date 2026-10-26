@@ -1,18 +1,17 @@
 // Bootstrap for the racing duel client: build the actor and push
 // transport, hand off to duel-game-core's generic wiring, publish both on
 // `window.duelActorReady`/`duelTransportReady` so main.ts's own bundle drives the
-// 3D race over the same session and connection, and wire the leaderboard
+// 3D race over the same session and connection, and mount the leaderboard
 // and bot-challenge overlays. Bundled by esbuild (../../build.js).
 
 import { Actor, HttpAgent } from '@icp-sdk/core/agent';
 import { safeGetCanisterEnv } from '@icp-sdk/core/agent/canister-env';
-import { Principal } from '@icp-sdk/core/principal';
-import { makeIdlFactory, buildBotPlayIdlFactory } from '@research-ag/duel-game-core/idl.js';
+import { makeIdlFactory } from '@research-ag/duel-game-core/idl.js';
 import { start } from '@research-ag/duel-game-core/app.js';
+import { botPlayer, mountBotChallenge, mountLeaderboard } from '@research-ag/duel-game-core/bots.js';
 import { connectTransport } from '@research-ag/duel-game-core/transport.js';
 import { resolveIdentity } from '@research-ag/duel-game-core/identity.js';
 import { deriveHost } from '@research-ag/duel-game-core/ic-env.js';
-import { errText, esc, renderBotList, renderLeaderboard, renderSeatChoice, tag } from '@research-ag/duel-game-core/render.js';
 import { plugin } from './duel-racing-plugin.js';
 
 // Set up by an inline script in index.html's <head>, before any module runs.
@@ -53,159 +52,10 @@ window.__resolveDuelActor(actor);
 const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 window.__resolveDuelTransport(transport);
 
-start({ plugin, transport, session });
+const client = start({ plugin, transport, session });
 
-// Leaderboard: a full-page overlay fetched via plain queries on open;
-// `plugin.formatScore` turns each stored score back into a lap time.
-const leaderboardToggle = document.getElementById('leaderboard-toggle');
-const leaderboardBack = document.getElementById('leaderboard-back');
-const leaderboardPanel = document.getElementById('leaderboard-panel');
-const leaderboardBody = document.getElementById('leaderboard-body');
-leaderboardToggle.addEventListener('click', async () => {
-  leaderboardPanel.hidden = false;
-  leaderboardBody.innerHTML = `<p class="muted">Loading…</p>`;
-  try {
-    const [entries, bots] = await Promise.all([actor.get_leaderboard(), actor.list_bots().catch(() => [])]);
-    const botNames = new Map(bots.map((b) => [b.principal.toString(), b.name]));
-    leaderboardBody.innerHTML = renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames });
-  } catch (err) {
-    leaderboardBody.innerHTML = `<p class="error">Could not load the leaderboard.</p>`;
-    console.error(err);
-  }
-});
-leaderboardBack.addEventListener('click', () => {
-  leaderboardPanel.hidden = true;
-});
-
-// "🤖 Bots": two entry points (the staging screen's "Add Bot" button and a
-// leaderboard row's Challenge button) converge on one flow that calls the
-// chosen bot's own `play` directly. See ../../../../../frontend/README.md,
-// "Bot registry".
-const hostPrincipal = Principal.fromText(canisterId);
-const botPanel = document.getElementById('bot-challenge-panel');
-const botBack = document.getElementById('bot-challenge-back');
-const botBody = document.getElementById('bot-challenge-body');
-const botAddPanel = document.getElementById('bot-add-panel');
-const botAddTrigger = document.getElementById('bot-add-trigger');
-
-// `lastBot` remembers the bot and table of the last successful `play`, so a
-// Rematch from that game re-invites it when the reserved staging lands.
-const LAST_BOT_KEY = 'duel-last-bot';
-let lastBot = null;
-try {
-  const saved = JSON.parse(sessionStorage.getItem(LAST_BOT_KEY));
-  if (saved) lastBot = { ...saved, tableId: BigInt(saved.tableId) };
-} catch (_) {}
-function setLastBot(bot) {
-  lastBot = bot;
-  try {
-    if (bot) sessionStorage.setItem(LAST_BOT_KEY, JSON.stringify({ ...bot, tableId: bot.tableId.toString() }));
-    else sessionStorage.removeItem(LAST_BOT_KEY);
-  } catch (_) {}
-}
-// The open seat and code of this session's own staging, tracked off the
-// live status push; `null` on any other screen.
-let staging = null;
-transport.addEventListener('message', (ev) => {
-  const payload = ev.data;
-  if (!payload || 'err' in payload) { staging = null; botAddPanel.hidden = true; return; }
-  const status = payload.view;
-  const atTable = 'atTable' in status ? status.atTable : null;
-  if (lastBot && !(atTable && atTable.id === lastBot.tableId)) setLastBot(null);
-  if (!atTable || tag(atTable.view) !== 'stagingYou') {
-    staging = null;
-    botAddPanel.hidden = true;
-    return;
-  }
-  const v = atTable.view.stagingYou;
-  staging = {
-    tableId: atTable.id,
-    openSeat: tag(v.seat) === 'p1' ? { p2: null } : { p1: null },
-    code: 'code' in v.visibility ? [v.visibility.code] : [],
-  };
-  botAddPanel.hidden = false;
-  if (lastBot && v.reservedForPartner && !pendingBot) {
-    onChallengeClick(lastBot.principalText, lastBot.name, lastBot.complexity);
-  }
-});
-
-let pendingBot = null;
-
-function openBotPanel(bodyHtml) {
-  leaderboardPanel.hidden = true;
-  botPanel.hidden = false;
-  botBody.innerHTML = bodyHtml;
-}
-
-async function loadBotList() {
-  pendingBot = null;
-  openBotPanel(`<p class="muted">Loading…</p>`);
-  try {
-    const bots = await actor.list_bots();
-    botBody.innerHTML = renderBotList(bots, plugin);
-  } catch (err) {
-    botBody.innerHTML = `<p class="error">Could not load bots.</p>`;
-    console.error(err);
-  }
-}
-botAddTrigger.addEventListener('click', () => void loadBotList());
-botBack.addEventListener('click', () => {
-  botPanel.hidden = true;
-  pendingBot = null;
-});
-
-// This session's own staging (`seat === undefined`), or a new table.
-async function stageFor(seat) {
-  if (seat === undefined) return staging;
-  const res = await transport.request(session.sid, { createTable: { seat: { [seat]: null }, visibility: { open: null }, options: {} } });
-  if ('err' in res) throw new Error(errText(res.err));
-  const status = res.view;
-  if (!('atTable' in status) || tag(status.atTable.view) !== 'stagingYou') {
-    throw new Error('Could not stage a table.');
-  }
-  const v = status.atTable.view.stagingYou;
-  return {
-    tableId: status.atTable.id,
-    openSeat: tag(v.seat) === 'p1' ? { p2: null } : { p1: null },
-    code: 'code' in v.visibility ? [v.visibility.code] : [],
-  };
-}
-
-async function inviteBot(seat) {
-  const { principalText, name, complexity } = pendingBot;
-  botBody.innerHTML = `<p class="muted">Inviting ${esc(name)} (${esc(complexity)})…</p>`;
-  try {
-    const { tableId, openSeat, code } = await stageFor(seat);
-    const botActor = Actor.createActor(buildBotPlayIdlFactory, { agent, canisterId: principalText });
-    const res = await botActor.play(hostPrincipal, tableId, openSeat, code, complexity);
-    if ('err' in res) throw new Error(errText(res.err));
-    // The bot's join pushes a fresh status to this connection on its own.
-    setLastBot({ principalText, name, complexity, tableId });
-    botPanel.hidden = true;
-    pendingBot = null;
-  } catch (e) {
-    botBody.innerHTML = `<p class="error">${esc(e && e.message ? e.message : String(e))}</p>`;
-  }
-}
-
-function onChallengeClick(principalText, name, complexity) {
-  pendingBot = { principalText, name, complexity };
-  leaderboardPanel.hidden = true;
-  botPanel.hidden = false;
-  if (staging) {
-    void inviteBot(undefined);
-  } else {
-    botBody.innerHTML = renderSeatChoice(plugin);
-  }
-}
-
-botBody.addEventListener('click', (ev) => {
-  const seatBtn = ev.target.closest('[data-challenge-seat]');
-  if (seatBtn) { void inviteBot(seatBtn.dataset.challengeSeat); return; }
-  const botBtn = ev.target.closest('[data-challenge-bot]');
-  if (botBtn) onChallengeClick(botBtn.dataset.challengeBot, botBtn.dataset.botName || botBtn.dataset.challengeBot, botBtn.dataset.botComplexity || "");
-});
-leaderboardBody.addEventListener('click', (ev) => {
-  const botBtn = ev.target.closest('[data-challenge-bot]');
-  if (botBtn) onChallengeClick(botBtn.dataset.challengeBot, botBtn.dataset.botName || botBtn.dataset.challengeBot, botBtn.dataset.botComplexity || "");
-});
+// "🤖 Bots" (the waiting screen's "Add Bot" and a leaderboard row's
+// Challenge) and the 🏆 overlay, whose rows `plugin.formatScore` turns back
+// into lap times. See frontend/README.md, "Bots and the leaderboard".
+const bots = mountBotChallenge({ client, actor, plugin, play: botPlayer(agent, canisterId) });
+mountLeaderboard({ actor, plugin, sid: session.sid, onChallenge: bots.pick });

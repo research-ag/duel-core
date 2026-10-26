@@ -63,6 +63,10 @@
       "types": "./dist/anon-identity.d.ts",
       "default": "./dist/anon-identity.js"
     },
+    "./bots.js": {
+      "types": "./dist/bots.d.ts",
+      "default": "./dist/bots.js"
+    },
     "./module-store.js": {
       "types": "./dist/module-store.d.ts",
       "default": "./dist/module-store.js"

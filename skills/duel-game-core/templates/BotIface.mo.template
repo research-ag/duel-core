@@ -1,0 +1,23 @@
+// How the host asks a seated bot canister for its move: the one function
+// only game code can write, since its result type is the game's `Action`.
+// Copy verbatim to src/BotIface.mo when the Host's BOTS lines are on.
+
+import Principal "mo:core/Principal";
+import TP "mo:duel-game-core";
+import CanisterPlayers "mo:duel-game-core/canister_players";
+
+import Rules "__RULES_MODULE__";
+
+module {
+  public type CanisterPlayer = actor {
+    make_move : (TP.MoveRequest<Rules.View, Rules.Action>) -> async Rules.Action;
+  };
+
+  /// Asks a seated bot canister for its move; the transport's `CallBot`.
+  public func callBot<system>(bot : TP.PlayerId, req : TP.MoveRequest<Rules.View, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
+    let b : CanisterPlayer = actor (CanisterPlayers.principalOfCanisterSession(bot).toText());
+    try { await* k<system>(?(await b.make_move(req))) } catch (_) {
+      await* k<system>(null);
+    };
+  };
+};

@@ -51,13 +51,10 @@ data-act>` while intermediate clicks are local `<div data-sq>` state
   faded ghosts `.cb-last-captured`) is found by diffing consecutive
   boards, since `State` has no move history. `applyLocal` mirrors
   `resolve` (captures, crowning) so your own move shows while it is in
-  flight. `renderActions` returns `""`. `app.js` wires identity, `connectTransport`, `start()`, the 🏆
-  leaderboard overlay (fetching `list_bots()` alongside for bot names),
-  and the 🤖 Bots overlay: `list_bots()` → `renderBotList`; picking a bot
-  fills the player's own staged table or shows `renderSeatChoice` and
-  creates one via `transport.request(createTable)`, then calls the bot's `play`
-  via `buildBotPlayIdlFactory`; a Rematch re-issues the same `play` when
-  the reserved `stagingYou` lands (remembered in `sessionStorage`).
+  flight. `renderActions` returns `""`. `app.js` wires identity, `connectTransport`, `start()`, and
+  `bots.js`'s `mountBotChallenge`/`mountLeaderboard` over the 🏆 and 🤖
+  overlays in `index.html` (the same `app.js` in every default-UI
+  example; see `frontend/README.md`, "Bots and the leaderboard").
 
 ## Toolchain
 

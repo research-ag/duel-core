@@ -1,16 +1,23 @@
-// Host actor for __GAME_SLUG__. Copy verbatim; only the `Rules` import
-// and the two timeouts change between games. `http_request` is the only
-// plain Candid method — every game read and mutation goes through
-// `mo:duel-game-core/transport`.
+// Host actor for __GAME_SLUG__. Copy verbatim; only the `Rules` import,
+// the two timeouts, and the two optional features change between games.
+// Each optional feature is the lines marked with its name: uncomment all
+// of them to turn it on (SKILL.md Step 4), and replace the `null` they
+// stand next to. `http_request` is the only plain Candid method — every
+// game read and mutation goes through `mo:duel-game-core/transport`.
 
 import TP "mo:duel-game-core";
 import Registry "mo:duel-game-core/registry";
 import Transport "mo:duel-game-core/transport";
 import TransportActorMixin "mo:duel-game-core/transport_actor_mixin";
 import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
+// import CanisterPlayers "mo:duel-game-core/canister_players"; // BOTS
+// import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin"; // BOTS
+// import Leaderboard "mo:duel-game-core/leaderboard"; // LEADERBOARD
+// import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin"; // LEADERBOARD
 import PT "mo:promtracker";
 import Tracker "mo:promtracker/Tracker"; // brings `pt.toValue()` into scope
 
+// import BotIface "BotIface"; // BOTS
 import Rules "__RULES_MODULE__";
 
 actor {
@@ -26,12 +33,15 @@ actor {
   duel.registry.setTimeouts(__IDLE_TIMEOUT_NS__, __CLAIM_TIMEOUT_NS__); // re-applied on every upgrade
   duel.registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
 
-  // The function values the framework calls — the game's rules. No bots,
-  // no leaderboard. Rebuilt on every upgrade.
+  // let bots = CanisterPlayers.newStore(); // BOTS: the bot directory and in-flight asks — stable
+  // let leaderboard = Leaderboard.new(50, 1200); // LEADERBOARD: keep 50, start at 1200 — stable
+
+  // The function values the framework calls — the game's rules, and how
+  // to ask a seated bot and score a finished game. Rebuilt on every upgrade.
   transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
     spec = Rules.spec;
-    bots = null;
-    scoring = null;
+    bots = null; // BOTS: ?{ store = bots; call = BotIface.callBot }
+    scoring = null; // LEADERBOARD: ?{ board = leaderboard; rating = #elo { k = 32 } }
   };
 
   // Every method that names none of the game's types, and the sweep timer.
@@ -53,6 +63,14 @@ actor {
   public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.View> {
     duel.table(env, caller, tableId, rev);
   };
+
+  // BOTS: join/leave/ack/claim/reset as a canister player, and
+  // register_bot/unregister_bot/list_bots. With LEADERBOARD too, pass
+  // `?leaderboard` for `null` so `list_bots` carries each bot's rating.
+  // include CanisterPlayersActorMixin(duel.canisterPlayers(env), bots.directory, null);
+
+  // LEADERBOARD: get_leaderboard(), the top 25.
+  // include LeaderboardActorMixin(leaderboard, 25);
 
   // GET /semantics — the rules text a third-party frontend is built from;
   // GET /metrics — the metrics above.

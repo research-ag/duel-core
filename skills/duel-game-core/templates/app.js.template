@@ -1,12 +1,14 @@
 // Bootstrap for __GAME_TITLE__: build the actor and transport, hand
 // off to duel-game-core's generic wiring. Bundled by esbuild (../build.js)
 // into dist/app.js, so every import resolves from node_modules at build
-// time.
+// time. The lines marked BOTS or LEADERBOARD go with the Host's lines of
+// the same name, and index.html's.
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 import { makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
 import { start } from "@research-ag/duel-game-core/app.js";
+// import { botPlayer, mountBotChallenge, mountLeaderboard } from "@research-ag/duel-game-core/bots.js"; // BOTS, LEADERBOARD
 import { connectTransport } from "@research-ag/duel-game-core/transport.js";
 import { resolveAnonymousIdentity } from "@research-ag/duel-game-core/anon-identity.js";
 import { deriveHost } from "@research-ag/duel-game-core/ic-env.js";
@@ -37,4 +39,10 @@ const actor = Actor.createActor(idlFactory, { agent, canisterId });
 
 const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 
-start({ plugin, transport, session });
+const client = start({ plugin, transport, session });
+
+// BOTS: "Add Bot" on the waiting screen and the "🤖 Bots" dialog.
+// const bots = mountBotChallenge({ client, actor, plugin, play: botPlayer(agent, canisterId) });
+// LEADERBOARD: the 🏆 overlay, one line of the two.
+// mountLeaderboard({ actor, plugin, sid: session.sid, onChallenge: bots.pick }); // with BOTS
+// mountLeaderboard({ actor, plugin, sid: session.sid }); // without

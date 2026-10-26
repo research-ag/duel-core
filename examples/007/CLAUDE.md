@@ -57,13 +57,14 @@ yourSid })`. Bots are `app.js`'s too: the 🤖 toggle opens
   `#bots-panel` (`renderBotList` over `actor.list_bots()`), and a
   "Engage" button (there or on a leaderboard bot row; `render.js`'s "Challenge" relabelled in `app.js`, styled as a stamp) either fills the
   open seat of the file the player is standing by on, or, from the index,
-  asks for a seat in `#challenge-seat` (`renderSeatChoice`), stages an
-  open file, and calls the bot's own `play`. The staging screen's "Add a
+  asks for a seat in `#challenge-seat` (`renderSeatChoice`) and has
+  `bots.js`'s headless `createBotInviter` stage an open file and call
+  the bot's own `play`. The staging screen's "Add a
   bot" (`data-op="add-bot"`, handled through `mountMissionUi`'s
-  `onAddBot`; the returned `setInviting` shows "Calling in …") skips the
-  seat step. After a rematch the staged file is reserved for the bot, so
-  `app.js` re-issues the same `play` from the id/complexity kept in
-  `sessionStorage`. `style.css` is self-contained; `duel-game-core.css`
+  `onAddBot`; the returned `setInviting` shows "Calling in …" from the
+  call until the bot's join lands) skips the seat step. After a rematch
+  the staged file is reserved for the bot, and the inviter re-issues the
+  same `play`. `style.css` is self-contained; `duel-game-core.css`
   is not loaded.
 
 ## Toolchain

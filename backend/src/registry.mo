@@ -15,14 +15,26 @@ import T "./types";
 /// Many independent `Table`s behind one `Registry`. Every operation names
 /// its table by id (except `createTable`, which makes one) and delegates
 /// to `Table`; no game logic is reimplemented. A player may be at up to
-/// `MAX_TABLES_PER_PLAYER` tables at once; which ones is read off the
-/// tables themselves (`tablesOf`), never stored separately.
+/// `MAX_TABLES_PER_PLAYER` tables at once (a canister player, which only
+/// ever joins when invited: `MAX_TABLES_PER_CANISTER_PLAYER`); which ones
+/// is read off the tables themselves (`tablesOf`), never stored separately.
 module {
 
   public type Registry<S, M, O> = T.Registry<S, M, O>;
 
   /// Caps how many tables one player holds, so nobody hogs the lobby.
   public let MAX_TABLES_PER_PLAYER : Nat = 3;
+
+  /// The same cap for one `cp:` player id (a bot at one complexity), which
+  /// plays every human who invites it.
+  public let MAX_TABLES_PER_CANISTER_PLAYER : Nat = 25;
+
+  /// The player-id prefix of a canister player (`canister_players.mo`).
+  public let CP_ID_PREFIX : Text = "cp:";
+
+  public func maxTablesOf(player : T.PlayerId) : Nat {
+    if (player.startsWith(#text CP_ID_PREFIX)) MAX_TABLES_PER_CANISTER_PLAYER else MAX_TABLES_PER_PLAYER;
+  };
 
   /// Starts at 90s idle / 60s claim; a host overrides them with
   /// `setTimeouts` on the next line.
@@ -210,9 +222,8 @@ module {
   };
 
   func atCapacity<S, M, O>(reg : Registry<S, M, O>, player : T.PlayerId) : ?T.Err {
-    if (tablesOf(reg, player).size() >= MAX_TABLES_PER_PLAYER) {
-      ?#tooManyTables { max = MAX_TABLES_PER_PLAYER };
-    } else null;
+    let max = maxTablesOf(player);
+    if (tablesOf(reg, player).size() >= max) ?#tooManyTables { max } else null;
   };
 
   func withTable<S, M, O, R>(

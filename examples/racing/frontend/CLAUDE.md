@@ -15,12 +15,11 @@ Plain TypeScript, no framework, one track and one car:
   filtering are hardcoded constants; don't add a settings UI unasked.
 - duel-game-core's generic screens (`#screen`, driven by
   `src/duel/duel-app.js` + `duel-racing-plugin.js`) own everything before
-  and after a race. `duel-app.js` also wires, by hand and off the shared
-  `transport`/`session`/`actor`, the `#leaderboard-toggle`/`#leaderboard-panel`
-  and `#bot-challenge-toggle`/`#bot-challenge-panel` overlays (both
-  styled by the shared `@research-ag/duel-game-core/style.css`, hidden during a race
-  via `body.in-race`). The only per-challenge actor is the chosen bot's
-  own `play`, built from `buildBotPlayIdlFactory`.
+  and after a race. `duel-app.js` also mounts `bots.js`'s leaderboard and bot-challenge
+  overlays (`#leaderboard-panel`, `#bot-challenge-panel`,
+  `#bot-add-panel`; styled by the shared
+  `@research-ag/duel-game-core/style.css`, hidden during a race via
+  `body.in-race`).
 - `duel-app.js` uses `resolveIdentity()` — never the anonymous default
   identity, which the canister refuses (`#unauthorized`; symptom: a
   lobby stuck on loading). The keypair persists in `sessionStorage`; its

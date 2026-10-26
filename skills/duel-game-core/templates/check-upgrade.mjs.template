@@ -1,0 +1,78 @@
+// Proves an upgrade of a live backend keeps its tables before you deploy
+// it: compares the stable signature of the module the canister runs
+// (fetched from hosty.live's module store by its certified module_hash)
+// with the one src/__HOST_FILE__ compiles to now, using moc's own
+// --stable-compatible. Also prints how the Candid interface changes.
+//
+//   cd frontend && node check-upgrade.mjs <backend-id>
+//
+// Exit 0: the upgrade keeps every stable variable. Exit 1: it would not
+// (moc says which); fix the change or write a migration. Exit 2: nothing
+// to compare. Needs `mops` and the network (icp-api.io, api.hosty.live).
+
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fetchGameModule, rawWasm } from "@research-ag/duel-game-core/module-store.js";
+
+const backendId = process.argv[2];
+if (!backendId) {
+  console.error("usage: node check-upgrade.mjs <backend-id>");
+  process.exit(2);
+}
+
+const root = resolve(import.meta.dirname, "..");
+const work = mkdtempSync(join(tmpdir(), "check-upgrade-"));
+const sh = (cmd, args) => execFileSync(cmd, args, { cwd: root, encoding: "utf8" }).trim();
+
+function section(wasm, name) {
+  const mod = new WebAssembly.Module(wasm);
+  for (const vis of ["public", "private"]) {
+    const [s] = WebAssembly.Module.customSections(mod, `icp:${vis} ${name}`);
+    if (s) return new TextDecoder().decode(s);
+  }
+  return null;
+}
+
+const live = await rawWasm(await fetchGameModule(backendId));
+const liveTypes = section(live, "motoko:stable-types");
+if (liveTypes === null) {
+  console.error(`${backendId}'s module carries no motoko:stable-types section.`);
+  process.exit(2);
+}
+writeFileSync(join(work, "live.most"), liveTypes);
+
+const moc = sh("mops", ["toolchain", "bin", "moc"]);
+const sources = sh("mops", ["sources"]).split(/\s+/).filter(Boolean);
+try {
+  execFileSync(moc, [...sources, "--stable-types", "--idl", "-o", join(work, "new.wasm"), "src/__HOST_FILE__"], {
+    cwd: root,
+    stdio: "inherit",
+  });
+} catch {
+  console.error("src/__HOST_FILE__ does not compile.");
+  process.exit(2);
+}
+
+const uncommented = (did) => did.replace(/^\s*\/\/.*\n/gm, "").trim() + "\n";
+const liveDid = uncommented(section(live, "candid:service") ?? "");
+const newDid = uncommented(readFileSync(join(work, "new.did"), "utf8"));
+writeFileSync(join(work, "new.did"), newDid);
+if (liveDid === newDid) {
+  console.log("Candid: unchanged.");
+} else {
+  writeFileSync(join(work, "live.did"), liveDid);
+  console.log("Candid changes (live → new); a removed or changed type breaks existing frontends and bots:");
+  try {
+    execFileSync("diff", ["-u", join(work, "live.did"), join(work, "new.did")], { stdio: "inherit" });
+  } catch {}
+}
+
+try {
+  execFileSync(moc, ["--stable-compatible", join(work, "live.most"), join(work, "new.most")], { stdio: "inherit" });
+  console.log("Stable signature: compatible — the upgrade keeps the live data.");
+} catch {
+  console.error("Stable signature: NOT compatible — this upgrade would fail or drop data.");
+  process.exit(1);
+}

@@ -163,7 +163,8 @@ so does the lobby. A client that sends the `rev` it holds gets
 idle table is one counter comparison.
 
 **Several tables.** A player may sit at up to
-`MAX_TABLES_PER_PLAYER` (3) tables at once; every table request names
+`MAX_TABLES_PER_PLAYER` (3) tables at once (a bot, which only joins
+when invited, `MAX_TABLES_PER_CANISTER_PLAYER`, 25); every table request names
 its table. Which tables are a player's is read off the tables
 themselves (`Registry.tablesOf`), never kept separately.
 
