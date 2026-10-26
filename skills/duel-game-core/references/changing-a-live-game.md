@@ -82,9 +82,11 @@ It downloads the module the canister runs, compiles `src/Host.mo` with
 the project's own moc, and runs `moc --stable-compatible` on the two
 stable signatures. Exit 0 is the go-ahead. Exit 1 prints moc's reason
 (a stable variable dropped or changed in type): change the code back,
-or write an explicit migration. It also prints any change to the Candid
-interface; a removed method or a changed type breaks frontends and bots
-other people built against the old one.
+or write an explicit migration. It also runs `mops check-candid` on the
+new interface against the live one and exits 1 when a method is removed
+or a type changes incompatibly, which would break frontends and bots
+other people built against the old one; the diff it prints is for
+reading.
 
 ## 5. The page
 

@@ -509,10 +509,11 @@ with this markup next to `#screen` (styled by `style.css`):
 - `mountBotChallenge` shows "Add Bot" only while this session waits at
   its own table; it opens the bot list (`renderBotList`), and a
   Challenge there fills that table's open seat. `bots.pick(bot)` is the
-  same entry from elsewhere: while not waiting, it first asks for a seat
+  same entry from elsewhere: from the lobby, it first asks for a seat
   (`renderSeatChoice`), then creates an open table through
   `client.createTable` with the plugin's first `optionChoices()` entry
-  (`options` overrides it). The panel shows "Inviting <bot>…" and the
+  (`options` overrides it); at any other table it asks the player to
+  leave it first. The panel shows "Inviting <bot>…" and the
   bot's error, if any, worded as the bot's (`botErrText`: a bot at its
   own table cap is "already playing N games"). `bots.open()` shows the
   list from any other control (a header 🤖 button).

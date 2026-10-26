@@ -2,13 +2,15 @@
 // it: compares the stable signature of the module the canister runs
 // (fetched from hosty.live's module store by its certified module_hash)
 // with the one src/__HOST_FILE__ compiles to now, using moc's own
-// --stable-compatible. Also prints how the Candid interface changes.
+// --stable-compatible, and checks the new Candid interface against the
+// live one with `mops check-candid`.
 //
 //   cd frontend && node check-upgrade.mjs <backend-id>
 //
-// Exit 0: the upgrade keeps every stable variable. Exit 1: it would not
-// (moc says which); fix the change or write a migration. Exit 2: nothing
-// to compare. Needs `mops` and the network (icp-api.io, api.hosty.live).
+// Exit 0: the upgrade keeps every stable variable and every client of
+// the live interface. Exit 1: it would not (moc or mops says which); fix
+// the change or write a migration. Exit 2: nothing to compare. Needs
+// `mops` and the network (icp-api.io, api.hosty.live).
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -55,18 +57,35 @@ try {
   process.exit(2);
 }
 
+const liveDidText = section(live, "candid:service");
+if (liveDidText === null) {
+  console.error(`${backendId}'s module carries no candid:service section.`);
+  process.exit(2);
+}
+writeFileSync(join(work, "live.did"), liveDidText);
+
+// The diff is for reading only; `mops check-candid` decides.
 const uncommented = (did) => did.replace(/^\s*\/\/.*\n/gm, "").trim() + "\n";
-const liveDid = uncommented(section(live, "candid:service") ?? "");
+const liveDid = uncommented(liveDidText);
 const newDid = uncommented(readFileSync(join(work, "new.did"), "utf8"));
-writeFileSync(join(work, "new.did"), newDid);
 if (liveDid === newDid) {
   console.log("Candid: unchanged.");
 } else {
-  writeFileSync(join(work, "live.did"), liveDid);
-  console.log("Candid changes (live → new); a removed or changed type breaks existing frontends and bots:");
+  writeFileSync(join(work, "live.plain.did"), liveDid);
+  writeFileSync(join(work, "new.plain.did"), newDid);
+  console.log("Candid changes (live → new):");
   try {
-    execFileSync("diff", ["-u", join(work, "live.did"), join(work, "new.did")], { stdio: "inherit" });
+    execFileSync("diff", ["-u", join(work, "live.plain.did"), join(work, "new.plain.did")], { stdio: "inherit" });
   } catch {}
+}
+
+let ok = true;
+try {
+  execFileSync("mops", ["check-candid", join(work, "new.did"), join(work, "live.did")], { cwd: root, stdio: "inherit" });
+  console.log("Candid: compatible — existing frontends and bots keep working.");
+} catch {
+  console.error("Candid: NOT compatible — a removed method or changed type breaks existing frontends and bots.");
+  ok = false;
 }
 
 try {
@@ -74,5 +93,6 @@ try {
   console.log("Stable signature: compatible — the upgrade keeps the live data.");
 } catch {
   console.error("Stable signature: NOT compatible — this upgrade would fail or drop data.");
-  process.exit(1);
+  ok = false;
 }
+if (!ok) process.exit(1);

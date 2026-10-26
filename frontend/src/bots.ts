@@ -245,7 +245,8 @@ export interface BotChallenge extends BotInviter {
   /// Shows the bot list.
   open(): void;
   /// Starts a challenge from outside the panel (a leaderboard row):
-  /// asks for a seat first unless this session is already waiting.
+  /// fills this session's waiting table, or asks for a seat from the
+  /// lobby; anywhere else, asks the player to leave their table first.
   pick(bot: BotRef): void;
 }
 
@@ -283,6 +284,12 @@ export function mountBotChallenge(opts: BotChallengeOptions): BotChallenge {
   function pick(bot: BotRef): void {
     if (inviter.getState().staging !== null) {
       void inviter.challenge(bot);
+      return;
+    }
+    const { status } = opts.client.getState();
+    if (status === null || !("browsing" in status)) {
+      picked = null;
+      show(`<p class="error">Leave your current table before challenging a bot.</p>`);
       return;
     }
     picked = bot;

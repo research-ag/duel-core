@@ -411,7 +411,7 @@ curl https://<backend-id>.raw.icp0.io/semantics
 `icp canister status frontend -e ic -i` is the page's id; the page is
 at `https://<frontend-id>.icp0.io/`. Later deploys of the same project
 upgrade the same canisters and keep the backend's tables, which
-`node check-upgrade.mjs <backend-id>` (in `frontend/`) proves before
+`(cd frontend && node check-upgrade.mjs <backend-id>)` proves before
 each one. A canister's
 balance shows in `icp canister status <name> -e ic`; topping it up is
 cycle.express again, with the canister id as the recipient, or `icp

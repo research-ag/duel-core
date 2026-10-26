@@ -210,6 +210,22 @@ test("mountBotChallenge: Add Bot shows only while waiting; list → pick → inv
   assert.equal(els["bot-challenge-panel"].hidden, true);
 });
 
+test("mountBotChallenge: a Challenge while seated elsewhere asks to leave first and opens no table", async () => {
+  const { mountBotChallenge } = await import("../src/bots.js");
+  const els = dom();
+  const c = fakeClient(inGame());
+  const p = fakePlay();
+  const bots = mountBotChallenge({ client: c.client, actor, plugin, play: p.play, storage: new FakeStorage() });
+  bots.pick(bot);
+  assert.equal(els["bot-challenge-panel"].hidden, false);
+  assert.match(els["bot-challenge-body"].innerHTML, /Leave your current table/);
+  assert.doesNotMatch(els["bot-challenge-body"].innerHTML, /data-challenge-seat/);
+  els["bot-challenge-body"].dispatch("click", { target: makeButton({ challengeSeat: "p1" }) });
+  await tick();
+  assert.equal(c.created.length, 0);
+  assert.equal(p.calls.length, 0);
+});
+
 test("mountBotChallenge + mountLeaderboard: a leaderboard Challenge while browsing asks for a seat, then creates with the first option", async () => {
   const { mountBotChallenge, mountLeaderboard } = await import("../src/bots.js");
   const els = dom();

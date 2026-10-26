@@ -561,7 +561,7 @@ Either way, the user then lists the frontend on the Duel dashboard;
 until then the game is online but unlisted. Write the repository's
 `CLAUDE.md` from its template once the canister ids exist, and keep the
 game on the default branch. Every later upgrade of the backend first
-passes `node check-upgrade.mjs <backend-id>`
+passes `(cd frontend && node check-upgrade.mjs <backend-id>)`
 (`references/changing-a-live-game.md`).
 
 ## Common pitfalls
