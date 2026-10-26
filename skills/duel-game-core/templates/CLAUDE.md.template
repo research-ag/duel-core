@@ -1,0 +1,37 @@
+# __GAME_TITLE__
+
+A 2-player game on duel-game-core
+(https://github.com/research-ag/duel-core): `src/__RULES_MODULE__.mo`
+holds the rules, `src/Host.mo` the host actor, `frontend/` the page.
+Read `.claude/skills/duel-game-core/SKILL.md` before changing anything;
+for a change to the live game, its `references/changing-a-live-game.md`.
+
+## Live
+
+| Canister | Id                | Runs                               |
+| -------- | ----------------- | ---------------------------------- |
+| backend  | `__BACKEND_ID__`  | the game; the module store has it  |
+| frontend | `__FRONTEND_ID__` | https://__FRONTEND_ID__.icp0.io/   |
+| bot      | `__BOT_ID__`      | `bot/`, registered as "__BOT_NAME__" |
+
+Deployed through __ROUTE__ (`going-live.md`: hosty.live, or icp-cli).
+Drop the bot row when there is none.
+
+## What the game runs
+
+- Mode: `#__MODE__`.
+- Bot support (the Host's and the page's BOTS lines): __BOTS__.
+- Leaderboard (LEADERBOARD lines, rating `__RATING__`): __LEADERBOARD__.
+- A bot canister: __BOT_CANISTER__ (complexities: __COMPLEXITIES__).
+- duel-game-core: __BACKEND_PACKAGE__ (mops) and
+  `@research-ag/duel-game-core` __NPM_VERSION__ (npm).
+
+## Working here
+
+- The default branch is the game: merge finished work there, and
+  update this file whenever a canister or a feature changes.
+- `mops test`; `cd frontend && npm run build && node play-test.mjs`.
+- Before upgrading the backend: `cd frontend && node check-upgrade.mjs
+<backend-id>` must exit 0.
+- A change to `View`, `Action`, `Options` or the rules updates
+  `SEMANTICS` in the same change.

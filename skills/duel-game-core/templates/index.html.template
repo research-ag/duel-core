@@ -11,17 +11,46 @@
     <header>
       <h1>__GAME_TITLE__</h1>
       <div class="session">
+        <!-- LEADERBOARD:
+        <button id="leaderboard-toggle" title="Leaderboard" aria-label="Leaderboard">🏆</button>
+        -->
         <span class="label">Session</span>
         <code id="sid">…</code>
         <button id="new-sid" title="Play as a different session">new</button>
       </div>
     </header>
 
+    <!-- LEADERBOARD:
+    <div id="leaderboard-panel" hidden>
+      <div class="leaderboard-header">
+        <button id="leaderboard-back" class="ghost">← Back</button>
+        <h2>🏆 Top players</h2>
+      </div>
+      <div id="leaderboard-body" class="leaderboard-list"></div>
+    </div>
+    -->
+
+    <!-- BOTS:
+    <div id="bot-challenge-panel" hidden>
+      <div class="bot-challenge-header">
+        <button id="bot-challenge-back" class="ghost">← Back</button>
+        <h2>🤖 Bots</h2>
+      </div>
+      <div id="bot-challenge-body" class="bot-challenge-body"></div>
+    </div>
+    -->
+
     <p id="error" class="error" hidden></p>
 
     <main id="screen">
       <p class="muted">Connecting…</p>
     </main>
+
+    <!-- BOTS:
+    <div id="bot-add-panel" hidden>
+      <button id="bot-add-trigger" class="ghost">Add Bot 🤖 to the open seat</button>
+    </div>
+    -->
 
     <footer>
       <p class="muted">

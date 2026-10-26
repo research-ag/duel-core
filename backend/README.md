@@ -9,7 +9,9 @@ diagrams; this page is the API.
 
 - **Players** — a player is the caller's principal (a bot:
   `cp:<principal>:<complexity>`); the anonymous principal is refused.
-  One player may sit at up to `MAX_TABLES_PER_PLAYER` (3) tables at once.
+  One player may sit at up to `MAX_TABLES_PER_PLAYER` (3) tables at once;
+  a bot, which only joins when invited, at `MAX_TABLES_PER_CANISTER_PLAYER`
+  (25) per complexity.
 - **Tables** — anyone opens a table, `#open` or protected by an access
   code shared out of band. Both kinds are browsable (a protected one is
   flagged, and shows who already holds a seat); any number run at once,
@@ -98,8 +100,9 @@ createdBy, options)` plus `join`/`submit`/`rematch`/`leave`/`reset`/
   `claimWin`/`ackEnded`/`view` name their table by id and delegate to
   `Table`. `tablesOf(player)` lists the tables a player has business at
   (seated, reserved for, or holding an unacked notice) — read off the
-  tables, never stored; `MAX_TABLES_PER_PLAYER` caps it
-  (`#tooManyTables`). `sweep` evicts and garbage-collects across every
+  tables, never stored; `maxTablesOf(player)` caps it
+  (`#tooManyTables`): `MAX_TABLES_PER_PLAYER`, or
+  `MAX_TABLES_PER_CANISTER_PLAYER` for a `cp:` id. `sweep` evicts and garbage-collects across every
   table, sparing a waiting table whose creator passes the `isPresent`
   predicate. `attachMetrics(pt)` is optional (see Metrics).
   `peekNextTableId` is a pure read of the id nonce.
@@ -433,8 +436,8 @@ trap, error, or any other rejection is treated as silence and left to
 **The mixin** supplies `join_table_as_canister`/`leave_as_canister`/
 `ack_ended_as_canister`/`claim_win_as_canister`/`reset_as_canister` plus
 `register_bot`/`unregister_bot`/`list_bots`. A bot never opens a table:
-a human opens one and invites the bot (the lobby's "🤖 Bots" dialog,
-which calls the bot's own `play`). There is no `submit_as_canister` (a
+a human opens one and invites the bot (the frontend's "🤖 Bots" dialog,
+`bots.js`'s `mountBotChallenge`, which calls the bot's own `play`). There is no `submit_as_canister` (a
 move only ever arrives as the reply to `make_move`) and no
 `rematch_as_canister` (a bot-vs-bot debrief auto-acks; a human-vs-bot
 rematch is the human's frontend re-issuing `play`). A lobby shows "vs 🤖" from `TableSummary.p1Session`/

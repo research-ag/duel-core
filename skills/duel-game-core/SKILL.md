@@ -1,6 +1,6 @@
 ---
 name: duel-game-core
-description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko rules module (Spec<S,M,V,O>), Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, a game whose ending takes many rounds to reach in a test, or putting the result online, through hosty.live from a Claude Code cloud session or a computer, or with icp-cli) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
+description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko rules module (Spec<S,M,V,O>), Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, a game whose ending takes many rounds to reach in a test, or putting the result online, through hosty.live from a Claude Code cloud session or a computer, or with icp-cli) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants to change a live game of their own — add bot support, a leaderboard, a bot, or anything else (references/changing-a-live-game.md) — or wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
 ---
 
 # Building a duel-game-core Game From Rules Alone
@@ -22,11 +22,18 @@ are genuinely ambiguous about game logic (a win condition, a limit),
 never about engine mechanics (seating, rematch, timeouts — already
 handled).
 
+Two words recur. **Bot support** is the game seating canister players:
+the Host's BOTS lines, `src/BotIface.mo`, and the page's 🤖 dialog. **A
+bot** is a separate canister that plays (`bot/`), which needs bot
+support first. "Add bots" can mean either; when the words don't settle
+it, ask.
+
 A finished game is six pieces of game-specific code:
 
 1. `src/<Rules>.mo` — a pure module exporting `State`, `Action`, `View`,
    `Options` and a `spec : TP.Spec<State, Action, View, Options>`.
-2. `src/Host.mo` — a thin host actor; copy the template.
+2. `src/Host.mo` — a thin host actor; copy the template (with bot
+   support, `src/BotIface.mo` too).
 3. `test/RulesUnit.test.mo` — unit checks for your rules functions (the
    engine has its own suite).
 4. `frontend/src/<game>-plugin.js` — a `GamePlugin`.
@@ -37,11 +44,12 @@ A finished game is six pieces of game-specific code:
    fill in names.
 
 Every template lives in `templates/`; read each one right before adapting
-it. `references/` covers seven situations the templates don't:
+it. `references/` covers eight situations the templates don't:
 `turn-based-games.md`, `canister-player-bots.md`, `rich-ui.md`,
 `testing-deep-dive.md`, `going-live.md` (a Claude Code cloud
 session's setup, and putting any of this online, through hosty.live or
-with icp-cli), and, for a game
+with icp-cli), `changing-a-live-game.md` (bot support, a leaderboard or
+any other change to a game already online), and, for a game
 someone else already deployed, from its canister id alone,
 `frontend-for-existing-game.md` (a new frontend) and
 `bot-for-existing-game.md` (a canister player) — read them only when
@@ -222,7 +230,9 @@ the line after `Transport.new()`: a stable `duel` runs its initializer
 only on first install, while `setTimeouts` runs on every upgrade. Keep
 `idleTimeoutNs` comfortably above `claimTimeoutNs` (at least 15s of
 margin) — an idle game can otherwise be taken over by a third party
-before its own claim window even opens. Change nothing else.
+before its own claim window even opens. Change nothing else, except
+the lines marked BOTS or LEADERBOARD, which you turn on only for a
+feature the user asked for (below).
 
 What the template wires:
 
@@ -273,58 +283,21 @@ promtracker's README). Check after a deploy:
 curl http://$ID.raw.localhost:8000/metrics
 ```
 
-**Canister players (optional).** Only if asked for a bot/AI opponent.
-Nothing to add to `mops.toml`. The inter-canister call to the bot is
-the one function only game code can write (its result type is your
-`Action`), so it lives in `src/BotIface.mo` next to the bot's actor
-type:
-
-```motoko
-// src/BotIface.mo
-import Principal "mo:core/Principal";
-import CanisterPlayers "mo:duel-game-core/canister_players";
-import TP "mo:duel-game-core";
-import Rules "__RULES_MODULE__";
-
-module {
-  public type CanisterPlayer = actor {
-    make_move : (TP.MoveRequest<Rules.View, Rules.Action>) -> async Rules.Action;
-  };
-
-  /// Asks a seated bot canister for its move; the transport's `CallBot`.
-  public func callBot<system>(bot : TP.PlayerId, req : TP.MoveRequest<Rules.View, Rules.Action>, k : <system>(?Rules.Action) -> async* ()) : async* () {
-    let b : CanisterPlayer = actor (CanisterPlayers.principalOfCanisterSession(bot).toText());
-    try { await* k<system>(?(await b.make_move(req))) } catch (_) {
-      await* k<system>(null);
-    };
-  };
-};
-
-```
-
-Then extend `Host.mo`:
-
-```motoko
-import CanisterPlayers "mo:duel-game-core/canister_players";
-import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin";
-import BotIface "BotIface";
-
-actor {
-  // ...pt, duel...
-  let bots = CanisterPlayers.newStore(); // the bot directory and in-flight asks — stable
-
-  transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
-    spec = Rules.spec;
-    bots = ?{ store = bots; call = BotIface.callBot };
-    scoring = null; // or a leaderboard, below
-  };
-
-  include TransportActorMixin<system>(duel.lobby(env));
-  // ...the four host methods unchanged...
-  include CanisterPlayersActorMixin(duel.canisterPlayers(env), bots.directory, null); // ?leaderboard once wired
-};
-
-```
+**Canister players (optional).** Only if asked for bots ("Two words
+recur" above). Nothing to add to `mops.toml`. Uncomment every Host line
+marked BOTS and swap the `null` it stands next to, and copy
+`templates/BotIface.mo.template` to `src/BotIface.mo`: the
+inter-canister call to the bot is the one function only game code can
+write, since its result type is your `Action`. The host then has
+`let bots = CanisterPlayers.newStore()` (the bot directory and
+in-flight asks, stable), `bots = ?{ store = bots; call =
+BotIface.callBot }` in the `env`, and `include
+CanisterPlayersActorMixin(duel.canisterPlayers(env), bots.directory,
+null)` (`?leaderboard` once that is wired too), which supplies
+`join_table_as_canister` and the other `*_as_canister` methods,
+`register_bot`, `unregister_bot` and `list_bots`. A bot sits at up to
+25 tables per complexity at once (`MAX_TABLES_PER_CANISTER_PLAYER`); a
+human at 3. The page's half is Step 6.
 
 If writing the bot, add a `bot/Bot.mo`/`bot/BotLogic.mo` pair like
 `examples/checkers/bot/`. The backend README's "Canister players" has
@@ -357,33 +330,21 @@ challenger picks one per game; every `make_move` carries it as
 `icp canister call bot register '(principal "<host-canister-id>", "MyBot")'`
 on a local network; on mainnet through hosty.live, `hosty_call_canister`
 with the same method and argument (`going-live.md`, section 3).
-The bot then appears in every player's "🤖 Bots" dialog and the
-leaderboard's Challenge buttons (`frontend/README.md`, "Bot registry"),
-and a Rematch against it re-invites it automatically.
+The bot then appears in the page's "🤖 Bots" dialog and the
+leaderboard's Challenge buttons (Step 6, `frontend/README.md`, "Bots
+and the leaderboard"), and a Rematch against it re-invites it
+automatically.
 
 **Leaderboard (optional).** Only if asked for rankings. The framework
 scores every finished game itself; you declare the board and pick the
-rating that fits the game. A game played against each other wants Elo
-(`#claimed`/`#aborted` count like a win). Nothing to add to
-`mops.toml`:
-
-```motoko
-import Leaderboard "mo:duel-game-core/leaderboard";
-import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin";
-
-actor {
-  let leaderboard = Leaderboard.new(50, 1200); // keep 50, start at 1200 — stable
-
-  transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
-    spec = Rules.spec;
-    bots = null; // or the bots above
-    scoring = ?{ board = leaderboard; rating = #elo { k = 32 } };
-  };
-
-  include LeaderboardActorMixin(leaderboard, 25); // get_leaderboard(), top 25
-};
-
-```
+rating that fits the game. Nothing to add to `mops.toml`: uncomment the
+Host lines marked LEADERBOARD and swap the `null` they stand next to.
+They declare `let leaderboard = Leaderboard.new(50, 1200)` (keep 50,
+start at 1200; stable), put `scoring = ?{ board = leaderboard; rating =
+#elo { k = 32 } }` in the `env`, and `include
+LeaderboardActorMixin(leaderboard, 25)` (`get_leaderboard()`, the top
+25). A game played against each other wants that Elo
+(`#claimed`/`#aborted` count like a win).
 
 A game where each player achieves something on their own (a best time,
 a high score, a count of correct answers) wants a `#best` rating: a
@@ -408,14 +369,9 @@ func bestLap(d : TP.Debrief<Rules.State>) : [(TP.Seat, Int)] {
 ```
 
 Keys are player ids — a human's principal, a bot's
-`cp:<principal>:<complexity>` — so a bot is rated per complexity. On
-the frontend, call `actor.get_leaderboard()` (already declared by
-`idl.js`) and `renderLeaderboard(entries, plugin, { yourSid: session.sid, botNames })`
-(`botNames` from `actor.list_bots().catch(() => [])`). Use the examples'
-panel shape: an icon-only 🏆 toggle first in `.session` opening a
-full-page overlay (`#leaderboard-panel`), never an inline panel a status
-view could clobber. Add `formatScore` to the plugin only for a converted
-metric.
+`cp:<principal>:<complexity>` — so a bot is rated per complexity. The
+page's half is Step 6. Add `formatScore` to the plugin only for a
+converted metric.
 
 ## Step 5 — Write the rules unit tests
 
@@ -482,7 +438,12 @@ Copy `index.html.template`, `app.js.template`, `style.css.template` into
 cookie the frontend canister sets, resolves a non-spoofable anonymous
 identity, builds the actor, connects the transport, and calls
 `start({ plugin, transport, session })`; esbuild inlines every dependency, so
-no CDN or import map. For Internet Identity login, swap
+no CDN or import map. With bot support or a leaderboard, uncomment the
+lines marked BOTS or LEADERBOARD in both `app.js` and `index.html`:
+`bots.js`'s `mountBotChallenge` is "Add Bot" on the waiting screen, the
+bot list, the seat choice and the invite (a Rematch re-invites the bot
+by itself), and `mountLeaderboard` is the 🏆 overlay, whose bot rows
+challenge too (`frontend/README.md`, "Bots and the leaderboard"). For Internet Identity login, swap
 `resolveAnonymousIdentity()` for `identity.js`'s `resolveIdentity()`
 (`frontend/README.md`, "Logging in with Internet Identity").
 
@@ -500,15 +461,18 @@ the player most wants to see. If the UI genuinely doesn't fit that
 
 ## Step 7 — Project/deploy config
 
-| Template                   | Destination              | Fill in                                 |
-| -------------------------- | ------------------------ | --------------------------------------- |
-| `mops.toml.template`       | `mops.toml`              | `__GAME_SLUG__`                         |
-| `package.json.template`    | `frontend/package.json`  | `__GAME_SLUG__`                         |
-| `build.js.template`        | `frontend/build.js`      | `__PLUGIN_FILE__` (header comment only) |
-| `icp.yaml.template`        | `icp.yaml`               | — (unless renaming canisters)           |
-| `publish_wasm.sh.template` | `publish_wasm.sh`        | — (next to `icp.yaml`)                  |
-| `play-test.mjs.template`   | `frontend/play-test.mjs` | `__GAME_TITLE__`, `__PLUGIN_FILE__`     |
-| `mcp.json.template`        | `.mcp.json`              | — (cloud session only, `going-live.md`) |
+| Template                     | Destination                  | Fill in                                 |
+| ---------------------------- | ---------------------------- | --------------------------------------- |
+| `mops.toml.template`         | `mops.toml`                  | `__GAME_SLUG__`                         |
+| `package.json.template`      | `frontend/package.json`      | `__GAME_SLUG__`                         |
+| `build.js.template`          | `frontend/build.js`          | `__PLUGIN_FILE__` (header comment only) |
+| `icp.yaml.template`          | `icp.yaml`                   | — (unless renaming canisters)           |
+| `publish_wasm.sh.template`   | `publish_wasm.sh`            | — (next to `icp.yaml`)                  |
+| `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`     |
+| `mcp.json.template`          | `.mcp.json`                  | — (cloud session only, `going-live.md`) |
+| `BotIface.mo.template`       | `src/BotIface.mo`            | `__RULES_MODULE__` (bot support only)   |
+| `check-upgrade.mjs.template` | `frontend/check-upgrade.mjs` | `__HOST_FILE__` (`Host.mo`)             |
+| `CLAUDE.md.template`         | `CLAUDE.md`                  | every `__...__`, at the first deploy    |
 
 ```bash
 mops install && mops test
@@ -594,7 +558,11 @@ the whole game on one route:
   step can publish the module.
 
 Either way, the user then lists the frontend on the Duel dashboard;
-until then the game is online but unlisted.
+until then the game is online but unlisted. Write the repository's
+`CLAUDE.md` from its template once the canister ids exist, and keep the
+game on the default branch. Every later upgrade of the backend first
+passes `(cd frontend && node check-upgrade.mjs <backend-id>)`
+(`references/changing-a-live-game.md`).
 
 ## Common pitfalls
 

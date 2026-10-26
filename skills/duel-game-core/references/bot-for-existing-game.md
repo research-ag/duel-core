@@ -174,7 +174,9 @@ table they opened.
 **Unit tests.** `test/BotLogic.test.mo` in the style of `SKILL.md`
 Step 5: from a handful of positions built by hand, `chooseMove` returns
 a move `GameRules` accepts, for every complexity, and the obvious tactical
-cases (take a win, block a loss) where the strategy claims them.
+cases (take a win, block a loss) where the strategy claims them. A
+bot that searches is tested at a shallow depth
+(`canister-player-bots.md`, "Testing a bot that searches").
 
 ```bash
 mops test

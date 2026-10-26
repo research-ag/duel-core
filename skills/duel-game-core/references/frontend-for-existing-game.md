@@ -98,7 +98,10 @@ players). You do not generate bindings from it; `@research-ag/duel-game-core/idl
 already declares the engine's service, and your plugin supplies `View`
 and `Action`. Without it (a builder with no shell), assume both
 optional features may exist and let their calls fail quietly
-(`.catch(() => [])`).
+(`.catch(() => [])`). With them, `@research-ag/duel-game-core/bots.js`
+is the whole flow: `mountBotChallenge` and `mountLeaderboard` for a
+page on `start()`, `createBotInviter` for a UI of its own (the package
+README, "Bots and the leaderboard").
 
 `found: false` with a `liveModuleHash` means the module the backend
 runs is not in the store at the moment: build from the semantics alone,

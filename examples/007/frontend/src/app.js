@@ -5,9 +5,9 @@
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
-import { Principal } from "@icp-sdk/core/principal";
-import { buildBotPlayIdlFactory, makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
-import { atTableOf, createDuelClient, errText, tag, viewOf } from "@research-ag/duel-game-core/client.js";
+import { makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
+import { createDuelClient } from "@research-ag/duel-game-core/client.js";
+import { botPlayer, botRefOf, createBotInviter } from "@research-ag/duel-game-core/bots.js";
 import { connectTransport } from "@research-ag/duel-game-core/transport.js";
 import { resolveIdentity } from "@research-ag/duel-game-core/identity.js";
 import { deriveHost } from "@research-ag/duel-game-core/ic-env.js";
@@ -47,48 +47,10 @@ const $ = (id) => document.getElementById(id);
 
 // ── Bots ─────────────────────────────────────────────────────────────────
 // A bot is seated by calling its own canister's `play`, never through the
-// push channel. See ../../../frontend/README.md, "Bot registry".
+// push channel. See ../../../frontend/README.md, "Bots and the leaderboard".
 
 // `render.js` words the bot-row button "Challenge"; this game says "Engage".
 const engage = (html) => html.replaceAll(">Challenge</button>", ">Engage</button>");
-
-const hostPrincipal = Principal.fromText(canisterId);
-const LAST_BOT_KEY = "duel007-last-bot";
-
-function stagingOf(status) {
-  const at = atTableOf(status);
-  const v = viewOf(status, "stagingYou");
-  if (!at || !v) return null;
-  return {
-    tableId: at.id,
-    openSeat: tag(v.seat) === "p1" ? { p2: null } : { p1: null },
-    code: "code" in v.visibility ? [v.visibility.code] : [],
-  };
-}
-
-function storageGet(key) {
-  try {
-    return JSON.parse(sessionStorage.getItem(key));
-  } catch (_) {
-    return null;
-  }
-}
-
-function storageSet(key, value) {
-  try {
-    if (value === null) sessionStorage.removeItem(key);
-    else sessionStorage.setItem(key, JSON.stringify(value));
-  } catch (_) {}
-}
-
-// The last bot seated, kept so a rematch (which reserves the seat for the
-// bot's per-table session) can re-issue the identical `play`.
-let lastBot = storageGet(LAST_BOT_KEY);
-if (lastBot) lastBot = { ...lastBot, tableId: BigInt(lastBot.tableId) };
-function setLastBot(bot) {
-  lastBot = bot;
-  storageSet(LAST_BOT_KEY, bot ? { ...bot, tableId: bot.tableId.toString() } : null);
-}
 
 const ui = mountMissionUi({
   client,
@@ -107,60 +69,17 @@ const ui = mountMissionUi({
   onAddBot: () => void openBots(),
 });
 
-function setInviting(bot) {
-  ui.setInviting(bot === null ? null : botDisplayName(bot.name, bot.complexity));
-}
-
-async function inviteBot(bot, staging) {
-  setInviting(bot);
-  try {
-    const botActor = Actor.createActor(buildBotPlayIdlFactory, { agent, canisterId: bot.principalText });
-    const res = await botActor.play(hostPrincipal, staging.tableId, staging.openSeat, staging.code, bot.complexity);
-    if ("err" in res) throw new Error(errText(res.err));
-    setLastBot({ ...bot, tableId: staging.tableId });
-    // The bot's join pushes a fresh status on its own; the invite stays up
-    // until it lands, unless it already did.
-    if (stagingOf(client.getState().status) === null) setInviting(null);
-  } catch (e) {
-    client.showError(e && e.message ? e.message : String(e));
-    setInviting(null);
-  }
-}
-
-async function startBotGame(bot, seat) {
-  setInviting(bot);
-  const res = await client.createTable(seat, { open: null }, {});
-  const staging = res.ok ? stagingOf(res.view) : null;
-  if (staging === null) {
-    if (res.ok) client.showError("Could not stage a file.");
-    setInviting(null);
-    return;
-  }
-  await inviteBot(bot, staging);
-}
-
-function onState(state) {
-  if (state.status === null) return;
-  const at = atTableOf(state.status);
-  if (lastBot && !(at && at.id === lastBot.tableId)) setLastBot(null);
-  if (stagingOf(state.status) === null) setInviting(null);
-}
-
-// A rematch stages the same file with the seat held for the bot.
-let reinvited = null;
-function maybeReinvite(state) {
-  const at = atTableOf(state.status);
-  const v = viewOf(state.status, "stagingYou");
-  if (!lastBot || !at || !v || !v.reservedForPartner) return;
-  const key = `${at.id}:${v.gen}`;
-  if (reinvited === key) return;
-  reinvited = key;
-  void inviteBot(lastBot, stagingOf(state.status));
-}
-
-client.subscribe((state) => {
-  onState(state);
-  maybeReinvite(state);
+// Seats a bot through its own `play` and re-invites it on a rematch; the
+// mission screen names it from the call until its join lands.
+const inviter = createBotInviter({ client, play: botPlayer(agent, canisterId), storageKey: "duel007-last-bot" });
+let calling = null;
+let shownError = null;
+inviter.subscribe(({ staging, inviting, error }) => {
+  if (inviting !== null) calling = inviting;
+  else if (error !== null || staging === null) calling = null;
+  ui.setInviting(calling === null ? null : botDisplayName(calling.name, calling.complexity));
+  if (error !== null && error !== shownError) client.showError(error);
+  shownError = error;
 });
 
 const botsPanel = $("bots-panel");
@@ -180,18 +99,12 @@ async function openBots() {
 }
 
 function onChallengeClick(ev) {
-  const b = ev.target.closest("[data-challenge-bot]");
-  if (!b) return;
-  const bot = {
-    principalText: b.dataset.challengeBot,
-    name: b.dataset.botName || b.dataset.challengeBot,
-    complexity: b.dataset.botComplexity || "",
-  };
+  const bot = botRefOf(ev.target);
+  if (!bot) return;
   botsPanel.hidden = true;
   leaderboardPanel.hidden = true;
+  if (inviter.getState().staging !== null) return void inviter.challenge(bot);
   const status = client.getState().status;
-  const staging = stagingOf(status);
-  if (staging !== null) return void inviteBot(bot, staging);
   if (status === null || !("browsing" in status)) return client.showError("Leave your current file before challenging a bot.");
   challenged = bot;
   $("challenge-seat-body").innerHTML = renderSeatChoice(plugin);
@@ -203,7 +116,7 @@ seatDialog.addEventListener("click", (ev) => {
   const seat = ev.target.closest("[data-challenge-seat]");
   if (!seat) return;
   seatDialog.close();
-  void startBotGame(challenged, seat.dataset.challengeSeat);
+  void inviter.challenge(challenged, seat.dataset.challengeSeat);
 });
 botsBody.addEventListener("click", onChallengeClick);
 $("bots-toggle").addEventListener("click", () => void openBots());

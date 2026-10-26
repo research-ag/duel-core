@@ -110,7 +110,21 @@ do {
     case (_) Runtime.trap("joining one past the cap must be #tooManyTables too");
   };
 };
-Debug.print("2. the per-player table cap blocks create/join OK");
+do {
+  let reg2 = fresh();
+  let bot = "cp:rrkah-fqaaa-aaaaa-aaaaq-cai:Hard";
+  for (i in Nat.range(0, Registry.MAX_TABLES_PER_CANISTER_PLAYER + 1)) {
+    let host = "h" # Nat.toText(i);
+    let id = ok(reg2.createTable(spec, rng, T0, host, #p1, #open, ""), "a human opens a table for the bot");
+    switch (reg2.joinTable(spec, rng, T0, bot, id, #p2, null), i < Registry.MAX_TABLES_PER_CANISTER_PLAYER) {
+      case (#ok _, true) {};
+      case (#err(#tooManyTables { max }), false) assert max == Registry.MAX_TABLES_PER_CANISTER_PLAYER;
+      case (_) Runtime.trap("a canister player is capped at MAX_TABLES_PER_CANISTER_PLAYER");
+    };
+  };
+  assert Registry.MAX_TABLES_PER_CANISTER_PLAYER > Registry.MAX_TABLES_PER_PLAYER;
+};
+Debug.print("2. the per-player table cap blocks create/join; a bot's is larger OK");
 
 // ── 3. listTables: open tables with a free seat, occupant ids included ─────
 switch (reg.listTables(T0)) {

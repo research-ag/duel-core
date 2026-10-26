@@ -14,7 +14,8 @@ game takes as much or as little of as it wants:
   for every screen that is the same for every game — the multi-table
   lobby, staging, rematch offer, busy countdown, debrief chrome, the
   `#endedByOther` notice — each exported on its own, plus the leaderboard,
-  bot list, and seat picker a game mounts itself.
+  bot list, and seat picker a game mounts itself (`bots.js` mounts all
+  three as overlays).
 - **`app.js`, the default shell.** `start({ plugin, transport, session })` wires
   the two together into `#screen`: delegated clicks, the per-button
   spinner, the local countdowns, the header controls, the error banner,
@@ -27,10 +28,10 @@ Candid types, seat labels, and how to draw the board and action buttons.
 
 TypeScript, published pre-compiled: `npm run build` produces `dist/`,
 which every import (`@research-ag/duel-game-core/app.js`, ...) resolves to. Consumers
-need no build step. Dependency-free except for four documented files:
+need no build step. Dependency-free except for five documented files:
 `transport.js` (`@icp-sdk/core/candid`), `identity.js`
 (`@icp-sdk/auth`, `@icp-sdk/core/identity`), `anon-identity.js`
-(`@icp-sdk/core/identity` only), and `module-store.js`
+(`@icp-sdk/core/identity` only), and `bots.js` and `module-store.js`
 (`@icp-sdk/core/agent`, `@icp-sdk/core/principal`).
 
 ```
@@ -446,96 +447,112 @@ of opening a second one. `transport.send(msg)` is fire-and-forget;
 Both kinds sit at the same tables; the engine only compares session ids
 for equality, and the transport binds every legal sid to a principal.
 
-## Leaderboard
+## Bots and the leaderboard
 
-A host wiring `mo:duel-game-core/leaderboard` exposes `get_leaderboard()`,
-a plain query `idl.js` declares on every actor:
+A host wiring canister players and a leaderboard exposes `list_bots()`
+and `get_leaderboard()`, plain queries `idl.js` declares on every actor.
+A bot is seated by calling its own canister's `play(host, tableId, seat,
+code, complexity)`, which joins the open seat as the bot's `cp:` player;
+nothing goes through the transport. `bots.js` does all of it.
 
-```js
-import { renderLeaderboard } from "@research-ag/duel-game-core/render.js";
-
-const [entries, bots] = await Promise.all([
-  actor.get_leaderboard(),
-  actor.list_bots().catch(() => []),
-]);
-panelEl.innerHTML = renderLeaderboard(entries, plugin, {
-  yourSid: session.sid,
-  botNames: new Map(bots.map((b) => [b.principal.toString(), b.name])),
-});
-```
-
-`renderLeaderboard` is never wired into `renderStatus` — mount it where
-your layout wants it. All examples use an icon-only 🏆 toggle first in
-`.session` that opens a full-page overlay (`#leaderboard-panel`, styled
-by `style.css`), so live status views re-rendering `#screen` never
-clobber it. `opts.yourSid` badges the caller's row ("You", `.you`);
-`playerKeyOf(sid)` mirrors `Transport.playerKey`. A canister player's row shows
-🤖 and `"<name or principal> (<complexity>)"` — the key is
-`cp:<principal>:<complexity>` (`isCanisterPlayer`,
-`parseCanisterPlayer`, `botDisplayName`, `displayPlayerId`,
-`DEFAULT_BOT_COMPLEXITY` are exported) — with the raw key in `title` and
-a Challenge button carrying that row's complexity.
-
-## Bot registry
-
-A host wiring bot discovery exposes `list_bots()`, `register_bot`, and
-`unregister_bot` (all declared unconditionally by `idl.js`); a frontend
-only calls `list_bots()`.
+**The default overlays.** For a game on `start()`:
 
 ```js
 import {
-  renderBotList,
-  renderSeatChoice,
-} from "@research-ag/duel-game-core/render.js";
-import { buildBotPlayIdlFactory } from "@research-ag/duel-game-core/idl.js";
+  botPlayer,
+  mountBotChallenge,
+  mountLeaderboard,
+} from "@research-ag/duel-game-core/bots.js";
 
-const bots = await actor.list_bots(); // highest-rated first, unrated last
-botPanelEl.innerHTML = renderBotList(bots, plugin);
-```
-
-`renderBotList` renders one row per bot AND complexity, in declared
-order, `"<name> (<complexity>)"`, with that complexity's `elo` (via
-`plugin.formatScore`; blank when the host has no leaderboard) and a
-Challenge button carrying `data-challenge-bot`/`data-bot-name`/
-`data-bot-complexity` — the same attributes `renderLeaderboard`'s bot
-rows carry, so one click handler serves both.
-
-**Challenge flow.** Call the chosen bot's own `play(host, tableId, seat,
-code, complexity)` via `Actor.createActor(buildBotPlayIdlFactory, { agent,
-canisterId: principalText })`, targeting the principal from `list_bots()`,
-never an env var. If the player is already on "Waiting for an opponent",
-fill that table's open seat directly. Otherwise show
-`renderSeatChoice(plugin)` (a standalone `p1`/`p2` picker with
-`data-challenge-seat`, for a dialog living outside `#screen`), then create
-the table over the shared `transport`:
-
-```js
-const res = await transport.request(session.sid, {
-  createTable: {
-    seat: { [chosenSeat]: null },
-    visibility: { open: null },
-    options: {}, // the game's `Options`; `plugin.optionChoices()[0].options` with options
-  },
+const client = start({ plugin, transport, session });
+const bots = mountBotChallenge({
+  client,
+  actor,
+  plugin,
+  play: botPlayer(agent, canisterId),
 });
-// res.view.atTable.id / .view.stagingYou give the table, seat, and code for `play`.
+mountLeaderboard({ actor, plugin, sid: session.sid, onChallenge: bots.pick });
 ```
 
-Two entry points, one flow: an "Add Bot" control shown only on the
-staging screen (tracked off the live status) skips the seat step;
-the leaderboard's Challenge button, reachable while browsing, goes
-through it.
+with this markup next to `#screen` (styled by `style.css`):
+
+```html
+<!-- in .session, first -->
+<button id="leaderboard-toggle" title="Leaderboard" aria-label="Leaderboard">
+  🏆
+</button>
+
+<div id="leaderboard-panel" hidden>
+  <div class="leaderboard-header">
+    <button id="leaderboard-back" class="ghost">← Back</button>
+    <h2>🏆 Top players</h2>
+  </div>
+  <div id="leaderboard-body" class="leaderboard-list"></div>
+</div>
+
+<div id="bot-challenge-panel" hidden>
+  <div class="bot-challenge-header">
+    <button id="bot-challenge-back" class="ghost">← Back</button>
+    <h2>🤖 Bots</h2>
+  </div>
+  <div id="bot-challenge-body" class="bot-challenge-body"></div>
+</div>
+
+<!-- after #screen -->
+<div id="bot-add-panel" hidden>
+  <button id="bot-add-trigger" class="ghost">
+    Add Bot 🤖 to the open seat
+  </button>
+</div>
+```
+
+- `mountBotChallenge` shows "Add Bot" only while this session waits at
+  its own table; it opens the bot list (`renderBotList`), and a
+  Challenge there fills that table's open seat. `bots.pick(bot)` is the
+  same entry from elsewhere: from the lobby, it first asks for a seat
+  (`renderSeatChoice`), then creates an open table through
+  `client.createTable` with the plugin's first `optionChoices()` entry
+  (`options` overrides it); at any other table it asks the player to
+  leave it first. The panel shows "Inviting <bot>…" and the
+  bot's error, if any, worded as the bot's (`botErrText`: a bot at its
+  own table cap is "already playing N games"). `bots.open()` shows the
+  list from any other control (a header 🤖 button).
+- `mountLeaderboard` fetches on every open and renders
+  `renderLeaderboard(entries, plugin, { yourSid, botNames })`; a bot
+  row's Challenge closes it and calls `onChallenge`. Leave `onChallenge`
+  out (and `list_bots` off `actor`) for a game without bots.
+- Every element id is overridable (`ids: { panel, body, back, addPanel,
+addTrigger }` and `ids: { toggle, panel, body, back }`); only each
+  panel and body are required.
 
 **Rematch against a bot.** The human's Rematch stages the same table
-with the seat reserved for the bot's `cp:` session. Nothing asks a bot
-to accept, so the frontend remembers the last bot, complexity, and table
-id of each successful `play` (in `sessionStorage`) and re-issues the
-identical `play` when a `stagingYou` view for that table arrives with
-`reservedForPartner`, showing "Inviting <bot>…" instead of "Waiting for
-an opponent". Principal, table id, and complexity are unchanged on a
-rematch, so the bot lands on the reserved session. Clear the memory the
-moment the status is anywhere but that table. See
-`examples/checkers/frontend/src/app.js` and
-`examples/racing/frontend/src/duel/duel-app.js`.
+with the seat reserved for the bot's `cp:` player, and nothing asks a
+bot to accept. The inviter remembers the last bot it seated and its
+table (`sessionStorage`, `storageKey` `"duel-last-bot"`) and re-issues
+the same `play` once per `stagingYou` with `reservedForPartner` on that
+table (per `gen`); the memory clears the moment the status is anywhere
+but that table.
+
+**A UI of its own.** `createBotInviter({ client, play, options?,
+storage?, storageKey? })` is the same logic without DOM: `challenge(bot,
+seat?)` (resolves `true` once the bot joined), and a subscribable
+`{ staging, inviting, error }`. `botRefOf(clickTarget)` reads the
+`data-challenge-bot`/`data-bot-name`/`data-bot-complexity` attributes
+`renderBotList` and `renderLeaderboard` put on their Challenge buttons,
+and `stagingOf(status)` is this session's waiting table. See
+`examples/007/frontend/src/app.js`.
+
+**The pieces.** `renderBotList(bots, plugin)` renders one row per bot
+AND complexity, in declared order, `"<name> (<complexity>)"`, with that
+complexity's `elo` (via `plugin.formatScore`; blank without a
+leaderboard). `renderLeaderboard` badges the caller's row ("You",
+`.you`; `playerKeyOf(sid)` mirrors `Transport.playerKey`) and shows a
+canister player's row as 🤖 `"<name or principal> (<complexity>)"`,
+with the raw key in `title` (`isCanisterPlayer`, `parseCanisterPlayer`,
+`botDisplayName`, `displayPlayerId`, `DEFAULT_BOT_COMPLEXITY` are
+exported). `botPlayer(agent, backendId)` calls `play` through
+`buildBotPlayIdlFactory`, on the principal from `list_bots()`, never an
+env var.
 
 ## Optional: `ic-env.js`
 
@@ -597,6 +614,7 @@ module hash and keep the module when it matches.
 | `identity.js`      | `resolveIdentity()`, `sidForPrincipal(principalText)`; depends on `@icp-sdk/auth`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `anon-identity.js` | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX`; depends only on `@icp-sdk/core/identity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `ic-env.js`        | `deriveHost()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `bots.js`          | `mountBotChallenge(opts)` -> `BotChallenge`, `mountLeaderboard(opts)`, `createBotInviter(opts)` -> `BotInviter`, `botPlayer(agent, backendId)`, `botRefOf`, `stagingOf`, `botErrText`; depends on `@icp-sdk/core/agent`, `@icp-sdk/core/principal`                                                                                                                                                                                                                                                                                                                                                                                  |
 | `module-store.js`  | `fetchGameModule(canisterId, { agent?, readModuleHash?, download? })` -> `{ hash, bytes, gzipped }`, `readModuleHash`, `moduleMeta`, `requestVerification`, `rawWasm`, `sha256Hex`, `isGzip`, `fetchDownload`, `MODULE_STORE`; depends on `@icp-sdk/core/agent`                                                                                                                                                                                                                                                                                                                                                                     |
 | `transport.js`     | `connectTransport({ actor, gameIdlTypes, intervalMs?, keepAliveMs?, pollTimeoutMs? })`, `DuelTransport` — lobby/table queries, serialized requests, keep-alive, relink policy                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `style.css`        | generic layout primitives                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |

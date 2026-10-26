@@ -117,26 +117,6 @@ body.in-race #error {
   z-index: 20;
 }
 
-/* #bot-add-panel (index.html) — see duel-app.js's own comment there for
- * what it does. A sibling of #screen, styled to read as a continuation of
- * that same card (same max-width/centering as `main` in the shared
- * frontend/style.css) rather than a separate floating element. Hidden
- * during a race the same way #duel-header itself is (body.in-race
- * #duel-header, above) — duel/duel-app.js additionally hides it whenever
- * the current view isn't the "Waiting for an opponent" screen
- * (browsing/busy/playing/debriefing/..., none of which set body.in-race
- * either). */
-#bot-add-panel {
-  max-width: 860px;
-  margin: 0.75rem auto 0;
-}
-
-#bot-add-trigger {
-  padding: 0.3rem 0.7rem;
-  font-size: 0.85rem;
-  color: var(--accent, #d4af37);
-  border-color: var(--accent, #d4af37);
-}
 
 /* In-race HUD (hud.ts): three fixed corner panels, none of them
  * interactive (control is click-on-the-3d-plane, not on the HUD — see

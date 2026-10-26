@@ -42,7 +42,7 @@ import T "./types";
 
 module {
 
-  public let CP_ID_PREFIX : Text = "cp:";
+  public let CP_ID_PREFIX : Text = Registry.CP_ID_PREFIX;
 
   /// What a bot with no declared complexities is listed under, and what
   /// an empty `complexity` argument normalizes to.

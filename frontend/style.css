@@ -738,9 +738,7 @@ button.seat {
  * viewport while shown, so a live status push updating `#screen`
  * underneath it can never clobber it). Opened either from a bot's own row
  * in the leaderboard panel above (`renderLeaderboard`'s own Challenge
- * button) or from each example's own `#bot-add-panel` trigger, styled
- * per-example the way `#play-vs-bot-panel` used to be — see that file's
- * own `style.css`. */
+ * button) or from `#bot-add-panel`'s trigger below (bots.js). */
 #bot-challenge-panel {
   position: fixed;
   inset: 0;
@@ -781,4 +779,22 @@ button.seat {
   font-size: 0.8rem;
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* "Add Bot" under the waiting screen (bots.js shows it only there): a
+ * sibling of #screen, aligned with `main`. */
+#bot-add-panel {
+  max-width: 860px;
+  margin: 0.75rem auto 0;
+}
+
+#bot-add-panel[hidden] {
+  display: none;
+}
+
+#bot-add-trigger {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--accent, #d4af37);
+  border-color: var(--accent, #d4af37);
 }
