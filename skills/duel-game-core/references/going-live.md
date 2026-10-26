@@ -272,7 +272,8 @@ the user's principal. `unregister` takes `(principal "<backend-id>")`.
 
 Every later version is steps 1 to 5 again; the canister id stays.
 Before each, `cd frontend && node check-upgrade.mjs <backend-id>`
-proves the new module keeps the live tables
+checks the new module's stable types and Candid against the live one,
+and you review the code that runs on the upgrade
 (`changing-a-live-game.md`, section 4).
 
 ### The frontend
@@ -410,9 +411,11 @@ curl https://<backend-id>.raw.icp0.io/semantics
 
 `icp canister status frontend -e ic -i` is the page's id; the page is
 at `https://<frontend-id>.icp0.io/`. Later deploys of the same project
-upgrade the same canisters and keep the backend's tables, which
-`(cd frontend && node check-upgrade.mjs <backend-id>)` proves before
-each one. A canister's
+upgrade the same canisters. Before each one,
+`(cd frontend && node check-upgrade.mjs <backend-id>)` checks the new
+module's stable types and Candid against the live one, and you review
+the code that runs on the upgrade (`changing-a-live-game.md`, section
+4). A canister's
 balance shows in `icp canister status <name> -e ic`; topping it up is
 cycle.express again, with the canister id as the recipient, or `icp
 canister top-up <name> -e ic --amount 1t` from the identity's balance.

@@ -4,8 +4,8 @@ Read this when a game built on duel-game-core is already online and the
 user wants something added or changed in it, most often "add bots" or
 "add a leaderboard". The change itself is small (the Host template's
 BOTS and LEADERBOARD lines, two lines of frontend); the work is finding
-what is live, reading the ask right, and proving the upgrade keeps the
-tables.
+what is live, reading the ask right, and making sure the upgrade keeps
+the tables.
 
 ## 1. Read the ask
 
@@ -69,7 +69,7 @@ The framework's own suites cover asking a bot per move, the retry with
 `retryReason`, a rematch held for the bot, and the bot's leave; the
 game's own tests stay as they are.
 
-## 4. Prove the upgrade keeps the tables
+## 4. Check the upgrade keeps the tables
 
 Copy `templates/check-upgrade.mjs.template` to
 `frontend/check-upgrade.mjs` (`__HOST_FILE__` is `Host.mo`), then:
@@ -80,13 +80,21 @@ cd frontend && node check-upgrade.mjs <backend-id>
 
 It downloads the module the canister runs, compiles `src/Host.mo` with
 the project's own moc, and runs `moc --stable-compatible` on the two
-stable signatures. Exit 0 is the go-ahead. Exit 1 prints moc's reason
-(a stable variable dropped or changed in type): change the code back,
-or write an explicit migration. It also runs `mops check-candid` on the
-new interface against the live one and exits 1 when a method is removed
-or a type changes incompatibly, which would break frontends and bots
-other people built against the old one; the diff it prints is for
-reading.
+stable signatures. Exit 1 prints moc's reason (a stable variable
+dropped or changed in type): change the code back, or write an explicit
+migration. It also runs `mops check-candid` on the new interface
+against the live one and exits 1 when a method is removed or a type
+changes incompatibly, which would break frontends and bots other people
+built against the old one; the diff it prints is for reading.
+
+Exit 0 means the types line up, not that the data survives. Before
+deploying, also read every piece of code that runs on the upgrade and
+check what it does to stable data: the actor body's top-level
+statements and those of the mixins it includes (they run again on
+every upgrade; in the template they only re-apply the timeouts, attach
+the metrics and start the sweep timer), any migration function, and any
+`system func preupgrade`/`postupgrade`. The BOTS and LEADERBOARD lines
+add none that touches stable data.
 
 ## 5. The page
 

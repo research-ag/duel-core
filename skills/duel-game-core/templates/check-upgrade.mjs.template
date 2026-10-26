@@ -1,5 +1,5 @@
-// Proves an upgrade of a live backend keeps its tables before you deploy
-// it: compares the stable signature of the module the canister runs
+// Checks an upgrade of a live backend before you deploy it: compares
+// the stable signature of the module the canister runs
 // (fetched from hosty.live's module store by its certified module_hash)
 // with the one src/__HOST_FILE__ compiles to now, using moc's own
 // --stable-compatible, and checks the new Candid interface against the
@@ -7,10 +7,12 @@
 //
 //   cd frontend && node check-upgrade.mjs <backend-id>
 //
-// Exit 0: the upgrade keeps every stable variable and every client of
-// the live interface. Exit 1: it would not (moc or mops says which); fix
-// the change or write a migration. Exit 2: nothing to compare. Needs
-// `mops` and the network (icp-api.io, api.hosty.live).
+// Exit 0: the types are compatible with the live stable variables and
+// with every client of the live interface; code that runs on the upgrade
+// (a migration, postupgrade) still needs reading. Exit 1: they are not
+// (moc or mops says which); fix the change or write a migration. Exit 2:
+// nothing to compare. Needs `mops` and the network (icp-api.io,
+// api.hosty.live).
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -90,7 +92,7 @@ try {
 
 try {
   execFileSync(moc, ["--stable-compatible", join(work, "live.most"), join(work, "new.most")], { stdio: "inherit" });
-  console.log("Stable signature: compatible — the upgrade keeps the live data.");
+  console.log("Stable signature: compatible with the live stable variables.");
 } catch {
   console.error("Stable signature: NOT compatible — this upgrade would fail or drop data.");
   ok = false;
