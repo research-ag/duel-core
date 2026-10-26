@@ -87,6 +87,12 @@ against the live one and exits 1 when a method is removed or a type
 changes incompatibly, which would break frontends and bots other people
 built against the old one; the diff it prints is for reading.
 
+Exit 2 means nothing was compared: `src/Host.mo` does not compile, or
+the live module carries no `motoko:stable-types` or `candid:service`
+section, or it could not be fetched. That is not a pass. Fix the
+compile error, or find out why the module is missing (`module.hash` in
+the store lookup above), and run it again until it exits 0 or 1.
+
 Exit 0 means the types line up, not that the data survives. Before
 deploying, also read every piece of code that runs on the upgrade and
 check what it does to stable data: the actor body's top-level

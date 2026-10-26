@@ -39,7 +39,13 @@ function section(wasm, name) {
   return null;
 }
 
-const live = await rawWasm(await fetchGameModule(backendId));
+let live;
+try {
+  live = await rawWasm(await fetchGameModule(backendId));
+} catch (e) {
+  console.error(`Could not fetch ${backendId}'s module: ${e.message}`);
+  process.exit(2);
+}
 const liveTypes = section(live, "motoko:stable-types");
 if (liveTypes === null) {
   console.error(`${backendId}'s module carries no motoko:stable-types section.`);
