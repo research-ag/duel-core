@@ -436,8 +436,8 @@ Copy `index.html.template`, `app.js.template`, `style.css.template` into
 sentence for search results and link previews: the game, against a
 friend or a bot, in the browser), `__PLUGIN_FILE__`,
 `__IDLE_TIMEOUT_SECONDS__`. `style.css` may stay empty but must exist
-(`build.js` copies it). The header's "More games ↗" link (`.more-games`
-in the package's stylesheet) leads to the Duel Dashboard,
+(`build.js` copies it). The "More games ↗" link beside the title (`.header-title`
+and `.more-games` in the package's stylesheet) leads to the Duel Dashboard,
 https://games.ic0.info/, where players find every listed game: keep it,
 and keep it in any header of your own. `app.js` reads the backend's id from the `ic_env`
 cookie the frontend canister sets, resolves a non-spoofable anonymous
