@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://kenge-waaaa-aaaan-q6qea-cai.icp0.io/sitemap.xml

@@ -197,6 +197,8 @@ b.muted {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   padding: 0.75rem 1rem;
   background: oklch(var(--card));
   border-bottom: 1px solid oklch(var(--border));
@@ -218,6 +220,8 @@ b.muted {
 .header-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.5rem;
 }
 
@@ -301,6 +305,15 @@ b.muted {
 }
 .header-pill.accent:hover {
   background: oklch(var(--accent) / 0.25);
+}
+.header-pill.neutral {
+  background: transparent;
+  border: 1px solid oklch(var(--border));
+  color: oklch(var(--muted-foreground));
+  text-decoration: none;
+}
+.header-pill.neutral:hover {
+  color: oklch(var(--foreground));
 }
 
 @media (max-width: 639px) {

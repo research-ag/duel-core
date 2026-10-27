@@ -120,6 +120,13 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   (Manrope) are vendored as woff2 in `src/fonts/` and copied by
   `build.js`, because `_headers`' CSP allows only same-origin
   fonts.
+  The live site is the Duel Dashboard at https://games.ic0.info/
+  (`.well-known/ic-domains`): `index.html` carries its canonical URL,
+  Open Graph/Twitter tags, JSON-LD (the site plus the reference games'
+  URLs) and a `<noscript>` list of those games for crawlers without
+  JavaScript; `og.jpg` (1200×630, the reference games' banners behind
+  the headline), `favicon.svg`, `apple-touch-icon.png`, `robots.txt`
+  and `sitemap.xml` are copied by `build.js`.
 
 ## Toolchain
 

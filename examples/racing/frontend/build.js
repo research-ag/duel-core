@@ -32,6 +32,9 @@ const builds = [
 
 const staticAssets = [
   ['src/index.html', `${outdir}/index.html`],
+  ['src/robots.txt', `${outdir}/robots.txt`],
+  ['src/sitemap.xml', `${outdir}/sitemap.xml`],
+  ['src/og.jpg', `${outdir}/og.jpg`],
   ['src/style.css', `${outdir}/style.css`],
   ['src/favicon.ico', `${outdir}/favicon.ico`],
   ['src/assets', `${outdir}/assets`],
@@ -59,7 +62,14 @@ if (watch) {
   copyStaticAssets();
   // Static files are outside esbuild's module graph: watch the directory
   // (a per-file watch dies on an atomic rename) and debounce.
-  const staticNames = ['index.html', 'style.css', 'favicon.ico'];
+  const staticNames = [
+    'index.html',
+    'robots.txt',
+    'sitemap.xml',
+    'og.jpg',
+    'style.css',
+    'favicon.ico',
+  ];
   let debounceTimer;
   const scheduleCopy = () => {
     clearTimeout(debounceTimer);

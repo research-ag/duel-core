@@ -474,7 +474,11 @@ const bots = mountBotChallenge({
 mountLeaderboard({ actor, plugin, sid: session.sid, onChallenge: bots.pick });
 ```
 
-with this markup next to `#screen` (styled by `style.css`):
+with this markup next to `#screen` (styled by `style.css`, which also
+styles the header's `.header-title`: the `<h1>` and, beside it, the
+link to the Duel Dashboard, `<a class="more-games"
+href="https://games.ic0.info/" target="_blank" rel="noopener">More games
+↗</a>`):
 
 ```html
 <!-- in .session, first -->

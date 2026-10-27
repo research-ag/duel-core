@@ -41,6 +41,8 @@ Work in this order.
 
 7. Later, when I ask you to put the page online: it goes online through hosty.live (https://hosty.live/), into a canister of my own: ${RAW}/skills/duel-game-core/references/going-live.md, section 3, has the procedure. With hosty.live's MCP server connected, in a deploy session I approve: hosty_create_canister with kind "frontend" (0.84 TC from my balance) unless I name a canister, build, zip the dist folder, hosty_prepare_zip_upload with pureAssets and canisterEnv { set: { "PUBLIC_CANISTER_ID:backend": "${backend}" } }, run the curl it returns, hosty_wait_for_deployment, and give me the frontendUrl and the canister id. If you cannot deploy for me (no hosty.live MCP server, or a builder with its own "Go live" action), tell me the steps instead.
 
+Whatever the design, the page's header keeps a "More games" link to the Duel Dashboard, https://games.ic0.info/, opening in a new tab.
+
 If the semantics page is missing, stop and tell me instead of guessing the rules.
 
 Here is the frontend I want:

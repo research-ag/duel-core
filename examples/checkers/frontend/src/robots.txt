@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://eag45-ayaaa-aaaac-qhela-cai.icp0.io/sitemap.xml

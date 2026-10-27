@@ -36,7 +36,7 @@ export function Header({
           <span className="brand-word">
             Duel<em>.</em>
           </span>
-          <span className="brand-tag">Arena</span>
+          <span className="brand-tag">Dashboard</span>
         </a>
         <nav className="nav">
           <button

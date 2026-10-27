@@ -72,6 +72,30 @@ h1 .sub {
   font-size: 0.95rem;
 }
 
+/* The header is two full-width rows: the title with the link to the Duel
+ * Dashboard pushed right, then `.session` with the trophy left and the
+ * player id cluster pushed right. */
+.header-title {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 1.25rem;
+  row-gap: 0.25rem;
+}
+
+.more-games {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.more-games:hover {
+  color: var(--accent);
+}
+
 h2 {
   margin: 0 0 1rem;
   font-size: 1.15rem;
@@ -80,8 +104,11 @@ h2 {
 }
 
 .session {
+  flex: 1 1 100%;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.5rem;
   font-size: 0.82rem;
 }
@@ -719,16 +746,15 @@ button.seat {
 /* The header's own trophy toggle — icon-only (no "Leaderboard" label),
  * so it needs a touch more font-size than a text button to read clearly
  * at a glance. Sits first in `.session`, before the player id, per its
- * own markup order in each example's index.html — `margin-right` (a
- * fixed gap, not `auto`: `.session` itself is shrink-to-fit inside
- * `header`, so an `auto` margin here would have no free space to consume)
- * sets it apart from the player id/logout cluster that follows. */
+ * own markup order in each example's index.html; `margin-right: auto`
+ * keeps it left while the player id/logout cluster sits right. */
 #leaderboard-toggle {
   font-size: 1.05rem;
   line-height: 1;
   padding: 0.4rem 0.6rem;
-  margin-right: 1rem;
+  margin-right: auto;
 }
+
 
 /* The bot challenge dialog: a full-page overlay (render.ts's
  * `renderBotList`/`renderSeatChoice` render into `#bot-challenge-body`;

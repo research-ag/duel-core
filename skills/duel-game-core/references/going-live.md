@@ -428,7 +428,7 @@ controller (`icp canister settings update <id> -n ic --add-controller
 
 ## 5. List it on the Duel dashboard
 
-The dashboard at https://n6plc-4yaaa-aaaaj-qshia-cai.icp.net/ is where
+The dashboard at https://games.ic0.info/ is where
 players find games. The user logs in there (Internet Identity),
 registers the frontend by its canister id, with a title, a description
 and a banner, and, if hosty.live serves it under a custom domain, that

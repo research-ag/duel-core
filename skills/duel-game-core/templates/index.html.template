@@ -4,12 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>__GAME_TITLE__</title>
+    <meta name="description" content="__GAME_DESCRIPTION__" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="__GAME_TITLE__" />
+    <meta property="og:description" content="__GAME_DESCRIPTION__" />
+    <meta name="twitter:card" content="summary" />
     <link rel="stylesheet" href="/duel-game-core.css" />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
     <header>
-      <h1>__GAME_TITLE__</h1>
+      <div class="header-title">
+        <h1>__GAME_TITLE__</h1>
+        <a class="more-games" href="https://games.ic0.info/" target="_blank" rel="noopener">More games ↗</a>
+      </div>
       <div class="session">
         <!-- LEADERBOARD:
         <button id="leaderboard-toggle" title="Leaderboard" aria-label="Leaderboard">🏆</button>

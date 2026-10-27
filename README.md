@@ -18,6 +18,20 @@ diagrams of how a browser, the game canister and a bot interact. Each
 package's README has its API. See [`CLAUDE.md`](CLAUDE.md) for
 repo-wide conventions and build/test commands.
 
+## Play
+
+Every game built on the framework is listed on the
+[Duel Dashboard](https://games.ic0.info/). The reference games in
+[`examples/`](examples/) are live there too:
+[Checkers](https://eag45-ayaaa-aaaac-qhela-cai.icp0.io/),
+[Tic-Tac-Toe](https://umxxc-waaaa-aaaad-qmfya-cai.icp0.io/),
+[Ultimate Tic-Tac-Toe](https://lmbbd-cyaaa-aaaah-qu5sq-cai.icp0.io/),
+[Chopsticks](https://wrhvn-yiaaa-aaaak-qzg3a-cai.icp0.io/),
+[Rock Paper Scissors](https://gaiov-caaaa-aaaac-bga5q-cai.icp0.io/),
+[Racing Duel](https://kenge-waaaa-aaaan-q6qea-cai.icp0.io/) and
+[007 Duel](https://awvd7-gaaaa-aaaao-a3n4q-cai.icp0.io/), each against a
+friend or a bot, free and with no sign-up.
+
 ## Building a game
 
 [`skills/duel-game-core`](skills/duel-game-core/SKILL.md) is a skill for
@@ -42,8 +56,8 @@ you approve the deploy in hosty.live with your passkey. A coding agent
 on your computer works the same way, and `icp-cli` with your own
 identity and cycles remains an option. The skill's
 [`references/going-live.md`](skills/duel-game-core/references/going-live.md)
-is the walkthrough; the aggregator's "Build a new game" guide hands you
-the prompt.
+is the walkthrough; the [Duel Dashboard](https://games.ic0.info/)'s
+"Build a game" guide hands you the prompt.
 
 ## Building your own frontend or bot for a listed game
 
@@ -53,21 +67,21 @@ public metadata, and its exact module can be downloaded from
 hosty.live's module store by the canister's public `module_hash`, so a new
 frontend or a bot can be built and tested against a private copy of
 the game from the canister id alone. The "Make your own frontend" and "Build a bot" buttons in a
-game's info dialog on the aggregator hand you a prompt for an AI coding
+game's info dialog on the Duel Dashboard hand you a prompt for an AI coding
 agent;
 [`references/frontend-for-existing-game.md`](skills/duel-game-core/references/frontend-for-existing-game.md)
 and
 [`references/bot-for-existing-game.md`](skills/duel-game-core/references/bot-for-existing-game.md)
 are the procedures behind them.
 
-## Aggregator
+## Duel Dashboard (`aggregator/`)
 
-[`aggregator/`](aggregator/CLAUDE.md) is a separate product built on
+[`aggregator/`](aggregator/CLAUDE.md) is the Duel Dashboard, a separate product built on
 this repo's Motoko/TypeScript tooling: an Internet Identity login, a
 developer's own editable display name, and a public, filterable grid of
 every registered game — not part of either package above and not a game
 built on the session engine. Live at
-[n6plc-4yaaa-aaaaj-qshia-cai.icp.net](https://n6plc-4yaaa-aaaaj-qshia-cai.icp.net/).
+[games.ic0.info](https://games.ic0.info/).
 
 ### Format the code
 

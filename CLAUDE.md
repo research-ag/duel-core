@@ -159,6 +159,11 @@ opponent-move replay and a client-side move history);
 Every example but `racing` (whose 3D scene is its own) keeps the
 opponent's last move visible, debrief included, and implements
 `applyLocal`.
+Each example's `frontend/src/index.html` names its live frontend
+(`https://<frontend-id>.icp0.io/`, from `.icp/data/mappings/ic.ids.json`)
+in its canonical, Open Graph and JSON-LD tags, beside `og.jpg` (its
+dashboard banner), `robots.txt` and `sitemap.xml`; a new frontend
+canister id updates all four.
 All ship a `bot/` canister player; `007` (`["Easy", "Medium"]`), `tic-tac-toe` (`["Easy", "Hard"]`) and
 `chopsticks` (`["Bunny", "Fox", "Bear"]`) are the multi-complexity
 references. A real game lives in its own repo with the same layout —
