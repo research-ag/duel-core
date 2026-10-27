@@ -4,7 +4,63 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#09090b" />
-    <title>Duel Arena — two-player games on the Internet Computer</title>
+    <title>Duel Dashboard — two-player games on the Internet Computer</title>
+    <meta name="description" content="Free head-to-head browser games — checkers, tic-tac-toe, chopsticks, racing and more — vs a friend or a bot, fully on-chain on the Internet Computer. Build your own." />
+    <link rel="canonical" href="https://games.ic0.info/" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Duel Dashboard" />
+    <meta property="og:title" content="Duel Dashboard — pick your duel" />
+    <meta property="og:description" content="Free two-player games running entirely on the Internet Computer. Play a friend or a bot, or build your own game with Claude Code and list it here." />
+    <meta property="og:url" content="https://games.ic0.info/" />
+    <meta property="og:image" content="https://games.ic0.info/og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Duel Dashboard: banners of two-player games behind the headline “Pick your duel.”" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Duel Dashboard — pick your duel" />
+    <meta name="twitter:description" content="Free two-player games running entirely on the Internet Computer. Play a friend or a bot, or build your own." />
+    <meta name="twitter:image" content="https://games.ic0.info/og.jpg" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://games.ic0.info/#website",
+            "name": "Duel Dashboard",
+            "url": "https://games.ic0.info/",
+            "description": "A public directory of free two-player games built on the Duel framework and running entirely on the Internet Computer.",
+            "publisher": { "@id": "https://games.ic0.info/#org" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://games.ic0.info/#org",
+            "name": "Research AG",
+            "url": "https://games.ic0.info/",
+            "logo": "https://games.ic0.info/apple-touch-icon.png",
+            "sameAs": ["https://github.com/research-ag/duel-core"]
+          },
+          {
+            "@type": "ItemList",
+            "name": "Reference games",
+            "itemListElement": [
+              { "@type": "ListItem", "position": 1, "item": { "@type": "VideoGame", "name": "Checkers", "url": "https://eag45-ayaaa-aaaac-qhela-cai.icp0.io/" } },
+              { "@type": "ListItem", "position": 2, "item": { "@type": "VideoGame", "name": "Tic-Tac-Toe", "url": "https://umxxc-waaaa-aaaad-qmfya-cai.icp0.io/" } },
+              { "@type": "ListItem", "position": 3, "item": { "@type": "VideoGame", "name": "Ultimate Tic-Tac-Toe", "url": "https://lmbbd-cyaaa-aaaah-qu5sq-cai.icp0.io/" } },
+              { "@type": "ListItem", "position": 4, "item": { "@type": "VideoGame", "name": "Chopsticks", "url": "https://wrhvn-yiaaa-aaaak-qzg3a-cai.icp0.io/" } },
+              { "@type": "ListItem", "position": 5, "item": { "@type": "VideoGame", "name": "Rock Paper Scissors", "url": "https://gaiov-caaaa-aaaac-bga5q-cai.icp0.io/" } },
+              { "@type": "ListItem", "position": 6, "item": { "@type": "VideoGame", "name": "Racing Duel", "url": "https://kenge-waaaa-aaaan-q6qea-cai.icp0.io/" } },
+              { "@type": "ListItem", "position": 7, "item": { "@type": "VideoGame", "name": "007 Duel", "url": "https://awvd7-gaaaa-aaaao-a3n4q-cai.icp0.io/" } }
+            ]
+          }
+        ]
+      }
+    </script>
+
     <link rel="preload" href="fonts/InstrumentSerif-Regular.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="fonts/InstrumentSerif-Italic.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="fonts/Manrope-Variable.woff2" as="font" type="font/woff2" crossorigin />
@@ -12,6 +68,30 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <main class="wrap">
+        <h1>Duel Dashboard — two-player games on the Internet Computer</h1>
+        <p>
+          Head-to-head games built on the open-source Duel framework and
+          running entirely on the Internet Computer. Open a table, send the
+          link, play a friend or a bot — or build a game of your own and list
+          it here. This page needs JavaScript; the games below open directly.
+        </p>
+        <ul>
+          <li><a href="https://eag45-ayaaa-aaaac-qhela-cai.icp0.io/">Checkers</a></li>
+          <li><a href="https://umxxc-waaaa-aaaad-qmfya-cai.icp0.io/">Tic-Tac-Toe</a></li>
+          <li><a href="https://lmbbd-cyaaa-aaaah-qu5sq-cai.icp0.io/">Ultimate Tic-Tac-Toe</a></li>
+          <li><a href="https://wrhvn-yiaaa-aaaak-qzg3a-cai.icp0.io/">Chopsticks</a></li>
+          <li><a href="https://gaiov-caaaa-aaaac-bga5q-cai.icp0.io/">Rock Paper Scissors</a></li>
+          <li><a href="https://kenge-waaaa-aaaan-q6qea-cai.icp0.io/">Racing Duel</a></li>
+          <li><a href="https://awvd7-gaaaa-aaaao-a3n4q-cai.icp0.io/">007 Duel</a></li>
+        </ul>
+        <p>
+          Build your own:
+          <a href="https://github.com/research-ag/duel-core">research-ag/duel-core</a>
+        </p>
+      </main>
+    </noscript>
     <script type="module" src="app.js"></script>
   </body>
 </html>

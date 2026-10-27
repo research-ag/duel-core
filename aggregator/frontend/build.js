@@ -36,6 +36,11 @@ for (const [from, to] of [
   ['src/fonts', `${outdir}/fonts`],
   ['src/_headers', `${outdir}/_headers`],
   ['src/.well-known', `${outdir}/.well-known`],
+  ['src/robots.txt', `${outdir}/robots.txt`],
+  ['src/sitemap.xml', `${outdir}/sitemap.xml`],
+  ['src/favicon.svg', `${outdir}/favicon.svg`],
+  ['src/apple-touch-icon.png', `${outdir}/apple-touch-icon.png`],
+  ['src/og.jpg', `${outdir}/og.jpg`],
 ]) {
   cpSync(from, to, { recursive: true });
 }

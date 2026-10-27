@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://gaiov-caaaa-aaaac-bga5q-cai.icp0.io/sitemap.xml

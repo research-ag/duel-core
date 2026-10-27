@@ -303,7 +303,8 @@ button.stamp.big {
   padding: 0.6rem 1.4rem;
 }
 
-button.plain {
+button.plain,
+a.plain {
   font-family: var(--tw);
   font-size: 0.82rem;
   color: var(--ink);
@@ -313,11 +314,17 @@ button.plain {
   padding: 0.15rem 0.1rem;
 }
 
-button.plain.small {
+button.plain.small,
+a.plain.small {
   font-size: 0.74rem;
 }
 
-button.plain:hover:not(:disabled) {
+a.plain {
+  text-decoration: none;
+}
+
+button.plain:hover:not(:disabled),
+a.plain:hover {
   color: var(--red);
   border-color: var(--red);
 }

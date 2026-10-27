@@ -231,7 +231,10 @@ call: restyle through `style.css`, replace individual screens through
 `start({ screens })`, or build every screen over `createDuelClient()`
 (`references/rich-ui.md`). Whatever the UI, it must still let a player
 create a table, join one, play, see the result, and rematch or leave —
-the lobby and debrief are part of the game.
+the lobby and debrief are part of the game. Its header carries a "More
+games" link to the Duel Dashboard, https://games.ic0.info/, opening in
+a new tab (`index.html.template`'s `.more-games`, or the page's own
+style).
 
 ## 7. Test
 

@@ -432,9 +432,14 @@ From `templates/plugin.js.template`, write `frontend/src/<game>-plugin.js`:
   `formatOptions` labels a table's options in the lobby.
 
 Copy `index.html.template`, `app.js.template`, `style.css.template` into
-`frontend/src/`, filling `__GAME_TITLE__`, `__PLUGIN_FILE__`,
+`frontend/src/`, filling `__GAME_TITLE__`, `__GAME_DESCRIPTION__` (one
+sentence for search results and link previews: the game, against a
+friend or a bot, in the browser), `__PLUGIN_FILE__`,
 `__IDLE_TIMEOUT_SECONDS__`. `style.css` may stay empty but must exist
-(`build.js` copies it). `app.js` reads the backend's id from the `ic_env`
+(`build.js` copies it). The header's "More games ↗" link (`.more-games`
+in the package's stylesheet) leads to the Duel Dashboard,
+https://games.ic0.info/, where players find every listed game: keep it,
+and keep it in any header of your own. `app.js` reads the backend's id from the `ic_env`
 cookie the frontend canister sets, resolves a non-spoofable anonymous
 identity, builds the actor, connects the transport, and calls
 `start({ plugin, transport, session })`; esbuild inlines every dependency, so

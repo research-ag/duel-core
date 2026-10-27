@@ -101,7 +101,10 @@ HTML you place wherever you like; a click on a `data-act` button becomes
 worked example: ~300 lines covering every screen, the header, the alert
 bar, two native `<dialog>`s, and clock patching, over `client.js` and
 `esc` alone, with its own stylesheet; its `app.js` seats bots through
-`bots.js`'s headless `createBotInviter`.
+`bots.js`'s headless `createBotInviter`. A header of your own keeps the
+"More games" link to the Duel Dashboard (https://games.ic0.info/, new
+tab) that `index.html.template` carries, as 007's dossier and
+chopsticks' header pills do.
 `examples/chopsticks/frontend/src/chopsticks-ui.js` is the second, and
 the one to read when porting an existing app's design (there, a React/
 Tailwind app) onto the engine: a bot flow that turns `list_bots()`
