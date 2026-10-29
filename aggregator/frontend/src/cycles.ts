@@ -7,7 +7,7 @@
 
 import { useSyncExternalStore } from "react";
 
-import { backendOf, textOf } from "./canisterHttp";
+import { backendOf, fetchText } from "./canisterHttp";
 import type { GameView } from "./types";
 
 export const TC = 1_000_000_000_000n;
@@ -60,8 +60,8 @@ export function hostyCanisterUrl(canister: string): string {
   return `https://hosty.live/panel/canister/${canister}`;
 }
 
-/// `undefined` while a read runs, `null` when the canister serves no
-/// `cycles_balance`.
+/// `undefined` while the first read runs, `null` when the canister
+/// serves no `cycles_balance` or could not be reached.
 export type Cycles = bigint | null | undefined;
 
 export interface CycleStore {
@@ -87,15 +87,34 @@ function parseCycles(metrics: string): bigint | undefined {
   return m ? BigInt(m[1]) : undefined;
 }
 
-async function readCycles(backend: string): Promise<Cycles> {
-  const text = await textOf(backend, "/metrics");
-  return (text === undefined ? undefined : parseCycles(text)) ?? null;
+const RETRY_DELAYS_MS = [1_000, 3_000];
+
+/// `null` when the canister answers but serves no `cycles_balance`;
+/// throws once every attempt failed to get an answer at all.
+async function readCycles(backend: string): Promise<bigint | null> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const text = await fetchText(backend, "/metrics");
+      return (text === undefined ? undefined : parseCycles(text)) ?? null;
+    } catch (err) {
+      const delay = RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 
 /// Re-reads one backend's balance (after a payment, say) and resolves
-/// with the new value.
+/// with the new value. A read that fails outright keeps the balance
+/// already known, or reads as `null` when there is none yet.
 export async function refreshCycles(backend: string): Promise<Cycles> {
-  const value = await readCycles(backend);
+  let value: Cycles;
+  try {
+    value = await readCycles(backend);
+  } catch {
+    const known = cycles.get(backend);
+    value = known ?? null;
+  }
   cycles.set(backend, value);
   changed();
   return value;

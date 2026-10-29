@@ -112,16 +112,25 @@ export function backendOf(frontend: Principal): Promise<string | undefined> {
   return p;
 }
 
-/// The body of `GET path` as text, or `undefined` unless it answers 200.
+/// The body of `GET path` as text, `undefined` when the canister answers
+/// anything but 200; a failed call (network, no such canister) throws.
+export async function fetchText(
+  canister: string,
+  path: string
+): Promise<string | undefined> {
+  const res = await httpGet(canister, path);
+  return res.status_code === 200
+    ? new TextDecoder().decode(res.body)
+    : undefined;
+}
+
+/// `fetchText` with a failed call reading as `undefined` too.
 export async function textOf(
   canister: string,
   path: string
 ): Promise<string | undefined> {
   try {
-    const res = await httpGet(canister, path);
-    return res.status_code === 200
-      ? new TextDecoder().decode(res.body)
-      : undefined;
+    return await fetchText(canister, path);
   } catch {
     return undefined;
   }

@@ -210,8 +210,9 @@ function isLow(store: CycleStore, game: GameView): boolean {
   return c != null && bandOf(c) !== "healthy";
 }
 
-/// The logged-in developer's games: how many backends are readable,
-/// their total, and the one that needs attention first.
+/// The logged-in developer's backends (two listings on one backend
+/// count once): how many have a readable balance, their total, and the
+/// one that needs attention first.
 function OwnerStrip({
   games,
   store,
@@ -221,9 +222,18 @@ function OwnerStrip({
   store: CycleStore;
   onInfo: (game: GameView) => void;
 }) {
-  const readable = games
-    .map((g) => ({ game: g, cycles: cyclesOfGame(store, g) }))
-    .filter((x): x is { game: GameView; cycles: bigint } => x.cycles != null);
+  const byBackend = new Map<string, { game: GameView; cycles: bigint }>();
+  let unreadable = 0;
+  for (const game of games) {
+    const backend = store.backends.get(game.frontendCanisterId.toText());
+    const cycles = cyclesOfGame(store, game);
+    if (!backend || cycles == null) {
+      unreadable++;
+      continue;
+    }
+    if (!byBackend.has(backend)) byBackend.set(backend, { game, cycles });
+  }
+  const readable = [...byBackend.values()];
   if (readable.length === 0) return null;
   const total = readable.reduce((sum, x) => sum + x.cycles, 0n);
   const low = readable.filter((x) => bandOf(x.cycles) !== "healthy");
@@ -231,7 +241,8 @@ function OwnerStrip({
   return (
     <p className="owner-strip">
       <strong>Your games:</strong> {readable.length} backend
-      {readable.length === 1 ? "" : "s"}, {formatTC(total)} in total
+      {readable.length === 1 ? "" : "s"} with a readable balance,{" "}
+      {formatTC(total)} in total
       {low.length > 0 ? (
         <>
           ,{" "}
@@ -247,9 +258,13 @@ function OwnerStrip({
             {lowest.game.title}: {formatTC(lowest.cycles)}
           </button>
         </>
+      ) : unreadable > 0 ? (
+        ", those healthy"
       ) : (
         ", all healthy"
       )}
+      {unreadable > 0 &&
+        ` (${unreadable} listing${unreadable === 1 ? "" : "s"} without one)`}
       .
     </p>
   );

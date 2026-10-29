@@ -103,9 +103,11 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   with a **Top up** page. `cycles.ts` is the balance side: one page-wide
   store (`useSyncExternalStore`) of frontend → backend and backend →
   `cycles_balance`, read from the backend's `/metrics` through
-  `canisterHttp.ts`'s `textOf` once per page load (`trackGame`, started
-  by `GameGrid.tsx` for every listing) and re-read on demand
-  (`refreshCycles`); the bands (`HEALTHY_TC` 0.5, `LOW_TC` 0.2) behind
+  `canisterHttp.ts`'s `fetchText` once per page load (`trackGame`,
+  started by `GameGrid.tsx` for every listing; a failed call is retried
+  twice, then reads as `null` like a missing gauge) and re-read on
+  demand (`refreshCycles`, which keeps a known balance over a failed
+  read); the bands (`HEALTHY_TC` 0.5, `LOW_TC` 0.2) behind
   `CyclesBadge.tsx` (the dot on every card and in the modal; a
   `critical` card gets a red edge), the `Low on cycles` chip and the
   logged-in developer's `OwnerStrip` in `GameGrid.tsx`; and the top-up
