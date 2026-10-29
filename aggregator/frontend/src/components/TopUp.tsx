@@ -32,9 +32,9 @@ export function TopUp({
 }) {
   const [usd, setUsd] = useState(10);
   const [custom, setCustom] = useState("");
-  /// The balance when the payment page was opened; `undefined` until a
-  /// read has answered, so a balance that only becomes readable while
-  /// watching is shown, never counted as received.
+  /// The balance read fresh when the payment page was opened;
+  /// `undefined` until a read has answered, so a balance that only
+  /// becomes readable while watching is shown, never counted as received.
   const [since, setSince] = useState<bigint | undefined>(undefined);
   const [watching, setWatching] = useState(false);
   const [gaveUp, setGaveUp] = useState(false);
@@ -65,7 +65,7 @@ export function TopUp({
       }
       timer = setTimeout(() => void tick(), WATCH_EVERY_MS);
     };
-    timer = setTimeout(() => void tick(), WATCH_EVERY_MS);
+    timer = setTimeout(() => void tick(), since === undefined ? 0 : WATCH_EVERY_MS);
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -73,7 +73,7 @@ export function TopUp({
   }, [watching, since, backend]);
 
   function startWatching() {
-    setSince(cycles ?? undefined);
+    setSince(undefined);
     setGaveUp(false);
     setWatching(true);
   }

@@ -104,10 +104,17 @@ async function readCycles(backend: string): Promise<bigint | null> {
   }
 }
 
+/// The latest read started per backend; an older one that answers
+/// after a newer one must not overwrite it.
+const reads = new Map<string, number>();
+
 /// Re-reads one backend's balance (after a payment, say) and resolves
 /// with the new value. A read that fails outright keeps the balance
-/// already known, or reads as `null` when there is none yet.
+/// already known, or reads as `null` when there is none yet; a read
+/// superseded by a later one resolves with what that one stored.
 export async function refreshCycles(backend: string): Promise<Cycles> {
+  const mine = (reads.get(backend) ?? 0) + 1;
+  reads.set(backend, mine);
   let value: Cycles;
   try {
     value = await readCycles(backend);
@@ -115,6 +122,7 @@ export async function refreshCycles(backend: string): Promise<Cycles> {
     const known = cycles.get(backend);
     value = known ?? null;
   }
+  if (reads.get(backend) !== mine) return cycles.get(backend);
   cycles.set(backend, value);
   changed();
   return value;
