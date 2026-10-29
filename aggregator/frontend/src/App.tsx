@@ -143,6 +143,10 @@ export function App() {
         <GameInfoModal
           game={infoFor}
           games={games}
+          isOwner={
+            auth.principal !== undefined &&
+            infoFor.developer.toText() === auth.principal.toText()
+          }
           onClose={() => setInfoFor(undefined)}
           onGuide={(purpose, target) => {
             setInfoFor(undefined);

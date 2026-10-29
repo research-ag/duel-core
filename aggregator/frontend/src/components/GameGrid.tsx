@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Principal } from "@icp-sdk/core/principal";
 
+import type { CycleStore } from "../cycles";
+import {
+  bandOf,
+  cyclesOfGame,
+  formatTC,
+  trackGame,
+  useCycleStore,
+} from "../cycles";
 import type { AggregatorActor, GameView } from "../types";
 import { GameCard } from "./GameCard";
 import { Search } from "./Icons";
@@ -27,7 +35,18 @@ export function GameGrid({
 }) {
   const [search, setSearch] = useState("");
   const [developer, setDeveloper] = useState<string>("all");
+  const [lowOnly, setLowOnly] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const store = useCycleStore();
+
+  useEffect(() => {
+    for (const g of games) trackGame(g);
+  }, [games]);
+
+  const lowCount = useMemo(
+    () => games.filter((g) => isLow(store, g)).length,
+    [games, store]
+  );
 
   // "/" focuses the search from anywhere on the page.
   useEffect(() => {
@@ -52,6 +71,7 @@ export function GameGrid({
     return games.filter((g) => {
       if (developer !== "all" && g.developer.toText() !== developer)
         return false;
+      if (lowOnly && !isLow(store, g)) return false;
       if (
         q &&
         !g.title.toLowerCase().includes(q) &&
@@ -60,7 +80,15 @@ export function GameGrid({
         return false;
       return true;
     });
-  }, [games, search, developer]);
+  }, [games, search, developer, lowOnly, store]);
+
+  const own = useMemo(
+    () =>
+      ownPrincipal
+        ? games.filter((g) => g.developer.toText() === ownPrincipal.toText())
+        : [],
+    [games, ownPrincipal]
+  );
 
   return (
     <section className="section wrap" id="games">
@@ -113,8 +141,23 @@ export function GameGrid({
               ))}
             </div>
           )}
+          {(lowCount > 0 || lowOnly) && (
+            <button
+              type="button"
+              className={`chip${lowOnly ? " on" : ""}`}
+              onClick={() => setLowOnly(!lowOnly)}
+              aria-pressed={lowOnly}
+            >
+              <i className="dot low" aria-hidden="true" />
+              Low on cycles ({lowCount})
+            </button>
+          )}
         </div>
       </div>
+
+      {own.length > 0 && (
+        <OwnerStrip games={own} store={store} onInfo={onInfo} />
+      )}
 
       {loading ? (
         <div className="grid">
@@ -159,5 +202,55 @@ export function GameGrid({
         </div>
       )}
     </section>
+  );
+}
+
+function isLow(store: CycleStore, game: GameView): boolean {
+  const c = cyclesOfGame(store, game);
+  return c != null && bandOf(c) !== "healthy";
+}
+
+/// The logged-in developer's games: how many backends are readable,
+/// their total, and the one that needs attention first.
+function OwnerStrip({
+  games,
+  store,
+  onInfo,
+}: {
+  games: GameView[];
+  store: CycleStore;
+  onInfo: (game: GameView) => void;
+}) {
+  const readable = games
+    .map((g) => ({ game: g, cycles: cyclesOfGame(store, g) }))
+    .filter((x): x is { game: GameView; cycles: bigint } => x.cycles != null);
+  if (readable.length === 0) return null;
+  const total = readable.reduce((sum, x) => sum + x.cycles, 0n);
+  const low = readable.filter((x) => bandOf(x.cycles) !== "healthy");
+  const lowest = readable.reduce((a, b) => (b.cycles < a.cycles ? b : a));
+  return (
+    <p className="owner-strip">
+      <strong>Your games:</strong> {readable.length} backend
+      {readable.length === 1 ? "" : "s"}, {formatTC(total)} in total
+      {low.length > 0 ? (
+        <>
+          ,{" "}
+          <span className={bandOf(lowest.cycles)}>
+            {low.length} running low
+          </span>
+          {" · "}
+          <button
+            type="button"
+            className="info-link"
+            onClick={() => onInfo(lowest.game)}
+          >
+            {lowest.game.title}: {formatTC(lowest.cycles)}
+          </button>
+        </>
+      ) : (
+        ", all healthy"
+      )}
+      .
+    </p>
   );
 }

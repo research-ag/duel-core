@@ -101,7 +101,26 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   `GameInfoModal.tsx` (the card's info button) shows a listing's details
   and, one click further, its backend: `/metrics` and `/semantics`
   links, its Grafana dashboard, the semantics text, and
-  every listed frontend playing the same backend. `grafana.ts` asks the
+  every listed frontend playing the same backend, and its cycle balance
+  with a **Top up** page. `cycles.ts` is the balance side: one page-wide
+  store (`useSyncExternalStore`) of frontend → backend and backend →
+  `cycles_balance`, read from the backend's `/metrics` through
+  `canisterHttp.ts`'s `textOf` once per page load (`trackGame`, started
+  by `GameGrid.tsx` for every listing) and re-read on demand
+  (`refreshCycles`); the bands (`HEALTHY_TC` 0.5, `LOW_TC` 0.2) behind
+  `CyclesBadge.tsx` (the dot on every card and in the modal; a
+  `critical` card gets a red edge), the `Low on cycles` chip and the
+  logged-in developer's `OwnerStrip` in `GameGrid.tsx`; and the top-up
+  links. `TopUp.tsx` is the modal's third page: a whole-dollar amount
+  (5 to 100) into a prefilled CyclePay checkout
+  (`cyclepay.org/c/<backend>/<usd>`, anyone can pay), Cycle Express and,
+  for the game's developer, the canister's hosty.live page and the
+  icp-cli command; after any of them it re-reads `/metrics` every 5 s
+  for two minutes and shows what arrived. The dashboard never holds a
+  hosty.live token and never takes a payment itself; the TC-per-dollar
+  figure is an estimate at a fixed XDR rate. A frontend canister's
+  balance is not shown: an asset canister serves no `/metrics`.
+  `grafana.ts` asks the
   promtracker dashboard registry (`iu7kc-saaaa-aaaao-bbama-cai`, the
   openapi-scraper project) with `getDashboard`; with none yet, and only
   for a backend serving `/metrics`, it calls `requestRegisterDashboard`

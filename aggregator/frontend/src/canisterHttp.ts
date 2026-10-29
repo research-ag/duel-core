@@ -112,19 +112,25 @@ export function backendOf(frontend: Principal): Promise<string | undefined> {
   return p;
 }
 
-/// The backend's `/semantics` text, or `undefined` when it serves none
-/// (not a duel-game-core backend, or one that predates it).
-export async function semanticsOf(
-  backend: string
+/// The body of `GET path` as text, or `undefined` unless it answers 200.
+export async function textOf(
+  canister: string,
+  path: string
 ): Promise<string | undefined> {
   try {
-    const res = await httpGet(backend, "/semantics");
+    const res = await httpGet(canister, path);
     return res.status_code === 200
       ? new TextDecoder().decode(res.body)
       : undefined;
   } catch {
     return undefined;
   }
+}
+
+/// The backend's `/semantics` text, or `undefined` when it serves none
+/// (not a duel-game-core backend, or one that predates it).
+export function semanticsOf(backend: string): Promise<string | undefined> {
+  return textOf(backend, "/semantics");
 }
 
 /// Whether `GET path` on the canister answers 200.
