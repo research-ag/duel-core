@@ -32,12 +32,15 @@ export function TopUp({
 }) {
   const [usd, setUsd] = useState(10);
   const [custom, setCustom] = useState("");
-  /// The balance read fresh when the payment page was opened;
-  /// `undefined` until a read has answered, so a balance that only
-  /// becomes readable while watching is shown, never counted as received.
+  /// The balance before the payment: the one on screen when the payment
+  /// page opened, or the fresh read started at that moment. Never a
+  /// balance read later, which could already include the payment.
   const [since, setSince] = useState<bigint | undefined>(undefined);
   const [watching, setWatching] = useState(false);
   const [gaveUp, setGaveUp] = useState(false);
+  /// No balance could be read before the payment, so its arrival cannot
+  /// be confirmed here.
+  const [unconfirmable, setUnconfirmable] = useState(false);
 
   const valid =
     Number.isInteger(usd) && usd >= CYCLEPAY_MIN_USD && usd <= CYCLEPAY_MAX_USD;
@@ -50,11 +53,17 @@ export function TopUp({
     const tick = async () => {
       const now = await refreshCycles(backend);
       if (cancelled) return;
-      if (since === undefined && now != null) {
-        setSince(now);
+      if (since === undefined) {
+        // The read started as the payment page opened: the baseline, or
+        // nothing to compare against.
+        if (now != null) setSince(now);
+        else {
+          setWatching(false);
+          setUnconfirmable(true);
+        }
         return;
       }
-      if (since !== undefined && now != null && now > since) {
+      if (now != null && now > since) {
         setWatching(false);
         return;
       }
@@ -65,7 +74,10 @@ export function TopUp({
       }
       timer = setTimeout(() => void tick(), WATCH_EVERY_MS);
     };
-    timer = setTimeout(() => void tick(), since === undefined ? 0 : WATCH_EVERY_MS);
+    timer = setTimeout(
+      () => void tick(),
+      since === undefined ? 0 : WATCH_EVERY_MS
+    );
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -73,8 +85,9 @@ export function TopUp({
   }, [watching, since, backend]);
 
   function startWatching() {
-    setSince(undefined);
+    setSince(cycles ?? undefined);
     setGaveUp(false);
+    setUnconfirmable(false);
     setWatching(true);
   }
 
@@ -104,6 +117,13 @@ export function TopUp({
           )}
           {watching && received === undefined && (
             <span className="faint"> · waiting for cycles to arrive…</span>
+          )}
+          {unconfirmable && (
+            <span className="faint">
+              {" "}
+              · its balance could not be read before the payment, so the
+              arrival cannot be confirmed here.
+            </span>
           )}
           {gaveUp && received === undefined && (
             <span className="faint">

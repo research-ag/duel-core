@@ -104,28 +104,34 @@ async function readCycles(backend: string): Promise<bigint | null> {
   }
 }
 
-/// The latest read started per backend; an older one that answers
-/// after a newer one must not overwrite it.
-const reads = new Map<string, number>();
+/// Per backend, the number of the latest read started and of the read
+/// whose answer is stored, so answers land in the order the reads were
+/// started whatever order they arrive in.
+const started = new Map<string, number>();
+const stored = new Map<string, number>();
 
 /// Re-reads one backend's balance (after a payment, say) and resolves
-/// with the new value. A read that fails outright keeps the balance
-/// already known, or reads as `null` when there is none yet; a read
-/// superseded by a later one resolves with what that one stored.
+/// with what the store holds afterwards. An answer from a read older
+/// than the stored one is dropped; a read that fails outright changes
+/// nothing, except that the latest read failing with no answer stored
+/// yet reads as `null`.
 export async function refreshCycles(backend: string): Promise<Cycles> {
-  const mine = (reads.get(backend) ?? 0) + 1;
-  reads.set(backend, mine);
-  let value: Cycles;
+  const mine = (started.get(backend) ?? 0) + 1;
+  started.set(backend, mine);
   try {
-    value = await readCycles(backend);
+    const value = await readCycles(backend);
+    if (mine > (stored.get(backend) ?? 0)) {
+      stored.set(backend, mine);
+      cycles.set(backend, value);
+      changed();
+    }
   } catch {
-    const known = cycles.get(backend);
-    value = known ?? null;
+    if (started.get(backend) === mine && cycles.get(backend) === undefined) {
+      cycles.set(backend, null);
+      changed();
+    }
   }
-  if (reads.get(backend) !== mine) return cycles.get(backend);
-  cycles.set(backend, value);
-  changed();
-  return value;
+  return cycles.get(backend);
 }
 
 /// Starts the lookups for a listing, once per page load: its backend,
