@@ -1110,6 +1110,26 @@ select:disabled {
   color: var(--ink-2);
 }
 
+.footer-cycles {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.footer-cycles .cycles {
+  margin-left: 0;
+}
+
+.footer-cycles:hover {
+  color: var(--ink);
+}
+
 /* -------------------------------------------------------------- modals */
 
 .modal-backdrop {

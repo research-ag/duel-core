@@ -22,17 +22,15 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
 - **`src/Main.mo`** — thin host actor: owns the `Store.State`, reads
   `msg.caller`/`Time.now()`, forwards to `Store`. Plain Candid methods are
   fine here — independent developers never contend the way two seats at
-  one table do. `getBannerRequirements` lets the frontend validate
+  one table do. Its `http_request` serves `/metrics` (`mo:promtracker`'s
+  system metrics, cycles included, plus a `games_registered` gauge) so
+  the dashboard can show its own backend's balance in the footer. `getBannerRequirements` lets the frontend validate
   against the exact numbers `Store.mo` enforces.
 - **`test/Store.test.mo`** — interpreter suite over `Png.dimensions` and
   every `Store.mo` entry point (anonymous rejection, validation,
   ownership on edit/deregister, re-keying on a frontend change,
   display-name resolution, deregistered games gone from every read
   path).
-- **`src/Migration.mo`** + **`test/Migration.test.mo`** — one-off
-  `(with migration = Migration.run)` on `Main.mo`, converting the
-  backend-keyed registry to this shape. Delete both, and the clause,
-  once the live canister is upgraded: it traps on any later upgrade.
 - **`icp.yaml`** — `src/Main.mo` as `backend`, `frontend/dist` as
   `frontend`.
 - **`frontend/`** — React + TypeScript, esbuild. `idl.ts` is a
@@ -162,7 +160,6 @@ mops install
 MOC=$(mops toolchain bin moc)
 "$MOC" --check $(mops sources) src/Main.mo
 "$MOC" -r $(mops sources) test/Store.test.mo
-"$MOC" -r $(mops sources) test/Migration.test.mo
 
 cd frontend
 npm install --legacy-peer-deps

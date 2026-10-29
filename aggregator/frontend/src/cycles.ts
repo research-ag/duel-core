@@ -119,6 +119,15 @@ export function trackGame(game: GameView): void {
   });
 }
 
+/// Starts the balance read for a backend known by id (the dashboard's
+/// own), once per page load.
+export function trackBackend(backend: string): void {
+  if (cycles.has(backend)) return;
+  cycles.set(backend, undefined);
+  changed();
+  void refreshCycles(backend);
+}
+
 export function useCycleStore(): CycleStore {
   return useSyncExternalStore(
     (l) => {
