@@ -22,7 +22,7 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
 - **`src/Main.mo`** — thin host actor: owns the `Store.State`, reads
   `msg.caller`/`Time.now()`, forwards to `Store`. Plain Candid methods are
   fine here — independent developers never contend the way two seats at
-  one table do. Its `http_request` serves `/metrics` (`mo:promtracker`'s
+  one table do. `mo:promtracker/mixins/http` serves `/metrics` (promtracker's
   system metrics, cycles included, plus a `games_registered` gauge) so
   the dashboard can show its own backend's balance in the footer. `getBannerRequirements` lets the frontend validate
   against the exact numbers `Store.mo` enforces.

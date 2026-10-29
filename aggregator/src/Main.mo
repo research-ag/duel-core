@@ -1,6 +1,6 @@
-import Text "mo:core/Text";
 import Time "mo:core/Time";
 import PT "mo:promtracker";
+import Http "mo:promtracker/mixins/http";
 
 import Store "Store";
 import T "Types";
@@ -8,7 +8,7 @@ import T "Types";
 /// The aggregator backend: developer profiles and a public game registry.
 /// Plain Candid methods are fine here (no two callers contend on one
 /// record the way two seats do on a table); all logic lives in `Store.mo`.
-/// `http_request` serves `/metrics` (promtracker's system metrics and the
+/// promtracker's http mixin serves `/metrics` (the system metrics and the
 /// number of listed games) so the dashboard can show its own cycle
 /// balance the way it shows every game's.
 actor {
@@ -61,29 +61,5 @@ actor {
     state.getBanner(id);
   };
 
-  type HttpRequest = {
-    method : Text;
-    url : Text;
-    headers : [(Text, Text)];
-    body : Blob;
-  };
-  type HttpResponse = {
-    status_code : Nat16;
-    headers : [(Text, Text)];
-    body : Blob;
-  };
-
-  func plain(status_code : Nat16, text : Text) : HttpResponse = {
-    status_code;
-    headers = [("content-type", "text/plain; charset=utf-8")];
-    body = text.encodeUtf8();
-  };
-
-  public query func http_request(req : HttpRequest) : async HttpResponse {
-    if (req.method != "GET") return plain(405, "GET only");
-    switch (req.url.split(#char '?').next()) {
-      case (?"/metrics") plain(200, metrics.renderExposition());
-      case _ plain(404, "Not found. Available:\n/metrics");
-    };
-  };
+  include Http(metrics.renderExposition, "/metrics");
 };
