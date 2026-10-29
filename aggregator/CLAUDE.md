@@ -22,17 +22,15 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
 - **`src/Main.mo`** — thin host actor: owns the `Store.State`, reads
   `msg.caller`/`Time.now()`, forwards to `Store`. Plain Candid methods are
   fine here — independent developers never contend the way two seats at
-  one table do. `getBannerRequirements` lets the frontend validate
+  one table do. `mo:promtracker/mixins/http` serves `/metrics` (promtracker's
+  system metrics, cycles included, plus a `games_registered` gauge) so
+  the dashboard can show its own backend's balance in the footer. `getBannerRequirements` lets the frontend validate
   against the exact numbers `Store.mo` enforces.
 - **`test/Store.test.mo`** — interpreter suite over `Png.dimensions` and
   every `Store.mo` entry point (anonymous rejection, validation,
   ownership on edit/deregister, re-keying on a frontend change,
   display-name resolution, deregistered games gone from every read
   path).
-- **`src/Migration.mo`** + **`test/Migration.test.mo`** — one-off
-  `(with migration = Migration.run)` on `Main.mo`, converting the
-  backend-keyed registry to this shape. Delete both, and the clause,
-  once the live canister is upgraded: it traps on any later upgrade.
 - **`icp.yaml`** — `src/Main.mo` as `backend`, `frontend/dist` as
   `frontend`.
 - **`frontend/`** — React + TypeScript, esbuild. `idl.ts` is a
@@ -101,7 +99,28 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   `GameInfoModal.tsx` (the card's info button) shows a listing's details
   and, one click further, its backend: `/metrics` and `/semantics`
   links, its Grafana dashboard, the semantics text, and
-  every listed frontend playing the same backend. `grafana.ts` asks the
+  every listed frontend playing the same backend, and its cycle balance
+  with a **Top up** page. `cycles.ts` is the balance side: one page-wide
+  store (`useSyncExternalStore`) of frontend → backend and backend →
+  `cycles_balance`, read from the backend's `/metrics` through
+  `canisterHttp.ts`'s `fetchText` once per page load (`trackGame`,
+  started by `GameGrid.tsx` for every listing; a failed call is retried
+  twice, then reads as `null` like a missing gauge) and re-read on
+  demand (`refreshCycles`, which keeps a known balance over a failed
+  read); the bands (`HEALTHY_TC` 0.5, `LOW_TC` 0.2) behind
+  `CyclesBadge.tsx` (the dot on every card and in the modal; a
+  `critical` card gets a red edge), the `Low on cycles` chip and the
+  logged-in developer's `OwnerStrip` in `GameGrid.tsx`; and the top-up
+  links. `TopUp.tsx` is the modal's third page: a whole-dollar amount
+  (5 to 100) into a prefilled CyclePay checkout
+  (`cyclepay.org/c/<backend>/<usd>`, anyone can pay), Cycle Express and,
+  for the game's developer, the canister's hosty.live page and the
+  icp-cli command; after any of them it re-reads `/metrics` every 5 s
+  for two minutes and shows what arrived. The dashboard never holds a
+  hosty.live token and never takes a payment itself; the TC-per-dollar
+  figure is an estimate at a fixed XDR rate. A frontend canister's
+  balance is not shown: an asset canister serves no `/metrics`.
+  `grafana.ts` asks the
   promtracker dashboard registry (`iu7kc-saaaa-aaaao-bbama-cai`, the
   openapi-scraper project) with `getDashboard`; with none yet, and only
   for a backend serving `/metrics`, it calls `requestRegisterDashboard`
@@ -143,7 +162,6 @@ mops install
 MOC=$(mops toolchain bin moc)
 "$MOC" --check $(mops sources) src/Main.mo
 "$MOC" -r $(mops sources) test/Store.test.mo
-"$MOC" -r $(mops sources) test/Migration.test.mo
 
 cd frontend
 npm install --legacy-peer-deps

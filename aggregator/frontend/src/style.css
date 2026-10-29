@@ -936,6 +936,78 @@ select:disabled {
   font-weight: 600;
 }
 
+.cycles {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cycles i,
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--green);
+  flex: none;
+}
+
+.cycles.low i,
+.dot.low,
+.owner-strip .low {
+  background: var(--gold);
+}
+
+.cycles.critical i,
+.dot.critical,
+.owner-strip .critical {
+  background: var(--red);
+}
+
+.owner-strip .low,
+.owner-strip .critical {
+  background: none;
+  font-weight: 600;
+}
+
+.owner-strip .low {
+  color: var(--gold-2);
+}
+
+.owner-strip .critical {
+  color: var(--red);
+}
+
+.card.critical {
+  border-color: rgba(255, 111, 97, 0.45);
+}
+
+.card.critical .cycles {
+  color: var(--red);
+}
+
+.owner-strip {
+  margin: -0.5rem 0 1.5rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--panel);
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.owner-strip strong {
+  color: var(--ink-2);
+}
+
+.owner-strip .info-link {
+  font-size: inherit;
+}
+
 .card-desc {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1036,6 +1108,26 @@ select:disabled {
 
 .footer a {
   color: var(--ink-2);
+}
+
+.footer-cycles {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.footer-cycles .cycles {
+  margin-left: 0;
+}
+
+.footer-cycles:hover {
+  color: var(--ink);
 }
 
 /* -------------------------------------------------------------- modals */
@@ -1634,6 +1726,72 @@ input[type="range"] {
 
 .info-link:hover {
   text-decoration: underline;
+}
+
+.cycles-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.cycles-row .cycles {
+  margin-left: 0;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.received {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.amounts {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.amounts .note {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-left: 0.3rem;
+}
+
+.amount-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.amount-custom input {
+  font: inherit;
+  width: 4.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+}
+
+.amount-custom input:focus {
+  outline: none;
+  border-color: var(--gold-line);
+}
+
+.btn.disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+.faint.small {
+  font-size: 0.8rem;
+  margin: 1rem 0 0.4rem;
 }
 
 .info-back {

@@ -1,4 +1,6 @@
 import Time "mo:core/Time";
+import PT "mo:promtracker";
+import Http "mo:promtracker/mixins/http";
 
 import Store "Store";
 import T "Types";
@@ -6,9 +8,16 @@ import T "Types";
 /// The aggregator backend: developer profiles and a public game registry.
 /// Plain Candid methods are fine here (no two callers contend on one
 /// record the way two seats do on a table); all logic lives in `Store.mo`.
+/// promtracker's http mixin serves `/metrics` (the system metrics and the
+/// number of listed games) so the dashboard can show its own cycle
+/// balance the way it shows every game's.
 actor {
 
   let state : Store.State = Store.empty();
+
+  transient let metrics = PT.Renderer();
+  metrics.addValue(PT.allSystemMetrics);
+  metrics.addValue(PT.newValue("games_registered", [], func() : Nat = state.listGames().size()));
 
   public shared ({ caller }) func setDisplayName(name : Text) : async Store.Res<()> {
     state.setDisplayName(caller, name);
@@ -51,4 +60,6 @@ actor {
   public query func getBanner(id : T.GameId) : async ?Blob {
     state.getBanner(id);
   };
+
+  include Http(metrics.renderExposition, "/metrics");
 };

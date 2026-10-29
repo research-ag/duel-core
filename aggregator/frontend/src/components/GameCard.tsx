@@ -1,9 +1,11 @@
 import { Fragment, useState } from "react";
 import type { Principal } from "@icp-sdk/core/principal";
 
+import { bandOf, cyclesOfGame, useCycleStore } from "../cycles";
 import { useBanner } from "../hooks/useBanner";
 import type { AggregatorActor, Err, GameView } from "../types";
 import { errMessage, gameUrl, optToMaybe } from "../types";
+import { CyclesBadge } from "./CyclesBadge";
 import { avatarStyle } from "./DisplayNameEditor";
 import { ArrowRight, Info, Pencil, Trash } from "./Icons";
 import { Modal } from "./Modal";
@@ -26,6 +28,8 @@ export function GameCard({
   onInfo: () => void;
 }) {
   const banner = useBanner(actor, game.frontendCanisterId);
+  const cycles = cyclesOfGame(useCycleStore(), game);
+  const critical = cycles != null && bandOf(cycles) === "critical";
   const developerName =
     optToMaybe(game.developerDisplayName) ?? shortPrincipal(game.developer);
   const [confirming, setConfirming] = useState(false);
@@ -55,7 +59,7 @@ export function GameCard({
   return (
     <Fragment>
       <article
-        className="card"
+        className={`card${critical ? " critical" : ""}`}
         style={{ "--i": index, ...bannerVar } as React.CSSProperties}
       >
         <span className="card-glow" aria-hidden="true" />
@@ -82,6 +86,7 @@ export function GameCard({
                 style={avatarStyle(game.developer)}
               />
               <span className="name">{developerName}</span>
+              <CyclesBadge cycles={cycles} />
             </span>
             <span className="card-desc">{game.description}</span>
           </span>
@@ -131,6 +136,8 @@ export function GameCard({
           <p className="modal-intro">
             This permanently removes the listing from this registry. The game's
             own canisters are untouched.
+            {critical &&
+              " Its backend is almost out of cycles; while listed, anyone can top it up."}
           </p>
           {error && <p className="error">{error}</p>}
           <div className="modal-actions">

@@ -1,14 +1,19 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { backendCanisterId } from "./api";
 import { BotTutorialWizard } from "./components/BotTutorialWizard";
 import { FrontendTutorialWizard } from "./components/FrontendTutorialWizard";
 import { GameInfoModal } from "./components/GameInfoModal";
 import { GameFormModal } from "./components/GameFormModal";
 import { GameGrid } from "./components/GameGrid";
+import { CyclesBadge } from "./components/CyclesBadge";
 import { Header } from "./components/Header";
 import { Hero } from "./components/Hero";
 import { BrandMark } from "./components/Icons";
+import { Modal } from "./components/Modal";
+import { TopUp } from "./components/TopUp";
 import { TutorialWizard } from "./components/TutorialWizard";
+import { trackBackend, useCycleStore } from "./cycles";
 import { useAuth } from "./hooks/useAuth";
 import { useGames } from "./hooks/useGames";
 import type { GameView, Target } from "./types";
@@ -30,6 +35,19 @@ export function App() {
   const [frontendGuide, setFrontendGuide] = useState<Guide>(undefined);
   const [botGuide, setBotGuide] = useState<Guide>(undefined);
   const [infoFor, setInfoFor] = useState<GameView | undefined>(undefined);
+  const [selfTopUp, setSelfTopUp] = useState(false);
+  const self = useMemo(() => {
+    try {
+      return backendCanisterId();
+    } catch {
+      return undefined;
+    }
+  }, []);
+  const selfCycles = useCycleStore().cycles.get(self ?? "");
+
+  useEffect(() => {
+    if (self) trackBackend(self);
+  }, [self]);
 
   const developers = useMemo(() => {
     const byId = new Map<string, string>();
@@ -95,9 +113,24 @@ export function App() {
             >
               Internet Computer
             </a>
+            {self && selfCycles != null && (
+              <button
+                type="button"
+                className="footer-cycles"
+                onClick={() => setSelfTopUp(true)}
+                title="This dashboard's own backend canister"
+              >
+                This dashboard <CyclesBadge cycles={selfCycles} />
+              </button>
+            )}
           </nav>
         </div>
       </footer>
+      {selfTopUp && self && (
+        <Modal onClose={() => setSelfTopUp(false)} className="info-modal">
+          <TopUp backend={self} cycles={selfCycles} isOwner={false} />
+        </Modal>
+      )}
       {modal !== undefined && auth.actor && (
         <GameFormModal
           actor={auth.actor}
@@ -143,6 +176,10 @@ export function App() {
         <GameInfoModal
           game={infoFor}
           games={games}
+          isOwner={
+            auth.principal !== undefined &&
+            infoFor.developer.toText() === auth.principal.toText()
+          }
           onClose={() => setInfoFor(undefined)}
           onGuide={(purpose, target) => {
             setInfoFor(undefined);

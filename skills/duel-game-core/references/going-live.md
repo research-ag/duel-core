@@ -416,9 +416,12 @@ upgrade the same canisters. Before each one,
 module's stable types and Candid against the live one, and you review
 the code that runs on the upgrade (`changing-a-live-game.md`, section
 4). A canister's
-balance shows in `icp canister status <name> -e ic`; topping it up is
-cycle.express again, with the canister id as the recipient, or `icp
-canister top-up <name> -e ic --amount 1t` from the identity's balance.
+balance shows in `icp canister status <name> -e ic`, and a backend's
+on its card on the Duel dashboard (section 5), read from its
+`/metrics`; topping it up is the dashboard's **Top up** (a card
+payment through CyclePay to the canister, by anyone), cycle.express
+with the canister id as the recipient, or `icp canister top-up <name>
+-e ic --amount 1t` from the identity's balance.
 
 A setup-3 canister moves to hosty.live later without a reinstall: add
 the user's hosty.live principal (`hosty_whoami`, or **Settings**) as a
