@@ -5,9 +5,9 @@
 import { useEffect, useState } from "react";
 
 import {
-  CYCLE_EXPRESS_URL,
   CYCLEPAY_MAX_USD,
   CYCLEPAY_MIN_USD,
+  cycleExpressUrl,
   cyclePayUrl,
   formatTC,
   hostyCanisterUrl,
@@ -202,14 +202,14 @@ export function TopUp({
       <ul className="info-list">
         <li>
           <a
-            href={CYCLE_EXPRESS_URL}
+            href={cycleExpressUrl(backend)}
             target="_blank"
             rel="noreferrer"
             onClick={startWatching}
           >
             Cycle Express
           </a>
-          , pasting the backend id above as the recipient.
+          , by card as well, already addressed to this backend.
         </li>
         {isOwner && (
           <li>

@@ -54,7 +54,11 @@ export function cyclePayUrl(canister: string, usd: number): string {
   return `https://www.cyclepay.org/c/${canister}/${usd}`;
 }
 
-export const CYCLE_EXPRESS_URL = "https://cycle.express/";
+/// Cycle Express's `to` parameter (read by its page, undocumented) opens
+/// the payment step for that canister directly.
+export function cycleExpressUrl(canister: string): string {
+  return `https://cycle.express/?to=${canister}`;
+}
 
 export function hostyCanisterUrl(canister: string): string {
   return `https://hosty.live/panel/canister/${canister}`;

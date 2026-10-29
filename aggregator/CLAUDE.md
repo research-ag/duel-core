@@ -113,7 +113,8 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   logged-in developer's `OwnerStrip` in `GameGrid.tsx`; and the top-up
   links. `TopUp.tsx` is the modal's third page: a whole-dollar amount
   (5 to 100) into a prefilled CyclePay checkout
-  (`cyclepay.org/c/<backend>/<usd>`, anyone can pay), Cycle Express and,
+  (`cyclepay.org/c/<backend>/<usd>`, anyone can pay), Cycle Express
+  (`cycle.express/?to=<backend>`) and,
   for the game's developer, the canister's hosty.live page and the
   icp-cli command; after any of them it re-reads `/metrics` every 5 s
   for two minutes and shows what arrived. The dashboard never holds a
