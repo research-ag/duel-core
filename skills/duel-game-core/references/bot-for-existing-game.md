@@ -307,7 +307,8 @@ bot for the live game. Two ways, both free, the first by default:
 1. **A cloud engine copy of the game.** Install the game's own module
    into a cloud engine backend, as `frontend-for-existing-game.md`
    step 7 ("Against a staging copy") does: `hosty_whoami` for two free
-   `cloudEngine` slots, `hosty_create_canister { network: "cloud",
+   `cloudEngine` slots (three with a cloud engine page below),
+   `hosty_create_canister { network: "cloud",
 kind: "backend", alias: "<game name> backend" }`, `hosty_install_module
 { canisterId, moduleHash }` with step 1's `module.hash`; then the bot
    beside it, `hosty_create_canister { network: "cloud", kind:
@@ -322,7 +323,8 @@ kind: "backend", alias: "<game name> backend" }`, `hosty_install_module
    game, empty, with none of the real game's players, tables or
    rankings, and not connected to the live backend; hosty.live may
    delete it. Every change to the bot is another install into the same
-   canister. `hosty_delete_canister` frees both slots afterwards.
+   canister. `hosty_delete_canister` on each of them (the copy, the
+   bot, the page if any) frees the slots afterwards.
 2. **A rented mainnet canister, against the live game.**
    `hosty_rent_canister { kind: "backend", alias: "<game name> bot" }`
    is a mainnet canister, free for 24 hours and then wiped, one per

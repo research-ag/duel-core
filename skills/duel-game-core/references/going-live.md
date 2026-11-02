@@ -104,12 +104,15 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
   is created and installed through the `hosty_*` tools, signed by the
   user's approval in hosty.live.
 - The user's first look at anything is online, on free cloud engine
-  canisters (section 3, "Canisters"). A new game: a cloud engine
+  canisters when hosty.live has an engine with a free slot
+  (`hosty_whoami`; section 3, "Canisters"). A new game: a cloud engine
   backend and frontend (and bot), created once its local tests pass;
   every later version redeploys into them until the user says the game
   goes live, which buys its mainnet canisters. A new frontend for an
   existing game: a cloud engine page (`frontend-for-existing-game.md`,
-  step 7).
+  step 7). Without an engine, the first look is the mainnet canisters
+  themselves: say what they cost and create them only once the user
+  agrees.
 
 **Once per project, the user:**
 
@@ -257,7 +260,8 @@ on them without a deploy session, since hosty.live is their controller.
 Cycles, top-ups and `icp`/`dfx` do not apply to them. When the slots
 are full, `hosty_delete_canister { canisterId }` frees one; confirm with
 the user first, since everything on it is lost. Without an engine
-(`enabled: false`), go straight to mainnet canisters.
+(`enabled: false`), the only online copy is the mainnet one: name the
+cost and wait for the user's go-ahead before buying anything.
 
 **For a day on mainnet: a rented canister.** `hosty_rent_canister {
 kind, alias }` is a mainnet canister free for 24 hours, one per user,

@@ -83,7 +83,9 @@ function HowItWorksStep() {
       <p className="hint">
         Building, testing and trying the game online cost nothing beyond
         your Claude plan. Going live costs about 2.5 TC (a few dollars at
-        the time of writing), once.
+        the time of writing) up front; a live canister then slowly spends
+        its cycles on storage and updates, and the dashboard shows when a
+        top-up is due.
       </p>
     </>
   );
