@@ -242,8 +242,9 @@ engine or on mainnet (hosty.live shows the network itself).
 **For developing and testing: the cloud engine, free.** Start with
 `hosty_whoami`: its `cloudEngine` says whether this hosty.live has an
 engine (`enabled`) and how many of the user's slots are taken (`used`
-of `max`, 10 by default). With a free slot, no deploy session, no
-cycles and no card:
+of `max`, 10 by default). With enough free slots for the whole first
+look (two for a backend and its page, three with a bot), no deploy
+session, no cycles and no card:
 
 - `hosty_create_canister { network: "cloud", kind: "backend", alias }`
   for the backend and for each bot: created empty.
