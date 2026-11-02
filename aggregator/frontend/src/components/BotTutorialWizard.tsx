@@ -182,7 +182,10 @@ function BuildStep() {
       <p>
         Ask for changes until it plays the way you want: stronger, weaker, a new
         level. Nothing on the real game changes, and nothing costs anything up
-        to here.
+        to here. To watch it yourself before paying, ask for a free online
+        try-out: a temporary copy of the game on hosty.live's cloud engine with
+        your bot beside it (an empty copy, not the real game), or your bot in
+        a free 24-hour canister playing the real game.
       </p>
     </>
   );

@@ -49,7 +49,9 @@ A game's canisters talk to each other (the backend asks a bot for its
 moves), which works only on one network: a game is either all on the
 cloud engine or all on mainnet, never split. A page alone (a frontend
 for an existing game) may sit on the cloud engine while it plays a
-mainnet backend; a bot may not.
+mainnet backend; a bot may not. A bot for a live game is tried out
+beside a cloud engine copy of that game, or in a rented mainnet
+canister (`bot-for-existing-game.md`, step 5).
 
 Going live spends the user's money. Buy a canister or deploy to one
 only when the user asks for it, after saying what it costs; a
@@ -256,6 +258,15 @@ Cycles, top-ups and `icp`/`dfx` do not apply to them. When the slots
 are full, `hosty_delete_canister { canisterId }` frees one; confirm with
 the user first, since everything on it is lost. Without an engine
 (`enabled: false`), go straight to mainnet canisters.
+
+**For a day on mainnet: a rented canister.** `hosty_rent_canister {
+kind, alias }` is a mainnet canister free for 24 hours, one per user,
+wiped afterwards (module, state, variables); the user is a controller,
+installs need no deploy session, and its first install is a reinstall
+(`confirmReinstall: true`). Its one use in these guides is a bot that
+must be seen playing the live game before its canister is bought
+(`bot-for-existing-game.md`, step 5); for everything else the cloud
+engine is better, since it has no clock.
 
 **For going live: mainnet canisters, bought.** With the user's
 go-ahead and a deploy session (section 2, "Deploy sessions from

@@ -297,6 +297,49 @@ one per value `OPTIONS` lists (`open_table`'s last argument).
 icp network stop
 ```
 
+**Online before paying for its canister.** In a cloud session the user
+cannot watch the local games, and a user on their computer may want to
+see the bot in a real page before buying anything. A bot and the game
+it joins must share one network (a bot calls the backend and the
+backend calls it back), so a free cloud engine canister cannot host a
+bot for the live game. Two ways, both free, the first by default:
+
+1. **A cloud engine copy of the game.** Install the game's own module
+   into a cloud engine backend, as `frontend-for-existing-game.md`
+   step 7 ("Against a staging copy") does: `hosty_whoami` for two free
+   `cloudEngine` slots, `hosty_create_canister { network: "cloud",
+kind: "backend", alias: "<game name> backend" }`, `hosty_install_module
+{ canisterId, moduleHash }` with step 1's `module.hash`; then the bot
+   beside it, `hosty_create_canister { network: "cloud", kind:
+"backend", alias: "<game name> bot" }`, `icp build bot`,
+   `hosty_prepare_wasm_upload`, and `register` on the copy through
+   `hosty_call_canister` with `update: true` and no session (the call
+   signs as hosty's builder, the copy's controller; `going-live.md`,
+   section 3). Build any duel-game-core frontend with its backend
+   constant at the copy, or upload one into a cloud engine page with
+   `PUBLIC_CANISTER_ID:backend` set to the copy, and the user plays the
+   bot there. Tell the user plainly: this is a temporary copy of the
+   game, empty, with none of the real game's players, tables or
+   rankings, and not connected to the live backend; hosty.live may
+   delete it. Every change to the bot is another install into the same
+   canister. `hosty_delete_canister` frees both slots afterwards.
+2. **A rented mainnet canister, against the live game.**
+   `hosty_rent_canister { kind: "backend", alias: "<game name> bot" }`
+   is a mainnet canister, free for 24 hours and then wiped, one per
+   user, with the user as a controller: install the bot with
+   `hosty_prepare_wasm_upload` (no deploy session; the canister still
+   holds hosty.live's page module, so the first install is a reinstall:
+   omit `mode`, pass `confirmReinstall: true`), then `register` on the
+   LIVE backend inside a deploy session, as in section 6 below. The bot
+   plays real players from the moment it registers, so only do this
+   with a bot that passed every game of step 5, and `unregister` it
+   (same call, `(principal "<backend-id>")`) before the rental ends:
+   a wiped canister stays in the game's bot list and fails every
+   invitation until the game's timeouts remove it from each table.
+   Use this when the user wants the bot seen in the real game's page
+   before buying its canister, or when the cloud engine is unavailable
+   (`cloudEngine.enabled: false`, no free slot).
+
 ## 6. Going live
 
 Going live spends the user's money and is theirs to trigger: run these
@@ -312,14 +355,11 @@ it goes up by either route of `going-live.md`:
   they created in the web UI, `icp build bot`, the install with
   `hosty_prepare_wasm_upload`, then `register` through
   `hosty_call_canister` with `update: true`. No `icp deploy` against
-  mainnet, so step 2's link is not needed. The bot's canister must be
-  on mainnet, like the game it joins: a bot calls the backend and the
-  backend calls it back, which works on one network only, so a free
-  cloud engine canister (`going-live.md`, section 3) cannot host a bot
-  for a live game. It can host a bot for a cloud engine copy of the
-  game, installed from the module store (`frontend-for-existing-game.md`,
-  step 7, "Against a staging copy"), when the user wants to see the
-  bot play online before paying for its canister.
+  mainnet, so step 2's link is not needed. The canister is a bought
+  mainnet one, like the game it joins (step 5, "Online before paying
+  for its canister", says why a cloud engine canister cannot be, and
+  what to use meanwhile); a bot tested in a rental is unregistered
+  there first.
 - **With icp-cli** (section 4's identity and cycles, about 3T bought by
   card at cycle.express, on the user's own computer only):
 
