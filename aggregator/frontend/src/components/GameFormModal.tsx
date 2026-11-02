@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Principal } from "@icp-sdk/core/principal";
 
+import { onCloudEngine, readBackendOf } from "../canisterHttp";
 import { invalidateBanner, useBanner } from "../hooks/useBanner";
 import type {
   AggregatorActor,
@@ -12,6 +13,39 @@ import { errMessage, maybeToOpt, optToMaybe } from "../types";
 import { Image } from "./Icons";
 import { ImageCropper } from "./ImageCropper";
 import { Modal } from "./Modal";
+
+/// Why a game cannot be listed, when its page or the backend the page
+/// plays runs on hosty.live's cloud engine: those canisters are free
+/// development copies that hosty.live may delete at any time. An
+/// unreadable canister is left to the backend's own checks.
+async function cloudEngineProblem(
+  frontend: string
+): Promise<string | undefined> {
+  const where = async (id: string) => {
+    try {
+      return await onCloudEngine(id);
+    } catch {
+      return false;
+    }
+  };
+  if (await where(frontend))
+    return (
+      "This frontend canister runs on hosty.live's cloud engine, a free " +
+      "development tier that hosty.live may delete at any time. Only " +
+      "games on paid mainnet canisters can be listed: buy a frontend " +
+      "canister on hosty.live, deploy the page there and register that id."
+    );
+  const backend = await readBackendOf(frontend).catch(() => undefined);
+  if (backend && (await where(backend)))
+    return (
+      `The backend this page plays (${backend}) runs on hosty.live's ` +
+      "cloud engine, a free development tier that hosty.live may delete " +
+      "at any time. Only games on paid mainnet canisters can be listed: " +
+      "buy a backend canister on hosty.live, install the game there and " +
+      "point the page's PUBLIC_CANISTER_ID:backend at it."
+    );
+  return undefined;
+}
 
 export function GameFormModal({
   actor,
@@ -104,6 +138,11 @@ export function GameFormModal({
     const domain = customDomain.trim();
     setSaving(true);
     try {
+      const cloud = await cloudEngineProblem(frontendId.toText());
+      if (cloud) {
+        setError(cloud);
+        return;
+      }
       if (isEdit) {
         const res = await actor.updateGame(existing.frontendCanisterId, {
           title,

@@ -307,11 +307,19 @@ it goes up by either route of `going-live.md`:
 - **Through hosty.live** (section 1's account, section 3's "The
   backend (and a bot)"; the only route from a cloud session): in one
   deploy session the user approves, `hosty_create_canister { kind:
-"backend" }` (1.5 TC from the hosty.live balance, a few dollars) or a
-  backend canister they created in the web UI, `icp build bot`, the
-  install with `hosty_prepare_wasm_upload`, then `register` through
+"backend", alias: "<game name> bot" }` (a mainnet canister, 1.5 TC
+  from the hosty.live balance, a few dollars) or a backend canister
+  they created in the web UI, `icp build bot`, the install with
+  `hosty_prepare_wasm_upload`, then `register` through
   `hosty_call_canister` with `update: true`. No `icp deploy` against
-  mainnet, so step 2's link is not needed.
+  mainnet, so step 2's link is not needed. The bot's canister must be
+  on mainnet, like the game it joins: a bot calls the backend and the
+  backend calls it back, which works on one network only, so a free
+  cloud engine canister (`going-live.md`, section 3) cannot host a bot
+  for a live game. It can host a bot for a cloud engine copy of the
+  game, installed from the module store (`frontend-for-existing-game.md`,
+  step 7, "Against a staging copy"), when the user wants to see the
+  bot play online before paying for its canister.
 - **With icp-cli** (section 4's identity and cycles, about 3T bought by
   card at cycle.express, on the user's own computer only):
 

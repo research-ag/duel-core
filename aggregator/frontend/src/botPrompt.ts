@@ -29,7 +29,7 @@ Work in this order.
 
 4. Test: unit-test the move logic with mops test. Then deploy locally (icp network start -d, icp deploy) and play whole games against the bot on the local copy of the game with the reference's sparring canister: every difficulty level, the bot in both seats, every variant. Every game must reach its real ending, with the bot answering every move.
 
-5. Do not put anything online until I ask. Then it goes through hosty.live (${ref}/going-live.md, section 3), in one deploy session I approve in its web app: hosty_create_canister with kind "backend" (1.5 TC from my balance) unless I name a canister, icp build bot, the install with hosty_prepare_wasm_upload, then hosty_call_canister on the bot, method register, argument (principal "${backend}", "<bot name>"), as an update call; check the reply's caller is my principal. Then check the game lists it (a read-only query):
+5. Do not put anything online until I ask. Then it goes through hosty.live (${ref}/going-live.md, section 3), in one deploy session I approve in its web app: hosty_create_canister with kind "backend" and alias "<game name> bot" (a mainnet canister, 1.5 TC from my balance; a free cloud engine canister cannot host a bot for a live game, since a bot and its game must share one network) unless I name a canister, icp build bot, the install with hosty_prepare_wasm_upload, then hosty_call_canister on the bot, method register, argument (principal "${backend}", "<bot name>"), as an update call; check the reply's caller is my principal. Then check the game lists it (a read-only query):
      icp canister call ${backend} list_bots '()' -n ic --query --identity anonymous
    and give me the bot's canister id.
 

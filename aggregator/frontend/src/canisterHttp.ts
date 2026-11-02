@@ -5,10 +5,16 @@
 // cookie, read fresh every page load since a frontend can relink at any
 // time) and to read a duel-game-core backend's `/semantics`.
 
-import { Actor, HttpAgent } from "@icp-sdk/core/agent";
+import {
+  Actor,
+  Certificate,
+  getSubnetIdFromCertificate,
+  HttpAgent,
+  StatePaths,
+} from "@icp-sdk/core/agent";
 import type { IDL } from "@icp-sdk/core/candid";
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
-import type { Principal } from "@icp-sdk/core/principal";
+import { Principal } from "@icp-sdk/core/principal";
 
 import { deriveHost } from "./ic-env";
 
@@ -149,6 +155,39 @@ export async function serves(canister: string, path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/// hosty.live's cloud engine: the subnet of its free development
+/// canisters, controlled by hosty.live alone and deletable at the
+/// provider's discretion. Nothing on it is a live game.
+export const CLOUD_ENGINE_SUBNETS = [
+  "ln7lh-ll3rw-jbwr6-xujy2-tdq6o-dqupw-utwkc-r5lub-wf7mt-mamb6-cae",
+];
+
+/// The subnet hosting a canister, from the delegation of a certified
+/// `read_state` answer; throws when the canister cannot be read (no
+/// such canister, network).
+export async function subnetOf(canister: string): Promise<Principal> {
+  const id = Principal.fromText(canister);
+  const agent = await getAgent();
+  const rootKey = agent.rootKey;
+  if (!rootKey) throw new Error("root key unknown");
+  const { certificate } = await agent.readState(
+    { canisterId: id },
+    { paths: [StatePaths.canisterModuleHash(id)] }
+  );
+  const cert = await Certificate.create({
+    certificate,
+    rootKey,
+    principal: { canisterId: id },
+  });
+  return getSubnetIdFromCertificate(cert.cert, rootKey);
+}
+
+/// Whether a canister runs on hosty.live's cloud engine.
+export async function onCloudEngine(canister: string): Promise<boolean> {
+  const subnet = (await subnetOf(canister)).toText();
+  return CLOUD_ENGINE_SUBNETS.includes(subnet);
 }
 
 /// A plain browser link to a path on the backend's HTTP interface.

@@ -74,14 +74,16 @@ function HowItWorksStep() {
         <a href="https://hosty.live/" target="_blank" rel="noreferrer">
           hosty.live
         </a>{" "}
-        puts it online in canisters of your own, paid by card from a balance
-        you top up there. You approve every deploy in the hosty.live tab with
-        your passkey, so nothing goes online, and nothing is spent, without
-        you.
+        puts it online: first on free test canisters while you try it and
+        ask for changes, then, when you say so, in canisters of your own,
+        paid by card from a balance you top up there. You approve every
+        paid deploy in the hosty.live tab with your passkey, so nothing is
+        spent without you.
       </p>
       <p className="hint">
-        Building and testing cost nothing beyond your Claude plan. Online, a
-        game costs about 2.5 TC (a few dollars at the time of writing), once.
+        Building, testing and trying the game online cost nothing beyond
+        your Claude plan. Going live costs about 2.5 TC (a few dollars at
+        the time of writing), once.
       </p>
     </>
   );
@@ -150,23 +152,30 @@ function GoLiveStep() {
       </p>
       <ol className="tutorial-list">
         <li>
-          It asks you to approve a <strong>deploy session</strong>: open
-          hosty.live (a phone works too) and approve it with your passkey.
-        </li>
-        <li>
-          It creates the game's two canisters in your account, installs the
-          backend, uploads the page, and plays a test game against them.
+          It puts the game on two free <strong>cloud engine</strong>{" "}
+          canisters in your hosty.live account (no approval, nothing spent),
+          installs the backend, uploads the page, and plays a test game
+          against them.
         </li>
         <li>
           It gives you the page's address. Open it in two browser tabs, start
           a table in one and join it from the other, and play. Ask for changes
-          until it is right: each one is tested again and upgrades the same
-          canisters, keeping their address.
+          until it is right: each one is tested again and redeployed to the
+          same free canisters. They are for testing: hosty.live may delete
+          them, and they cannot be registered here.
+        </li>
+        <li>
+          When the game is right, tell the session to go live. It asks you to
+          approve a <strong>deploy session</strong> (open hosty.live, a phone
+          works too, and approve it with your passkey), buys the game's two
+          canisters from your balance, and deploys the same game there, at
+          its permanent address. Later changes upgrade those canisters,
+          keeping the address.
         </li>
       </ol>
       <p>
         The game is online but unlisted: only who has its address finds it,
-        until you register it in the next step. Note the{" "}
+        until you register it in the next step. Note the live{" "}
         <strong>frontend canister id</strong> (the <code>xxxxx-…-cai</code>{" "}
         code), which the registration asks for.
       </p>

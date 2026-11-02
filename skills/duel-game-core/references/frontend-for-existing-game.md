@@ -25,7 +25,7 @@ rest:
   section 2, is its setup): icp-cli and mops run in the session's VM,
   so you test against a local copy of the game there (steps 5 and 7),
   and the user, who cannot open anything the VM serves, plays the page
-  in a free rented hosty.live canister (step 7).
+  in a free hosty.live cloud engine canister (step 7).
 - **A coding agent on the user's computer**: the same local copy, with
   icp-cli on the computer, and the page on `localhost`.
 - **A browser-based builder** (caffeine.ai), which runs no shell: skip
@@ -106,8 +106,8 @@ README, "Bots and the leaderboard").
 `found: false` with a `liveModuleHash` means the module the backend
 runs is not in the store at the moment: build from the semantics alone,
 and skip every copy of the game: step 5, and step 7's local and staging
-copies. Step 7's rented preview page and its access-code tests against
-the live backend still apply. With icp-cli, `icp
+copies. Step 7's cloud engine preview page and its access-code tests
+against the live backend still apply. With icp-cli, `icp
 canister metadata $BACKEND candid:service -n ic > backend.did` reads
 the Candid from the canister itself.
 
@@ -134,9 +134,9 @@ the `ic_env` cookie when present (the live page once its canister
 carries that environment variable, `going-live.md`; a local copy's
 page, step 5) and fall back to a backend id hardcoded in one constant
 (a page served from `localhost`, a builder's own preview, caffeine.ai).
-The constant is `BACKEND` (a rented preview page in a cloud session
-reads it too, step 7), or the staging copy's id while testing against
-one (step 7). Whenever the page talks to a backend on mainnet,
+The constant is `BACKEND`, or the staging copy's id while testing
+against one (step 7); step 7's cloud engine preview page carries the
+cookie, as a live page does. Whenever the page talks to a backend on mainnet,
 build the `HttpAgent` with `host: "https://icp0.io"` and no `rootKey`:
 `deriveHost()` assumes the backend sits behind the page's own origin,
 which is false for a page served from `localhost` or a foreign host.
@@ -266,44 +266,43 @@ rankings panel can only be checked for its empty state.
 icp network stop
 ```
 
-**The user's look, in a cloud session: a rented page.** Nothing the VM
-serves reaches the user, so once the play-test passes, the page goes
-into a hosty.live rental: free, private to the user, wiped after 24
-hours, one per user. It plays the live backend, so every table opened
-from it must be access-code protected:
+**The user's look, in a cloud session: a cloud engine page.** Nothing
+the VM serves reaches the user, so once the play-test passes, the page
+goes into a free hosty.live cloud engine canister (`going-live.md`,
+section 3, "Canisters": no cycles, no deploy session; hosty.live may
+delete it at its discretion, and it is not for going live). It plays
+the live backend, so every table opened from it must be access-code
+protected:
 
-1. `hosty_rent_canister {}` (a frontend canister, ready for uploads; no
-   deploy session needed). Its id is `PREVIEW`.
-2. Build with the hardcoded constant at `BACKEND`: the rented page's
-   cookie names no backend, so the page falls back to it. Then `cd
-frontend && npm run build && zip -r dist.zip dist -x "*.map"`.
+1. `hosty_whoami` for a free `cloudEngine` slot, then
+   `hosty_create_canister { network: "cloud", kind: "frontend", alias:
+"<game name> frontend" }`. Its id is `PREVIEW`.
+2. `cd frontend && npm run build && zip -r dist.zip dist -x "*.map"`.
 3. `hosty_prepare_zip_upload { canisterId: PREVIEW, pureAssets: true,
-outputDir: "dist" }`, run the `curl` command it returns from
-   `frontend/`, and `hosty_wait_for_deployment` until `finished: true`.
+outputDir: "dist", canisterEnv: { set: { "PUBLIC_CANISTER_ID:backend":
+BACKEND } } }`, run the `curl` command it returns from `frontend/`, and
+   `hosty_wait_for_deployment` until `finished: true`. The page reads
+   the backend from its cookie, exactly as the live page will.
 4. Give the user `frontendUrl`, saying that it plays the real game:
    create every table with an access code, never an open one, and
    leave when done, so real players are not drawn in. Two browser tabs
    (or a computer and a phone) play both seats.
 
-Each change is another build and upload into `PREVIEW`. When the
-rental runs out, rent again; the id changes.
+Each change is another build and upload into `PREVIEW`, at no cost.
 
 **Against a staging copy (through hosty.live, on the user's
-computer):** the game's own module in a rented hosty.live backend
-canister, free, private to the user and wiped after 24 hours, for a
-user without icp-cli. It needs the user's hosty.live account and its
-MCP server connected to your session (`going-live.md`, section 3), and
-step 3's `module.hash`:
+computer):** the game's own module in a cloud engine backend canister,
+free and private to the user, for a user without icp-cli. It needs the
+user's hosty.live account and its MCP server connected to your session
+(`going-live.md`, section 3), and step 3's `module.hash`:
 
-1. `hosty_rent_canister { kind: "backend" }`. Its canister id is
-   `STAGING`. A user holds one rental at a time.
-2. `hosty_check_backend_canister { canisterId: STAGING }`; a rental is
-   ready without a deploy session.
-3. `hosty_install_module { canisterId: STAGING, moduleHash,
-confirmReinstall: true }`, then `hosty_wait_for_deployment` until
-   `finished: true`. The rented canister still holds hosty.live's page
-   module, so the install is a reinstall; a game backend takes no init
-   argument.
+1. `hosty_create_canister { network: "cloud", kind: "backend", alias:
+"<game name> backend" }`. Its canister id is `STAGING`.
+2. `hosty_check_backend_canister { canisterId: STAGING }`; a cloud
+   engine canister is ready without a deploy session.
+3. `hosty_install_module { canisterId: STAGING, moduleHash }`, then
+   `hosty_wait_for_deployment` until `finished: true`. A game backend
+   takes no init argument.
 4. `curl -s https://$STAGING.raw.icp0.io/semantics` answers step 2's
    text, and `(cd frontend && node play-test.mjs $STAGING --ic)` plays
    it, leaving you in the project root.
@@ -312,14 +311,15 @@ Set the hardcoded backend constant to `STAGING`, build, and serve
 `frontend/dist` from any local web server. The staging copy starts
 empty, as the local copy does. Set the constant back to `BACKEND`
 before the build that goes online. Without the MCP server, the user
-does the same in the web UI: rent a canister, then install into it
-with **Install from module store** and the hash.
+does the same in the web UI: create a **Cloud engine (free)** backend
+canister, then install into it with **Install from module store** and
+the hash. `hosty_delete_canister` frees the slot when the work is done.
 
 **Against the live backend (a builder without a shell):** build the
 page and serve it from the builder's own preview. Every table you open
 is on the real game: always create tables with an access code, never
 open ones, and leave them when done. Keep the testing short. Outside a
-rented preview page, whenever a copy is available, never point a
+cloud engine preview page, whenever a copy is available, never point a
 development build at the live backend.
 
 ## 8. Going live
@@ -330,20 +330,22 @@ zip -r dist.zip dist -x "*.map"`, then on the canister's page the
 variable `PUBLIC_CANISTER_ID:backend` set to the backend id and the ZIP
 upload, or the same through an agent. Then stop: the page goes online
 only when the user asks, into a canister they name or one they agree
-you create. Create no canister for it on your own; step 7's rental is
-the only one you take unasked.
+you create. Buy no canister for it on your own; step 7's free cloud
+engine canisters are the only ones you take unasked.
 
 There is no backend of the user's own to deploy: only the page goes
 online, by either route of `going-live.md`.
 
 - **Through hosty.live** (section 3, after section 1's account; the
   only route from a cloud session): no cycles and no icp-cli of the
-  user's. `hosty_create_canister { kind: "frontend" }` (0.84 TC from
-  the hosty.live balance, about a dollar, in a deploy session the user
-  approves) or a canister they created in the web UI; the backend id
-  goes in as the canister variable `PUBLIC_CANISTER_ID:backend`, with
-  the upload (`canisterEnv` on `hosty_prepare_zip_upload`) or on the
-  canister's page.
+  user's. `hosty_create_canister { kind: "frontend", alias: "<game
+name> frontend" }` (a mainnet canister, 0.84 TC from the hosty.live
+  balance, about a dollar, in a deploy session the user approves) or a
+  canister they created in the web UI; the backend id goes in as the
+  canister variable `PUBLIC_CANISTER_ID:backend`, with the upload
+  (`canisterEnv` on `hosty_prepare_zip_upload`) or on the canister's
+  page. The cloud engine preview page stays a preview: the dashboard
+  lists mainnet canisters only.
 - **With icp-cli** (section 4, the identity and the cycles, on the
   user's own computer only): `icp deploy frontend -e ic`, 2T cycles,
   after step 5's `icp canister link backend $BACKEND -e ic`; the deploy
