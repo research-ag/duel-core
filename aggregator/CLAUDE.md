@@ -61,8 +61,8 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   every prompt carries). `TutorialWizard.tsx` ("Build a new game")
   stands alone: how it works, the account, the session's setup,
   `gamePrompt.ts`'s prompt finished with the user's rules (build, test
-  with `play-test.mjs`, then both canisters on hosty.live's free cloud
-  engine for the user's look, and the bought mainnet pair, unlisted,
+  with `play-test.mjs`, then the game's canisters (and bot) on hosty.live's free cloud
+  engine for the user's look, and the bought mainnet ones, unlisted,
   when the user says the game goes live), playing it online, and the
   register flow. The other two guides are about one listed game, opened either
   from the header on step 0, `GamePicker.tsx` (every listing, each
