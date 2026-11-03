@@ -108,10 +108,14 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
   (`hosty_whoami`; section 3, "Canisters"). A new game: a cloud engine
   backend and frontend (and bot), created once its local tests pass;
   every later version redeploys into them until the user says the game
-  goes live, which buys its mainnet canisters. One hosty.live has
-  deleted is replaced on the cloud engine, never on mainnet, the page's
-  `PUBLIC_CANISTER_ID:backend` set again and the new ids given to the
-  user. A new frontend for an
+  goes live, which buys its mainnet canisters. If hosty.live deletes
+  one of these cloud engine canisters, its replacement is created on
+  the cloud engine, never on mainnet, and set up by kind: a backend is
+  installed, the page's `PUBLIC_CANISTER_ID:backend` set to it and
+  every bot registered with it again; a frontend gets the build
+  uploaded with `PUBLIC_CANISTER_ID:backend` naming the backend, and
+  the user its new address; a bot is installed and registered with the
+  backend. Then give the user the new ids. A new frontend for an
   existing game: a cloud engine page (`frontend-for-existing-game.md`,
   step 7). Without an engine, the first look is the mainnet canisters
   themselves: say what they cost and create them only once the user
