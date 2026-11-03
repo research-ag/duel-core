@@ -35,7 +35,7 @@ Work in this order.
      icp canister call ${backend} list_bots '()' -n ic --query --identity anonymous
    and give me the bot's canister id.
 
-7. Every later change: test locally again, then upgrade the same bot canister (hosty_prepare_wasm_upload with its id and snapshotBeforeUpgrade), never a new one; call register again if its name or levels changed, and check list_bots again.
+7. Every later change: test locally again, then upgrade the same bot canister, never a new one: through hosty.live, hosty_prepare_wasm_upload with its id and snapshotBeforeUpgrade; a bot that went up with icp-cli is upgraded from my computer with icp deploy bot -e ic (after icp canister link bot <bot id> -e ic when .icp/data/mappings/ic.ids.json has no bot entry): tell me so. Call register again if its name or levels changed, and check list_bots again.
 
 8. Write into README.md how to build, test and update the bot, the bot's canister id, the hosty.live steps above, and, for my own computer only, the icp-cli way (--subnet only when the bot's canister is first created):
      icp canister link backend ${backend} -e ic --force

@@ -215,17 +215,39 @@ function submitStamp(req: TransportRequest): { gen: bigint; step: bigint } | nul
 }
 
 // How many of a submit's moves the engine applied: the reply's step (a
-// debrief's `steps`) less the step the call was stamped with. An
-// opponent's answer inside the same reply (a canister bot) adds a step
-// too, so this can count one dropped move as applied.
-function appliedOf(req: TransportRequest, view: Status<unknown>): number {
+// debrief's `steps`) less the step the call was stamped with, capped at
+// `planned`, the moves the local rules keep the seat on turn for. An
+// opponent's answer inside the same reply (a canister bot) adds steps
+// only once the turn passed, which the cap already counts.
+function appliedOf(req: TransportRequest, view: Status<unknown>, planned: number): number {
   const stamp = submitStamp(req);
-  const n = movesOf(req).length;
+  const n = Math.min(planned, movesOf(req).length);
   if (stamp === null) return 0;
   const g = viewOf<InGameView>(view, "inGame");
   const d = viewOf<DebriefView>(view, "debrief");
   const after = g !== null && g.gen === stamp.gen ? g.step : d !== null && d.gen === stamp.gen ? d.steps : null;
   return after === null ? n : Math.max(0, Math.min(n, Number(after - stamp.step)));
+}
+
+// `moves` played on `game` one after another while `localToMove` keeps
+// `seat` on turn (only the first without it), stopping at the first
+// `applyLocal` rejects.
+function replayLocal<S, A>(
+  game: S,
+  seat: SeatTag,
+  moves: readonly A[],
+  applyLocal: (gameState: S, mySeat: SeatTag, move: A) => S | null,
+  localToMove: ((gameState: S) => SeatTag | null) | undefined,
+): { game: S; applied: number } {
+  let applied = 0;
+  for (const move of moves) {
+    if (applied > 0 && (!localToMove || localToMove(game) !== seat)) break;
+    const next = applyLocal(game, seat, move);
+    if (next === null) break;
+    game = next;
+    applied++;
+  }
+  return { game, applied };
 }
 
 export interface LocalMoveOptions<S, A = unknown> {
@@ -264,15 +286,7 @@ export function withLocalMove<S, A = unknown>(
   const turnBased = "turnBased" in v.mode;
   const seat = tag(v.seat) as SeatTag;
   const moves = turnBased ? [...pendingMovesOf<A>(pending), ...queued] : pendingMovesOf<A>(pending).slice(0, 1);
-  let game = v.game;
-  let applied = 0;
-  for (const move of moves) {
-    if (applied > 0 && (!localToMove || localToMove(game) !== seat)) break;
-    const next = applyLocal(game, seat, move);
-    if (next === null) break;
-    game = next;
-    applied++;
-  }
+  const { game, applied } = replayLocal(v.game, seat, moves, applyLocal, localToMove);
   if (applied === 0) return status;
   const step = turnBased ? v.step + BigInt(applied) : v.step;
   const local: InGameView<S> =
@@ -630,6 +644,8 @@ export function createDuelClient<S = unknown, A = unknown>({
     // The queue goes out only if every move of `req` applied and the seat
     // is still on turn: an opponent's step in between voids the plan.
     let batch: TransportRequest | null = null;
+    let planned = 0;
+    let waiters: ((o: CallOutcome<S>) => void)[] = [];
     if (isCurrent && state.queued.length > 0) {
       const v = outcome.ok ? viewOf<InGameView<S>>(outcome.view, "inGame") : null;
       const stamp = submitStamp(req);
@@ -641,18 +657,21 @@ export function createDuelClient<S = unknown, A = unknown>({
         v.step === stamp.step + BigInt(movesOf(req).length)
       ) {
         batch = submitRequest(v.gen, v.step, state.queued);
+        planned = replayLocal(v.game, tag(v.seat) as SeatTag, state.queued, applyLocal!, localToMove).applied;
+        // Before `setState`: a move a subscriber queues joins the next
+        // batch, not this one.
+        waiters = takeWaiters();
         Object.assign(patch, { pending: { key: pendingKeyOf(batch), req: batch }, queued: [] });
       } else Object.assign(patch, dropQueue());
     }
     setState(patch);
     if (batch !== null) {
       const sent = batch;
-      const waiters = takeWaiters();
       void send(sent).then((o) => {
         // Each queued move gets its own outcome: the ones the engine
         // applied share the reply, the rest were dropped. A rejection
         // answers the first; anything else (failed, stale) answers all.
-        const kept = o.ok ? appliedOf(sent, o.view) : o.reason === "rejected" ? 1 : waiters.length;
+        const kept = o.ok ? appliedOf(sent, o.view, planned) : o.reason === "rejected" ? 1 : waiters.length;
         waiters.forEach((w, i) => w(i < kept ? o : { ok: false, reason: "dropped" }));
       });
     }
@@ -805,8 +824,11 @@ export function createDuelClient<S = unknown, A = unknown>({
       if (v === null || applyLocal!(v.game, tag(v.seat) as SeatTag, move) === null) {
         return Promise.resolve({ ok: false, reason: "inFlight" });
       }
+      // Registered before `setState`, so a subscriber's `dispose()` (or a
+      // close) during the notification settles it too.
+      const outcome = new Promise<CallOutcome<S>>((resolve) => queueWaiters.push(resolve));
       setState({ queued: [...state.queued, move] });
-      return new Promise<CallOutcome<S>>((resolve) => queueWaiters.push(resolve));
+      return outcome;
     },
     submitMoves: (moves) =>
       moves.length === 0

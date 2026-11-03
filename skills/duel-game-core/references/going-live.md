@@ -165,9 +165,11 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
      token.
    - **Network access**: **Custom**, with "Also include default list"
      on, and these domains: `api.hosty.live`, `icp-api.io`, `icp0.io`,
-     `*.icp0.io`, `ic0.app`. hosty.live's tools answer with `curl`
-     uploads to `api.hosty.live`; mops, icp-cli's mainnet reads and the
-     play-test against a deployed backend talk to the others.
+     `*.icp0.io`, `ic0.app`, `ic-api.internetcomputer.org`. hosty.live's
+     tools answer with `curl` uploads to `api.hosty.live`; a bot's
+     subnet lookup goes to `ic-api.internetcomputer.org`; mops,
+     icp-cli's mainnet reads and the play-test against a deployed
+     backend talk to the others.
    - **Setup script**, which installs every tool before the session
      starts (a binary fetched mid-session may be refused, and icp-cli
      looks up its local network launcher on `api.github.com`, which

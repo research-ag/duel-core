@@ -672,6 +672,66 @@ test("the queue is dropped when the reply carries an opponent's step besides the
   assert.equal(client.getState().pending, null);
 });
 
+test("a canister bot answering inside a batch's reply is not counted as one of its moves", async () => {
+  // `free` actions left in the turn; the reply knows fewer than predicted.
+  type Free = { n: number; free: number };
+  const freeRules = {
+    applyLocal: (game: unknown): unknown => {
+      const g = game as Free;
+      return g.free > 0 ? { n: g.n + 1, free: g.free - 1 } : null;
+    },
+    localToMove: (game: unknown) => ((game as Free).free > 0 ? ("p1" as const) : ("p2" as const)),
+  };
+  const transport = new FakeTransport();
+  const client = createDuelClient({ transport, session, plugin: freeRules });
+  transport.onmessage!({ data: { view: toyTurn({ game: { n: 0, free: 3 } }) } });
+  void client.submit({});
+  const b = client.submit({});
+  const c = client.submit({});
+  transport.requests[0]!.resolve({ view: toyTurn({ step: 4n, game: { n: 1, free: 1 } }) });
+  await Promise.resolve();
+  assert.deepEqual(transport.requests[1]!.req, { submitMoves: { gen: 5n, step: 4n, moves: [{}, {}] } });
+  // `b` passed the turn, the bot answered: two steps, only one of them ours.
+  transport.requests[1]!.resolve({ view: toyTurn({ step: 6n, game: { n: 2, free: 2 } }) });
+  const [ob, oc] = await Promise.all([b, c]);
+  assert.equal(ob.ok, true);
+  assert.deepEqual(oc, { ok: false, reason: "dropped" });
+});
+
+test("a move a subscriber queues while a batch goes out waits for the next batch", async () => {
+  const transport = new FakeTransport();
+  const client = createDuelClient({ transport, session, plugin: toyRules });
+  transport.onmessage!({ data: { view: toyTurn() } });
+  void client.submit({ again: true });
+  const b = client.submit({ again: true });
+  let c: Promise<unknown> | null = null;
+  client.subscribe((s, prev) => {
+    if (c === null && s.pending !== prev.pending && s.pending !== null && s.followUp) c = client.submit({});
+  });
+  transport.requests[0]!.resolve({ view: toyTurn({ step: 4n, game: { n: 1, mine: true } }) });
+  await Promise.resolve();
+  assert.deepEqual(transport.requests[1]!.req, { submit: { gen: 5n, step: 4n, move: { again: true } } });
+  assert.deepEqual(client.getState().queued, [{}]);
+  transport.requests[1]!.resolve({ view: toyTurn({ step: 5n, game: { n: 2, mine: true } }) });
+  assert.equal((await b as { ok: boolean }).ok, true);
+  assert.deepEqual(transport.requests[2]!.req, { submit: { gen: 5n, step: 5n, move: {} } });
+  transport.requests[2]!.resolve({ view: toyTurn({ step: 6n, game: { n: 3, mine: false }, youSubmitted: true, toMove: [{ p2: null }] }) });
+  assert.equal((await c! as { ok: boolean }).ok, true);
+});
+
+test("a queued move settles when a subscriber disposes the client on its notification", async () => {
+  const transport = new FakeTransport();
+  const client = createDuelClient({ transport, session, plugin: toyRules });
+  transport.onmessage!({ data: { view: toyTurn() } });
+  void client.submit({ again: true });
+  client.subscribe((s) => {
+    if (s.queued.length > 0) client.dispose();
+  });
+  const queued = client.submit({});
+  const timeout = new Promise((r) => setTimeout(() => r("pending"), 50));
+  assert.deepEqual(await Promise.race([queued, timeout]), { ok: false, reason: "dropped" });
+});
+
 test("predicted is computed once per status/pending/queue change and stays === otherwise", () => {
   const transport = new FakeTransport();
   const client = createDuelClient({ transport, session, plugin: toyRules, errorTtlMs: 0 });

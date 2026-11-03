@@ -174,9 +174,9 @@ rest of a batch at the first that fails (`../backend/README.md`,
 "Follow-up moves"), so a wrong prediction costs nothing but the dropped
 moves. Each queued call resolves with its own move's fate: those the
 batch's reply shows applied (its `step`, or a debrief's `steps`, less
-the stamp) share the reply's outcome, the rest resolve `"dropped"`. A
-canister bot answering inside the same reply adds a step of its own, so
-there one dropped move can count as applied.
+the stamp, but never past the move after which `localToMove` passes the
+turn, so a canister bot answering inside the same reply is not counted)
+share the reply's outcome, the rest resolve `"dropped"`.
 
 `localToMove` returns null whenever the board cannot know: a follow-up
 that depends on hidden information (a shot whose hit or miss only the
