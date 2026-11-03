@@ -1,5 +1,5 @@
 // Host actor for __GAME_SLUG__. Copy verbatim; only the `Rules` import,
-// the two timeouts, and the two optional features change between games.
+// the two timeouts, and the three optional features change between games.
 // Each optional feature is the lines marked with its name: uncomment all
 // of them to turn it on (SKILL.md Step 4), and replace the `null` they
 // stand next to. `http_request` is the only plain Candid method — every
@@ -47,7 +47,7 @@ actor {
   // Every method that names none of the game's types, and the sweep timer.
   include TransportActorMixin<system>(duel.lobby(env));
 
-  // The four methods whose Candid types name the game's own types.
+  // The methods whose Candid types name the game's own types.
   public shared ({ caller }) func duel_create_table(seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options) : async Transport.Ack {
     await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, seat, visibility, options);
   };
@@ -59,6 +59,13 @@ actor {
   public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, step : Nat, action : Rules.Action) : async Transport.Reply<Rules.View> {
     duel.reply(env, caller, tableId, await* duel.submit<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, tableId, gen, step, action));
   };
+
+  // FOLLOW-UP: several actions of one turn in one call — only for a
+  // #turnBased game where an action can grant another; the plugin's
+  // `localToMove` goes with it (references/turn-based-games.md).
+  // public shared ({ caller }) func duel_submit_moves(tableId : TP.TableId, gen : Nat, step : Nat, actions : [Rules.Action]) : async Transport.Reply<Rules.View> {
+  //   duel.reply(env, caller, tableId, await* duel.submitMoves<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, tableId, gen, step, actions));
+  // };
 
   public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.View> {
     duel.table(env, caller, tableId, rev);

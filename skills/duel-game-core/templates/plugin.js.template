@@ -78,6 +78,16 @@ export const plugin = {
     return gameState;
   },
 
+  // Optional — only for a #turnBased game where an action can keep the
+  // mover on turn (closing a box, a capture that moves again) with an
+  // outcome applyLocal predicts: the seat on turn in the board it drew,
+  // null when that board can't tell. Then the next action of a chain is
+  // clickable before the reply lands, and the queue goes out in one call.
+  //
+  // localToMove(gameState) {
+  //   return gameState.over ? null : Object.keys(gameState.toMove)[0];
+  // },
+
   // Optional — only for a leaderboard storing a converted score (an ELO
   // game keeps the default plain integer):
   //

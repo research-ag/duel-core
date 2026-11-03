@@ -3,7 +3,7 @@
 // `atTable` means the caller has that one table (`duel_lobby` lists it in
 // `yours`, `duel_table` serves its view); `browsing` means none (every
 // table is `gone`). One revision counter versions it all. Mutations reply
-// with an `Ack`, `duel_submit` with the table's view.
+// with an `Ack`, `duel_submit`/`duel_submit_moves` with the table's view.
 
 import { IDL } from "@icp-sdk/core/candid";
 import { buildEngineTypes, type EngineTypes } from "../../src/idl.js";
@@ -109,7 +109,16 @@ export class FakeCanister implements TransportActor {
       [IDL.Nat, IDL.Nat, IDL.Nat, sampleGameTypes({ IDL }).Action],
       [tableId, gen, step, move]
     );
-    const r = this._update({ submit: { gen: g, step: t, move: m } });
+    return this._submitted(this._update({ submit: { gen: g, step: t, move: m } }));
+  }
+  async duel_submit_moves(tableId: bigint, gen: bigint, step: bigint, moves: unknown[]): Promise<Reply> {
+    const [, g, t, ms] = this._wire<[bigint, bigint, bigint, unknown[]]>(
+      [IDL.Nat, IDL.Nat, IDL.Nat, IDL.Vec(sampleGameTypes({ IDL }).Action)],
+      [tableId, gen, step, moves]
+    );
+    return this._submitted(this._update({ submitMoves: { gen: g, step: t, moves: ms } }));
+  }
+  private _submitted(r: { view: Status } | { err: EngineErr }): Reply {
     const table = this._table();
     const reply: Reply = "err" in r
       ? { err: r.err }

@@ -221,6 +221,13 @@ rules module:
   it.
 - `legal()` and `applyLocal` mirror `RULES`; the backend's own rules
   remain the judge.
+- `MODE: turnBased` with an action that keeps the mover on turn (a box
+  closed, a capture that moves again) whose outcome `RULES` lets you
+  predict → `localToMove(gameState)` as well, so a chain is clicked
+  without waiting on each reply (`references/turn-based-games.md`,
+  "Follow-up moves"). The page then sends a chain's queued actions in
+  one `duel_submit_moves`: write `localToMove` only when the Candid
+  service lists that method.
 - `OPTIONS` other than `none` → `optionChoices()`/`formatOptions()`,
   each entry's `options` being one typed value the text lists.
 - Show the opponent's last move the way `CLIENT NOTES` says it can be

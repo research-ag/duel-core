@@ -31,15 +31,15 @@ Work in this order.
 
 5. If I want to see the bot play online before paying for its canister, the reference's step 5 ("Online before paying for its canister") has two free ways: by default a temporary cloud engine copy of the game on hosty.live (hosty_create_canister with network "cloud" for a backend, hosty_install_module with the game's hash, the bot beside it, register on the copy; tell me it is an empty copy, not the real game), or a rented mainnet canister for the bot against the live game, which you unregister before the rental ends. Ask me which, and do neither on your own.
 
-6. Do not put anything online until I ask. Then it goes through hosty.live (${ref}/going-live.md, section 3), in one deploy session I approve in its web app: hosty_create_canister with kind "backend" and alias "<game name> bot" (a mainnet canister, 1.5 TC from my balance; a free cloud engine canister cannot host a bot for a live game, since a bot and its game must share one network) unless I name a canister, icp build bot, the install with hosty_prepare_wasm_upload, then hosty_call_canister on the bot, method register, argument (principal "${backend}", "<bot name>"), as an update call; check the reply's caller is my principal. Then check the game lists it (a read-only query):
+6. Do not put anything online until I ask. First look up the game's subnet: curl -s https://ic-api.internetcomputer.org/api/v3/canisters/${backend} (its subnet_id). The bot's canister must sit on that same subnet, because the game asks the bot once per move and an ask across subnets takes seconds (${ref}/bot-for-existing-game.md, step 6). hosty.live creates every mainnet canister on subnet c4isl-65rwf-emhk5-5ta5m-ngl73-rgrl3-tcc56-2hkja-4erqd-iivmy-7ae; if the game is on another subnet, the bot goes up with icp-cli from my computer (icp deploy bot -e ic --subnet <the game's subnet>) instead: tell me so. Otherwise it goes through hosty.live (${ref}/going-live.md, section 3), in one deploy session I approve in its web app: hosty_create_canister with kind "backend" and alias "<game name> bot" (a mainnet canister, 1.5 TC from my balance; a free cloud engine canister cannot host a bot for a live game, since a bot and its game must share one network) unless I name a canister, icp build bot, the install with hosty_prepare_wasm_upload, then hosty_call_canister on the bot, method register, argument (principal "${backend}", "<bot name>"), as an update call; check the reply's caller is my principal. Then check the game lists it (a read-only query):
      icp canister call ${backend} list_bots '()' -n ic --query --identity anonymous
    and give me the bot's canister id.
 
 7. Every later change: test locally again, then upgrade the same bot canister (hosty_prepare_wasm_upload with its id and snapshotBeforeUpgrade), never a new one; call register again if its name or levels changed, and check list_bots again.
 
-7. Write into README.md how to build, test and update the bot, the bot's canister id, the hosty.live steps above, and, for my own computer only, the icp-cli way:
+8. Write into README.md how to build, test and update the bot, the bot's canister id, the hosty.live steps above, and, for my own computer only, the icp-cli way (--subnet only when the bot's canister is first created):
      icp canister link backend ${backend} -e ic --force
-     icp deploy bot -e ic
+     icp deploy bot -e ic --subnet <the game's subnet>
      icp canister call bot register '(principal "${backend}", "<bot name>")' -e ic
 
 If the semantics page or the wasm is missing, or the hashes differ, stop and tell me instead of guessing.

@@ -110,6 +110,8 @@ test("createDuelClient(): throws without transport or session; starts connecting
     status: null,
     statusAt: 0,
     pending: null,
+    queued: [],
+    followUp: false,
     error: null,
     authPending: false,
     identityLocked: false,
@@ -550,6 +552,94 @@ test("withLocalMove: applies a pending submit stamped against the shown view, el
   assert.deepEqual(pendingMoveOf(submit()), { add: 1 });
   assert.equal(pendingMoveOf({ key: "ack", req: { ackEnded: null } }), null);
   assert.equal(pendingMoveOf(null), null);
+});
+
+// A toy follow-up game: every move adds one; `again` keeps the turn.
+type Toy = { n: number; mine: boolean };
+const toyRules = {
+  applyLocal: (game: unknown, _seat: string, move: unknown): unknown => {
+    const g = game as Toy;
+    const m = move as { again?: boolean };
+    return g.mine ? { n: g.n + 1, mine: m.again === true } : null;
+  },
+  localToMove: (game: unknown) => ((game as Toy).mine ? ("p1" as const) : ("p2" as const)),
+};
+const toyTurn = (over: Partial<InGameView> = {}): Status =>
+  inGame({ mode: { turnBased: null }, toMove: [{ p1: null }], oppSubmitted: true, game: { n: 0, mine: true }, ...over });
+
+test("withLocalMove: folds queued follow-ups while localToMove keeps the seat on turn", () => {
+  const pending: PendingCall = { key: "act", req: { submit: { gen: 5n, step: 3n, move: { again: true } } } };
+  const opts = { localToMove: toyRules.localToMove };
+  const on = viewOf<InGameView>(withLocalMove(toyTurn(), pending, toyRules.applyLocal, opts), "inGame")!;
+  assert.deepEqual(on.game, { n: 1, mine: true });
+  assert.equal(on.step, 4n);
+  assert.equal(on.youSubmitted, false, "the rules keep the mover on turn");
+
+  const queued = [{ again: true }, {}, { again: true }];
+  const done = viewOf<InGameView>(withLocalMove(toyTurn(), pending, toyRules.applyLocal, { ...opts, queued }), "inGame")!;
+  assert.deepEqual(done.game, { n: 3, mine: false }, "stops once the turn passes");
+  assert.equal(done.step, 6n);
+  assert.equal(done.youSubmitted, true);
+
+  const batch: PendingCall = { key: "act", req: { submitMoves: { gen: 5n, step: 3n, moves: [{ again: true }, {}] } } };
+  const sent = viewOf<InGameView>(withLocalMove(toyTurn(), batch, toyRules.applyLocal), "inGame")!;
+  assert.deepEqual(sent.game, { n: 2, mine: false }, "a planned batch shows whole without localToMove");
+  assert.equal(sent.youSubmitted, true);
+});
+
+test("follow-up moves queue behind the in-flight submit and go out as one batch with its reply", async () => {
+  const transport = new FakeTransport();
+  const client = createDuelClient({ transport, session, plugin: toyRules });
+  transport.onmessage!({ data: { view: toyTurn() } });
+  assert.equal(client.getState().followUp, false);
+  void client.submit({ again: true });
+  assert.equal(client.getState().followUp, true);
+  const second = client.submit({ again: true });
+  const third = client.submit({});
+  assert.deepEqual(client.getState().queued, [{ again: true }, {}]);
+  assert.equal(client.getState().followUp, false, "the predicted turn has passed");
+  assert.deepEqual(await client.submit({}), { ok: false, reason: "inFlight" });
+  assert.equal(transport.requests.length, 1);
+
+  transport.requests[0]!.resolve({ view: toyTurn({ step: 4n, game: { n: 1, mine: true } }) });
+  await Promise.resolve();
+  assert.deepEqual(transport.requests[1]!.req, { submitMoves: { gen: 5n, step: 4n, moves: [{ again: true }, {}] } });
+  assert.deepEqual(client.getState().queued, []);
+  assert.equal(client.getState().pending!.req, transport.requests[1]!.req);
+
+  const after = toyTurn({ step: 6n, game: { n: 3, mine: false }, youSubmitted: true, toMove: [{ p2: null }] });
+  transport.requests[1]!.resolve({ view: after });
+  const [o2, o3] = await Promise.all([second, third]);
+  assert.equal(o2.ok, true);
+  assert.equal(o3.ok, true);
+  assert.equal(client.getState().pending, null);
+});
+
+test("a queued follow-up is dropped when the reply shows the turn already passed", async () => {
+  const transport = new FakeTransport();
+  const client = createDuelClient({ transport, session, plugin: toyRules });
+  transport.onmessage!({ data: { view: toyTurn() } });
+  void client.submit({ again: true });
+  const queued = client.submit({});
+  transport.requests[0]!.resolve({ view: toyTurn({ step: 4n, youSubmitted: true, toMove: [{ p2: null }] }) });
+  assert.deepEqual(await queued, { ok: false, reason: "dropped" });
+  assert.equal(transport.requests.length, 1);
+  assert.deepEqual(client.getState().queued, []);
+  assert.equal(client.getState().pending, null);
+});
+
+test("without localToMove nothing queues; submitMoves sends a planned turn in one call", async () => {
+  const transport = new FakeTransport();
+  const client = createDuelClient({ transport, session, plugin: { applyLocal: toyRules.applyLocal } });
+  transport.onmessage!({ data: { view: toyTurn() } });
+  void client.submit({ again: true });
+  assert.equal(client.getState().followUp, false);
+  assert.deepEqual(await client.submit({}), { ok: false, reason: "inFlight" });
+  transport.requests[0]!.resolve({ view: toyTurn({ step: 4n, game: { n: 1, mine: true } }) });
+  await Promise.resolve();
+  void client.submitMoves([{ again: true }, {}]);
+  assert.deepEqual(transport.requests[1]!.req, { submitMoves: { gen: 5n, step: 4n, moves: [{ again: true }, {}] } });
+  assert.equal(pendingKeyOf(transport.requests[1]!.req), 'act:{"again":true}');
 });
 
 test("localSecondsLeft/localSecondsElapsed count from statusAt and never go negative", () => {

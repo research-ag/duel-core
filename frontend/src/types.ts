@@ -170,6 +170,12 @@ export interface GamePlugin<S = unknown, O = unknown> {
   /// the submit is in flight; null draws the board as it is. Display only,
   /// never sent anywhere. See `withLocalMove` in client.ts.
   applyLocal?(gameState: S, mySeat: SeatTag, move: unknown): S | null;
+  /// Optional, `turnBased` only: the seat on turn in a board `applyLocal`
+  /// produced, or null when the board cannot tell (a hidden draw, a
+  /// finished game). With both hooks, a follow-up move clicked while the
+  /// previous one is in flight is queued and sent with the reply. See
+  /// ../README.md, "Follow-up moves".
+  localToMove?(gameState: S): SeatTag | null;
   /// The table options a creator may pick from; the first is the default.
   /// `key` only identifies the radio button, `options` is the typed value
   /// sent to `duel_create_table`. A game with no options returns `[]` and
@@ -179,13 +185,15 @@ export interface GamePlugin<S = unknown, O = unknown> {
   formatOptions?(options: O): string;
 }
 
-/// The client's request vocabulary. `submit`/`leave`/`reset`/`claimWin`
-/// carry the last-seen `gen` (and `step`); a stale value is rejected as
-/// `#stale`.
+/// The client's request vocabulary. `submit`/`submitMoves`/`leave`/
+/// `reset`/`claimWin` carry the last-seen `gen` (and `step`); a stale
+/// value is rejected as `#stale`. `submitMoves` is several actions of one
+/// turn, stamped with the `step` before the first.
 export type TransportRequest<A = unknown, O = unknown> =
   | { createTable: { seat: Seat; visibility: Visibility; options: O } }
   | { joinTable: { id: TableId; seat: Seat; code: [] | [string] } }
   | { submit: { gen: bigint; step: bigint; move: A } }
+  | { submitMoves: { gen: bigint; step: bigint; moves: A[] } }
   | { rematch: null }
   | { leave: { gen: bigint } }
   | { reset: { gen: bigint } }

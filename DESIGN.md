@@ -215,7 +215,8 @@ reach the framework as arguments, never as stored state:
 parameters, so every method whose Candid signature names a game type is
 the host's own one-line pass-through: `duel_create_table` and
 `duel_lobby` (the options), `duel_submit` (an action in, a view out) and
-`duel_table` (a view out). Everything else comes from the mixins.
+`duel_table` (a view out). A game whose actions can grant another adds
+a fifth, `duel_submit_moves` (below). Everything else comes from the mixins.
 
 ```motoko
 public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, step : Nat, action : Rules.Action) : async Transport.Reply<Rules.View> {
@@ -294,6 +295,8 @@ There are two kinds of reply:
   applied, and against a bot, the bot's answer too. In a turn-based game
   the view says whose turn it is next (`toMove`), so a client needs no
   poll to learn that it stays on turn after a draw or a repeat turn.
+  `duel_submit_moves` is the same call for several actions of one turn
+  (below).
 - **Every other mutation** (`duel_create_table`, `duel_join_table`,
   `duel_rematch`, `duel_leave`, `duel_reset`, `duel_claim_win`,
   `duel_ack_ended`) replies with an `Ack`: the table and its `rev` after
@@ -338,6 +341,25 @@ sequenceDiagram
   B->>C: duel_table(7, 2)
   C-->>B: changed { rev = 4, #inGame, toMove = p2 }
 ```
+
+**Follow-up moves.** When an action grants another and nothing hidden
+or random lies between them (dots and boxes: a closed box draws again),
+the client can foresee the chain. `duel_submit_moves(tableId, gen, step,
+actions)` carries several actions of one turn, stamped with the step
+before the first. The engine runs them through `move` one by one, as
+separate submits would, and stops at the first that is illegal or
+comes after the turn passed or the game ended; the ones before it
+stay, the rest are dropped, and only a failing first action is an
+error. The rules still gate every action, so a batch is purely a saving
+of round trips. The client builds batches itself: with the game's
+`applyLocal` and `localToMove` it predicts that the seat is still on
+turn, lets the player click on while the previous submit is out,
+queues those moves, and sends them as one batch with the reply — at
+most two round trips for a whole chain, and a wrong prediction only
+costs the dropped moves. A follow-up whose outcome is hidden (a
+battleship hit or miss) cannot be foreseen; such a game sends one
+action per call. Bots answer one action per ask either way, and sit on
+the game's subnet so each ask is cheap.
 
 A `#simultaneous` round: each seat submits; the second submission
 resolves the round and comes back with the resolved state; the first

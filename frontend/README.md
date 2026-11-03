@@ -81,6 +81,13 @@ const plugin = {
     return { ...gameState, passes: gameState.passes + 1 };
   },
 
+  // Optional, `turnBased` only: whose turn a board `applyLocal` drew
+  // says it is ("p1"/"p2"), null when the board cannot tell. With it a
+  // follow-up move can be clicked before the reply (see "Follow-up moves").
+  localToMove(gameState) {
+    return null;
+  },
+
   // Optional: render a leaderboard `score` (bigint). Default is the plain
   // integer (right for ELO); a game storing a converted score inverts it.
   formatScore(score) {
@@ -146,6 +153,35 @@ Two things a player must always see, whatever the UI:
   whose outcome only the server knows (a draw from a face-down pile).
   `applyLocal` mirrors the rules the way move highlighting does: purely
   cosmetic, never sent, and the backend still decides.
+
+## Follow-up moves
+
+In a `turnBased` game an action may grant another (dots and boxes: a
+closed box draws again). Without help each one is a round trip with the
+board locked in between. A plugin with both `applyLocal` and
+`localToMove` lets the player keep going: while a submit is out and the
+predicted board still has the seat on turn (`state.followUp`), `start()`
+keeps the move buttons live, and each further `submit(move)` that
+`applyLocal` accepts joins `state.queued`. The board shows the pending
+move and the queue applied one after another. When the reply lands,
+the whole queue goes out as one call (`duel_submit` for one move,
+`duel_submit_moves` for several), stamped with the reply's `step`; if
+the reply shows the turn already passed, the queue is dropped and each
+queued call resolves `{ ok: false, reason: "dropped" }`. The engine
+re-checks every action and drops the rest of a batch at the first that
+fails (`../backend/README.md`, "Follow-up moves"), so a wrong prediction
+costs nothing but the dropped moves.
+
+`localToMove` returns null whenever the board cannot know: a follow-up
+that depends on hidden information (a shot whose hit or miss only the
+server knows) or a finished board. Such a game sends one action per
+call, as without the hook. `client.submitMoves(moves)` sends a turn a
+custom UI planned itself in one call. `examples/dots-and-boxes` is the
+worked example.
+
+`duel_submit_moves` is opt-in on the host (the Host template's FOLLOW-UP
+lines): implement `localToMove`, or call `submitMoves`, only for a
+backend that declares it.
 
 ## Wiring it up
 
@@ -279,20 +315,23 @@ client.subscribe((state, prev) => {
 | `status`         | the last `Status` received (the first may be `transport.queryStatus`'s, still `"connecting"`), `null` before one; structurally equal views never re-notify |
 | `statusAt`       | `Date.now()` when `status` last changed — every `secondsUntilX` is only as fresh as that; `localSecondsLeft(secs, statusAt)` counts down from it           |
 | `pending`        | `{ key, req }` while one call is out (`create:p1`, `jointable:3:p2`, `act:{"pass":null}`, `rematch`, `leave`, `reset`, `claim-win`, `ack`); at most one    |
+| `queued`         | follow-up moves accepted behind the pending submit, sent with its reply (see "Follow-up moves")                                                            |
+| `followUp`       | a `submit` now would be queued: the predicted board still has this seat on turn (needs `plugin` with `applyLocal` and `localToMove`)                       |
 | `error`          | a transient message (cleared after `errorTtlMs`), or the permanent "Connection closed."                                                                    |
 | `authPending`    | a login/logout/regenerate is under way                                                                                                                     |
 | `identityLocked` | disable "new sid" and login/logout: seated, a join in flight, an identity change in flight, or closed                                                      |
 
 Actions: `createTable(seat, visibility?, options?)` (`options` is the
 game's typed `Options`, `{}` by default), `joinTable(id, seat, code?)`,
-`submit(move)`, `rematch()`, `leave()`, `reset()`, `claimWin()`,
+`submit(move)` (queued while `followUp`), `submitMoves(moves)` (several
+actions of one turn), `rematch()`, `leave()`, `reset()`, `claimWin()`,
 `ackEnded()`. Each stamps `gen`/`step` from the last status and resolves
 with a `CallOutcome`: `{ ok: true, view }`, or `{ ok: false, reason }`
 where `reason` is `"inFlight"` (one is already out), `"closed"`,
 `"stale"` (a `#wrongPhase` create/join or `#stale` mutation: the view was
 behind, a silent `refresh()` is on its way), `"rejected"` (`err` and its
-`message`, also shown in `state.error`), or `"failed"` (transport,
-`message`). A `"rejected"` or `"failed"` call also sends a `refresh()`,
+`message`, also shown in `state.error`), `"failed"` (transport,
+`message`), or `"dropped"` (a queued follow-up the reply made moot). A `"rejected"` or `"failed"` call also sends a `refresh()`,
 so a screen the server has moved past (the table is gone, the seat was
 lost) is replaced by the real status. When the first status after a
 reconnect finds a player who was seated back in the lobby,
@@ -306,11 +345,16 @@ Selectors, all pure: `viewTagOf(status)`, `viewOf(status, "inGame")`,
 `isSeated`, `genOf`, `stepOf`, `claimRoleOf(inGame)` (`"waiting"` may
 claim, `"atRisk"` is the mirror), `oppSeatOf`, `localSecondsLeft`,
 `localSecondsElapsed`, `pendingKeyOf(req)`, `pendingMoveOf(pending)`,
-`withLocalMove(status, pending, applyLocal)`, plus `tag`/`val`/`errText`.
+`pendingMovesOf(pending)`, `submitRequest(gen, step, moves)`,
+`withLocalMove(status, pending, applyLocal, { queued?, localToMove? })`,
+plus `tag`/`val`/`errText`.
 
 A custom UI shows its own move at once the way `start()` does: draw from
-`withLocalMove(state.status, state.pending, plugin.applyLocal)` and redraw
-when `status` or `pending` changes. The reply clears `pending` and lands
+`withLocalMove(state.status, state.pending, plugin.applyLocal, { queued:
+state.queued, localToMove: plugin.localToMove })` and redraw when
+`status`, `pending` or `queued` changes; pass the plugin to
+`createDuelClient({ transport, session, plugin })` for follow-up moves
+to queue. The reply clears `pending` and lands
 its `status` in one snapshot, so the board never flashes back to the
 pre-move position. Anything derived from consecutive views (a move log,
 an opponent-move replay) should read the same local status: it then sees
@@ -355,8 +399,8 @@ applied from the same source is dropped, which orders a reply against a
 polled view. Nothing is queued on either side, so a client always gets
 the latest snapshot and may skip intermediate ones.
 
-**Requests.** A move is one `duel_submit` update whose reply is the
-table's fresh view. Every other mutation (`createTable`, `joinTable`,
+**Requests.** A move is one `duel_submit` update (several actions of one
+turn, `duel_submit_moves`) whose reply is the table's fresh view. Every other mutation (`createTable`, `joinTable`,
 `rematch`, `leave`, `reset`, `claimWin`, `ackEnded`) is an update
 replying with an `Ack` — the table and its `rev` after the call; the
 transport follows that table and polls until its view has caught up
@@ -613,7 +657,7 @@ module hash and keep the module when it matches.
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `idl.js`           | `makeIdlFactory(buildGameTypes)`, `buildEngineTypes({IDL, Action, View, Options})`, `buildBotPlayIdlFactory({IDL})`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `render.js`        | `renderStatus(status, plugin, screens?)`, `renderView`, `defaultScreens`, `resolveScreens`, one `render*` per screen (`renderBrowsing`, `renderTableRow`, `renderLobby`, `renderBusy`, `renderStagingYou`, `renderAwaitingRematch`, `renderInGame`, `renderDebrief`, `renderEndedByOther`, `renderConnecting`, `renderTableBadge`), `debriefVerdict`, `opponentStatusText`, `renderLeaderboard(entries, plugin, opts?)`, `renderBotList`, `renderSeatChoice`, `playerKeyOf`, `isCanisterPlayer`, `parseCanisterPlayer`, `botDisplayName`, `displayPlayerId`, `DEFAULT_BOT_COMPLEXITY`, `errText`, `actionAttr`, `tag`, `val`, `esc` |
-| `client.js`        | `createDuelClient({ transport, session, errorTtlMs? })` -> `DuelClient`; `viewTagOf`, `viewOf`, `isSeated`, `genOf`, `stepOf`, `claimRoleOf`, `oppSeatOf`, `localSecondsLeft`, `localSecondsElapsed`, `pendingKeyOf`, `pendingMoveOf`, `withLocalMove`, `deepEqual`, `tag`, `val`, `errText`                                                                                                                                                                                                                                                                                                                                        |
+| `client.js`        | `createDuelClient({ transport, session, errorTtlMs?, plugin? })` -> `DuelClient`; `viewTagOf`, `viewOf`, `isSeated`, `genOf`, `stepOf`, `claimRoleOf`, `oppSeatOf`, `localSecondsLeft`, `localSecondsElapsed`, `pendingKeyOf`, `pendingMoveOf`, `pendingMovesOf`, `submitRequest`, `withLocalMove`, `deepEqual`, `tag`, `val`, `errText`                                                                                                                                                                                                                                                                                            |
 | `app.js`           | `start({ plugin, transport, session, screens?, confirm?, promptCode?, errorTtlMs?, ...elIds })` -> `DuelClient`; `buttonKey`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `identity.js`      | `resolveIdentity()`, `sidForPrincipal(principalText)`; depends on `@icp-sdk/auth`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `anon-identity.js` | `resolveAnonymousIdentity()`, `regenerateAnonymousIdentity()`, `sidFor(prefix, principalText)`, `ANON_SID_PREFIX`; depends only on `@icp-sdk/core/identity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |

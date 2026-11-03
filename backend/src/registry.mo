@@ -403,11 +403,24 @@ module {
     gen : Nat,
     step : Nat,
     move : M,
+  ) : T.Res<T.SubmitOk> = self.submitMoves(spec, rng, now, session, id, gen, step, [move]);
+
+  /// See `Table.submitMoves`.
+  public func submitMoves<S, M, V, O>(
+    self : Registry<S, M, O>,
+    spec : T.Spec<S, M, V, O>,
+    rng : T.Rng,
+    now : Int,
+    session : T.PlayerId,
+    id : T.TableId,
+    gen : Nat,
+    step : Nat,
+    moves : [M],
   ) : T.Res<T.SubmitOk> = withTable<S, M, O, T.SubmitOk>(
     self,
     id,
     func(t) {
-      let r = t.submit(spec, rng, now, session, gen, step, move);
+      let r = t.submitMoves(spec, rng, now, session, gen, step, moves);
       switch (r) {
         case (#ok(#gameEnded _)) {
           recordActiveGames(self);

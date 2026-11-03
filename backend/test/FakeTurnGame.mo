@@ -1,13 +1,14 @@
 /// FakeTurnGame — a trivial `#turnBased` `TP.Spec` used only by
 /// Alternating.test.mo. INC always legal, +1 to a shared counter, never ends;
-/// WINNOW illegal at 0, otherwise ends the match for the seat on turn.
+/// AGAIN is INC that keeps the turn (a follow-up move); WINNOW illegal at
+/// 0, otherwise ends the match for the seat on turn.
 /// Options "headStart" starts the counter at 1. Seats alternate, recorded
 /// in `toMove` (p1 first).
 import TP "../src/lib";
 
 module {
 
-  public type Action = { #inc; #winNow };
+  public type Action = { #inc; #again; #winNow };
 
   public type State = { count : Nat; toMove : TP.Seat };
 
@@ -33,7 +34,7 @@ module {
 
   public func validate(s : State, _seat : TP.Seat, a : Action) : ?Text {
     switch (a) {
-      case (#inc) null;
+      case (#inc or #again) null;
       case (#winNow) if (s.count == 0) ?"Nothing to win with yet — INC first." else null;
     };
   };
@@ -45,6 +46,10 @@ module {
     switch (a) {
       case (#inc) ({
         state = { count = s.count + 1; toMove = other(seat) };
+        verdict = null;
+      });
+      case (#again) ({
+        state = { s with count = s.count + 1 };
         verdict = null;
       });
       case (#winNow) ({

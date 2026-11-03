@@ -263,7 +263,15 @@ module {
 
   /// `gen`/`step` must match what the caller last observed, so a resend
   /// whose original already applied comes back `#stale`.
-  public func submit<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, rng : T.Rng, now : Int, session : T.PlayerId, gen : Nat, step : Nat, move : M) : T.Res<T.SubmitOk> {
+  public func submit<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, rng : T.Rng, now : Int, session : T.PlayerId, gen : Nat, step : Nat, move : M) : T.Res<T.SubmitOk> = self.submitMoves(spec, rng, now, session, gen, step, [move]);
+
+  /// Several actions in one call, stamped with the `step` before the
+  /// first. `#turnBased` applies them in order and stops at the first
+  /// that fails (illegal, or the seat is no longer on turn) or once the
+  /// game ends: the ones before it stay applied, the rest are dropped,
+  /// and only a failing first action is an `#err`. `#simultaneous` takes
+  /// exactly one.
+  public func submitMoves<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, rng : T.Rng, now : Int, session : T.PlayerId, gen : Nat, step : Nat, moves : [M]) : T.Res<T.SubmitOk> {
     switch (self.checkGen(gen)) {
       case (?e) return #err(e);
       case null {};
@@ -275,9 +283,12 @@ module {
           case (?s) s;
           case null return #err(#notSeated);
         };
+        if (moves.size() == 0) return #err(#illegalMove("no action"));
         switch (spec) {
 
           case (#simultaneous simSpec) {
+            if (moves.size() > 1) return #err(#illegalMove("one action per step"));
+            let move = moves[0];
             let myPending = switch (mySeat) {
               case (#p1) g.pending1;
               case (#p2) g.pending2;
@@ -335,39 +346,54 @@ module {
             };
           };
 
-          // One action of the seat on turn, applied at once;
+          // Each action of the seat on turn is applied at once;
           // `pending1`/`pending2` stay `null`.
           case (#turnBased turnSpec) {
-            if (mySeat != turnSpec.toMove(g.game)) return #err(#notYourTurn);
-            let r = switch (turnSpec.move(g.game, mySeat, move, rng)) {
-              case (#err why) return #err(#illegalMove(why));
-              case (#ok r) r;
-            };
-            let steps = g.step + 1;
-            switch (r.verdict) {
-              case (?v) {
-                self.enterDebrief(now, g.p1, g.p2, #finished(v), steps, r.state);
-                #ok(#gameEnded { verdict = v; steps });
+            func apply(g : T.Active<S, M>, move : M) : T.Res<T.SubmitOk> {
+              if (mySeat != turnSpec.toMove(g.game)) return #err(#notYourTurn);
+              let r = switch (turnSpec.move(g.game, mySeat, move, rng)) {
+                case (#err why) return #err(#illegalMove(why));
+                case (#ok r) r;
               };
-              case null {
-                self.phase := #active {
-                  g with
-                  game = r.state;
-                  step = steps;
-                  lastActivity = now;
-                  stepStartedAt = now;
-                  lastMoveP1 = switch (mySeat) {
-                    case (#p1) ?move;
-                    case (#p2) g.lastMoveP1;
-                  };
-                  lastMoveP2 = switch (mySeat) {
-                    case (#p2) ?move;
-                    case (#p1) g.lastMoveP2;
-                  };
-                  lastStepDurationNs = ?(now - g.stepStartedAt);
+              let steps = g.step + 1;
+              switch (r.verdict) {
+                case (?v) {
+                  self.enterDebrief(now, g.p1, g.p2, #finished(v), steps, r.state);
+                  #ok(#gameEnded { verdict = v; steps });
                 };
-                #ok(#stepped(steps));
+                case null {
+                  self.phase := #active {
+                    g with
+                    game = r.state;
+                    step = steps;
+                    lastActivity = now;
+                    stepStartedAt = now;
+                    lastMoveP1 = switch (mySeat) {
+                      case (#p1) ?move;
+                      case (#p2) g.lastMoveP1;
+                    };
+                    lastMoveP2 = switch (mySeat) {
+                      case (#p2) ?move;
+                      case (#p1) g.lastMoveP2;
+                    };
+                    lastStepDurationNs = ?(now - g.stepStartedAt);
+                  };
+                  #ok(#stepped(steps));
+                };
               };
+            };
+            var applied : ?T.SubmitOk = null;
+            label actions for (move in moves.values()) {
+              let #active cur = self.phase else break actions;
+              switch (apply(cur, move), applied) {
+                case (#err e, null) return #err e;
+                case (#err _, ?_) break actions;
+                case (#ok ok, _) applied := ?ok;
+              };
+            };
+            switch (applied) {
+              case (?ok) #ok ok;
+              case null #err(#illegalMove("no action"));
             };
           };
         };

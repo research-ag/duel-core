@@ -1,0 +1,820 @@
+/* Dots & Boxes — "pencil on paper". Layered on duel-game-core.css (loaded
+ * first), which supplies the page chrome and the custom properties --bg,
+ * --panel, --panel-2, --line, --ink, --muted, --accent, --red, --green,
+ * --blue. This file retunes those to a cream sheet of ruled paper, gives
+ * every control a hand-drawn edge, and draws the board itself.
+ */
+
+:root {
+  color-scheme: light;
+  --bg: #f4eedb;
+  --panel: #fffdf6;
+  --panel-2: #f6efdb;
+  --line: #c9bb98;
+  --ink: #2f2a24;
+  --muted: #86795f;
+  --accent: #d4842b;
+  --red: #c8372d;
+  --green: #3f8f4f;
+  --blue: #2f5fcf;
+
+  --p1: #2f5fcf;
+  --p2: #c8372d;
+  --graphite: #3a342c;
+  --rule: rgba(47, 95, 207, 0.13);
+  --margin: rgba(200, 55, 45, 0.28);
+  --highlight: #ffe36a;
+  --shadow: rgba(60, 40, 10, 0.16);
+  --hand: "Patrick Hand", "Segoe Print", "Bradley Hand", "Chalkboard SE", "Comic Sans MS", cursive;
+  --title: "Caveat", "Segoe Script", "Bradley Hand", "Chalkboard SE", cursive;
+  --sketch: 255px 15px 225px 15px / 15px 225px 15px 255px;
+  --sketch-2: 15px 255px 15px 225px / 225px 15px 255px 15px;
+}
+
+/* ── the sheet ─────────────────────────────────────────────────────── */
+
+body {
+  font-family: var(--hand);
+  font-size: 17px;
+  line-height: 1.5;
+  color: var(--ink);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(90deg, transparent 0, transparent 0.7rem, var(--margin) 0.7rem, var(--margin) calc(0.7rem + 2px), transparent calc(0.7rem + 2px)),
+    repeating-linear-gradient(180deg, transparent 0, transparent 27px, var(--rule) 27px, var(--rule) 28px),
+    radial-gradient(1200px 600px at 50% -10%, rgba(255, 255, 255, 0.55), transparent 70%);
+  background-attachment: fixed;
+}
+
+@media (max-width: 600px) {
+  body {
+    background-image:
+      repeating-linear-gradient(180deg, transparent 0, transparent 27px, var(--rule) 27px, var(--rule) 28px),
+      radial-gradient(1200px 600px at 50% -10%, rgba(255, 255, 255, 0.55), transparent 70%);
+  }
+}
+
+header {
+  border-bottom: 2px dashed var(--line);
+}
+
+footer {
+  border-top: 2px dashed var(--line);
+}
+
+h1 {
+  font-family: var(--title);
+  font-size: 2.6rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  line-height: 1;
+}
+
+.dab-title {
+  display: inline-block;
+  transform: rotate(-1.5deg);
+  background: linear-gradient(transparent 55%, var(--highlight) 55%, var(--highlight) 92%, transparent 92%);
+  padding: 0 0.3rem;
+  animation: dab-fade 0.6s ease-out both;
+}
+
+.dab-amp {
+  color: var(--p2);
+  font-size: 0.85em;
+}
+
+h2 {
+  font-family: var(--title);
+  font-size: 1.7rem;
+  letter-spacing: 0.01em;
+  font-weight: 700;
+}
+
+.more-games {
+  font-family: var(--hand);
+  font-size: 0.95rem;
+  border-bottom: 1px dashed transparent;
+}
+
+.more-games:hover {
+  color: var(--p1);
+  border-bottom-color: var(--p1);
+}
+
+.session .label {
+  font-size: 0.78rem;
+}
+
+.session code,
+.table-code {
+  background: var(--panel);
+  border: 1.5px solid var(--line);
+  border-radius: 6px 10px 7px 9px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* ── every screen slides in like a page turned ─────────────────────── */
+
+#screen > * {
+  animation: dab-fade 0.35s ease-out both;
+}
+
+@keyframes dab-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── hand-drawn controls ───────────────────────────────────────────── */
+
+button {
+  font-family: var(--hand);
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch);
+  padding: 0.45rem 1rem;
+  box-shadow: 2px 3px 0 var(--shadow);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    background 0.15s;
+}
+
+button:nth-of-type(even) {
+  border-radius: var(--sketch-2);
+}
+
+button:hover:not(:disabled) {
+  background: #fff;
+  border-color: var(--ink);
+  transform: translate(-1px, -1px) rotate(-0.6deg);
+  box-shadow: 3px 4px 0 var(--shadow);
+}
+
+button:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--shadow);
+}
+
+button:disabled {
+  opacity: 0.45;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+button.primary {
+  background: var(--highlight);
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #fff0a0;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+button.ghost:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+  box-shadow: 2px 3px 0 var(--shadow);
+}
+
+#new-sid {
+  font-size: 0.78rem;
+  padding: 0.1rem 0.5rem;
+  box-shadow: none;
+}
+
+button.dab-sound {
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 0.25rem 0.5rem;
+  margin-right: auto;
+  border-color: var(--line);
+}
+
+button.duel-loading::after {
+  color: var(--ink);
+  border-color: rgba(47, 42, 36, 0.25);
+  border-top-color: currentColor;
+}
+
+input[type="text"],
+input[type="number"] {
+  font-family: var(--hand);
+  font-size: 1rem;
+  color: var(--ink);
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 8px 12px 9px 11px;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus {
+  border-color: var(--ink);
+}
+
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: var(--p1);
+}
+
+/* ── lobby ─────────────────────────────────────────────────────────── */
+
+.create-table h3,
+.open-tables h3,
+.option-group-label {
+  font-family: var(--title);
+  font-size: 1.25rem;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.option-group {
+  border-bottom: 2px dashed var(--line);
+}
+
+.create-table label {
+  font-size: 1.02rem;
+}
+
+button.seat {
+  background: var(--panel);
+}
+
+.seat-label {
+  color: var(--p1);
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+
+button.seat[data-create-table="p2"] .seat-label,
+button.seat[data-join-table="p2"] .seat-label {
+  color: var(--p2);
+}
+
+.table-row {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: var(--sketch);
+  box-shadow: 2px 3px 0 var(--shadow);
+}
+
+.table-row:nth-child(even) {
+  border-radius: var(--sketch-2);
+  transform: rotate(0.25deg);
+}
+
+.table-row:nth-child(odd) {
+  transform: rotate(-0.25deg);
+}
+
+.protected-badge {
+  color: var(--accent);
+}
+
+.variant-badge {
+  color: var(--p1);
+}
+
+.countdown {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ── in-game chrome ────────────────────────────────────────────────── */
+
+.turnbar {
+  border-bottom: 2px dashed var(--line);
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.locked {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.actions:empty {
+  display: none;
+}
+
+.waiting,
+.callout {
+  background: var(--panel);
+  border: 2px dashed var(--line);
+  border-radius: var(--sketch);
+  color: var(--muted);
+}
+
+.error {
+  font-family: var(--hand);
+  background: #fff6b3;
+  border: 2px solid #e2c75a;
+  border-left: 2px solid #e2c75a;
+  border-radius: 4px 14px 6px 12px;
+  color: #6b4b00;
+  box-shadow: 2px 3px 0 var(--shadow);
+  transform: rotate(-0.4deg);
+}
+
+/* ── the verdict is a rubber stamp ─────────────────────────────────── */
+
+.verdict {
+  display: inline-block;
+  font-family: var(--title);
+  font-size: 2.2rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.9rem;
+  border: 3px double currentColor;
+  border-radius: 12px 18px 10px 20px;
+  transform: rotate(-3deg);
+  animation: dab-stamp 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+  margin-bottom: 0.75rem;
+}
+
+.verdict.win {
+  color: var(--green);
+}
+
+.verdict.lose {
+  color: var(--red);
+}
+
+.verdict.draw {
+  color: var(--accent);
+}
+
+@keyframes dab-stamp {
+  0% {
+    opacity: 0;
+    transform: rotate(-12deg) scale(1.7);
+  }
+  70% {
+    opacity: 1;
+    transform: rotate(-2deg) scale(0.96);
+  }
+  100% {
+    transform: rotate(-3deg) scale(1);
+  }
+}
+
+/* ── overlays (confirm, access code) ───────────────────────────────── */
+
+.duel-confirm-overlay,
+.duel-code-overlay {
+  background: rgba(60, 45, 20, 0.35);
+}
+
+.duel-confirm-box,
+.duel-code-box {
+  background: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: var(--sketch);
+  box-shadow: 4px 6px 0 var(--shadow);
+}
+
+/* ── scoreboard: two pencils ───────────────────────────────────────── */
+
+.dab-score {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem 1.25rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.dab-player {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.8rem;
+  border: 2px solid transparent;
+  border-radius: var(--sketch);
+  font-size: 1.1rem;
+  transition:
+    background 0.3s,
+    border-color 0.3s,
+    transform 0.3s;
+}
+
+.dab-player.dab-p1 {
+  color: var(--p1);
+}
+
+.dab-player.dab-p2 {
+  color: var(--p2);
+}
+
+.dab-player small {
+  color: var(--muted);
+  font-size: 0.8em;
+}
+
+.dab-player-boxes {
+  font-family: var(--title);
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1;
+  min-width: 1.2ch;
+  text-align: center;
+}
+
+.dab-player.dab-on {
+  border-color: currentColor;
+  background: linear-gradient(transparent 30%, rgba(255, 227, 106, 0.75) 30%, rgba(255, 227, 106, 0.75) 85%, transparent 85%);
+  transform: rotate(-1deg);
+}
+
+.dab-player.dab-on .dab-pencil-icon {
+  animation: dab-wiggle 1.4s ease-in-out infinite;
+}
+
+@keyframes dab-wiggle {
+  0%,
+  100% {
+    transform: rotate(-12deg) translateY(0);
+  }
+  50% {
+    transform: rotate(-20deg) translateY(-2px);
+  }
+}
+
+.dab-left {
+  flex-basis: 100%;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.dab-pencil-icon {
+  width: 56px;
+  height: 14px;
+  transform: rotate(-12deg);
+  filter: drop-shadow(1px 1px 0 var(--shadow));
+}
+
+.dab-pencil-tip {
+  fill: #e9cfa3;
+}
+
+.dab-pencil-lead {
+  fill: var(--graphite);
+}
+
+.dab-pencil-body.dab-p1 {
+  fill: var(--p1);
+}
+
+.dab-pencil-body.dab-p2 {
+  fill: var(--p2);
+}
+
+.dab-pencil-band {
+  fill: #cfcfcf;
+}
+
+.dab-pencil-eraser {
+  fill: #f0a7a0;
+}
+
+/* ── the board: a square of graph paper ────────────────────────────── */
+
+.dab-board {
+  --cell: calc(100% / (var(--n) + 0.48));
+  --offset: calc(100% * 24 / (var(--n) * 100 + 48));
+  position: relative;
+  width: min(540px, 100%);
+  aspect-ratio: 1 / 1;
+  margin: 0 auto 1.25rem;
+  background-color: #fffdf4;
+  background-image:
+    linear-gradient(rgba(47, 95, 207, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(47, 95, 207, 0.1) 1px, transparent 1px);
+  background-size: var(--cell) var(--cell);
+  background-position: var(--offset) var(--offset);
+  border: 1.5px solid var(--line);
+  border-radius: 3px 6px 4px 7px;
+  box-shadow:
+    3px 5px 0 var(--shadow),
+    0 14px 32px rgba(60, 40, 10, 0.12);
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.dab-board::before {
+  /* a folded corner */
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: -1px;
+  width: 26px;
+  height: 26px;
+  background: linear-gradient(225deg, var(--bg) 0 50%, #e9e0c6 50% 100%);
+  border-bottom-left-radius: 6px;
+  box-shadow: -2px 2px 3px rgba(60, 40, 10, 0.12);
+  pointer-events: none;
+}
+
+.dab-sheet {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.dab-dot {
+  fill: var(--graphite);
+}
+
+.dab-new .dab-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dab-pop 0.4s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+  animation-delay: calc(var(--i) * 14ms);
+}
+
+@keyframes dab-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.dab-line {
+  fill: none;
+  stroke-width: 5.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.92;
+}
+
+.dab-line.dab-p1,
+.dab-scribble.dab-p1,
+.dab-box.dab-p1 .dab-scribble {
+  stroke: var(--p1);
+}
+
+.dab-line.dab-p2,
+.dab-scribble.dab-p2,
+.dab-box.dab-p2 .dab-scribble {
+  stroke: var(--p2);
+}
+
+.dab-line.dab-fresh {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: dab-draw 0.4s cubic-bezier(0.35, 0.7, 0.4, 1) forwards;
+  animation-delay: calc(var(--i) * 140ms);
+}
+
+@keyframes dab-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.dab-halo {
+  fill: none;
+  stroke-width: 18;
+  stroke-linecap: round;
+  opacity: 0.16;
+  animation: dab-halo 1.5s ease-in-out infinite alternate;
+}
+
+.dab-halo.dab-p1 {
+  stroke: var(--p1);
+}
+
+.dab-halo.dab-p2 {
+  stroke: var(--p2);
+}
+
+@keyframes dab-halo {
+  from {
+    opacity: 0.1;
+  }
+  to {
+    opacity: 0.26;
+  }
+}
+
+.dab-scribble {
+  fill: none;
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.36;
+}
+
+.dab-box.dab-fresh .dab-scribble {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: dab-draw 0.6s ease-in-out forwards;
+  animation-delay: calc(0.3s + var(--i) * 0.25s);
+}
+
+.dab-initial {
+  font-family: var(--title);
+  font-size: 46px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  opacity: 0.9;
+}
+
+.dab-box.dab-p1 .dab-initial {
+  fill: var(--p1);
+}
+
+.dab-box.dab-p2 .dab-initial {
+  fill: var(--p2);
+}
+
+.dab-box.dab-fresh .dab-initial {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dab-pop 0.4s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+  animation-delay: calc(0.85s + var(--i) * 0.25s);
+}
+
+/* Undrawn lines: invisible hit areas that preview a faint pencil line on
+ * hover. Every generic button rule above is undone here. */
+button.dab-hit {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: none;
+  cursor: pointer;
+  transform: none;
+  transition: background 0.1s;
+}
+
+button.dab-hit:nth-of-type(even) {
+  border-radius: 8px;
+}
+
+button.dab-hit:hover:not(:disabled),
+button.dab-hit:focus-visible {
+  transform: none;
+  box-shadow: none;
+  border: 0;
+  outline: none;
+}
+
+button.dab-hit-h:hover:not(:disabled),
+button.dab-hit-h:focus-visible {
+  background: linear-gradient(180deg, transparent 38%, rgba(58, 52, 44, 0.28) 38%, rgba(58, 52, 44, 0.28) 62%, transparent 62%);
+}
+
+button.dab-hit-v:hover:not(:disabled),
+button.dab-hit-v:focus-visible {
+  background: linear-gradient(90deg, transparent 38%, rgba(58, 52, 44, 0.28) 38%, rgba(58, 52, 44, 0.28) 62%, transparent 62%);
+}
+
+button.dab-hit:active:not(:disabled) {
+  transform: none;
+}
+
+button.dab-hit.duel-loading::after {
+  display: none;
+}
+
+.dab-your-turn {
+  cursor: crosshair;
+}
+
+/* ── motion preferences ────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .dab-line.dab-fresh,
+  .dab-box.dab-fresh .dab-scribble {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ── 🏆 leaderboard and 🤖 bots: full-page sheets over the game ─────── */
+
+#leaderboard-toggle {
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 0.25rem 0.5rem;
+  border-color: var(--line);
+  box-shadow: none;
+  margin-right: 0;
+}
+
+#leaderboard-panel,
+#bot-challenge-panel {
+  background-color: var(--bg);
+  background-image:
+    repeating-linear-gradient(180deg, transparent 0, transparent 27px, var(--rule) 27px, var(--rule) 28px),
+    radial-gradient(1200px 600px at 50% -10%, rgba(255, 255, 255, 0.55), transparent 70%);
+  animation: dab-fade 0.3s ease-out both;
+}
+
+.leaderboard-header h2,
+.bot-challenge-header h2 {
+  margin: 0;
+}
+
+.leaderboard-row {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: var(--sketch);
+  box-shadow: 2px 3px 0 var(--shadow);
+  font-size: 1.02rem;
+}
+
+.leaderboard-row:nth-child(even) {
+  border-radius: var(--sketch-2);
+}
+
+.leaderboard-row.you {
+  border-color: var(--ink);
+  background: linear-gradient(transparent 20%, rgba(255, 227, 106, 0.6) 20%, rgba(255, 227, 106, 0.6) 85%, transparent 85%), var(--panel);
+}
+
+.leaderboard-rank {
+  font-family: var(--title);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.leaderboard-player {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+}
+
+.leaderboard-score {
+  font-family: var(--title);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--p1);
+}
+
+.leaderboard-you-badge {
+  font-family: var(--hand);
+  color: var(--ink);
+  background: var(--highlight);
+  border: 1.5px solid var(--ink);
+}
+
+.leaderboard-challenge,
+#bot-add-trigger {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: var(--highlight);
+  box-shadow: 2px 3px 0 var(--shadow);
+}
+
+#bot-add-trigger {
+  font-size: 1rem;
+  padding: 0.4rem 0.9rem;
+}
+
+.bot-challenge-body .table-row,
+.bot-challenge-body .seats {
+  margin-top: 0.5rem;
+}

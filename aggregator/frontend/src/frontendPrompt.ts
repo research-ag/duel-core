@@ -25,7 +25,7 @@ Work in this order.
 
 1. Learn the game from https://${backend}.raw.icp0.io/semantics — plain text with the rules, who moves when, and the exact Candid types of State and Action. This is the whole specification; Action appears nowhere else. Fetch any other path it mentions.
 
-2. Read how a frontend talks to the backend: ${RAW}/frontend/README.md (the GamePlugin contract, the headless client, the transport) and the step "Write the frontend GamePlugin" in ${RAW}/skills/duel-game-core/SKILL.md. The full procedure for exactly this task is ${RAW}/skills/duel-game-core/references/frontend-for-existing-game.md — read it and follow it.
+2. Read how a frontend talks to the backend: ${RAW}/frontend/README.md (the GamePlugin contract, the headless client, the transport) and the step "Write the frontend GamePlugin" in ${RAW}/skills/duel-game-core/SKILL.md. The full procedure for exactly this task is ${RAW}/skills/duel-game-core/references/frontend-for-existing-game.md — read it and follow it. If one move can keep the mover on turn (closing a box, a capture that moves again) with an outcome the page can predict, and the Candid service lists duel_submit_moves, add localToMove beside applyLocal so a player clicks a whole chain without waiting for each reply.
 
 3. Get the client library: the npm package @research-ag/duel-game-core. Never rewrite the wire protocol yourself.
 

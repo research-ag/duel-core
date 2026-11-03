@@ -32,7 +32,9 @@ don't have is set up by `bot-for-existing-game.md`; read `Rules.View`/
   every table; use `CanisterPlayers.principalOfCanisterSession(req.opponent)`
   to model a bot opponent across all its complexities.
 - `opponentLastMove` — the opponent's most recently RESOLVED move, never
-  the pending one. `null` when `step == 0`.
+  the pending one; after a turn of several actions, its last action
+  (`View` carries the rest when the game records it). `null` when
+  `step == 0`.
 - `lastStepDurationNs` — how long the last step took: both seats'
   combined time in `#simultaneous`, the one mover's time in
   `#turnBased`. `null` when `step == 0`.
@@ -42,6 +44,15 @@ don't have is set up by `bot-for-existing-game.md`; read `Rules.View`/
 The game canister calls your `make_move` once per action you are due, and
 your reply IS the move; an illegal reply is asked once more with
 `retryReason` set, then the engine falls silent and its timeouts apply.
+
+## Where the bot canister lives
+
+On the game backend's subnet. The backend asks the bot once per action,
+a chain of follow-up moves included (dots and boxes: one ask per box
+the bot closes), and every ask is an inter-canister call: quick within
+a subnet, seconds across subnets. Look the subnet up before creating
+the bot's canister, then create it there
+(`bot-for-existing-game.md`, step 6, has the commands).
 
 ## Two shapes
 

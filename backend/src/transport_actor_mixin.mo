@@ -3,8 +3,8 @@
 /// request replies with an `Ack` (the table and its `rev` after the
 /// call); the client fetches the view with `duel_table`. The host
 /// declares `duel_create_table`, `duel_lobby`, `duel_submit` and
-/// `duel_table` itself — see `./transport`'s header. `lobby` is
-/// `duel.lobby(env)`.
+/// `duel_table` itself (and, opt-in, `duel_submit_moves`) — see
+/// `./transport`'s header. `lobby` is `duel.lobby(env)`.
 import Time "mo:core/Time";
 import Timer "mo:core/Timer";
 

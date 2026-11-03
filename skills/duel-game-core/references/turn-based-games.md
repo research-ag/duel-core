@@ -6,7 +6,9 @@ card, then place it), or an action can grant another turn.
 `templates/Rules.mo.template` is written for `#simultaneous`;
 `examples/checkers/src/CheckersRules.mo` and
 `examples/tic-tac-toe/src/TicTacToeRules.mo` in the framework repo are
-the worked `#turnBased` examples to copy.
+the worked `#turnBased` examples to copy;
+`examples/dots-and-boxes` is the one whose action can grant another
+("Follow-up moves", below).
 
 ## The shape
 
@@ -63,7 +65,7 @@ That is what makes every turn structure a plain matter of state:
   for `#placeDrawn`/`#discardDrawn`. The engine counts each action as a
   `step`; your state counts turns if the game wants to show them.
 - **A repeat turn** (a capture grants another move) is the same thing:
-  `resolve` simply does not flip `toMove`.
+  `resolve` simply does not flip `toMove` ("Follow-up moves", below).
 - **A turn that must stay atomic** can still be ONE `Action` validated
   and applied as a whole — checkers' `#jump { path : [Nat] }` carries
   the entire capture chain, because a half-chain is never a legal
@@ -124,3 +126,63 @@ is the worked example; its `stepTargets`/`jumpTargets` mirror `validate`
 cosmetically, deciding what to highlight. This does not need
 `references/rich-ui.md` unless the UI genuinely can't be clickable
 squares.
+
+## Follow-up moves
+
+An action that earns the same seat another one — dots and boxes'
+line closing a box, battleship's hit — is a repeat turn on the server
+(`resolve` keeps `toMove`). Each action is still one `step`, and the
+engine runs `move` on every one of them.
+
+A client may send several actions of one turn in one call,
+`duel_submit_moves(tableId, gen, step, actions)`, stamped with the
+`step` before the first. The engine applies them in order and stops at
+the first that is illegal, comes after the turn has passed, or comes
+after the game ended: the actions before it stay applied, the rest are
+dropped, and only a failing FIRST action is the call's error. A
+`#simultaneous` game takes exactly one action per call. The method is
+opt-in: a host whose actions can grant another turns on the FOLLOW-UP
+lines of `templates/Host.mo.template`; any other host leaves it out.
+
+On the page this is one hook. When the outcome of an action is
+deterministic, write `localToMove(gameState)` beside `applyLocal`: the
+seat on turn in the board `applyLocal` drew, `null` once that board
+cannot tell (it is full, the game is over).
+
+```js
+localToMove(gameState) {
+  const board = unpack(gameState);
+  return board.lines.some((l) => l === null) ? board.toMove : null;
+},
+```
+
+With both hooks, `start()` keeps the move buttons live while a submit is
+in flight and the predicted board still has this seat on turn. Each
+further click is drawn at once and queued (`ClientState.queued`), and
+the whole queue goes out as one call when the reply lands, so a chain
+of N actions takes about two round trips instead of N. If the reply
+shows the turn already passed, the queue is dropped (`CallOutcome`
+reason `"dropped"`) and the board shows the truth. A custom UI over
+`createDuelClient` gets the same by passing `plugin` to it and drawing
+`withLocalMove(state.status, state.pending, plugin.applyLocal, {
+queued: state.queued, localToMove: plugin.localToMove })`;
+`client.submitMoves(moves)` sends a turn it planned itself.
+
+When the outcome is hidden from the mover (battleship: a shot's hit or
+miss), the page cannot know whether the turn continues: `localToMove`
+returns `null` (or is left out), each shot goes as its own call, and the
+player sees the result before choosing the next one. That needs nothing
+beyond the repeat turn itself.
+
+Show the opponent's whole turn, not only its last action: keep the
+latest turn's actions on `State` (`lastTurn : [Action]`, or the game's
+own shape such as the line indices `lastTurn : [Nat]`), appended while
+the same seat keeps moving and restarted when the turn passes, so the
+plugin replays them in order. `examples/dots-and-boxes` keeps only
+`lastLine`, so its plugin diffs consecutive boards and animates a burst
+of new lines ending on `lastLine`. Adding such a field to a game that is
+already live changes its stable `State` type: that is an actor migration
+or a reinstall (`changing-a-live-game.md`).
+
+A canister bot is asked once per action, also within a chain, so its
+canister belongs on the game's subnet (`canister-player-bots.md`).

@@ -294,7 +294,7 @@ export function start<S>({
   const sidEl = $(sidElId);
   if (sidEl) sidEl.textContent = session.sid;
 
-  const client = createDuelClient<S>({ transport, session, errorTtlMs });
+  const client = createDuelClient<S>({ transport, session, errorTtlMs, plugin });
   const sc = resolveScreens(screens);
   const askConfirm: Confirm = confirm ? (msg, then) => void confirm(msg).then(then) : makeConfirmOverlay();
   const askCode: PromptCode = promptCode ? (then) => void promptCode().then(then) : makeCodePrompt();
@@ -373,7 +373,7 @@ export function start<S>({
       if (disconnected) {
         el.disabled = true;
         el.classList.remove("duel-loading");
-      } else if (pendingKey !== null) {
+      } else if (pendingKey !== null && !(state.followUp && el.dataset.act)) {
         el.disabled = true;
         el.classList.toggle("duel-loading", buttonKey(el) === pendingKey);
       } else {
@@ -434,7 +434,8 @@ export function start<S>({
     const target = ev.target as HTMLElement;
     const b = target.closest("button") as HTMLButtonElement | null;
     if (!b || b.disabled) return;
-    if (client.getState().pending !== null) return;
+    const { pending, followUp } = client.getState();
+    if (pending !== null && !(followUp && b.dataset.act)) return;
     const dispatch = (code: string | null = null): void => {
       let p: Promise<unknown> | null = null;
       if (b.dataset.createTable) {
@@ -569,22 +570,28 @@ export function start<S>({
 
   screenEl.innerHTML = sc.connecting();
 
-  // What is on screen: the real status, or it with the pending move
-  // already applied (`plugin.applyLocal`).
+  // What is on screen: the real status, or it with the pending move and
+  // any queued follow-ups already applied (`plugin.applyLocal`).
   let shown: Status<S> | null = null;
   const applyLocal = plugin.applyLocal?.bind(plugin);
+  const localToMove = plugin.localToMove?.bind(plugin);
 
   client.subscribe((state, prev) => {
-    if (state.status !== prev.status || state.pending !== prev.pending) {
-      const next = withLocalMove(state.status, state.pending, applyLocal);
+    if (state.status !== prev.status || state.pending !== prev.pending || state.queued !== prev.queued) {
+      const next = withLocalMove(state.status, state.pending, applyLocal, { queued: state.queued, localToMove });
       if (next !== shown && next !== null) redraw(next);
       shown = next;
     }
-    if (state.pending !== prev.pending) {
-      document.body.classList.toggle("working", state.pending !== null);
+    if (state.pending !== prev.pending || state.followUp !== prev.followUp) {
+      document.body.classList.toggle("working", state.pending !== null && !state.followUp);
       if (state.pending === null) unmarkDirect();
     }
-    if (state.status !== prev.status || state.pending !== prev.pending || state.connection !== prev.connection) {
+    if (
+      state.status !== prev.status ||
+      state.pending !== prev.pending ||
+      state.queued !== prev.queued ||
+      state.connection !== prev.connection
+    ) {
       applyLoadingState(state);
     }
     if (state.identityLocked !== prev.identityLocked) syncIdentityControls(state);

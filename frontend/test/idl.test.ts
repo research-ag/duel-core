@@ -39,7 +39,7 @@ test("makeIdlFactory produces a Service with get_leaderboard + bot discovery + t
       "get_leaderboard", "register_bot", "unregister_bot", "list_bots",
       "duel_create_table", "duel_join_table", "duel_rematch", "duel_leave",
       "duel_reset", "duel_claim_win", "duel_ack_ended", "duel_keep_alive",
-      "duel_submit", "duel_lobby", "duel_table",
+      "duel_submit", "duel_submit_moves", "duel_lobby", "duel_table",
     ].sort(),
   );
   for (const forbidden of ["join", "submit", "rematch", "leave", "reset", "claimWin", "ackEnded"]) {

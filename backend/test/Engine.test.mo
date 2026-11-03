@@ -737,4 +737,16 @@ switch (dbg26.claimWin(spec, T0, "a", genOf(dbg26, T0, "a"))) {
 };
 Debug.print("26. claimWin gating: outsider / stale gen / wrong phase OK");
 
+// ── 27. #simultaneous takes exactly one action per call ───────────────────
+t := gameOf(T0);
+switch (t.submitMoves(spec, rng, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), [#gather, #gather])) {
+  case (#err(#illegalMove _)) {};
+  case (r) Runtime.trap("two actions in one step must be #illegalMove, got " # debug_show (r));
+};
+switch (ok(t.submitMoves(spec, rng, T0, "a", genOf(t, T0, "a"), turnOf(t, T0, "a"), [#gather]), "one action through submitMoves")) {
+  case (#waiting) {};
+  case (r) Runtime.trap("a lone submission waits for the opponent, got " # debug_show (r));
+};
+Debug.print("27. #simultaneous batch of one only OK");
+
 Debug.print("ALL ENGINE CHECKS PASSED");

@@ -232,7 +232,8 @@ only on first install, while `setTimeouts` runs on every upgrade. Keep
 margin) — an idle game can otherwise be taken over by a third party
 before its own claim window even opens. Change nothing else, except
 the lines marked BOTS or LEADERBOARD, which you turn on only for a
-feature the user asked for (below).
+feature the user asked for (below), and FOLLOW-UP, which you turn on
+only when an action can grant another.
 
 What the template wires:
 
@@ -251,7 +252,9 @@ null; scoring = null }` — your rules (function values cannot be
   the four methods whose Candid types name your `Options`, `Action` or
   `View`, as one-line pass-throughs (a mixin cannot take type
   parameters; the explicit type arguments are what moc requires once
-  `<system>` is given).
+  `<system>` is given). The commented FOLLOW-UP lines add
+  `duel_submit_moves`, only for a `#turnBased` game where an action can
+  grant another (`references/turn-based-games.md`, "Follow-up moves").
 - promtracker metrics and `HttpActorMixin`, whose routes answer
   `GET /semantics` with `Rules.SEMANTICS` and `GET /metrics` with the
   metrics; data a client needs but `State` does not carry (a fixed map,
@@ -309,7 +312,10 @@ pure `query`, which is the right default; a bot that needs randomness
 stays one by seeding from `Time.now()`. Read
 `references/canister-player-bots.md` before writing a bot that picks at
 random or remembers anything — the latter makes `make_move` no longer a
-`query`.
+`query`. On mainnet the bot's canister sits on its backend's subnet:
+the backend asks it once per action, and a cross-subnet ask takes
+seconds (`references/canister-player-bots.md`, "Where the bot canister
+lives").
 
 A challengeable bot self-registers once, by hand, after both canisters
 are deployed (and again after any reinstall of the game):
@@ -425,6 +431,11 @@ From `templates/plugin.js.template`, write `frontend/src/<game>-plugin.js`:
   bot's reply, is in flight. Return `null` only for a move whose
   outcome you can't predict (a draw from a face-down pile). Write it
   for every game.
+- `localToMove(gameState)` — `#turnBased` games whose turn can take
+  several actions only: the seat on turn in a board `applyLocal` drew,
+  `null` when that board can't tell. With it, a player clicks a chain
+  without waiting for each reply (`references/turn-based-games.md`,
+  "Follow-up moves").
 - `formatScore(score)` — only for a converted-metric leaderboard.
 - `optionChoices()`/`formatOptions(options)` — only with options; the
   first choice is the default, each entry's `options` is the typed
@@ -586,7 +597,8 @@ passes `(cd frontend && node check-upgrade.mjs <backend-id>)`
   compute** (Step 2, point 2).
 - **The rules are the only legality gate** (`validate`, or `move`'s
   `#err`). If the plugin's `legal()` disagrees, the plugin has a
-  cosmetic bug; so does an `applyLocal` that disagrees with the rules.
+  cosmetic bug; so does an `applyLocal` or a `localToMove` that
+  disagrees with the rules.
 - **Nothing a seat must not see leaves `view`.** A `View = State` for a
   game with a hidden hand ships the opponent's cards to every client.
 - **Never hide the last move.** A debrief showing only a verdict or a
