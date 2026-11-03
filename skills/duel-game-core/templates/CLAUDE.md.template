@@ -15,7 +15,9 @@ for a change to the live game, its `references/changing-a-live-game.md`.
 | bot      | `__BOT_ID__`      | `bot/`, registered as "__BOT_NAME__" |
 
 Deployed through __ROUTE__ (`going-live.md`: hosty.live, or icp-cli).
-Drop the bot row when there is none.
+Drop the bot row when there is none. While the game runs on hosty.live's
+free cloud engine canisters, say so here: those ids are a test copy
+that hosty.live may delete, not the live game.
 
 ## What the game runs
 

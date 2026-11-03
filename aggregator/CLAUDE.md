@@ -61,9 +61,10 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   every prompt carries). `TutorialWizard.tsx` ("Build a new game")
   stands alone: how it works, the account, the session's setup,
   `gamePrompt.ts`'s prompt finished with the user's rules (build, test
-  with `play-test.mjs`, then create both canisters through hosty.live,
-  unlisted, once the user agrees), playing it online, and the register
-  flow. The other two guides are about one listed game, opened either
+  with `play-test.mjs`, then the game's canisters (and bot) on hosty.live's free cloud
+  engine for the user's look, and the bought mainnet ones, unlisted,
+  when the user says the game goes live), playing it online, and the
+  register flow. The other two guides are about one listed game, opened either
   from the header on step 0, `GamePicker.tsx` (every listing, each
   checked by `support.ts` and disabled with its reason when the guide
   can't be followed for it: no published backend, no `/semantics`, or,
@@ -81,11 +82,10 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   filled with the game's title, URL and backend id, which adapts to
   what the builder can run (a local wasm copy with icp-cli and the
   play-test, in a cloud session or on a computer; then, in a cloud
-  session, a rented hosty.live page on the live backend's
+  session, a free hosty.live cloud engine page on the live backend's
   code-protected tables for the user's look; on a computer without
-  icp-cli, a staging copy of the game in a rented hosty.live canister;
-  in a builder without a shell, the live backend on code-protected
-  tables). `BotTutorialWizard.tsx` ("Build a bot") has the two coding
+  icp-cli, a staging copy of the game in a cloud engine canister; in a
+  builder without a shell, the live backend on code-protected tables). `BotTutorialWizard.tsx` ("Build a bot") has the two coding
   routes, cloud session first, since the bot is tested against a local
   copy of the game: `botPrompt.ts`'s prompt, then going live through
   hosty.live (the agent creates, installs and registers in one deploy
@@ -131,7 +131,13 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
   frontend's `PUBLIC_CANISTER_ID:backend` from its asset canister's
   `ic_env` cookie, cached per page load. All three share `CodeBlock.tsx` (`wrap` for
   prose). `Icons.tsx` holds the inline SVG icons and
-  the brand mark. `GameFormModal.tsx` is the register/edit form; dropping
+  the brand mark. `GameFormModal.tsx` is the register/edit form. Before
+  calling the backend it refuses a page, or a page whose cookie names a
+  backend, on hosty.live's cloud engine (`canisterHttp.ts`'s
+  `onCloudEngine`: the canister's subnet from a certified `read_state`
+  delegation against `CLOUD_ENGINE_SUBNETS`), with a message telling the
+  developer to buy mainnet canisters; the check is client-side only, an
+  unreadable canister passes to the backend's own checks. Dropping
   or picking a banner opens `ImageCropper.tsx` (`react-easy-crop`), which
   rasterizes to the exact `getBannerRequirements()` size and checks
   `maxBytes` before calling the backend (`Store.mo` remains the real

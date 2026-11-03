@@ -2,7 +2,7 @@
 // game already listed here, written for someone who knows nothing about
 // the Internet Computer or coding. Three ways through: a Claude Code
 // cloud session (the page goes online through hosty.live, in a canister
-// paid by card, with a free rented preview first), caffeine.ai (chat,
+// paid by card, with a free cloud engine preview first), caffeine.ai (chat,
 // builds and hosts the app itself, paid plan), or an AI coding agent on
 // their own computer (hosty.live again). Opened from a game's info dialog
 // it starts filled in for that game; from the header it starts by picking
@@ -208,7 +208,8 @@ function BuildStep() {
           <strong>In Claude Code on the web:</strong> paste it into the
           session. It tests the page against a private copy of the game first,
           then gives you a preview address: the page in a free hosty.live
-          canister that lasts 24 hours.
+          cloud engine canister, for testing only (hosty.live may delete it,
+          and it cannot be registered here).
         </li>
         <li>
           <strong>In caffeine.ai:</strong> start a new app and paste it into the
@@ -273,10 +274,11 @@ function GoLiveStep({ backend }: { backend: string }) {
             <li>
               Get a space for the page (a “canister”):{" "}
               <strong>Canisters</strong> → <strong>Create New Canister</strong>,
-              paid from the <strong>Cycles</strong> balance that you top up by
-              card (about a dollar at the time of writing). The free rental
-              offered next to it is wiped after 24 hours, so it is only good for
-              trying things out.
+              <strong>Mainnet</strong>, paid from the <strong>Cycles</strong>{" "}
+              balance that you top up by card (about a dollar at the time of
+              writing). The free <strong>Cloud engine</strong> canister offered
+              next to it is for trying things out: hosty.live may delete it,
+              and a page on it cannot be registered here.
             </li>
             <li>
               Tell the canister which game it plays: on its page, under{" "}

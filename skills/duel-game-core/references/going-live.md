@@ -12,15 +12,15 @@ A game is up to three kinds of canister: the backend and a bot
 testing happen where the agent runs; putting a canister online is
 signed by the user. There are three setups, best first:
 
-|                  | 1. Cloud session + hosty.live                                   | 2. Own computer + hosty.live              | 3. Own computer + icp-cli                                 |
-| ---------------- | --------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------- |
-| The agent runs   | in a Claude Code cloud session (claude.ai/code, the Claude app) | on the user's computer                    | on the user's computer                                    |
-| Builds and tests | icp-cli and mops in the session's VM                            | icp-cli and mops on the computer          | icp-cli and mops on the computer                          |
-| Who signs        | the user's Internet Identity, approving a hosty.live session    | the same                                  | an icp-cli identity, a key on the user's computer         |
-| Paid with        | the hosty.live balance, by card                                 | the same                                  | cycles bought by card at cycle.express: 2T per canister   |
-| Deploys          | `hosty_*` tools over hosty.live's MCP server                    | `hosty_*` tools, or the hosty.live web UI | `icp deploy <name> -e ic`                                 |
-| The module store | hosty.live stores every module it installs                      | the same                                  | `publish_wasm.sh` uploads it, with a hosty.live API token |
-| Suits            | anyone, from any device; nothing to install                     | a user who already runs a coding agent    | a user who already has an identity and cycles, or scripts |
+|                  | 1. Cloud session + hosty.live                                                                  | 2. Own computer + hosty.live              | 3. Own computer + icp-cli                                 |
+| ---------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------- |
+| The agent runs   | in a Claude Code cloud session (claude.ai/code, the Claude app)                                | on the user's computer                    | on the user's computer                                    |
+| Builds and tests | icp-cli and mops in the session's VM                                                           | icp-cli and mops on the computer          | icp-cli and mops on the computer                          |
+| Who signs        | the user's Internet Identity, approving a hosty.live session                                   | the same                                  | an icp-cli identity, a key on the user's computer         |
+| Paid with        | nothing while developing (cloud engine canisters); the hosty.live balance, by card, to go live | the same                                  | cycles bought by card at cycle.express: 2T per canister   |
+| Deploys          | `hosty_*` tools over hosty.live's MCP server                                                   | `hosty_*` tools, or the hosty.live web UI | `icp deploy <name> -e ic`                                 |
+| The module store | hosty.live stores every module it installs                                                     | the same                                  | `publish_wasm.sh` uploads it, with a hosty.live API token |
+| Suits            | anyone, from any device; nothing to install                                                    | a user who already runs a coding agent    | a user who already has an identity and cycles, or scripts |
 
 Setups 1 and 2 are the same route, through hosty.live (section 3);
 setup 3 is icp-cli all the way (section 4). Keep every canister of a
@@ -30,16 +30,42 @@ fetch it by the canister's public module hash (backend README,
 "Downloadable wasm"); every setup needs a hosty.live account for that,
 setup 3 only its API token.
 
-Going live spends the user's money. Create a canister or deploy only
-when the user asks for it, after saying what it costs; a hosty.live MCP
-server connected to your session is the means, never the permission.
-In setup 3, `icp deploy -e ic` is the user's command to run, or yours
-when they say so.
+hosty.live has two kinds of canister, and the route through it uses
+both in turn:
+
+- **Cloud engine canisters** are free: no cycles, no card, up to ten
+  per user at a time (`hosty_whoami` reports the quota). They are for
+  developing and testing: deploy as many versions as you like while the
+  game takes shape, at no cost. They are not for going live. hosty.live
+  may delete one at any time, and the Duel dashboard refuses to list a
+  game whose page or backend runs on one.
+- **Mainnet canisters** are bought from the user's hosty.live balance
+  (paid by card) and are the user's own: permanent, and what the
+  dashboard lists. Going live means buying them and deploying the same
+  build there; the addresses change, so the cloud engine ids never go
+  into `index.html`, a README or anything public.
+
+A game's canisters talk to each other (the backend asks a bot for its
+moves), which works only on one network: a game is either all on the
+cloud engine or all on mainnet, never split. A page alone (a frontend
+for an existing game) may sit on the cloud engine while it plays a
+mainnet backend; a bot may not. A bot for a live game is tried out
+beside a cloud engine copy of that game, or in a rented mainnet
+canister (`bot-for-existing-game.md`, step 5).
+
+Going live spends the user's money. Buy a canister or deploy to one
+only when the user asks for it, after saying what it costs; a
+hosty.live MCP server connected to your session is the means, never the
+permission. A cloud engine canister costs nothing, so the first copy of
+a game that passes its local tests goes there as soon as the user wants
+to see it. In setup 3, `icp deploy -e ic` is the user's command to run,
+or yours when they say so.
 
 The development loop stays local: `mops test`, a local network (`icp
 network start -d`, `icp deploy`) and `frontend/play-test.mjs`, in the
-session's VM or on the computer. A mainnet install is for a build that
-passes all three.
+session's VM or on the computer. A cloud engine install is for a build
+that passes all three; a mainnet install is for one the user has played
+on the cloud engine and wants live.
 
 ## 1. A hosty.live account and its API token (every setup)
 
@@ -54,11 +80,13 @@ The user, once, in the browser:
    clients. The token is a password to the user's canisters: revoke it
    on the same page when done, never commit it, never paste it into a
    chat.
-3. **Cycles** → **Deposit using Cycle Express** pays the balance by
-   card. Prices at the time of writing: a frontend canister 0.84 TC
-   (about a dollar), a backend or bot canister 1.5 TC when the agent
-   creates it (an install needs 0.5T on the canister itself, after a
-   creation fee of about 0.5T). A whole game with a bot is about 4 TC.
+3. When the game goes live, **Cycles** → **Deposit using Cycle
+   Express** pays the balance by card. Prices at the time of writing: a
+   frontend canister 0.84 TC (about a dollar), a backend or bot
+   canister 1.5 TC when the agent creates it (an install needs 0.5T on
+   the canister itself, after a creation fee of about 0.5T). A whole
+   game with a bot is about 4 TC. Nothing is paid while the game runs
+   on cloud engine canisters.
 
 Where the token goes next depends on the setup: section 2 for a cloud
 session, section 3's first paragraph for an agent on the computer,
@@ -75,11 +103,23 @@ key made in the VM is lost with it. Hence two rules:
 identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
   is created and installed through the `hosty_*` tools, signed by the
   user's approval in hosty.live.
-- The user's first look at anything is online. A new game: its two
-  final canisters, created once its local tests pass and kept unlisted
-  until it is registered on the Duel dashboard (section 5); every later
-  version upgrades them. A new frontend for an existing game: a free
-  rented hosty.live canister (`frontend-for-existing-game.md`, step 7).
+- The user's first look at anything is online, on free cloud engine
+  canisters when hosty.live has an engine with a free slot
+  (`hosty_whoami`; section 3, "Canisters"). A new game: a cloud engine
+  backend and frontend (and bot), created once its local tests pass;
+  every later version redeploys into them until the user says the game
+  goes live, which buys its mainnet canisters. If hosty.live deletes
+  one of these cloud engine canisters, its replacement is created on
+  the cloud engine, never on mainnet, and set up by kind: a backend is
+  installed, the page's `PUBLIC_CANISTER_ID:backend` set to it and
+  every bot registered with it again; a frontend gets the build
+  uploaded with `PUBLIC_CANISTER_ID:backend` naming the backend, and
+  the user its new address; a bot is installed and registered with the
+  backend. Then give the user the new ids. A new frontend for an
+  existing game: a cloud engine page (`frontend-for-existing-game.md`,
+  step 7). Without an engine, the first look is the mainnet canisters
+  themselves: say what they cost and create them only once the user
+  agrees.
 
 **Once per project, the user:**
 
@@ -200,13 +240,54 @@ same text), with a REST equivalent of every tool.
 
 ### Canisters
 
-With the user's go-ahead and a deploy session (section 2, "Deploy
-sessions from anywhere"):
+Every canister gets a name the user recognizes in hosty.live: pass
+`alias` on every create, "<game name> backend", "<game name> frontend",
+"<game name> bot", the same name whether the canister is on the cloud
+engine or on mainnet (hosty.live shows the network itself).
+`hosty_update_canister { canisterId, alias }` renames one later.
 
-- `hosty_create_canister { kind: "backend" }` for the backend and for
-  each bot: created empty, 1.5 TC.
-- `hosty_create_canister { kind: "frontend" }` for the page: created
-  with hosty's asset module, ready for uploads, 0.84 TC.
+**For developing and testing: the cloud engine, free.** Start with
+`hosty_whoami`: its `cloudEngine` says whether this hosty.live has an
+engine (`enabled`) and how many of the user's slots are taken (`used`
+of `max`, 10 by default). With enough free slots for the whole first
+look (two for a backend and its page, three with a bot), no deploy
+session, no cycles and no card:
+
+- `hosty_create_canister { network: "cloud", kind: "backend", alias }`
+  for the backend and for each bot: created empty.
+- `hosty_create_canister { network: "cloud", kind: "frontend", alias }`
+  for the page: created with hosty's asset module, ready for uploads.
+
+Tell the user what they are getting: free canisters to test how the
+game runs, redeployable as often as the game changes while paying
+nothing; hosty.live controls them and may delete them at its
+discretion, so they are not guaranteed to run forever, and the Duel
+dashboard will not list a game on them. Everything else below (installs,
+uploads, environment variables, snapshots, `hosty_call_canister`) works
+on them without a deploy session, since hosty.live is their controller.
+Cycles, top-ups and `icp`/`dfx` do not apply to them. When the slots
+are full, `hosty_delete_canister { canisterId }` frees one; confirm with
+the user first, since everything on it is lost. Without an engine
+(`enabled: false`), the only online copy is the mainnet one: name the
+cost and wait for the user's go-ahead before buying anything.
+
+**For a day on mainnet: a rented canister.** `hosty_rent_canister {
+kind, alias }` is a mainnet canister free for 24 hours, one per user,
+wiped afterwards (module, state, variables); the user is a controller,
+installs need no deploy session, and its first install is a reinstall
+(`confirmReinstall: true`). Its one use in these guides is a bot that
+must be seen playing the live game before its canister is bought
+(`bot-for-existing-game.md`, step 5); for everything else the cloud
+engine is better, since it has no clock.
+
+**For going live: mainnet canisters, bought.** With the user's
+go-ahead and a deploy session (section 2, "Deploy sessions from
+anywhere"):
+
+- `hosty_create_canister { kind: "backend", alias }` for the backend
+  and for each bot: created empty, 1.5 TC.
+- `hosty_create_canister { kind: "frontend", alias }` for the page:
+  created with hosty's asset module, ready for uploads, 0.84 TC.
 
 A balance too low for a create fails with the amount missing and a card
 payment link (`buyUrl`): give it to the user, wait until `hosty_whoami`
@@ -214,12 +295,17 @@ shows the new balance, retry. An error naming a canister that was
 already created is finished with `hosty_import_canister`, never by
 creating another one.
 
-By hand, the same is **Canisters** → **Create New Canister**,
-**Backend** or **Frontend**, 0.84 TC each; a backend then needs a
-top-up to 0.5T on its own page before the first install.
+By hand, the same is **Canisters** → **Create New Canister**, with
+**Cloud engine (free)** or **Mainnet** and **Backend** or **Frontend**;
+a mainnet backend then needs a top-up to 0.5T on its own page before
+the first install.
 
-hosty.live's rented canisters (free, 24 hours, one per user) are for
-staging only: a rented canister is wiped when the rent ends.
+Moving a game from the cloud engine to mainnet is the same install and
+upload into the new canisters, from the same build; then the page's
+`PUBLIC_CANISTER_ID:backend` names the mainnet backend, the bot
+registers on it, `index.html`'s canonical, Open Graph and JSON-LD tags
+and the README carry the mainnet frontend id, and the cloud engine
+copies can be deleted to free their slots.
 
 ### The backend (and a bot)
 
@@ -233,12 +319,12 @@ A gzipped copy (`gzip -k`) installs the same way; the store keeps
 whichever file was installed, byte for byte. Then:
 
 1. `hosty_check_backend_canister { canisterId }`. With `ready: true`
-   (a deploy session active, or unattended deploys allowed on that
-   canister), skip to step 3.
-2. `hosty_request_deploy_session { hours: 1 }`, relay its `userAction`,
-   say what you are going to install, poll `hosty_get_deploy_session`
-   until `status: "ACTIVE"`. The approval covers every canister the
-   user controls until it expires.
+   (a cloud engine canister, a deploy session active, or unattended
+   deploys allowed on that canister), skip to step 3.
+2. On a mainnet canister, `hosty_request_deploy_session { hours: 1 }`,
+   relay its `userAction`, say what you are going to install, poll
+   `hosty_get_deploy_session` until `status: "ACTIVE"`. The approval
+   covers every canister the user controls until it expires.
 3. `hosty_prepare_wasm_upload { canisterId, wasmPath:
 ".icp/cache/artifacts/backend" }`, plus `snapshotBeforeUpgrade: true`
    whenever the canister already runs the game (an upgrade keeps its
@@ -263,12 +349,17 @@ Without an agent, the backend canister's page in hosty.live takes the
 same file in its install form, after the same approval.
 
 A bot goes up the same way (`icp build bot`, its own backend
-canister), then lists itself in the game's bot directory: during the
-deploy session, `hosty_call_canister` on the bot, method `register`,
-argument `(principal "<backend-id>", "<Bot Name>")`, with `update:
-true`. An update call in a session is signed as the user, the bot's
-controller, which `register` requires: check the reply's `caller` is
-the user's principal. `unregister` takes `(principal "<backend-id>")`.
+canister on the same network as the game's backend), then lists itself
+in the game's bot directory: `hosty_call_canister` on the bot, method
+`register`, argument `(principal "<backend-id>", "<Bot Name>")`, with
+`update: true`. `register` requires its caller to be the bot's
+controller. On a mainnet bot that is the user: call during the deploy
+session, which signs as them, and check the reply's `caller` is the
+user's principal. On a cloud engine bot it is hosty.live: call without
+a session, which signs as hosty's builder, and check `caller` is
+`hosty_whoami`'s `builderPrincipal`. `unregister` takes `(principal
+"<backend-id>")`. A cloud engine bot registers only on a cloud engine
+backend, never on a live game.
 
 Every later version is steps 1 to 5 again; the canister id stays.
 Before each, `cd frontend && node check-upgrade.mjs <backend-id>`
@@ -300,15 +391,17 @@ included (hosty.live applies it as icp-cli does).
 **With the agent:**
 
 1. `hosty_check_canister { canisterId }` until it answers `ready:
-true`. A canister created in the web UI needs **Grant agent deploy
-   access** clicked once in **Settings**; one created with
-   `hosty_create_canister` is ready. Its `environment` shows what the
-   page publishes now; an `environment.module` of `LEGACY_ASSETS` means
-   the canister can publish no cookie at all, and the user first clicks
-   **Reset canister** on its page.
-2. Unless `environment` already shows `PUBLIC_CANISTER_ID:backend` with
-   this backend's id, setting it signs as the user: a deploy session,
-   as for the backend.
+true`. A mainnet canister created in the web UI needs **Grant agent
+   deploy access** clicked once in **Settings**; one created with
+   `hosty_create_canister`, and every cloud engine canister, is ready.
+   Its `environment` shows what the page publishes now; an
+   `environment.module` of `LEGACY_ASSETS` means the canister can
+   publish no cookie at all, and the user first clicks **Reset
+   canister** on its page.
+2. On a mainnet canister, unless `environment` already shows
+   `PUBLIC_CANISTER_ID:backend` with this backend's id, setting it
+   signs as the user: a deploy session, as for the backend. A cloud
+   engine canister needs none.
 3. `hosty_prepare_zip_upload { canisterId, pureAssets: true, outputDir:
 "dist", canisterEnv: { set: { "PUBLIC_CANISTER_ID:backend":
 "<backend-id>" } } }` returns a `curl` command with a 15-minute upload
@@ -321,15 +414,15 @@ true`. A canister created in the web UI needs **Grant agent deploy
    `_headers` names its line).
 5. Check the cookie, then give the user `frontendUrl`: they play a
    round from two browser tabs (or a computer and a phone) against the
-   live backend. Gateways cache for up to a minute after a deploy.
+   installed backend. Gateways cache for up to a minute after a deploy.
 
    ```bash
    curl -sI https://<frontend-id>.icp0.io/ | grep -o 'ID%3Abackend%3D[a-z0-9%D-]*cai'
    ```
 
 A later switch to another backend is `hosty_set_canister_env {
-canisterId, set: { "PUBLIC_CANISTER_ID:backend": "<backend-id>" } }` in
-a deploy session; it publishes at once, with no upload.
+canisterId, set: { "PUBLIC_CANISTER_ID:backend": "<backend-id>" } }`
+(in a deploy session on mainnet); it publishes at once, with no upload.
 
 **In the web UI:** open the canister → **Canister environment
 variables** → **Add variable**, name `PUBLIC_CANISTER_ID:backend`,
@@ -341,8 +434,8 @@ build on the server), output directory `dist`, deploy. The
 URL.
 
 Every later version is another build and upload into the same canister;
-the variable stays. The user keeps full control of the canister and can
-attach a custom domain or make it immutable from the web UI.
+the variable stays. The user keeps full control of a mainnet canister
+and can attach a custom domain or make it immutable from the web UI.
 
 ## 4. Setup 3: everything with icp-cli
 
@@ -439,3 +532,8 @@ domain. The dashboard reads the backend from the page's `ic_env`
 cookie, checks its `/semantics`, and offers "Make your own frontend"
 and "Build a bot" for it to everyone else. Until then, a game is online
 but unlisted: only who has its address finds it.
+
+The dashboard lists mainnet canisters only. A page on hosty.live's
+cloud engine, or one whose cookie names a cloud engine backend, is
+refused with a message saying so: the game first moves to bought
+canisters (section 3, "Canisters").

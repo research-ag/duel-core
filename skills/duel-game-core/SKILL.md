@@ -533,10 +533,18 @@ click, that the opponent's move is marked when it lands, and that the
 debrief still shows the final move. On the user's computer that is the
 local URL `icp deploy` printed. In a cloud session nobody can open it:
 once the three checks above pass, tell the user the game is ready for
-its first look, which is online in its own two canisters (about 2.5 TC
-from their hosty.live balance, kept unlisted until they register it),
-and go on with Step 8 when they agree. Tests passing and the frontend
-building are necessary, not sufficient.
+its first look, which is online in free hosty.live cloud engine
+canisters (`references/going-live.md`, section 3, "Canisters": no
+cycles, no card, as many redeploys as the game needs; hosty.live may
+delete them at its discretion, and they cannot be listed on the Duel
+dashboard), and put it there when they agree: a cloud engine backend
+and frontend (and bot), named "<game name> backend" and so on, the
+backend installed with `hosty_prepare_wasm_upload`, the page uploaded
+with `hosty_prepare_zip_upload` and its `PUBLIC_CANISTER_ID:backend`
+set, then `(cd frontend && node play-test.mjs <backend-id> --ic)` and
+the `frontendUrl` for the user. Every change goes back into the same
+canisters. Tests passing and the frontend building are necessary, not
+sufficient.
 
 ## Step 8 — Go live
 
@@ -546,16 +554,17 @@ the whole game on one route:
 
 - **Through hosty.live** (setups 1 and 2; the only one in a cloud
   session, and the right one for a user new to the Internet Computer):
-  an Internet Identity login and a balance paid by card. You create the
-  backend, bot and page canisters with `hosty_create_canister`, install
-  the backend's module (`icp build backend`) with
-  `hosty_prepare_wasm_upload`, and upload the zipped `dist` with
-  `hosty_prepare_zip_upload`, setting the page's
+  an Internet Identity login and a balance paid by card. You buy the
+  backend, bot and page canisters with `hosty_create_canister` (mainnet,
+  each with its `alias`), install the backend's module (`icp build
+backend`) with `hosty_prepare_wasm_upload`, and upload the zipped
+  `dist` with `hosty_prepare_zip_upload`, setting the page's
   `PUBLIC_CANISTER_ID:backend` canister variable with that upload, all
   after the user approves one deploy session in the hosty.live web app.
   Then `(cd frontend && node play-test.mjs <backend-id> --ic)` and the
-  `frontendUrl` for
-  the user.
+  `frontendUrl` for the user. The cloud engine copies from Step 7 are
+  not the live game: the live addresses are the new ones, which go into
+  `index.html`'s tags and the README, and the copies can be deleted.
 - **With icp-cli** (setup 3, on the user's own computer only): the
   user's own identity (`icp identity new`), cycles bought by card at
   cycle.express, and `icp deploy backend -e ic` / `icp deploy frontend
