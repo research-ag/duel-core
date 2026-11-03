@@ -8,6 +8,7 @@
 
 import type {
   Transport,
+  DebriefView,
   EngineErr,
   GamePlugin,
   InGameView,
@@ -188,9 +189,12 @@ export function pendingMoveOf<A = unknown>(pending: PendingCall | null): A | nul
 /// Every move a pending `submit`/`submitMoves` carries, in order; `[]` for
 /// any other call.
 export function pendingMovesOf<A = unknown>(pending: PendingCall | null): A[] {
-  if (pending === null) return [];
-  if ("submit" in pending.req) return [pending.req.submit.move as A];
-  if ("submitMoves" in pending.req) return pending.req.submitMoves.moves as A[];
+  return pending === null ? [] : movesOf<A>(pending.req);
+}
+
+function movesOf<A>(req: TransportRequest): A[] {
+  if ("submit" in req) return [req.submit.move as A];
+  if ("submitMoves" in req) return req.submitMoves.moves as A[];
   return [];
 }
 
@@ -210,6 +214,20 @@ function submitStamp(req: TransportRequest): { gen: bigint; step: bigint } | nul
   return null;
 }
 
+// How many of a submit's moves the engine applied: the reply's step (a
+// debrief's `steps`) less the step the call was stamped with. An
+// opponent's answer inside the same reply (a canister bot) adds a step
+// too, so this can count one dropped move as applied.
+function appliedOf(req: TransportRequest, view: Status<unknown>): number {
+  const stamp = submitStamp(req);
+  const n = movesOf(req).length;
+  if (stamp === null) return 0;
+  const g = viewOf<InGameView>(view, "inGame");
+  const d = viewOf<DebriefView>(view, "debrief");
+  const after = g !== null && g.gen === stamp.gen ? g.step : d !== null && d.gen === stamp.gen ? d.steps : null;
+  return after === null ? n : Math.max(0, Math.min(n, Number(after - stamp.step)));
+}
+
 export interface LocalMoveOptions<S, A = unknown> {
   /// Moves accepted behind the pending submit (`ClientState.queued`).
   queued?: readonly A[];
@@ -220,13 +238,16 @@ export interface LocalMoveOptions<S, A = unknown> {
 
 /// `status` as it will look once the pending submit (and any queued
 /// follow-up moves) lands: the board through `applyLocal`, one move after
-/// another, and the seat flipped to waiting unless `localToMove` keeps it
-/// on turn. Unchanged when nothing is pending, `applyLocal` returns null
-/// for the first move, or `status` already moved past the view the move
-/// was stamped against (gen/step changed, or the move is already in).
-/// Without `localToMove` a `turnBased` seat is shown as waiting until the
-/// reply says whose turn it is — the rules may keep the mover on turn.
-/// Display only — calls keep reading the real status.
+/// another while `localToMove` keeps the seat on turn, and the seat
+/// flipped to waiting unless it still does. Unchanged when nothing is
+/// pending, `applyLocal` returns null for the first move, or `status`
+/// already moved past the view the move was stamped against (gen/step
+/// changed, or the move is already in). Without `localToMove` only the
+/// first move is shown (the client cannot tell when the turn passes), and
+/// a `turnBased` seat is shown as waiting until the reply says whose turn
+/// it is — the rules may keep the mover on turn. Display only — calls
+/// keep reading the real status; `ClientState.predicted` holds the
+/// client's own result.
 /// See ../README.md, "Showing moves" and "Follow-up moves".
 export function withLocalMove<S, A = unknown>(
   status: Status<S> | null,
@@ -246,7 +267,7 @@ export function withLocalMove<S, A = unknown>(
   let game = v.game;
   let applied = 0;
   for (const move of moves) {
-    if (applied > 0 && localToMove && localToMove(game) !== seat) break;
+    if (applied > 0 && (!localToMove || localToMove(game) !== seat)) break;
     const next = applyLocal(game, seat, move);
     if (next === null) break;
     game = next;
@@ -282,6 +303,12 @@ export interface ClientState<S = unknown> {
   /// Follow-up moves accepted behind the pending submit, sent as one call
   /// once its reply lands (or dropped when the turn has passed by then).
   queued: readonly unknown[];
+  /// `status` as a screen draws it: with the pending submit and `queued`
+  /// applied through the `plugin`'s `applyLocal` (`withLocalMove`), or
+  /// `status` itself when nothing is overlaid. Recomputed only when
+  /// `status`, `pending` or `queued` changes, so it stays `===` across
+  /// any other change.
+  predicted: Status<S> | null;
   /// A `submit` now would be queued behind the pending one: the predicted
   /// board still has this seat on turn. Needs a `plugin` with both
   /// `applyLocal` and `localToMove`; a UI keeps its move controls live.
@@ -305,8 +332,9 @@ export type CallOutcome<S = unknown> =
   | { ok: false; reason: "rejected"; err: EngineErr; message: string }
   /// The transport failed; `message` is what `state.error` shows.
   | { ok: false; reason: "failed"; message: string }
-  /// A queued follow-up move the in-flight reply made moot (the turn
-  /// passed, or that call failed); never sent.
+  /// A follow-up move that was not applied: the reply it waited on made it
+  /// moot (the turn passed, or that call failed) so it was never sent, or
+  /// the engine dropped it from its batch.
   | { ok: false; reason: "dropped" }
   /// A `#wrongPhase` create/join or a `#stale` mutation: this tab's view
   /// was behind, a silent `refresh()` is on its way, nothing is shown.
@@ -325,7 +353,8 @@ export interface DuelClient<S = unknown, A = unknown> {
   createTable(seat: SeatTag, visibility?: Visibility, options?: unknown): Promise<CallOutcome<S>>;
   joinTable(id: bigint, seat: SeatTag, code?: string | null): Promise<CallOutcome<S>>;
   /// While `state.followUp`, the move is queued instead (`inFlight` when
-  /// `applyLocal` rejects it on the predicted board).
+  /// `applyLocal` rejects it on the predicted board) and resolves with its
+  /// batch's outcome, or `dropped` when the engine did not apply it.
   submit(move: A): Promise<CallOutcome<S>>;
   /// Several actions of one turn in one call, planned by the caller; the
   /// engine applies them in order and drops the rest at the first that
@@ -425,6 +454,7 @@ export function createDuelClient<S = unknown, A = unknown>({
     statusAt: 0,
     pending: null,
     queued: [],
+    predicted: null,
     followUp: false,
     error: null,
     authPending: false,
@@ -441,19 +471,18 @@ export function createDuelClient<S = unknown, A = unknown>({
   const applyLocal = plugin?.applyLocal?.bind(plugin);
   const localToMove = plugin?.localToMove?.bind(plugin);
 
-  // The board as it will be once the pending submit and the queue land.
-  const predicted = (s: ClientState<S>): InGameView<S> | null =>
-    viewOf<InGameView<S>>(withLocalMove(s.status, s.pending, applyLocal, { queued: s.queued, localToMove }), "inGame");
-
   function canFollowUp(s: ClientState<S>): boolean {
     if (!canCorrelate || !applyLocal || !localToMove || s.pending === null || !isSubmit(s.pending.req)) return false;
     if (s.connection === "closed") return false;
-    const v = predicted(s);
+    const v = viewOf<InGameView<S>>(s.predicted, "inGame");
     return v !== null && "turnBased" in v.mode && !v.youSubmitted && localToMove(v.game) === tag(v.seat);
   }
 
   function setState(patch: Partial<ClientState<S>>): void {
     const next = { ...state, ...patch };
+    if (next.status !== state.status || next.pending !== state.pending || next.queued !== state.queued) {
+      next.predicted = withLocalMove(next.status, next.pending, applyLocal, { queued: next.queued, localToMove });
+    }
     next.identityLocked =
       next.connection === "closed" || next.authPending || joinPending(next.pending) || isSeated(next.status);
     next.followUp = canFollowUp(next);
@@ -598,19 +627,33 @@ export function createDuelClient<S = unknown, A = unknown>({
     if (outcome.ok && !deepEqual(outcome.view, state.status)) {
       Object.assign(patch, { status: outcome.view, statusAt: Date.now() });
     }
-    let next: TransportRequest | null = null;
+    // The queue goes out only if every move of `req` applied and the seat
+    // is still on turn: an opponent's step in between voids the plan.
+    let batch: TransportRequest | null = null;
     if (isCurrent && state.queued.length > 0) {
       const v = outcome.ok ? viewOf<InGameView<S>>(outcome.view, "inGame") : null;
-      if (v !== null && !v.youSubmitted) {
-        next = submitRequest(v.gen, v.step, state.queued);
-        Object.assign(patch, { pending: { key: pendingKeyOf(next), req: next }, queued: [] });
+      const stamp = submitStamp(req);
+      if (
+        v !== null &&
+        stamp !== null &&
+        !v.youSubmitted &&
+        v.gen === stamp.gen &&
+        v.step === stamp.step + BigInt(movesOf(req).length)
+      ) {
+        batch = submitRequest(v.gen, v.step, state.queued);
+        Object.assign(patch, { pending: { key: pendingKeyOf(batch), req: batch }, queued: [] });
       } else Object.assign(patch, dropQueue());
     }
     setState(patch);
-    if (next !== null) {
+    if (batch !== null) {
+      const sent = batch;
       const waiters = takeWaiters();
-      void send(next).then((o) => {
-        for (const w of waiters) w(o);
+      void send(sent).then((o) => {
+        // Each queued move gets its own outcome: the ones the engine
+        // applied share the reply, the rest were dropped. A rejection
+        // answers the first; anything else (failed, stale) answers all.
+        const kept = o.ok ? appliedOf(sent, o.view) : o.reason === "rejected" ? 1 : waiters.length;
+        waiters.forEach((w, i) => w(i < kept ? o : { ok: false, reason: "dropped" }));
       });
     }
     if (outcome.ok) {
@@ -758,7 +801,7 @@ export function createDuelClient<S = unknown, A = unknown>({
       call({ joinTable: { id, seat: seatOf(seat), code: code ? [code] : [] } }),
     submit(move) {
       if (state.pending === null || !state.followUp) return call(submitRequest(genOf(state.status), stepOf(state.status), [move]));
-      const v = predicted(state);
+      const v = viewOf<InGameView<S>>(state.predicted, "inGame");
       if (v === null || applyLocal!(v.game, tag(v.seat) as SeatTag, move) === null) {
         return Promise.resolve({ ok: false, reason: "inFlight" });
       }

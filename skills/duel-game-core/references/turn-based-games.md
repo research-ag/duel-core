@@ -139,7 +139,9 @@ A client may send several actions of one turn in one call,
 `step` before the first. The engine applies them in order and stops at
 the first that is illegal, comes after the turn has passed, or comes
 after the game ended: the actions before it stay applied, the rest are
-dropped, and only a failing FIRST action is the call's error. A
+dropped, and only a failing FIRST action is the call's error. A batch
+is one step for timing: a bot's `lastStepDurationNs` is the whole
+batch's, and its `opponentLastMove` the batch's last applied action. A
 `#simultaneous` game takes exactly one action per call. The method is
 opt-in: a host whose actions can grant another turns on the FOLLOW-UP
 lines of `templates/Host.mo.template`; any other host leaves it out.
@@ -161,12 +163,13 @@ in flight and the predicted board still has this seat on turn. Each
 further click is drawn at once and queued (`ClientState.queued`), and
 the whole queue goes out as one call when the reply lands, so a chain
 of N actions takes about two round trips instead of N. If the reply
-shows the turn already passed, the queue is dropped (`CallOutcome`
-reason `"dropped"`) and the board shows the truth. A custom UI over
-`createDuelClient` gets the same by passing `plugin` to it and drawing
-`withLocalMove(state.status, state.pending, plugin.applyLocal, {
-queued: state.queued, localToMove: plugin.localToMove })`;
-`client.submitMoves(moves)` sends a turn it planned itself.
+shows the turn already passed, the queue is dropped and the board shows
+the truth; each queued click resolves with its own move's fate, so one
+the engine dropped from the batch resolves `CallOutcome` reason
+`"dropped"` too. A custom UI over `createDuelClient` gets the same by
+passing `plugin` to it and drawing `state.predicted`.
+`client.submitMoves(moves)` sends a turn it planned itself; without
+`localToMove` the board shows only its first action until the reply.
 
 When the outcome is hidden from the mover (battleship: a shot's hit or
 miss), the page cannot know whether the turn continues: `localToMove`

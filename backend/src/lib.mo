@@ -39,7 +39,9 @@
 /// (`gen`/`step` mismatches come back `#stale`), hidden information stays
 /// hidden (every view goes through the game's `view`). `Spec` is tagged
 /// by `Mode`; in `#turnBased` the rules' `toMove` says whose action is
-/// next and only the waiting seat may `claimWin`.
+/// next and only the waiting seat may `claimWin`, and `submitMoves`
+/// applies several actions of one turn in one call — one step for
+/// timing, the rest dropped at the first that fails (`./table`).
 
 import Array "mo:core/Array";
 import Int "mo:core/Int";

@@ -269,8 +269,10 @@ module {
   /// first. `#turnBased` applies them in order and stops at the first
   /// that fails (illegal, or the seat is no longer on turn) or once the
   /// game ends: the ones before it stay applied, the rest are dropped,
-  /// and only a failing first action is an `#err`. `#simultaneous` takes
-  /// exactly one.
+  /// and only a failing first action is an `#err`. The applied actions
+  /// count as one step for timing (`lastStepDurationNs` from before the
+  /// first), and the seat's last move is the last applied action.
+  /// `#simultaneous` takes exactly one.
   public func submitMoves<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, rng : T.Rng, now : Int, session : T.PlayerId, gen : Nat, step : Nat, moves : [M]) : T.Res<T.SubmitOk> {
     switch (self.checkGen(gen)) {
       case (?e) return #err(e);
@@ -349,6 +351,7 @@ module {
           // Each action of the seat on turn is applied at once;
           // `pending1`/`pending2` stay `null`.
           case (#turnBased turnSpec) {
+            let started = g.stepStartedAt;
             func apply(g : T.Active<S, M>, move : M) : T.Res<T.SubmitOk> {
               if (mySeat != turnSpec.toMove(g.game)) return #err(#notYourTurn);
               let r = switch (turnSpec.move(g.game, mySeat, move, rng)) {
@@ -376,25 +379,24 @@ module {
                       case (#p2) ?move;
                       case (#p1) g.lastMoveP2;
                     };
-                    lastStepDurationNs = ?(now - g.stepStartedAt);
+                    lastStepDurationNs = ?(now - started);
                   };
                   #ok(#stepped(steps));
                 };
               };
             };
-            var applied : ?T.SubmitOk = null;
-            label actions for (move in moves.values()) {
-              let #active cur = self.phase else break actions;
-              switch (apply(cur, move), applied) {
-                case (#err e, null) return #err e;
-                case (#err _, ?_) break actions;
-                case (#ok ok, _) applied := ?ok;
+            var last = switch (apply(g, moves[0])) {
+              case (#err e) return #err e;
+              case (#ok ok) ok;
+            };
+            label rest for (i in Nat.range(1, moves.size())) {
+              let #active cur = self.phase else break rest;
+              switch (apply(cur, moves[i])) {
+                case (#err _) break rest;
+                case (#ok ok) last := ok;
               };
             };
-            switch (applied) {
-              case (?ok) #ok ok;
-              case null #err(#illegalMove("no action"));
-            };
+            #ok last;
           };
         };
       };

@@ -33,11 +33,14 @@ don't have is set up by `bot-for-existing-game.md`; read `Rules.View`/
   to model a bot opponent across all its complexities.
 - `opponentLastMove` — the opponent's most recently RESOLVED move, never
   the pending one; after a turn of several actions, its last action
-  (`View` carries the rest when the game records it). `null` when
-  `step == 0`.
+  (`View` carries the rest when the game records it). A turn the
+  opponent sent as one `duel_submit_moves` batch shows as its final
+  action. `null` when `step == 0`.
 - `lastStepDurationNs` — how long the last step took: both seats'
   combined time in `#simultaneous`, the one mover's time in
-  `#turnBased`. `null` when `step == 0`.
+  `#turnBased`, where a `duel_submit_moves` batch counts as one step
+  (the whole turn's duration when the batch was the whole turn). `null`
+  when `step == 0`.
 
 ## The protocol in one sentence
 

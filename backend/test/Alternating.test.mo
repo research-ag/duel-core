@@ -199,4 +199,22 @@ switch (ok(t.submitMoves(spec, rng, T0, "a", genOf(t, T0, "a"), 0, [#again, #win
   case (r) Runtime.trap("the game must end on the second action, got " # debug_show (r));
 };
 Debug.print("8. a batch stops at the verdict OK");
+
+// ── 9. a batch is one step for timing; its last action is the last move ──
+func activeOf(t : Tbl) : TP.Active<Rules.State, Rules.Action> = switch (t.phase) {
+  case (#active g) g;
+  case (_) Runtime.trap("activeOf: no game is running");
+};
+let SEC : Int = 1_000_000_000;
+t := gameOf(T0);
+ignore ok(t.submitMoves(spec, rng, T0 + 5 * SEC, "a", genOf(t, T0, "a"), 0, [#again, #again, #inc]), "a's timed turn");
+var g9 = activeOf(t);
+assert g9.lastStepDurationNs == ?(5 * SEC);
+assert g9.stepStartedAt == T0 + 5 * SEC;
+assert g9.lastMoveP1 == ?#inc;
+ignore ok(t.submitMoves(spec, rng, T0 + 8 * SEC, "b", genOf(t, T0, "b"), 3, [#again, #inc]), "b's timed turn");
+g9 := activeOf(t);
+assert g9.lastStepDurationNs == ?(3 * SEC);
+assert g9.lastMoveP2 == ?#inc;
+Debug.print("9. a batch's duration is the whole batch's OK");
 Debug.print("ALL ALTERNATING ENGINE CHECKS PASSED");

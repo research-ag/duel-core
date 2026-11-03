@@ -351,12 +351,15 @@ separate submits would, and stops at the first that is illegal or
 comes after the turn passed or the game ended; the ones before it
 stay, the rest are dropped, and only a failing first action is an
 error. The rules still gate every action, so a batch is purely a saving
-of round trips. The client builds batches itself: with the game's
+of round trips; for timing it is one step (a bot's `lastStepDurationNs`
+covers the whole batch, its `opponentLastMove` is the batch's last
+applied action). The client builds batches itself: with the game's
 `applyLocal` and `localToMove` it predicts that the seat is still on
 turn, lets the player click on while the previous submit is out,
 queues those moves, and sends them as one batch with the reply — at
 most two round trips for a whole chain, and a wrong prediction only
-costs the dropped moves. A follow-up whose outcome is hidden (a
+costs the dropped moves, each of which the client reports as not
+applied by reading the reply's step. A follow-up whose outcome is hidden (a
 battleship hit or miss) cannot be foreseen; such a game sends one
 action per call. Bots answer one action per ask either way, and sit on
 the game's subnet so each ask is cheap.

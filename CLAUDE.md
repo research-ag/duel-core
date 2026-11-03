@@ -112,12 +112,15 @@ n)` supplying `get_leaderboard`. Filled by the transport on every
   current `Status`, the one call in flight, error lifetime, the identity
   lock, and the stale-view resync, and publishes immutable `ClientState`
   snapshots; no DOM, no HTML. Its pure `withLocalMove` overlays a
-  pending submit through the optional `GamePlugin.applyLocal`, so every
-  UI shows the player's own move before the reply. With
+  pending submit through the optional `GamePlugin.applyLocal`, and the
+  client keeps the result as `ClientState.predicted` (recomputed only
+  when `status`/`pending`/`queued` change), so every UI shows the
+  player's own move before the reply. With
   `GamePlugin.localToMove` too, a follow-up move made while a submit is
   out and the predicted board keeps the seat on turn joins
   `ClientState.queued` and goes out with the reply as one batch
-  (`duel_submit_moves`), or is dropped if the turn passed. `render.js` is the default UI: one pure
+  (`duel_submit_moves`), or is dropped if the turn passed; each queued
+  move resolves `"dropped"` when the engine did not apply it. `render.js` is the default UI: one pure
   `view -> HTML` function per generic screen (lobby/staging/rematch/
   busy/debrief/...), collected in `defaultScreens`, plus
   `renderLeaderboard`/`renderBotList`/`renderSeatChoice`, which a game
@@ -143,8 +146,9 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   discovers the `.test.mo` suffix only). `Engine`/`Lifecycle` cover
   `table.mo`; `Lobby`/`LobbyLifecycle` cover `registry.mo` (including
   `createTableReserving`, the table cap); `Alternating` covers
-  `#turnBased` mode, `submitMoves` batches included; `Transport` drives a real `Duel` (revs,
-  `#unchanged`, `yours`, the cap, keep-alive through a sweep);
+  `#turnBased` mode, `submitMoves` batches included (their timing too); `Transport` drives a real `Duel` (revs,
+  `#unchanged`, `yours`, the cap, keep-alive through a sweep,
+  `submitMoves` through the fan-out);
   `CanisterPlayers` covers `canister_players.mo` with a hand-built
   context whose fan-out settles and whose timers are only recorded (the
   interpreter has none);

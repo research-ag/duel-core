@@ -319,8 +319,12 @@ through `move`, exactly as separate submits would, and stops at the
 first that is illegal or comes after the turn passed or the game
 ended: the actions before it stay applied, the rest are dropped, and
 only a failing first action is the call's `#err`. Each applied action
-is one `step`. `#simultaneous` takes exactly one action (`#illegalMove`
-otherwise). A client plans such a batch only when nothing hidden or
+is one `step`, and the reply's `step` (a debrief's `steps`) less the
+stamp is how many applied — plus one if a canister bot answered inside
+the same call. For timing a batch is one step: `lastStepDurationNs`
+runs from before its first action, and the seat's last move is its last
+applied action. `#simultaneous` takes exactly one action
+(`#illegalMove` otherwise). A client plans such a batch only when nothing hidden or
 random lies between the actions; the engine re-checks every one anyway.
 
 **Steps.** `step` counts applied actions (`#turnBased`) or resolved
@@ -483,7 +487,10 @@ an update method: a query's state changes are never committed. That
 costs consensus latency, so size `claimTimeoutNs`/`idleTimeoutNs` more
 generously. Per-match memory keys off `(tableId, gen)` (`gen` bumps on
 every fresh stage, rematch included); per-opponent memory keys off
-`opponent`. `opponentLastMove` is always the last RESOLVED move. See
+`opponent`. `opponentLastMove` is always the last RESOLVED move: after
+a `duel_submit_moves` batch, the last action the batch applied (the
+final action of the opponent's turn when the batch was the whole turn),
+with `lastStepDurationNs` the whole batch's duration. See
 `skills/duel-game-core/references/canister-player-bots.md`.
 
 **Bot discovery.** A bot self-registers with the host so a human can

@@ -175,17 +175,19 @@ function lineLabel(n, i) {
 
 // ── last-render memory: what is new since the previous board ────────────
 
-let prev = null; // { n, lines, boxes }
+let prev = null; // { n, lines, boxes, over }
 
 // Returns the sets of lines and boxes that appeared since the previous
-// render of a board of the same game, and whether this is a new board.
-function diffBoard(board) {
-  const drawn = (lines) => lines.reduce((acc, l) => acc + (l !== null ? 1 : 0), 0);
+// render of a board of the same game, and whether this is a new board: a
+// first render, another size, a live board after a debrief, or a line of
+// the opponent's gone. A rollback (this seat's lines drawn ahead of a
+// reply that rejected or dropped them) only ever erases this seat's own
+// lines, however many, and does so quietly.
+function diffBoard(board, mySeat, over) {
   const sameSize = prev !== null && prev.n === board.n;
-  // A line that was drawn and no longer is: a rematch (the board emptied)
-  // or a rejected own move being rolled back (exactly one line gone).
-  const undrawn = sameSize && prev.lines.some((l, i) => l !== null && board.lines[i] === null);
-  const newGame = !sameSize || (undrawn && drawn(prev.lines) - drawn(board.lines) > 1);
+  const gone = sameSize ? prev.lines.filter((l, i) => l !== null && board.lines[i] === null) : [];
+  const undrawn = gone.length > 0;
+  const newGame = !sameSize || (prev.over && !over) || gone.some((l) => l !== mySeat);
   const freshLines = [];
   const freshBoxes = [];
   if (sameSize && !undrawn) {
@@ -200,7 +202,7 @@ function diffBoard(board) {
     const k = freshLines.indexOf(board.lastLine);
     if (k >= 0) freshLines.push(...freshLines.splice(k, 1));
   }
-  prev = { n: board.n, lines: board.lines.slice(), boxes: board.boxes.slice() };
+  prev = { n: board.n, lines: board.lines.slice(), boxes: board.boxes.slice(), over };
   return { freshLines, freshBoxes, newGame };
 }
 
@@ -351,7 +353,7 @@ export const plugin = {
   // undefined in a debrief, which draws no hit areas.
   renderBoard(gameState, mySeat, oppSeat, yourTurn) {
     const board = unpack(gameState);
-    const diff = diffBoard(board);
+    const diff = diffBoard(board, mySeat, yourTurn === undefined);
     playSounds(board, diff);
     const over = board.lines.every((l) => l !== null);
     return drawScore(board, mySeat, over) + drawBoard(board, mySeat, yourTurn === true, diff);

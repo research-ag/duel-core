@@ -61,7 +61,8 @@ module {
   /// `opponent` is the raw opposing `PlayerId` (stable across tables for
   /// a human, per-table for a `cp:` canister). `opponentLastMove` and
   /// `lastStepDurationNs` describe the last RESOLVED step and are
-  /// `null` when `step == 0`. `complexity` is the way of playing this
+  /// `null` when `step == 0`; after a `submitMoves` batch they are the
+  /// batch's last applied action and the whole batch's duration. `complexity` is the way of playing this
   /// seat was seated at. See `../README.md`, "Canister players".
   public type MoveRequest<V, M> = {
     tableId : TableId;
@@ -140,9 +141,11 @@ module {
     step : Nat;
     lastActivity : Int;
     /// Reset only on a full resolve (unlike `lastActivity`), so
-    /// `now - stepStartedAt` at resolve time is the step's own length.
+    /// `now - stepStartedAt` at resolve time is the step's own length (a
+    /// `submitMoves` batch's, measured once).
     stepStartedAt : Int;
-    /// Each seat's move from the most recently RESOLVED step.
+    /// Each seat's move from the most recently RESOLVED step (a batch's
+    /// last applied action).
     lastMoveP1 : ?M;
     lastMoveP2 : ?M;
     lastStepDurationNs : ?Int;
