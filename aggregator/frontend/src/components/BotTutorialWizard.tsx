@@ -244,7 +244,7 @@ function GoLiveStep({ target }: { target: Target }) {
           find the game's subnet: the bot goes on the same one, so its moves
           stay quick.
           <CodeBlock
-            code={`curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/${backend} | grep -o '"subnet_id":"[^"]*"'`}
+            code={`curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/${backend} | grep -o '"subnet_id":"[^"]*"' | cut -d'"' -f4`}
           />
           If it prints nothing, stop here and ask the AI. Otherwise put the
           subnet id it printed in place of{" "}
