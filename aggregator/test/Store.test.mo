@@ -251,4 +251,35 @@ do {
 };
 Debug.print("8. deregisterGame OK");
 
+// ── transferGame ──────────────────────────────────────────────────────────
+do {
+  let s = Store.empty();
+  ignore ok(s.registerGame(DEV_A, T0, baseInput), "9-setup");
+  expectErr<()>(s.transferGame(T1, FRONTEND_2, DEV_A, DEV_B), #noSuchGame, "9a");
+  expectErr<()>(s.transferGame(T1, FRONTEND_1, DEV_B, DEV_A), #notOwner, "9b: `from` must be the current developer");
+  expectErr<()>(s.transferGame(T1, FRONTEND_1, DEV_A, Principal.anonymous()), #anonymousDeveloper, "9c");
+  switch (s.getGame(FRONTEND_1)) {
+    case (?g) if (g.developer != DEV_A or g.updatedAt != T0) Runtime.trap("9d: a failed transfer must change nothing");
+    case null Runtime.trap("9d: the game must still be there");
+  };
+
+  ok(s.transferGame(T1, FRONTEND_1, DEV_A, DEV_B), "9e");
+  switch (s.getGame(FRONTEND_1)) {
+    case (?g) {
+      if (g.developer != DEV_B) Runtime.trap("9f: the game must belong to the new developer");
+      if (g.updatedAt != T1 or g.createdAt != T0) Runtime.trap("9g: a transfer bumps updatedAt only");
+      if (g.title != baseInput.title) Runtime.trap("9h: a transfer keeps the listing as it was");
+    };
+    case null Runtime.trap("9f: the game must still be there");
+  };
+  if (s.getBanner(FRONTEND_1) != ?VALID_BANNER) Runtime.trap("9i: a transfer keeps the banner");
+  if (s.listGamesByDeveloper(DEV_A).size() != 0 or s.listGamesByDeveloper(DEV_B).size() != 1) {
+    Runtime.trap("9j: listGamesByDeveloper must follow the transfer");
+  };
+  // The new developer manages it; the old one no longer can.
+  expectErr<()>(s.deregisterGame(DEV_A, FRONTEND_1), #notOwner, "9k");
+  ok(s.deregisterGame(DEV_B, FRONTEND_1), "9l");
+};
+Debug.print("9. transferGame OK");
+
 Debug.print("ALL STORE CHECKS PASSED");

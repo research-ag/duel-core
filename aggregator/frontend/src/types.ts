@@ -56,7 +56,9 @@ export type Err =
   | { invalidBanner: string }
   | { gameAlreadyRegistered: null }
   | { noSuchGame: null }
-  | { notOwner: null };
+  | { notOwner: null }
+  | { notController: null }
+  | { anonymousDeveloper: null };
 
 export type UnitResult = { ok: null } | { err: Err };
 export type GameIdResult = { ok: GameId } | { err: Err };
@@ -113,5 +115,7 @@ export function errMessage(err: Err): string {
   }
   if ("noSuchGame" in err) return "That game no longer exists.";
   if ("notOwner" in err) return "You are not the developer of this game.";
+  if ("notController" in err) return "Only the dashboard's controllers may do this.";
+  if ("anonymousDeveloper" in err) return "A game cannot belong to the anonymous principal.";
   return "Something went wrong.";
 }

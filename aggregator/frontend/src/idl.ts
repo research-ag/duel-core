@@ -57,6 +57,8 @@ export const idlFactory: IDL.InterfaceFactory = ({ IDL }) => {
     gameAlreadyRegistered: IDL.Null,
     noSuchGame: IDL.Null,
     notOwner: IDL.Null,
+    notController: IDL.Null,
+    anonymousDeveloper: IDL.Null,
   });
 
   const UnitResult = IDL.Variant({ ok: IDL.Null, err: Err });
@@ -75,6 +77,7 @@ export const idlFactory: IDL.InterfaceFactory = ({ IDL }) => {
     registerGame: IDL.Func([GameInput], [GameIdResult], []),
     updateGame: IDL.Func([GameId, GameEdit], [UnitResult], []),
     deregisterGame: IDL.Func([GameId], [UnitResult], []),
+    transferGame: IDL.Func([GameId, IDL.Principal, IDL.Principal], [UnitResult], []),
     listGames: IDL.Func([], [IDL.Vec(GameView)], ["query"]),
     listGamesByDeveloper: IDL.Func([IDL.Principal], [IDL.Vec(GameView)], ["query"]),
     getGame: IDL.Func([GameId], [IDL.Opt(GameView)], ["query"]),
