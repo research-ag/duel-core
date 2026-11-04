@@ -392,7 +392,7 @@ A bot is a canister like a backend; it goes up by either route of
 
   ```bash
   icp canister link backend <backend-id> -e ic --force   # step 2's link
-  icp deploy bot -e ic --subnet <subnet-id>              # the bot only, on the game's subnet
+  icp deploy bot -e ic --subnet <subnet-id>              # the bot only, a new canister on the game's subnet
   icp canister call bot register '(principal "<backend-id>", "<Bot Name>")' -e ic
   ```
 
@@ -400,7 +400,9 @@ A bot is a canister like a backend; it goes up by either route of
   attempts `backend` (which fails) and `sparring` (a paid canister with
   no use on mainnet). `--subnet` matters only on the deploy that
   creates the canister (`icp canister create bot` takes it too); later
-  upgrades omit it.
+  upgrades omit it. Into an existing canister the user names (its
+  subnet checked above), link it first, `icp canister link bot <bot-id>
+-e ic`, and deploy with `icp deploy bot -e ic`, without `--subnet`.
 
 Then check the game lists the bot. `list_bots` is a query anybody may
 send; in a cloud session, which has no identity of its own, send it
