@@ -33,7 +33,7 @@ func linesOf(a : Rules.Action) : [Nat] = switch (a) { case (#draw d) d.lines };
 // The turn's first line.
 func lineOf(a : Rules.Action) : Nat = linesOf(a)[0];
 
-func isLegal(s : Rules.State, a : Rules.Action) : Bool = switch (Rules.move(s, s.toMove, a, rng)) {
+func isLegal(s : Rules.State, a : Rules.Action) : Bool = switch (Rules.move(s, Rules.toMove(s), a, rng)) {
   case (#ok _) true;
   case (#err _) false;
 };
@@ -43,7 +43,7 @@ func isLegal(s : Rules.State, a : Rules.Action) : Bool = switch (Rules.move(s, s
 func play(start : Rules.State, lines : [Nat]) : Rules.State {
   var s = start;
   for (l in lines.values()) {
-    switch (Rules.move(s, s.toMove, #draw { lines = [l] }, rng)) {
+    switch (Rules.move(s, Rules.toMove(s), #draw { lines = [l] }, rng)) {
       case (#err why) Runtime.trap("rejected " # l.toText() # ": " # why);
       case (#ok { verdict = ?_ }) Runtime.trap("unexpected end");
       case (#ok { state; verdict = null }) s := state;
@@ -70,7 +70,7 @@ do {
   // 3x3: box 0 has sides 0, 3, 12, 13. Draw 0, 3, 12 (three non-closing
   // moves: p1 p2 p1), so p2 is on turn and 13 closes box 0.
   let s = play(Rules.init({ size = 3 }, rng), [0, 3, 12]);
-  assert s.toMove == #p2;
+  assert Rules.toMove(s) == #p2;
   for (seed in [0, 5, 99].values()) {
     for (c in ["Easy", "Hard"].values()) {
       let a = BotLogic.chooseMove(request(s, #p2, 3, c), seed);
@@ -114,7 +114,7 @@ do {
   // After 0, 6, 1, 8, 4, 9, 5, 11 every box has two sides and every
   // remaining line (2, 3, 7, 10) opens the whole 4-box ring.
   let ring = play(Rules.init({ size = 2 }, rng), [0, 6, 1, 8, 4, 9, 5, 11]);
-  assert ring.toMove == #p1;
+  assert Rules.toMove(ring) == #p1;
   for (l in [2, 3, 7, 10].values()) {
     assert BotLogic.givesThirdSide(ring, l);
     assert BotLogic.giveaway(ring, #p1, l) == 4;
@@ -135,7 +135,6 @@ do {
     size = n;
     lines;
     boxes;
-    toMove = #p1;
     lastTurn = [];
   };
   for (l in open.values()) assert BotLogic.givesThirdSide(pos, l);
@@ -162,7 +161,7 @@ do {
     var step = 0;
     var result : ?TP.Verdict = null;
     label g loop {
-      let seat = s.toMove;
+      let seat = Rules.toMove(s);
       let c = if (seat == hardSeat) "Hard" else "Easy";
       let a = BotLogic.chooseMove(request(s, seat, step, c), seed + step);
       switch (Rules.move(s, seat, a, rng)) {

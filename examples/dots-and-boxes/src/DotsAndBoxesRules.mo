@@ -50,7 +50,6 @@ VIEW (Candid)
     size : nat;
     lines : vec opt Seat;
     boxes : vec opt Seat;
-    toMove : Seat;
     lastTurn : vec nat;
   };
   Nothing is hidden: both seats receive the whole state.
@@ -65,9 +64,10 @@ VIEW (Candid)
   boxes     N*N entries, row-major (index r*N + c): null = not yet
             claimed, opt seat = claimed by that seat. Box (r, c) has
             sides h(r, c), h(r+1, c), v(r, c) and v(r, c+1).
-  toMove    the seat whose action is expected next.
   lastTurn  the lines of the most recent turn, in the order drawn; empty
-            before the first move. Who drew them is lines[lastTurn[0]].
+            before the first move. Who drew them is lines[lastTurn[0]];
+            the other seat is on turn (p1 when lastTurn is empty), as
+            the engine's in-game view (toMove) also says.
 
 ACTION (Candid)
   type Action = variant { draw : record { lines : vec nat } };
@@ -82,7 +82,7 @@ RULES
   already drawn (an earlier line of the same turn included); a line
   other than the last that claims nothing; a last line that claims a box
   while undrawn lines remain. The engine itself rejects an action from
-  the seat not on turn. After the turn, toMove is the other seat.
+  the seat not on turn. After the turn, the other seat is on turn.
 
 ENDINGS
   When every line is drawn (equivalently, every box is claimed): the
@@ -108,7 +108,6 @@ CLIENT NOTES
     size : Nat;
     lines : [Line];
     boxes : [?TP.Seat];
-    toMove : TP.Seat;
     lastTurn : [Nat];
   };
 
@@ -128,11 +127,6 @@ CLIENT NOTES
   public func otherSeat(seat : TP.Seat) : TP.Seat = switch (seat) {
     case (#p1) #p2;
     case (#p2) #p1;
-  };
-
-  public func sideName(seat : TP.Seat) : Text = switch (seat) {
-    case (#p1) "Blue";
-    case (#p2) "Red";
   };
 
   // ── geometry ──────────────────────────────────────────────────────────
@@ -194,16 +188,22 @@ CLIENT NOTES
     size = o.size;
     lines = Array.repeat<Line>(null, lineCount(o.size));
     boxes = Array.repeat<?TP.Seat>(null, o.size * o.size);
-    toMove = #p1;
     lastTurn = [];
   };
 
-  public func toMove(s : State) : TP.Seat = s.toMove;
+  /// Seats alternate: the one that did not draw the last turn.
+  public func toMove(s : State) : TP.Seat {
+    if (s.lastTurn.size() == 0) return #p1;
+    switch (s.lines[s.lastTurn[0]]) {
+      case (?seat) otherSeat(seat);
+      case null #p1;
+    };
+  };
 
   public func view(s : State, _ : TP.Seat, _ : Bool) : View = s;
 
   /// Draws one undrawn `line` for `seat` and claims the boxes it closes;
-  /// `toMove` and `lastTurn` stay as they are.
+  /// `lastTurn` stays as it is.
   public func drawLine(s : State, seat : TP.Seat, line : Nat) : {
     state : State;
     closed : Bool;
@@ -236,7 +236,7 @@ CLIENT NOTES
       if (k + 1 < turn.size() and not r.closed) return #err "Only a line that closes a box draws again.";
       if (k + 1 == turn.size() and r.closed and not isFull(cur)) return #err "A closed box draws again: the turn needs another line.";
     };
-    let state = { cur with toMove = otherSeat(seat); lastTurn = turn };
+    let state = { cur with lastTurn = turn };
     let verdict : ?TP.Verdict = if (isFull(state)) {
       let b1 = boxesOf(state, #p1);
       let b2 = boxesOf(state, #p2);

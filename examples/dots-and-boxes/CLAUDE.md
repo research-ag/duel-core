@@ -9,9 +9,9 @@ the existing DOM. Not part of either package.
 - **`src/DotsAndBoxesRules.mo`** — `#turnBased`, `#p1` = Blue first;
   `Action = #draw { lines : [Nat] }` is a whole turn: every line but the
   last closes a box, the last closes none (unless it fills the board).
-  `State = { size; lines; boxes; toMove; lastTurn }`; `move` checks the
-  turn line by line through `drawLine` and passes the turn, so seats
-  strictly alternate; `View = State`; `Options = { size }` (boxes per
+  `State = { size; lines; boxes; lastTurn }`; `move` checks the turn
+  line by line through `drawLine`; seats strictly alternate, so `toMove`
+  is the seat that did not draw `lastTurn`; `View = State`; `Options = { size }` (boxes per
   side, `checkOptions` 2..8, the page offers 3–6). Line indexing
   (horizontal first) is in the header and in `SEMANTICS`.
 - **`src/Host.mo`** — the skill's Host template with BOTS and

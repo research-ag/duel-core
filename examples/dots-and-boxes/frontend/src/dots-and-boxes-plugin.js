@@ -37,9 +37,6 @@ const HIT_INSET = 14; // keeps hit areas clear of the dots
 function seatOf(cell) {
   return cell && cell.length ? Object.keys(cell[0])[0] : null;
 }
-function tagOf(v) {
-  return Object.keys(v)[0];
-}
 
 // ── geometry (mirrors DotsAndBoxesRules.mo) ─────────────────────────────
 
@@ -87,9 +84,14 @@ function unpack(gameState) {
     n,
     lines: gameState.lines.map(seatOf),
     boxes: gameState.boxes.map(seatOf),
-    toMove: tagOf(gameState.toMove),
     lastTurn: gameState.lastTurn.map(Number),
   };
+}
+
+// Mirrors `toMove`: the seat that did not draw the last turn.
+function toMoveOf(board) {
+  const last = board.lastTurn.length > 0 ? board.lines[board.lastTurn[0]] : null;
+  return last === "p1" ? "p2" : "p1";
 }
 
 const opt = (seat) => (seat === null ? [] : [{ [seat]: null }]);
@@ -99,7 +101,6 @@ function pack(gameState, board) {
     ...gameState,
     lines: board.lines.map(opt),
     boxes: board.boxes.map(opt),
-    toMove: { [board.toMove]: null },
     lastTurn: board.lastTurn.map(BigInt),
   };
 }
@@ -209,8 +210,8 @@ let prev = null; // { n, lines, boxes, over }
 // Returns the sets of lines and boxes that appeared since the previous
 // render of a board of the same game, and whether this is a new board: a
 // first render, another size, a live board after a debrief, or a line of
-// the opponent's gone. A rollback (this seat's lines drawn ahead of a
-// reply that rejected or dropped them) only ever erases this seat's own
+// the opponent's gone. A rollback (a turn the reply rejected, a draft line
+// taken back) only ever erases this seat's own
 // lines, however many, and does so quietly.
 function diffBoard(board, mySeat, over) {
   const sameSize = prev !== null && prev.n === board.n;
@@ -260,7 +261,7 @@ function drawScore(board, mySeat, over) {
     <div class="dab-score">
       ${seats
         .map((seat) => {
-          const on = !over && board.toMove === seat;
+          const on = !over && toMoveOf(board) === seat;
           return `
           <div class="dab-player dab-${seat}${on ? " dab-on" : ""}${seat === mySeat ? " dab-me" : ""}">
             ${drawPencil(seat)}
@@ -397,7 +398,6 @@ export const plugin = {
       size: IDL.Nat,
       lines: IDL.Vec(IDL.Opt(Seat)),
       boxes: IDL.Vec(IDL.Opt(Seat)),
-      toMove: Seat,
       lastTurn: IDL.Vec(IDL.Nat),
     });
     const Options = IDL.Record({ size: IDL.Nat });
@@ -451,6 +451,6 @@ export const plugin = {
       board = drawLine(board, mySeat, line).board;
     }
     if (turn.length === 0) return null;
-    return pack(gameState, { ...board, toMove: mySeat === "p1" ? "p2" : "p1", lastTurn: turn });
+    return pack(gameState, { ...board, lastTurn: turn });
   },
 };
