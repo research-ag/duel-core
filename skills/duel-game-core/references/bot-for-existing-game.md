@@ -357,10 +357,14 @@ subnet is quick. Before
 creating any canister for the bot, look the backend's subnet up:
 
 ```bash
-curl -s https://ic-api.internetcomputer.org/api/v3/canisters/<backend-id> | grep -o '"subnet_id":"[^"]*"'
+curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/<backend-id> | grep -o '"subnet_id":"[^"]*"'
 ```
 
-Then pick the route that creates the bot's canister there.
+If the call fails or prints no `subnet_id`, stop and tell the user:
+nothing is created or installed until the subnet is known. The same
+lookup, with the same stop, gives the subnet of any existing canister
+meant for the bot (a rented one, or one the user names). Then pick the
+route that creates the bot's canister there.
 
 A bot is a canister like a backend; it goes up by either route of
 `going-live.md`:

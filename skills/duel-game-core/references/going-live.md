@@ -502,8 +502,11 @@ icp deploy bot -e ic --subnet <subnet-id>   # a bot, on its game's subnet (bot-f
 deploy (later upgrades need no `--subnet`):
 
 ```bash
-curl -s https://ic-api.internetcomputer.org/api/v3/canisters/<backend-id> | grep -o '"subnet_id":"[^"]*"'
+curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/<backend-id> | grep -o '"subnet_id":"[^"]*"'
 ```
+
+If it fails or prints no `subnet_id`, deploy nothing until the subnet
+is known.
 
 Always name what to deploy: a bare `icp deploy -e ic` also creates
 every other canister in `icp.yaml` on mainnet, 2T cycles each, and for
