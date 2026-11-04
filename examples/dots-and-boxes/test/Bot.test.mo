@@ -1,5 +1,5 @@
 // Checks for the Dots & Boxes bot: `chooseMove` only ever returns a legal
-// line, Easy and Hard behave as documented on hand-built positions, and
+// turn, Easy and Hard behave as documented on hand-built positions, and
 // Hard beats Easy over a few seeded 3x3 games.
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
@@ -28,16 +28,22 @@ func request(s : Rules.State, seat : TP.Seat, step : Nat, complexity : Text) : T
   lastStepDurationNs = null;
 };
 
-func lineOf(a : Rules.Action) : Nat = switch (a) { case (#draw d) d.line };
+func linesOf(a : Rules.Action) : [Nat] = switch (a) { case (#draw d) d.lines };
 
-func isLegal(s : Rules.State, a : Rules.Action) : Bool = Rules.validate(s, s.toMove, a) == null;
+// The turn's first line.
+func lineOf(a : Rules.Action) : Nat = linesOf(a)[0];
 
-// Draws `lines` in order with whoever is on turn; traps on a rejection
-// or an unexpected end.
+func isLegal(s : Rules.State, a : Rules.Action) : Bool = switch (Rules.move(s, s.toMove, a, rng)) {
+  case (#ok _) true;
+  case (#err _) false;
+};
+
+// Plays each of `lines` as a one-line turn of whoever is on turn; traps
+// on a rejection or an unexpected end.
 func play(start : Rules.State, lines : [Nat]) : Rules.State {
   var s = start;
   for (l in lines.values()) {
-    switch (Rules.move(s, s.toMove, #draw { line = l }, rng)) {
+    switch (Rules.move(s, s.toMove, #draw { lines = [l] }, rng)) {
       case (#err why) Runtime.trap("rejected " # l.toText() # ": " # why);
       case (#ok { verdict = ?_ }) Runtime.trap("unexpected end");
       case (#ok { state; verdict = null }) s := state;
@@ -69,6 +75,8 @@ do {
     for (c in ["Easy", "Hard"].values()) {
       let a = BotLogic.chooseMove(request(s, #p2, 3, c), seed);
       assert lineOf(a) == 13;
+      assert linesOf(a).size() == 2; // the box draws again
+      assert isLegal(s, a);
     };
   };
   assert BotLogic.closes(s, 13) == 1;
@@ -128,7 +136,7 @@ do {
     lines;
     boxes;
     toMove = #p1;
-    lastLine = null;
+    lastTurn = [];
   };
   for (l in open.values()) assert BotLogic.givesThirdSide(pos, l);
   assert BotLogic.giveaway(pos, #p1, 2) == 1;
@@ -158,7 +166,7 @@ do {
       let c = if (seat == hardSeat) "Hard" else "Easy";
       let a = BotLogic.chooseMove(request(s, seat, step, c), seed + step);
       switch (Rules.move(s, seat, a, rng)) {
-        case (#err why) Runtime.trap("bot played an illegal line: " # why);
+        case (#err why) Runtime.trap("bot played an illegal turn: " # why);
         case (#ok { state; verdict }) {
           s := state;
           step += 1;

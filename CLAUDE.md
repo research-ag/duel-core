@@ -22,7 +22,7 @@ validate; resolve; view }`. Modules, each on its own import subpath:
     SFC64), one per canister in the stable data, seeded from `Time.now()`
     and handed to `init`/`move`/`resolve`.
   - `table.mo` — the single-table primitive: `Table.new` plus
-    `join`/`submit`/`submitMoves`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded`/
+    `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded`/
     `status`/`sweep`. Every `Table` carries a stable `rev`.
   - `registry.mo` — the multi-table router built on it: `Registry.new`,
     `createTable`/`createTableReserving`/`listTables`/`joinTable`/
@@ -49,12 +49,7 @@ validate; resolve; view }`. Modules, each on its own import subpath:
     `TableView<V>`, built through the game's `view`), each `#unchanged`
     while the table's / lobby's `rev` is current — nothing is stored per
     reader. Mutations: `duel_submit` replies with the table's fresh
-    view, and so does `duel_submit_moves` (several actions of one
-    turn, stamped with the step before the first; `#turnBased` applies
-    them in order and drops the rest at the first that fails or once
-    the turn passes; `#simultaneous` takes exactly one), declared only
-    by a host whose actions can grant another (the Host template's
-    FOLLOW-UP lines); `duel_create_table`/`join_table`/`rematch`/`leave`/`reset`/
+    view; `duel_create_table`/`join_table`/`rematch`/`leave`/`reset`/
     `claim_win`/`ack_ended` reply with an `Ack` (table + `rev`) and the
     client polls the table. Presence only keeps a waiting table open
     (`duel_keep_alive` every `KEEP_ALIVE_SECS` 20; `sweep` every
@@ -64,8 +59,8 @@ validate; resolve; view }`. Modules, each on its own import subpath:
     supplies every method naming none of the game's types and the sweep
     timer (`include TransportActorMixin<system>(duel.lobby(env))`); a
     mixin cannot take type parameters, so the host declares
-    `duel_create_table`/`duel_lobby`/`duel_submit`/`duel_table` (and,
-    opt-in, `duel_submit_moves`) itself as one-line pass-throughs.
+    `duel_create_table`/`duel_lobby`/`duel_submit`/`duel_table` itself
+    as one-line pass-throughs.
   - `canister_players.mo` — OPTIONAL. Lets a canister take a seat as
     player `cp:<principal>:<complexity>` (`idForCanister`), derived from
     `msg.caller` so nothing is spoofable. Data: `newStore()` (the bot
@@ -108,19 +103,12 @@ n)` supplying `get_leaderboard`. Filled by the transport on every
     wiring.
 - **`frontend/`** — the npm package (TypeScript in `src/`, ships
   compiled `dist/`), in three layers. `client.js` is the headless
-  client: `createDuelClient({ transport, session, plugin? })` owns the transport, the
+  client: `createDuelClient({ transport, session })` owns the transport, the
   current `Status`, the one call in flight, error lifetime, the identity
   lock, and the stale-view resync, and publishes immutable `ClientState`
   snapshots; no DOM, no HTML. Its pure `withLocalMove` overlays a
-  pending submit through the optional `GamePlugin.applyLocal`, and the
-  client keeps the result as `ClientState.predicted` (recomputed only
-  when `status`/`pending`/`queued` change), so every UI shows the
-  player's own move before the reply. With
-  `GamePlugin.localToMove` too, a follow-up move made while a submit is
-  out and the predicted board keeps the seat on turn joins
-  `ClientState.queued` and goes out with the reply as one batch
-  (`duel_submit_moves`), or is dropped if the turn passed; each queued
-  move resolves `"dropped"` when the engine did not apply it. `render.js` is the default UI: one pure
+  pending submit through the optional `GamePlugin.applyLocal`, so every
+  UI shows the player's own move before the reply. `render.js` is the default UI: one pure
   `view -> HTML` function per generic screen (lobby/staging/rematch/
   busy/debrief/...), collected in `defaultScreens`, plus
   `renderLeaderboard`/`renderBotList`/`renderSeatChoice`, which a game
@@ -146,9 +134,8 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
   discovers the `.test.mo` suffix only). `Engine`/`Lifecycle` cover
   `table.mo`; `Lobby`/`LobbyLifecycle` cover `registry.mo` (including
   `createTableReserving`, the table cap); `Alternating` covers
-  `#turnBased` mode, `submitMoves` batches included (their timing too); `Transport` drives a real `Duel` (revs,
-  `#unchanged`, `yours`, the cap, keep-alive through a sweep,
-  `submitMoves` through the fan-out);
+  `#turnBased` mode; `Transport` drives a real `Duel` (revs,
+  `#unchanged`, `yours`, the cap, keep-alive through a sweep);
   `CanisterPlayers` covers `canister_players.mo` with a hand-built
   context whose fan-out settles and whose timers are only recorded (the
   interpreter has none);
@@ -162,8 +149,9 @@ actor + `GamePlugin` frontend + deploy config, with its own `CLAUDE.md`:
 `007`, `racing`, `rock-paper-scissors` (`#simultaneous`); `checkers`,
 `tic-tac-toe`, `ultimate-tic-tac-toe`, `chopsticks`, `dots-and-boxes`
 (`#turnBased`). `dots-and-boxes` (a closed box draws again) is the
-follow-up-moves reference: its plugin implements `localToMove`, and it
-is deployed through hosty.live, not `deploy_examples.sh`.
+follow-up-moves reference: one `Action` is the whole turn, built
+locally by its plugin and sent in one submit; it is deployed through
+hosty.live, not `deploy_examples.sh`.
 `rock-paper-scissors` (`Options = { variant; winsNeeded }`, gated in
 `validate`, bounded by `checkOptions`) and `chopsticks` (`Options =
 Variant`, branching in `validate` and `resolve`) are the table-options

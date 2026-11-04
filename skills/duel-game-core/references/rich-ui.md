@@ -36,20 +36,11 @@ push, `{ browsing }`, or `{ atTable: { id, view } }` with `view` one of
 `lobby`/`busy`/`stagingYou`/`awaitingRematch`/`inGame`/`debrief`/
 `endedByOther` — the shapes are in `types.js`). Every control calls one
 client method: `createTable(seat, visibility?, options?)`,
-`joinTable(id, seat, code?)`, `submit(move)`, `submitMoves(moves)` (a
-turn of several actions planned at once), `rematch()`, `leave()`,
+`joinTable(id, seat, code?)`, `submit(move)`, `rematch()`, `leave()`,
 `reset()`, `claimWin()`, `ackEnded()`. Each resolves with `{ ok: true,
 view }` or `{ ok: false, reason }` (`inFlight`, `closed`, `stale`,
-`rejected`, `failed`, `dropped`); rejections are already in
-`state.error`, so a UI only has to show that field. Pass
-`createDuelClient({ transport, session, plugin })` when the plugin has
-`applyLocal`: `state.predicted` then draws your move at once (below).
-With `localToMove` too, a `submit` made while another is in flight and
-the predicted board still has the seat on turn is queued
-(`state.queued`, live controls while `state.followUp`) and sent with the
-reply, or resolves `dropped` when the turn has passed by then or the
-engine dropped it from the batch (`turn-based-games.md`, "Follow-up
-moves").
+`rejected`, `failed`); rejections are already in `state.error`, so a UI
+only has to show that field.
 
 What to bind, and where the default shell's equivalent lives, so nothing
 is forgotten:
@@ -58,8 +49,7 @@ is forgotten:
 | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | which screen                                             | `state.status`                                                                            |
 | a call in flight (disable, spin)                         | `state.pending` (`key` names the control: `create:p1`, `act:{"pass":null}`, `rematch`, …) |
-| move controls left live behind an in-flight submit       | `state.followUp` (needs `plugin` with `applyLocal` + `localToMove`)                       |
-| your move, before the reply                              | `state.predicted` (needs `plugin` with `applyLocal`; below)                               |
+| your move, before the reply                              | `withLocalMove(state.status, state.pending, plugin.applyLocal)` (below)                   |
 | errors, reconnects, and the terminal disconnect          | `state.error`, `state.connection` (`"reconnecting"`, `"closed"`)                          |
 | "new sid" / login / logout enabled                       | `!state.identityLocked`; call `client.regenerateSid()`/`login()`/`logout()`               |
 | countdowns between views                                 | `localSecondsLeft(view.secondsUntilX, state.statusAt)` on a local 1 s timer               |
@@ -70,25 +60,24 @@ is forgotten:
 ## Your move at once, the opponent's move marked
 
 The default shell draws a submitted move before the engine confirms it;
-a UI of your own does the same from the client built with the plugin:
+a UI of your own does the same with one pure helper:
 
 ```js
-const client = createDuelClient({ transport, session, plugin });
+import { withLocalMove } from "@research-ag/duel-game-core/client.js";
+
+const shown = (state) =>
+  withLocalMove(state.status, state.pending, plugin.applyLocal.bind(plugin));
 
 client.subscribe((state, prev) => {
-  if (state.predicted !== prev.predicted) drawScreen(state.predicted);
+  if (state.status !== prev.status || state.pending !== prev.pending) {
+    drawScreen(shown(state));
+  }
 });
 ```
 
-While a `submit` is out, `state.predicted` is the in-game view with
-`applyLocal`'s board (every queued follow-up applied after it) and the
-seat already waiting, or still on turn while `localToMove` says so;
-otherwise it is `state.status` itself. The client computes it once per
-change of `status`, `pending` or `queued`, so it stays `===` across
-every other change and a redraw keyed on it never repeats. A client
-built without a plugin can compute the same with the pure
-`withLocalMove(state.status, state.pending, plugin.applyLocal)` from
-`client.js`. The reply clears `pending` and lands its status in
+While a `submit` is out, `shown(state)` is the in-game view with
+`applyLocal`'s board and the seat already waiting; otherwise it is
+`state.status` itself. The reply clears `pending` and lands its status in
 the same snapshot, and a rejection leaves `status` as it was, so either
 way the next draw is the real view with no flash in between. Feed the
 same shown status to anything that diffs consecutive views (a move log,

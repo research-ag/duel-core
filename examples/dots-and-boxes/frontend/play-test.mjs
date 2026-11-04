@@ -18,7 +18,7 @@ import { atTableOf, createDuelClient, viewOf } from "@research-ag/duel-game-core
 import { makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
 import { tag } from "@research-ag/duel-game-core/render.js";
 import { connectTransport } from "@research-ag/duel-game-core/transport.js";
-import { plugin } from "./src/dots-and-boxes-plugin.js";
+import { drawAgain, plugin } from "./src/dots-and-boxes-plugin.js";
 
 const args = process.argv.slice(2);
 const onIc = args.includes("--ic");
@@ -80,19 +80,24 @@ function decodeEntities(s) {
 }
 
 // The moves a seat could click: every `actionAttr` element of the board
-// and the action panel, split into enabled and disabled. A game whose
-// moves are not single clicks on such elements (a two-click selection, a
-// canvas, drag and drop) lists its legal moves here itself.
+// and the action panel, split into enabled and disabled. A turn starts
+// with clicks on `data-line` lines (each closes a box and draws again),
+// taken here at random while any is offered, as the page's own listener
+// would take them; the turn's last click is a `data-act` line.
 function offeredMoves(game, seat) {
   const opp = seat === "p1" ? "p2" : "p1";
-  const html = plugin.renderBoard(game, seat, opp, true) + plugin.renderActions(game, seat);
-  const enabled = [];
-  const disabled = [];
-  for (const [, attrs] of html.matchAll(/<\w+\b([^>]*\bdata-act='[^']*'[^>]*)>/g)) {
-    const act = JSON.parse(decodeEntities(attrs.match(/data-act='([^']*)'/)[1]));
-    (/\bdisabled\b/.test(attrs) ? disabled : enabled).push(act);
+  for (;;) {
+    const html = plugin.renderBoard(game, seat, opp, true) + plugin.renderActions(game, seat);
+    const again = [...html.matchAll(/data-line="(\d+)"/g)].map((m) => Number(m[1]));
+    const enabled = [];
+    const disabled = [];
+    for (const [, attrs] of html.matchAll(/<\w+\b([^>]*\bdata-act='[^']*'[^>]*)>/g)) {
+      const act = JSON.parse(decodeEntities(attrs.match(/data-act='([^']*)'/)[1]));
+      (/\bdisabled\b/.test(attrs) ? disabled : enabled).push(act);
+    }
+    if (again.length > 0 && (enabled.length === 0 || Math.random() < 0.8)) drawAgain(pick(again));
+    else return { enabled, disabled };
   }
-  return { enabled, disabled };
 }
 
 const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];

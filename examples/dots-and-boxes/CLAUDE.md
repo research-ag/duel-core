@@ -2,44 +2,48 @@
 
 Classic dots and boxes: draw one line between two dots; the fourth side
 of a box claims it and draws again; most boxes when the sheet is full
-wins. The reference for follow-up moves (an action that grants another)
-and for a page that morphs redraws onto the existing DOM. Not part of
-either package.
+wins. The reference for follow-up moves (a move that grants another,
+sent as one whole-turn `Action`) and for a page that morphs redraws onto
+the existing DOM. Not part of either package.
 
 - **`src/DotsAndBoxesRules.mo`** — `#turnBased`, `#p1` = Blue first;
-  `State = { size; lines; boxes; toMove; lastLine }` stores `toMove`
-  (closing a box keeps it with the mover); `move` = `validate` then
-  `resolve`; `View = State`; `Options = { size }` (boxes per side,
-  `checkOptions` 2..8, the page offers 3–6). `legalActions` is every
-  undrawn line. Line indexing (horizontal first) is in the header and in
-  `SEMANTICS`.
+  `Action = #draw { lines : [Nat] }` is a whole turn: every line but the
+  last closes a box, the last closes none (unless it fills the board).
+  `State = { size; lines; boxes; toMove; lastTurn }`; `move` checks the
+  turn line by line through `drawLine` and passes the turn, so seats
+  strictly alternate; `View = State`; `Options = { size }` (boxes per
+  side, `checkOptions` 2..8, the page offers 3–6). Line indexing
+  (horizontal first) is in the header and in `SEMANTICS`.
 - **`src/Host.mo`** — the skill's Host template with BOTS and
   LEADERBOARD on (90s/60s, `#elo { k = 32 }`, keep 50 from 1200).
 - **`src/BotIface.mo`** — `make_move`.
 - **`bot/BotLogic.mo`** — `COMPLEXITIES = ["Easy", "Hard"]`. Easy takes
   an offered box, else any line. Hard takes boxes, else a safe line (no
   box gets a third side), else sacrifices the chain that gives away
-  fewest. Unknown complexities play Easy. One line per ask: a bot's
-  chain is several asks, which is why the bot sits on the backend's
-  subnet.
+  fewest. Unknown complexities play Easy. `chooseMove` picks a whole
+  turn, line by line, through `Rules.drawLine`.
 - **`bot/Bot.mo`** — `make_move` (`query`), `play(...)`, `register`/
   `unregister` (controller only; registered as "Pencil Bot").
-- **`test/*.test.mo`** — `RulesUnit` (each illegal move, the turn
-  rules, each ending); `Bot` (both levels stay legal; Hard takes and
-  avoids boxes and beats Easy).
-- **`frontend/`** — `dots-and-boxes-plugin.js`: the SVG paper board;
-  undrawn lines are `data-act` hit areas while `yourTurn`; `applyLocal`
-  mirrors `resolve`, and `localToMove` (null once the board is full)
-  lets a chain be clicked without waiting for each reply — the client
-  queues the lines and sends them as one `duel_submit_moves`. The
-  opponent's chain arrives as a burst; `State` keeps only `lastLine`, so
-  the plugin diffs consecutive boards and animates `lastLine` last.
-  `morph-screen.js` morphs each redraw (morphdom) instead of replacing
-  `#screen`; `sounds.js` is Web Audio. `play-test.mjs` (two headless
-  players finish a game per size), `bot-test.mjs` (a game against each
-  level, then the leaderboard), `follow-up-test.mjs` (a three-line turn
-  clicked ahead goes out as one `duel_submit_moves`) and `check-upgrade.mjs` (stable types and
-  Candid against the live module) run against a deployment.
+- **`test/*.test.mo`** — `RulesUnit` (each illegal turn, the turn
+  rules, each ending); `Bot` (both levels play legal turns; Hard takes
+  and avoids boxes and beats Easy).
+- **`frontend/`** — `dots-and-boxes-plugin.js`: the SVG paper board,
+  and the turn built locally while `yourTurn`. A line that closes a box
+  is a `data-line` hit area: the plugin's own listener adds it to
+  `draft` and redraws the board (`morph`) with it drawn; clicking the
+  draft's last line (`data-undo`) takes it back. A line that ends the
+  turn is a `data-act` hit area carrying `{ draw: { lines: [...draft,
+line] } }`, submitted by app.js, so the whole turn is one round trip.
+  The draft belongs to the board it was drawn on and vanishes with it.
+  `applyLocal` mirrors `move`. The opponent's turn arrives at once; the
+  plugin diffs consecutive boards and animates `lastTurn` in order, with
+  a halo on its lines. `morph-screen.js` morphs each redraw (morphdom)
+  instead of replacing `#screen`; `sounds.js` is Web Audio.
+  `play-test.mjs` (two headless players finish a game per size),
+  `bot-test.mjs` (a game against each level, then the leaderboard),
+  both taking `data-line` clicks through the plugin's `drawAgain`, and
+  `check-upgrade.mjs` (stable types and Candid against the live module)
+  run against a deployment.
 
 ## Live
 
@@ -51,7 +55,7 @@ are controlled through hosty.live, not by an `icp` identity, so
 
 1. `mops test`; locally `icp deploy`, register the bot
    (`icp canister call bot register "(principal \"$(icp canister status backend -i)\", \"Pencil Bot\")"`),
-   `cd frontend && node play-test.mjs && node bot-test.mjs && node follow-up-test.mjs`.
+   `cd frontend && node play-test.mjs && node bot-test.mjs`.
 2. `cd frontend && node check-upgrade.mjs kozn2-waaaa-aaaau-ahhsq-cai`
    must exit 0. `State` sits in stable memory: any change to it needs a
    migration or a reinstall (`../../skills/duel-game-core/references/changing-a-live-game.md`).
@@ -75,6 +79,5 @@ updates `SEMANTICS` in the same change.
 
 ## Conventions
 
-Plain interpreter tests; `msg`, not `label`; `legalActions` must keep
-matching `validate`, and the plugin's `applyLocal` must keep mirroring
-`resolve`.
+Plain interpreter tests; `msg`, not `label`; the plugin's `drawLine`,
+`drawsAgain` and `applyLocal` must keep mirroring `drawLine` and `move`.

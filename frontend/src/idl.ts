@@ -160,7 +160,6 @@ export function buildEngineTypes({
     createTable: IDL.Record({ seat: Seat, visibility: Visibility, options: Options }),
     joinTable: IDL.Record({ id: TableId, seat: Seat, code: IDL.Opt(IDL.Text) }),
     submit: IDL.Record({ gen: IDL.Nat, step: IDL.Nat, move: Action }),
-    submitMoves: IDL.Record({ gen: IDL.Nat, step: IDL.Nat, moves: IDL.Vec(Action) }),
     rematch: IDL.Null,
     leave: IDL.Record({ gen: IDL.Nat }),
     reset: IDL.Record({ gen: IDL.Nat }),
@@ -214,7 +213,6 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
       duel_ack_ended: IDL.Func([t.TableId], [t.Ack], []),
       duel_keep_alive: IDL.Func([], [t.KeepAliveResult], []),
       duel_submit: IDL.Func([t.TableId, IDL.Nat, IDL.Nat, Action], [t.TransportReply], []),
-      duel_submit_moves: IDL.Func([t.TableId, IDL.Nat, IDL.Nat, IDL.Vec(Action)], [t.TransportReply], []),
       duel_lobby: IDL.Func([IDL.Nat], [t.LobbyResult], ["query"]),
       duel_table: IDL.Func([t.TableId, IDL.Nat], [t.TableResult], ["query"]),
     });

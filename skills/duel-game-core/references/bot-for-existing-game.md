@@ -352,8 +352,8 @@ and leave the same in `README.md`.
 
 **The game's subnet, first.** The bot's canister goes on the same
 subnet as the game's backend: the backend asks the bot once per
-action, a whole chain of follow-up moves included, and an ask across
-subnets takes seconds where one inside a subnet is quick. Before
+action, and an ask across subnets takes seconds where one inside a
+subnet is quick. Before
 creating any canister for the bot, look the backend's subnet up:
 
 ```bash

@@ -129,63 +129,37 @@ squares.
 
 ## Follow-up moves
 
-An action that earns the same seat another one — dots and boxes'
-line closing a box, battleship's hit — is a repeat turn on the server
-(`resolve` keeps `toMove`). Each action is still one `step`, and the
-engine runs `move` on every one of them.
+An action that earns the same seat another one — dots and boxes' line
+closing a box, a capture that moves again — works as one action per
+`move` with `resolve` keeping `toMove`, but then every follow-up is a
+round trip with the board locked while it is out. When the mover can
+tell whether the turn continues (nothing hidden or random decides it),
+make the `Action` the whole turn instead, as checkers' `#jump { path }`
+is the whole capture chain. Dots and boxes' `#draw { lines : [Nat] }`
+carries every line of the turn in order; `move` checks them one by one
+(every line but the last must close a box, the last must not unless it
+fills the board) and then passes the turn. A turn is one submit, one
+`step` and one bot ask, seats strictly alternate, and `State` records
+the whole turn (`lastTurn : [Nat]`) so the opponent's page replays it
+in order.
 
-A client may send several actions of one turn in one call,
-`duel_submit_moves(tableId, gen, step, actions)`, stamped with the
-`step` before the first. The engine applies them in order and stops at
-the first that is illegal, comes after the turn has passed, or comes
-after the game ended: the actions before it stay applied, the rest are
-dropped, and only a failing FIRST action is the call's error. A batch
-is one step for timing: a bot's `lastStepDurationNs` is the whole
-batch's, and its `opponentLastMove` the batch's last applied action. A
-`#simultaneous` game takes exactly one action per call. The method is
-opt-in: a host whose actions can grant another turns on the FOLLOW-UP
-lines of `templates/Host.mo.template`; any other host leaves it out.
-
-On the page this is one hook. When the outcome of an action is
-deterministic, write `localToMove(gameState)` beside `applyLocal`: the
-seat on turn in the board `applyLocal` drew, `null` once that board
-cannot tell (it is full, the game is over).
-
-```js
-localToMove(gameState) {
-  const board = unpack(gameState);
-  return board.lines.some((l) => l === null) ? board.toMove : null;
-},
-```
-
-With both hooks, `start()` keeps the move buttons live while a submit is
-in flight and the predicted board still has this seat on turn. Each
-further click is drawn at once and queued (`ClientState.queued`), and
-the whole queue goes out as one call when the reply lands, so a chain
-of N actions takes about two round trips instead of N. If the reply
-shows the turn already passed, the queue is dropped and the board shows
-the truth; each queued click resolves with its own move's fate, so one
-the engine dropped from the batch resolves `CallOutcome` reason
-`"dropped"` too. A custom UI over `createDuelClient` gets the same by
-passing `plugin` to it and drawing `state.predicted`.
-`client.submitMoves(moves)` sends a turn it planned itself; without
-`localToMove` the board shows only its first action until the reply.
+The page builds the turn locally, the way checkers builds a jump chain.
+A click that grants another action is local state: a plain button the
+plugin's own listener handles, adding the action to a draft and
+redrawing the board with the draft applied (and offering to take the
+last one back). The click that ends the turn is a real `data-act`
+button carrying the draft plus that action, so `app.js` submits the
+whole turn unchanged, and `applyLocal` applies it all while it is in
+flight. The draft belongs to the board it was drawn on: a new view
+clears it. `examples/dots-and-boxes/frontend/src/dots-and-boxes-plugin.js`
+is the worked example; its `play-test.mjs` drives the same clicks
+headlessly. The claim clock runs over the whole turn, as over any move.
 
 When the outcome is hidden from the mover (battleship: a shot's hit or
-miss), the page cannot know whether the turn continues: `localToMove`
-returns `null` (or is left out), each shot goes as its own call, and the
-player sees the result before choosing the next one. That needs nothing
-beyond the repeat turn itself.
+miss), the page cannot know whether the turn continues: keep one action
+per call, let `resolve` keep `toMove` on a hit, and the player sees each
+result before choosing the next shot.
 
-Show the opponent's whole turn, not only its last action: keep the
-latest turn's actions on `State` (`lastTurn : [Action]`, or the game's
-own shape such as the line indices `lastTurn : [Nat]`), appended while
-the same seat keeps moving and restarted when the turn passes, so the
-plugin replays them in order. `examples/dots-and-boxes` keeps only
-`lastLine`, so its plugin diffs consecutive boards and animates a burst
-of new lines ending on `lastLine`. Adding such a field to a game that is
-already live changes its stable `State` type: that is an actor migration
-or a reinstall (`changing-a-live-game.md`).
-
-A canister bot is asked once per action, also within a chain, so its
-canister belongs on the game's subnet (`canister-player-bots.md`).
+A bot answers with the whole turn too: pick the actions one after
+another over the rules' own helper (dots and boxes' `drawLine`) until
+one ends the turn.

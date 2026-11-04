@@ -28,9 +28,9 @@
 /// Mutation is by update, one at a time from a client (two in-flight
 /// update calls have no ordering guarantee): the lobby functions
 /// (create/join/rematch/leave/reset/claimWin/ackEnded) answer an `Ack`
-/// (the table and its `rev` after the call), `submit`/`submitMoves` the
-/// fresh view of its table. Each bumps its table's `rev`; all but the
-/// submits also bump the lobby's. After every mutation the leaderboard is scored (on a
+/// (the table and its `rev` after the call), `submit` the fresh view of
+/// its table. Each bumps its table's `rev`; all but `submit` also bump
+/// the lobby's. After every mutation the leaderboard is scored (on a
 /// fresh debrief) and canister players are settled.
 ///
 /// Presence only keeps a waiting table open: a client waiting at a table
@@ -42,8 +42,7 @@
 /// come from `./transport_actor_mixin` (a mixin cannot take type
 /// parameters), through `duel.lobby(env)`; the host declares the four
 /// that do (`duel_create_table`, `duel_lobby`, `duel_submit`,
-/// `duel_table`), plus `duel_submit_moves` when an action can grant
-/// another — see the skill's `templates/Host.mo.template`.
+/// `duel_table`) — see the skill's `templates/Host.mo.template`.
 
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
@@ -119,7 +118,7 @@ module {
   /// One table's view for the caller, at the table's `rev`.
   public type Snapshot<V> = { rev : Nat; view : TP.TableView<V> };
 
-  /// What `duel_submit` and `duel_submit_moves` return.
+  /// What `duel_submit` returns.
   public type Reply<V> = { #view : Snapshot<V>; #err : TP.Err };
 
   /// What `duel_table` returns: `#unchanged` while the table is still at
@@ -336,12 +335,7 @@ module {
   /// `duel_submit`'s reply (two steps because an `async*` result must be
   /// a shared type, which the generic `Reply<V>` is not).
   public func submit<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, gen : Nat, step : Nat, move : M) : async* ?TP.Err {
-    await* submitMoves<system, S, M, V, O>(self, env, caller, id, gen, step, [move]);
-  };
-
-  /// `submit` for several actions of one turn; see `Table.submitMoves`.
-  public func submitMoves<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, gen : Nat, step : Nat, moves : [M]) : async* ?TP.Err {
-    switch (await* mutate<system, S, M, V, O>(self, env, caller, false, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.submitMoves(env.spec, self.rng, now, p, id, gen, step, moves), id))) {
+    switch (await* mutate<system, S, M, V, O>(self, env, caller, false, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.submit(env.spec, self.rng, now, p, id, gen, step, move), id))) {
       case (#ok _) null;
       case (#err e) ?e;
     };

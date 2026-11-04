@@ -5,17 +5,20 @@
 //
 // The board is an SVG sheet of paper: dots, pencil lines coloured by the
 // seat that drew them, and a scribble over every claimed box. Undrawn
-// lines are transparent `<button data-act>` hit areas laid over the SVG
-// while it is this seat's turn, so a click is a real move for app.js to
-// submit. New lines and boxes since the previous render animate in (a
-// line draws itself, a box gets scribbled) with a pencil sound; the most
-// recent line (`lastLine`) keeps a soft halo, live and on the debrief,
-// so the opponent's move is never lost. `applyLocal` mirrors `resolve`
-// so your own line appears the instant you click it, and `localToMove`
-// lets the next line of a chain be clicked before the reply lands (the
-// client sends the queued lines together).
+// lines are transparent hit areas laid over the SVG while it is this
+// seat's turn. An action is a whole turn, built here: a line that closes
+// a box is a plain `data-line` button that adds it to the local `draft`
+// (drawn at once; clicking the draft's last line takes it back), and a
+// line that ends the turn is a real `<button data-act>` carrying the
+// draft plus that line, for app.js to submit. New lines and boxes since
+// the previous render animate in (a line draws itself, a box gets
+// scribbled) with a pencil sound; the lines of the last turn
+// (`lastTurn`) keep a soft halo, live and on the debrief, so the
+// opponent's move is never lost. `applyLocal` mirrors `move` so the
+// whole turn stays drawn while it is in flight.
 
 import { actionAttr, esc } from "@research-ag/duel-game-core/render.js";
+import { morph } from "./morph-screen.js";
 import { playFinish, playScribble, playStroke } from "./sounds.js";
 
 const SEAT_NAME = { p1: "Blue", p2: "Red" };
@@ -33,9 +36,6 @@ const HIT_INSET = 14; // keeps hit areas clear of the dots
 // `opt Seat` decodes to `[] | [{ p1: null }]`.
 function seatOf(cell) {
   return cell && cell.length ? Object.keys(cell[0])[0] : null;
-}
-function optNat(o) {
-  return o && o.length ? Number(o[0]) : null;
 }
 function tagOf(v) {
   return Object.keys(v)[0];
@@ -88,8 +88,37 @@ function unpack(gameState) {
     lines: gameState.lines.map(seatOf),
     boxes: gameState.boxes.map(seatOf),
     toMove: tagOf(gameState.toMove),
-    lastLine: optNat(gameState.lastLine),
+    lastTurn: gameState.lastTurn.map(Number),
   };
+}
+
+const opt = (seat) => (seat === null ? [] : [{ [seat]: null }]);
+
+function pack(gameState, board) {
+  return {
+    ...gameState,
+    lines: board.lines.map(opt),
+    boxes: board.boxes.map(opt),
+    toMove: { [board.toMove]: null },
+    lastTurn: board.lastTurn.map(BigInt),
+  };
+}
+
+// Mirrors `drawLine`: `seat` draws `line` and claims the boxes it closes.
+function drawLine(board, seat, line) {
+  const lines = board.lines.slice();
+  lines[line] = seat;
+  const closed = boxesOfLine(board.n, line).filter((b) => board.boxes[b] === null && boxSides(board.n, b).every((s) => lines[s] !== null));
+  const boxes = board.boxes.slice();
+  for (const b of closed) boxes[b] = seat;
+  return { board: { ...board, lines, boxes }, closed: closed.length > 0 };
+}
+
+// Whether `line` lets `seat` draw again: it closes a box and the board
+// is not full after it.
+function drawsAgain(board, seat, line) {
+  const r = drawLine(board, seat, line);
+  return r.closed && r.board.lines.some((l) => l === null);
 }
 
 function countBoxes(boxes, seat) {
@@ -197,10 +226,9 @@ function diffBoard(board, mySeat, over) {
     board.boxes.forEach((b, i) => {
       if (b !== null && prev.boxes[i] === null) freshBoxes.push(i);
     });
-    // The view keeps no draw order, only the most recent line: animate it
-    // last so a burst of bot moves ends on the line that was drawn last.
-    const k = freshLines.indexOf(board.lastLine);
-    if (k >= 0) freshLines.push(...freshLines.splice(k, 1));
+    // The last turn's lines animate last, in the order they were drawn.
+    const turn = board.lastTurn.filter((i) => freshLines.includes(i));
+    freshLines.splice(0, freshLines.length, ...freshLines.filter((i) => !turn.includes(i)), ...turn);
   }
   prev = { n: board.n, lines: board.lines.slice(), boxes: board.boxes.slice(), over };
   return { freshLines, freshBoxes, newGame };
@@ -246,7 +274,7 @@ function drawScore(board, mySeat, over) {
 }
 
 function drawBoard(board, mySeat, yourTurn, diff) {
-  const { n, lines, boxes, lastLine } = board;
+  const { n, lines, boxes, lastTurn } = board;
   const S = n * U + 2 * PAD;
   const fresh = new Set(diff.freshLines);
   const freshBox = new Set(diff.freshBoxes);
@@ -272,10 +300,10 @@ function drawBoard(board, mySeat, yourTurn, diff) {
     const d = linePath(n, i);
     const isFresh = fresh.has(i);
     const order = isFresh ? diff.freshLines.indexOf(i) : 0;
-    const isLast = i === lastLine;
+    const isLast = lastTurn.includes(i);
     if (isLast) linesSvg += `<path class="dab-halo dab-${owner}" d="${d}" />`;
     linesSvg += `<path class="dab-line dab-${owner}${isFresh ? " dab-fresh" : ""}${isLast ? " dab-last" : ""}" pathLength="1" d="${d}" style="--i:${order}"><title>${esc(
-      `${SEAT_NAME[owner]} drew this${isLast ? " (latest move)" : ""}`,
+      `${SEAT_NAME[owner]} drew this${isLast ? " (latest turn)" : ""}`,
     )}</title></path>`;
   });
 
@@ -290,11 +318,15 @@ function drawBoard(board, mySeat, yourTurn, diff) {
   let hits = "";
   if (yourTurn) {
     lines.forEach((owner, i) => {
-      if (owner !== null) return;
-      hits += `<button type="button" class="dab-hit dab-hit-${lineAt(n, i).kind}" ${actionAttr({ draw: { line: i } })} style="${hitStyle(
-        n,
-        i,
-      )}" aria-label="Draw the line on ${esc(lineLabel(n, i))}" title="Draw this line"></button>`;
+      const at = `class="dab-hit dab-hit-${lineAt(n, i).kind}" style="${hitStyle(n, i)}"`;
+      const where = esc(lineLabel(n, i));
+      if (owner === null && drawsAgain(board, mySeat, i)) {
+        hits += `<button type="button" ${at} data-line="${i}" aria-label="Draw the line on ${where} and draw again" title="Closes a box: draw again"></button>`;
+      } else if (owner === null) {
+        hits += `<button type="button" ${at} ${actionAttr({ draw: { lines: [...draft, i] } })} aria-label="Draw the line on ${where}, ending your turn" title="Draw this line"></button>`;
+      } else if (i === draft[draft.length - 1]) {
+        hits += `<button type="button" ${at} data-undo aria-label="Take back the line on ${where}" title="Take back this line"></button>`;
+      }
     });
   }
 
@@ -315,13 +347,50 @@ function drawBoard(board, mySeat, yourTurn, diff) {
     </div>`;
 }
 
+// ── the turn being built ────────────────────────────────────────────────
+
+// Lines of this seat's turn so far, every one closing a box; they belong
+// to the board they were drawn on (`draftKey`) and vanish with it.
+let draft = [];
+let draftKey = null;
+let shown = null; // the last renderBoard's arguments, for a local redraw
+
+function boardKey(board, mySeat) {
+  return `${mySeat}:${board.lines.map((l) => l ?? "-").join(",")}`;
+}
+
+function rerender() {
+  const el = document.querySelector(".dab-game");
+  if (el && shown) morph(el, plugin.renderBoard(...shown));
+}
+
+// What a `data-line` and a `data-undo` click do; the next `renderBoard`
+// of the same board draws the result.
+export function drawAgain(line) {
+  draft.push(line);
+}
+export function takeBack() {
+  draft.pop();
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("click", (ev) => {
+    const b = ev.target.closest(".dab-board button");
+    if (!b || b.disabled) return;
+    if (b.dataset.line !== undefined) drawAgain(Number(b.dataset.line));
+    else if ("undo" in b.dataset) takeBack();
+    else return;
+    rerender();
+  });
+}
+
 // ── the plugin ──────────────────────────────────────────────────────────
 
 export const plugin = {
   idlTypes({ IDL }) {
     const Seat = IDL.Variant({ p1: IDL.Null, p2: IDL.Null });
     const Action = IDL.Variant({
-      draw: IDL.Record({ line: IDL.Nat }),
+      draw: IDL.Record({ lines: IDL.Vec(IDL.Nat) }),
     });
     // Nothing is hidden: the view is the whole state.
     const View = IDL.Record({
@@ -329,7 +398,7 @@ export const plugin = {
       lines: IDL.Vec(IDL.Opt(Seat)),
       boxes: IDL.Vec(IDL.Opt(Seat)),
       toMove: Seat,
-      lastLine: IDL.Opt(IDL.Nat),
+      lastTurn: IDL.Vec(IDL.Nat),
     });
     const Options = IDL.Record({ size: IDL.Nat });
     return { Action, View, Options };
@@ -350,13 +419,19 @@ export const plugin = {
   },
 
   // Called for a live game and for a debrief's final state. `yourTurn` is
-  // undefined in a debrief, which draws no hit areas.
+  // undefined in a debrief, which draws no hit areas. On this seat's turn
+  // the board is drawn with the draft applied.
   renderBoard(gameState, mySeat, oppSeat, yourTurn) {
-    const board = unpack(gameState);
+    shown = [gameState, mySeat, oppSeat, yourTurn];
+    let board = unpack(gameState);
+    const key = boardKey(board, mySeat);
+    if (yourTurn !== true || key !== draftKey) draft = [];
+    draftKey = key;
+    for (const line of draft) board = drawLine(board, mySeat, line).board;
     const diff = diffBoard(board, mySeat, yourTurn === undefined);
     playSounds(board, diff);
     const over = board.lines.every((l) => l !== null);
-    return drawScore(board, mySeat, over) + drawBoard(board, mySeat, yourTurn === true, diff);
+    return `<div class="dab-game">${drawScore(board, mySeat, over)}${drawBoard(board, mySeat, yourTurn === true, diff)}</div>`;
   },
 
   // Every move lives on the board itself.
@@ -364,32 +439,18 @@ export const plugin = {
     return "";
   },
 
-  // Mirrors `resolve`: the line gets the mover's colour, any box it closes
-  // becomes theirs, and the turn stays with them only if one did.
+  // Mirrors `move`: the turn's lines in order, every box they close
+  // becomes the mover's, then the turn passes.
   applyLocal(gameState, mySeat, move) {
     if (!("draw" in move)) return null;
-    const line = Number(move.draw.line);
-    const board = unpack(gameState);
-    if (line >= board.lines.length || board.lines[line] !== null) return null;
-    const lines = board.lines.slice();
-    lines[line] = mySeat;
-    const closed = boxesOfLine(board.n, line).filter((b) => board.boxes[b] === null && boxSides(board.n, b).every((s) => lines[s] !== null));
-    const boxes = board.boxes.slice();
-    for (const b of closed) boxes[b] = mySeat;
-    const toMove = closed.length > 0 ? mySeat : mySeat === "p1" ? "p2" : "p1";
-    const opt = (seat) => (seat === null ? [] : [{ [seat]: null }]);
-    return {
-      ...gameState,
-      lines: lines.map(opt),
-      boxes: boxes.map(opt),
-      toMove: { [toMove]: null },
-      lastLine: [BigInt(line)],
-    };
-  },
-
-  // Whose turn the board `applyLocal` drew says it is; null once it is full.
-  localToMove(gameState) {
-    const board = unpack(gameState);
-    return board.lines.some((l) => l === null) ? board.toMove : null;
+    const turn = move.draw.lines.map(Number);
+    let board = unpack(gameState);
+    for (const [k, line] of turn.entries()) {
+      if (line >= board.lines.length || board.lines[line] !== null) return null;
+      if (drawsAgain(board, mySeat, line) !== k + 1 < turn.length) return null;
+      board = drawLine(board, mySeat, line).board;
+    }
+    if (turn.length === 0) return null;
+    return pack(gameState, { ...board, toMove: mySeat === "p1" ? "p2" : "p1", lastTurn: turn });
   },
 };

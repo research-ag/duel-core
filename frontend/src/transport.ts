@@ -8,8 +8,7 @@
 // still current. The transport follows one table at a time — the newest
 // of `yours` — or the lobby when there is none, and composes what it sees
 // into the `Status` a client renders. A move is one `duel_submit` update
-// (several actions of one turn, `duel_submit_moves`) whose reply is the
-// table's fresh view; every other mutation
+// whose reply is the table's fresh view; every other mutation
 // (`duel_create_table`, ...) replies with an `Ack` (the table and its
 // `rev`), after which the view is polled until it has caught up. A
 // `#status` request is a resync by query. While the caller waits at a
@@ -90,8 +89,7 @@ export type LobbyResult =
   | { changed: { rev: bigint; tables: TableSummary[]; yours: bigint[] } };
 
 /// The methods of a host wired with `mo:duel-game-core/transport`:
-/// `duel_submit`/`duel_table` (and, for a game with follow-up moves,
-/// `duel_submit_moves`) declared by the host, the rest from
+/// `duel_submit`/`duel_table` declared by the host, the rest from
 /// `transport_actor_mixin`. The caller is the player.
 export interface TransportActor {
   duel_create_table(seat: Seat, visibility: Visibility, options: unknown): Promise<Ack>;
@@ -103,7 +101,6 @@ export interface TransportActor {
   duel_ack_ended(tableId: bigint): Promise<Ack>;
   duel_keep_alive(): Promise<{ ok: null } | { err: EngineErr }>;
   duel_submit(tableId: bigint, gen: bigint, step: bigint, move: unknown): Promise<Reply>;
-  duel_submit_moves(tableId: bigint, gen: bigint, step: bigint, moves: unknown[]): Promise<Reply>;
   duel_lobby(rev: bigint): Promise<LobbyResult>;
   duel_table(tableId: bigint, rev: bigint): Promise<TableResult>;
 }
@@ -394,10 +391,6 @@ export class DuelTransport extends EventTarget implements Transport {
       const { gen, step, move } = req.submit;
       return a.duel_submit(id, gen, step, move);
     }
-    if ("submitMoves" in req) {
-      const { gen, step, moves } = req.submitMoves;
-      return a.duel_submit_moves(id, gen, step, moves);
-    }
     if ("rematch" in req) return a.duel_rematch(id);
     if ("leave" in req) return a.duel_leave(id, req.leave.gen);
     if ("reset" in req) return a.duel_reset(id, req.reset.gen);
@@ -479,7 +472,7 @@ export class DuelTransport extends EventTarget implements Transport {
           throw e;
         }
       } else {
-        // `duel_submit`'s (or `duel_submit_moves`') own view of the table.
+        // `duel_submit`'s own view of the table it was about.
         const id = target as bigint;
         this._follow(id);
         this._show(id, res.view.rev, { atTable: { id, view: res.view.view } } as Status);

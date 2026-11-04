@@ -1,5 +1,6 @@
-/// BotLogic — how the Dots & Boxes bot picks a line, as a pure module
-/// (no actor, no Time, no storage) so `test/Bot.test.mo` can call it.
+/// BotLogic — how the Dots & Boxes bot plays a turn, as a pure module
+/// (no actor, no Time, no storage) so `test/Bot.test.mo` can call it. A
+/// turn is picked line by line: each line that closes a box picks again.
 ///
 /// Two ways to play, declared in `COMPLEXITIES` and chosen per game:
 ///   Easy  takes a box when one is offered (any line that closes a box),
@@ -29,8 +30,16 @@ module {
 
   public func chooseMove(req : TP.MoveRequest<Rules.View, Rules.Action>, seed : Int) : Rules.Action {
     let salt = Int.abs(seed) + req.step * 7919 + (switch (req.seat) { case (#p1) 0; case (#p2) 104_729 });
-    let line = if (req.complexity == "Hard") hardLine(req.game, req.seat, salt) else easyLine(req.game, req.seat, salt);
-    #draw { line };
+    let turn = List.empty<Nat>();
+    var cur = req.game;
+    label drawing loop {
+      let line = if (req.complexity == "Hard") hardLine(cur, req.seat, salt + turn.size()) else easyLine(cur, req.seat, salt + turn.size());
+      turn.add(line);
+      let r = Rules.drawLine(cur, req.seat, line);
+      cur := r.state;
+      if (not r.closed or Rules.isFull(cur)) break drawing;
+    };
+    #draw { lines = turn.toArray() };
   };
 
   // ── board reading ──────────────────────────────────────────────────────
@@ -55,7 +64,7 @@ module {
   /// Whether `line` gives some box its third side (an offer to the opponent).
   public func givesThirdSide(s : Rules.State, line : Nat) : Bool = Rules.boxesOfLine(s.size, line).any(func(b) = s.boxes[b] == null and drawnSides(s, b) == 2);
 
-  func after(s : Rules.State, seat : TP.Seat, line : Nat) : Rules.State = Rules.resolve(s, seat, #draw { line }).state;
+  func after(s : Rules.State, seat : TP.Seat, line : Nat) : Rules.State = Rules.drawLine(s, seat, line).state;
 
   /// How many boxes a greedy opponent collects after `seat` draws `line`:
   /// the opponent keeps closing three-sided boxes until none is left.

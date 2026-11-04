@@ -1,7 +1,7 @@
 // Checks for `transport.mo`: a `Duel` driven by two principals — revs and
 // `#unchanged`, the lobby's `yours`, the table cap, the anonymous caller,
-// a waiting table kept open by `keepAlive` through a `sweep`, a debrief
-// scored once, and `submitMoves` batches.
+// a waiting table kept open by `keepAlive` through a `sweep`, and a
+// debrief scored once.
 import Debug "mo:core/Debug";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
@@ -10,7 +10,6 @@ import Runtime "mo:core/Runtime";
 import Time "mo:core/Time";
 
 import Rules "FakeGame";
-import TurnRules "FakeTurnGame";
 import Leaderboard "../src/leaderboard";
 import Registry "../src/registry";
 import TP "../src/lib";
@@ -169,93 +168,6 @@ do {
   await* Transport.afterMutation<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(duel, scored, now, tableId, true);
   check(Leaderboard.scoreOf(board, PB.toText()) == afterEnd, "6b: the ack must not score the debrief again");
   Debug.print("6. a debrief is scored once OK");
-};
-
-// ── 7. submitMoves through a `Duel`: one rev per applied batch ───────────
-do {
-  type TD = Transport.Duel<TurnRules.State, TurnRules.Action, TurnRules.Options>;
-  type TEnv = Transport.Env<TurnRules.State, TurnRules.Action, TurnRules.View, TurnRules.Options>;
-  let board = Leaderboard.new(10, 1200);
-  let tenv : TEnv = {
-    spec = TurnRules.spec();
-    bots = null;
-    scoring = ?{ board; rating = #elo { k = 32 } };
-  };
-  let duel : TD = Transport.new<TurnRules.State, TurnRules.Action, TurnRules.Options>();
-  duel.registry.setTimeouts(60 * SEC, 30 * SEC);
-  func batch<system>(caller : Principal.Principal, id : TP.TableId, step : Nat, moves : [TurnRules.Action]) : async* Transport.Reply<TurnRules.View> {
-    let gen = switch (duel.registry.tables.get(id)) {
-      case (?t) t.gen;
-      case null Runtime.trap("7: no table");
-    };
-    duel.reply(tenv, caller, id, await* duel.submitMoves<system, TurnRules.State, TurnRules.Action, TurnRules.View, TurnRules.Options>(tenv, caller, id, gen, step, moves));
-  };
-  func revOf(id : TP.TableId) : Nat = switch (duel.registry.tables.get(id)) {
-    case (?t) t.rev;
-    case null Runtime.trap("7: no table");
-  };
-  let { tableId } = acked(await* duel.createTable<system, TurnRules.State, TurnRules.Action, TurnRules.View, TurnRules.Options>(tenv, PA, #p1, #open, ""), "7: PA creates");
-  ignore acked(await* duel.joinTable<system, TurnRules.State, TurnRules.Action, TurnRules.View, TurnRules.Options>(tenv, PB, tableId, #p2, null), "7: PB joins");
-  let rev0 = revOf(tableId);
-  let lobby0 = lobbyOf(duel.lobbyView(PA, 0)).rev;
-
-  // (a) A failing first action is the call's error and moves no rev.
-  switch (await* batch<system>(PA, tableId, 0, [#winNow, #inc])) {
-    case (#err(#illegalMove _)) {};
-    case (other) Runtime.trap("7a: a failing first action must be #illegalMove, got " # debug_show other);
-  };
-  check(revOf(tableId) == rev0, "7a: a rejected batch moves no table rev");
-  check(duel.table(tenv, PB, tableId, rev0) == #unchanged, "7a: ...so the opponent's poll is #unchanged");
-  check(duel.lobbyView(PA, lobby0) == #unchanged, "7a: ...nor the lobby's");
-
-  // (b) The turn passes mid-chain: the rest is dropped, one rev bump.
-  let rev1 = switch (await* batch<system>(PA, tableId, 0, [#again, #inc, #inc])) {
-    case (#view { rev; view = #inGame v }) {
-      check(v.step == 2 and v.game.count == 2, "7b: two actions applied, the third dropped");
-      check(v.toMove == ?#p2 and v.youSubmitted, "7b: the reply shows the turn passed");
-      rev;
-    };
-    case (other) Runtime.trap("7b: expected the fresh in-game view, got " # debug_show other);
-  };
-  check(rev1 == rev0 + 1 and revOf(tableId) == rev1, "7b: a batch bumps the table rev exactly once");
-  switch (duel.table(tenv, PB, tableId, rev0)) {
-    case (#changed { rev; view = #inGame v }) check(rev == rev1 and v.step == 2 and not v.youSubmitted, "7b: PB sees the batch at the new rev");
-    case (other) Runtime.trap("7b: PB's old rev must get the new view, got " # debug_show other);
-  };
-  check(duel.table(tenv, PB, tableId, rev1) == #unchanged, "7b: ...and #unchanged at it");
-
-  // (c) A batch that ends the game: the debrief, scored once.
-  switch (await* batch<system>(PB, tableId, 2, [#again, #winNow, #inc])) {
-    case (#view { rev; view = #debrief d }) {
-      check(rev == rev1 + 1, "7c: the ending batch bumps the rev once");
-      check(d.end == #finished(#p2Wins) and d.steps == 4, "7c: the game ends on the second action");
-    };
-    case (other) Runtime.trap("7c: expected the debrief, got " # debug_show other);
-  };
-  switch (duel.table(tenv, PA, tableId, rev1)) {
-    case (#changed { view = #debrief { end = #finished(#p2Wins) } }) {};
-    case (other) Runtime.trap("7c: PA must see the debrief, got " # debug_show other);
-  };
-  check(Leaderboard.scoreOf(board, PB.toText()) > 1200, "7c: the winner is scored");
-  check(Leaderboard.scoreOf(board, PA.toText()) < 1200, "7c: ...and the loser");
-  Debug.print("7. submitMoves through a Duel OK");
-};
-
-// ── 8. #simultaneous takes one action per call through the transport ─────
-do {
-  let duel = fresh();
-  let { tableId } = acked(await* create<system>(duel, PA, ""), "8: PA creates");
-  let { rev } = acked(await* join<system>(duel, PB, tableId), "8: PB joins");
-  let gen = switch (duel.registry.tables.get(tableId)) {
-    case (?t) t.gen;
-    case null Runtime.trap("8: no table");
-  };
-  switch (await* duel.submitMoves<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, PA, tableId, gen, 0, [#gather, #gather])) {
-    case (?(#illegalMove _)) {};
-    case (other) Runtime.trap("8a: two actions in one step must be #illegalMove, got " # debug_show other);
-  };
-  check(tableOf(duel, PB, tableId, rev) == #unchanged, "8b: the rejected batch moves no rev");
-  Debug.print("8. #simultaneous rejects a batch OK");
 };
 
 Debug.print("ALL TRANSPORT CHECKS PASSED");

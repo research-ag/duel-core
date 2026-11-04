@@ -8,9 +8,7 @@
 
 import type {
   Transport,
-  DebriefView,
   EngineErr,
-  GamePlugin,
   InGameView,
   Seat,
   SeatTag,
@@ -179,129 +177,43 @@ export interface PendingCall {
   req: TransportRequest;
 }
 
-/// The move a pending `submit` carries (the first of a `submitMoves`), or
-/// null for any other call.
+/// The move a pending `submit` carries, or null for any other call.
 export function pendingMoveOf<A = unknown>(pending: PendingCall | null): A | null {
-  const moves = pendingMovesOf<A>(pending);
-  return moves.length > 0 ? moves[0] : null;
+  return pending !== null && "submit" in pending.req ? (pending.req.submit.move as A) : null;
 }
 
-/// Every move a pending `submit`/`submitMoves` carries, in order; `[]` for
-/// any other call.
-export function pendingMovesOf<A = unknown>(pending: PendingCall | null): A[] {
-  return pending === null ? [] : movesOf<A>(pending.req);
-}
-
-function movesOf<A>(req: TransportRequest): A[] {
-  if ("submit" in req) return [req.submit.move as A];
-  if ("submitMoves" in req) return req.submitMoves.moves as A[];
-  return [];
-}
-
-/// `submit` for one move, `submitMoves` for several, so a host without
-/// `duel_submit_moves` still takes single moves.
-export function submitRequest<A>(gen: bigint, step: bigint, moves: readonly A[]): TransportRequest<A> {
-  return moves.length === 1 ? { submit: { gen, step, move: moves[0] } } : { submitMoves: { gen, step, moves: [...moves] } };
-}
-
-function isSubmit(req: TransportRequest): boolean {
-  return "submit" in req || "submitMoves" in req;
-}
-
-function submitStamp(req: TransportRequest): { gen: bigint; step: bigint } | null {
-  if ("submit" in req) return req.submit;
-  if ("submitMoves" in req) return req.submitMoves;
-  return null;
-}
-
-// How many of a submit's moves the engine applied: the reply's step (a
-// debrief's `steps`) less the step the call was stamped with, capped at
-// `planned`, the moves the local rules keep the seat on turn for. An
-// opponent's answer inside the same reply (a canister bot) adds steps
-// only once the turn passed, which the cap already counts.
-function appliedOf(req: TransportRequest, view: Status<unknown>, planned: number): number {
-  const stamp = submitStamp(req);
-  const n = Math.min(planned, movesOf(req).length);
-  if (stamp === null) return 0;
-  const g = viewOf<InGameView>(view, "inGame");
-  const d = viewOf<DebriefView>(view, "debrief");
-  const after = g !== null && g.gen === stamp.gen ? g.step : d !== null && d.gen === stamp.gen ? d.steps : null;
-  return after === null ? n : Math.max(0, Math.min(n, Number(after - stamp.step)));
-}
-
-// `moves` played on `game` one after another while `localToMove` keeps
-// `seat` on turn (only the first without it), stopping at the first
-// `applyLocal` rejects.
-function replayLocal<S, A>(
-  game: S,
-  seat: SeatTag,
-  moves: readonly A[],
-  applyLocal: (gameState: S, mySeat: SeatTag, move: A) => S | null,
-  localToMove: ((gameState: S) => SeatTag | null) | undefined,
-): { game: S; applied: number } {
-  let applied = 0;
-  for (const move of moves) {
-    if (applied > 0 && (!localToMove || localToMove(game) !== seat)) break;
-    const next = applyLocal(game, seat, move);
-    if (next === null) break;
-    game = next;
-    applied++;
-  }
-  return { game, applied };
-}
-
-export interface LocalMoveOptions<S, A = unknown> {
-  /// Moves accepted behind the pending submit (`ClientState.queued`).
-  queued?: readonly A[];
-  /// `GamePlugin.localToMove`: with it, the seat stays on turn while the
-  /// predicted board says so.
-  localToMove?: (gameState: S) => SeatTag | null;
-}
-
-/// `status` as it will look once the pending submit (and any queued
-/// follow-up moves) lands: the board through `applyLocal`, one move after
-/// another while `localToMove` keeps the seat on turn, and the seat
-/// flipped to waiting unless it still does. Unchanged when nothing is
-/// pending, `applyLocal` returns null for the first move, or `status`
-/// already moved past the view the move was stamped against (gen/step
-/// changed, or the move is already in). Without `localToMove` only the
-/// first move is shown (the client cannot tell when the turn passes), and
-/// a `turnBased` seat is shown as waiting until the reply says whose turn
-/// it is — the rules may keep the mover on turn. Display only — calls
-/// keep reading the real status; `ClientState.predicted` holds the
-/// client's own result.
-/// See ../README.md, "Showing moves" and "Follow-up moves".
+/// `status` as it will look once the pending `submit` lands: the board
+/// through `applyLocal`, and the seat flipped to waiting. Unchanged when
+/// nothing is pending, `applyLocal` returns null, or `status` already moved
+/// past the view the move was stamped against (gen/step changed, or the
+/// move is already in). In `turnBased` the seat is shown as waiting until
+/// the reply says whose turn it is — the rules may keep the mover on
+/// turn. Display only — calls keep reading the real status.
+/// See ../README.md, "Showing moves".
 export function withLocalMove<S, A = unknown>(
   status: Status<S> | null,
   pending: PendingCall | null,
   applyLocal: ((gameState: S, mySeat: SeatTag, move: A) => S | null) | undefined,
-  { queued = [], localToMove }: LocalMoveOptions<S, A> = {},
 ): Status<S> | null {
-  const stamp = pending === null ? null : submitStamp(pending.req);
-  if (!applyLocal || stamp === null) return status;
+  if (!applyLocal || pending === null || !("submit" in pending.req)) return status;
   const at = atTableOf(status);
   const v = viewOf<InGameView<S>>(status, "inGame");
   if (at === null || v === null || v.youSubmitted) return status;
-  if (v.gen !== stamp.gen || v.step !== stamp.step) return status;
+  const { gen, step, move } = pending.req.submit;
+  if (v.gen !== gen || v.step !== step) return status;
+  const game = applyLocal(v.game, tag(v.seat) as SeatTag, move as A);
+  if (game === null) return status;
   const turnBased = "turnBased" in v.mode;
-  const seat = tag(v.seat) as SeatTag;
-  const moves = turnBased ? [...pendingMovesOf<A>(pending), ...queued] : pendingMovesOf<A>(pending).slice(0, 1);
-  const { game, applied } = replayLocal(v.game, seat, moves, applyLocal, localToMove);
-  if (applied === 0) return status;
-  const step = turnBased ? v.step + BigInt(applied) : v.step;
-  const local: InGameView<S> =
-    turnBased && localToMove?.(game) === seat
-      ? { ...v, game, step }
-      : {
-          ...v,
-          game,
-          step,
-          toMove: turnBased ? [] : v.toMove,
-          youSubmitted: true,
-          oppSubmitted: turnBased ? false : v.oppSubmitted,
-          claimWinAvailable: false,
-          secondsUntilClaimable: v.claimTimeoutSecs,
-        };
+  const local: InGameView<S> = {
+    ...v,
+    game,
+    step: turnBased ? v.step + 1n : v.step,
+    toMove: turnBased ? [] : v.toMove,
+    youSubmitted: true,
+    oppSubmitted: turnBased ? false : v.oppSubmitted,
+    claimWinAvailable: false,
+    secondsUntilClaimable: v.claimTimeoutSecs,
+  };
   return { atTable: { id: at.id, view: { inGame: local } } };
 }
 
@@ -314,19 +226,6 @@ export interface ClientState<S = unknown> {
   /// is only as fresh as that moment; see `localSecondsLeft`.
   statusAt: number;
   pending: PendingCall | null;
-  /// Follow-up moves accepted behind the pending submit, sent as one call
-  /// once its reply lands (or dropped when the turn has passed by then).
-  queued: readonly unknown[];
-  /// `status` as a screen draws it: with the pending submit and `queued`
-  /// applied through the `plugin`'s `applyLocal` (`withLocalMove`), or
-  /// `status` itself when nothing is overlaid. Recomputed only when
-  /// `status`, `pending` or `queued` changes, so it stays `===` across
-  /// any other change.
-  predicted: Status<S> | null;
-  /// A `submit` now would be queued behind the pending one: the predicted
-  /// board still has this seat on turn. Needs a `plugin` with both
-  /// `applyLocal` and `localToMove`; a UI keeps its move controls live.
-  followUp: boolean;
   /// A transient message (cleared after `errorTtlMs`), or the permanent
   /// "Connection closed." once `connection` is `"closed"`.
   error: string | null;
@@ -346,10 +245,6 @@ export type CallOutcome<S = unknown> =
   | { ok: false; reason: "rejected"; err: EngineErr; message: string }
   /// The transport failed; `message` is what `state.error` shows.
   | { ok: false; reason: "failed"; message: string }
-  /// A follow-up move that was not applied: the reply it waited on made it
-  /// moot (the turn passed, or that call failed) so it was never sent, or
-  /// the engine dropped it from its batch.
-  | { ok: false; reason: "dropped" }
   /// A `#wrongPhase` create/join or a `#stale` mutation: this tab's view
   /// was behind, a silent `refresh()` is on its way, nothing is shown.
   | { ok: false; reason: "stale" };
@@ -366,14 +261,7 @@ export interface DuelClient<S = unknown, A = unknown> {
 
   createTable(seat: SeatTag, visibility?: Visibility, options?: unknown): Promise<CallOutcome<S>>;
   joinTable(id: bigint, seat: SeatTag, code?: string | null): Promise<CallOutcome<S>>;
-  /// While `state.followUp`, the move is queued instead (`inFlight` when
-  /// `applyLocal` rejects it on the predicted board) and resolves with its
-  /// batch's outcome, or `dropped` when the engine did not apply it.
   submit(move: A): Promise<CallOutcome<S>>;
-  /// Several actions of one turn in one call, planned by the caller; the
-  /// engine applies them in order and drops the rest at the first that
-  /// fails or once the turn passes.
-  submitMoves(moves: A[]): Promise<CallOutcome<S>>;
   rematch(): Promise<CallOutcome<S>>;
   leave(): Promise<CallOutcome<S>>;
   reset(): Promise<CallOutcome<S>>;
@@ -404,9 +292,6 @@ export interface ClientOptions<S = unknown> {
   /// How long a transient error stays in `state.error`; default 5000, 0
   /// keeps it until `clearError()` or the next error.
   errorTtlMs?: number;
-  /// The game's local rules (a `GamePlugin` will do): with both hooks,
-  /// follow-up moves queue behind an in-flight submit.
-  plugin?: Pick<GamePlugin<S>, "applyLocal" | "localToMove">;
 }
 
 function safeJson(v: unknown): string {
@@ -423,7 +308,6 @@ export function pendingKeyOf(req: TransportRequest): string {
   if ("createTable" in req) return `create:${tag(req.createTable.seat)}`;
   if ("joinTable" in req) return `jointable:${req.joinTable.id}:${tag(req.joinTable.seat)}`;
   if ("submit" in req) return `act:${safeJson(req.submit.move)}`;
-  if ("submitMoves" in req) return `act:${safeJson(req.submitMoves.moves[0])}`;
   if ("rematch" in req) return "rematch";
   if ("leave" in req) return "leave";
   if ("reset" in req) return "reset";
@@ -438,11 +322,13 @@ function isStaleJoin(req: TransportRequest | null, err: EngineErr): boolean {
   return req !== null && ("createTable" in req || "joinTable" in req) && "wrongPhase" in err;
 }
 
-// `#stale` on a submit/leave/reset/claimWin: the stamped gen/step moved on
+// `#stale` on submit/leave/reset/claimWin: the stamped gen/step moved on
 // (typically a resend whose original landed).
 function isStaleMutation(req: TransportRequest | null, err: EngineErr): boolean {
   return (
-    req !== null && (isSubmit(req) || "leave" in req || "reset" in req || "claimWin" in req) && "stale" in err
+    req !== null &&
+    ("submit" in req || "leave" in req || "reset" in req || "claimWin" in req) &&
+    "stale" in err
   );
 }
 
@@ -456,7 +342,6 @@ export function createDuelClient<S = unknown, A = unknown>({
   transport,
   session,
   errorTtlMs = 5000,
-  plugin,
 }: ClientOptions<S>): DuelClient<S, A> {
   if (!transport) throw new Error("createDuelClient(): `transport` is required");
   if (!session) throw new Error("createDuelClient(): `session` is required");
@@ -467,9 +352,6 @@ export function createDuelClient<S = unknown, A = unknown>({
     status: null,
     statusAt: 0,
     pending: null,
-    queued: [],
-    predicted: null,
-    followUp: false,
     error: null,
     authPending: false,
     identityLocked: false,
@@ -482,24 +364,10 @@ export function createDuelClient<S = unknown, A = unknown>({
   const joinPending = (p: PendingCall | null): boolean =>
     p !== null && (p.key.startsWith("create:") || p.key.startsWith("jointable"));
 
-  const applyLocal = plugin?.applyLocal?.bind(plugin);
-  const localToMove = plugin?.localToMove?.bind(plugin);
-
-  function canFollowUp(s: ClientState<S>): boolean {
-    if (!canCorrelate || !applyLocal || !localToMove || s.pending === null || !isSubmit(s.pending.req)) return false;
-    if (s.connection === "closed") return false;
-    const v = viewOf<InGameView<S>>(s.predicted, "inGame");
-    return v !== null && "turnBased" in v.mode && !v.youSubmitted && localToMove(v.game) === tag(v.seat);
-  }
-
   function setState(patch: Partial<ClientState<S>>): void {
     const next = { ...state, ...patch };
-    if (next.status !== state.status || next.pending !== state.pending || next.queued !== state.queued) {
-      next.predicted = withLocalMove(next.status, next.pending, applyLocal, { queued: next.queued, localToMove });
-    }
     next.identityLocked =
       next.connection === "closed" || next.authPending || joinPending(next.pending) || isSeated(next.status);
-    next.followUp = canFollowUp(next);
     let changed = false;
     for (const k of Object.keys(next) as (keyof ClientState<S>)[]) {
       if (next[k] !== state[k]) {
@@ -547,7 +415,7 @@ export function createDuelClient<S = unknown, A = unknown>({
   function closed(): void {
     if (state.connection === "closed") return;
     clearErrorTimer();
-    setState({ connection: "closed", error: CONNECTION_CLOSED_MESSAGE, pending: null, ...dropQueue() });
+    setState({ connection: "closed", error: CONNECTION_CLOSED_MESSAGE, pending: null });
     settleFallback(null);
   }
 
@@ -556,22 +424,6 @@ export function createDuelClient<S = unknown, A = unknown>({
   // best a plain socket allows.
 
   const canCorrelate = typeof transport.request === "function";
-
-  // Follow-up moves. Each queued `submit` waits on the batch it goes out
-  // in; see ../README.md, "Follow-up moves".
-  let queueWaiters: ((o: CallOutcome<S>) => void)[] = [];
-
-  function takeWaiters(): ((o: CallOutcome<S>) => void)[] {
-    const w = queueWaiters;
-    queueWaiters = [];
-    return w;
-  }
-
-  // The patch that empties the queue; its moves resolve as `dropped`.
-  function dropQueue(): Partial<ClientState<S>> {
-    for (const w of takeWaiters()) w({ ok: false, reason: "dropped" });
-    return state.queued.length > 0 ? { queued: [] } : {};
-  }
 
   // The last dispatched request, so the `onmessage` error branch can tell
   // which request a pushed error answers.
@@ -635,46 +487,12 @@ export function createDuelClient<S = unknown, A = unknown>({
     const outcome = outcomeOf(req, payload);
     const isCurrent = state.pending !== null && state.pending.req === req;
     // One snapshot: a board drawn with the move applied locally goes
-    // straight to the reply's, never back through the pre-move one — and
-    // with a queue, straight into the next batch.
+    // straight to the reply's, never back through the pre-move one.
     const patch: Partial<ClientState<S>> = isCurrent ? { pending: null } : {};
     if (outcome.ok && !deepEqual(outcome.view, state.status)) {
       Object.assign(patch, { status: outcome.view, statusAt: Date.now() });
     }
-    // The queue goes out only if every move of `req` applied and the seat
-    // is still on turn: an opponent's step in between voids the plan.
-    let batch: TransportRequest | null = null;
-    let planned = 0;
-    let waiters: ((o: CallOutcome<S>) => void)[] = [];
-    if (isCurrent && state.queued.length > 0) {
-      const v = outcome.ok ? viewOf<InGameView<S>>(outcome.view, "inGame") : null;
-      const stamp = submitStamp(req);
-      if (
-        v !== null &&
-        stamp !== null &&
-        !v.youSubmitted &&
-        v.gen === stamp.gen &&
-        v.step === stamp.step + BigInt(movesOf(req).length)
-      ) {
-        batch = submitRequest(v.gen, v.step, state.queued);
-        planned = replayLocal(v.game, tag(v.seat) as SeatTag, state.queued, applyLocal!, localToMove).applied;
-        // Before `setState`: a move a subscriber queues joins the next
-        // batch, not this one.
-        waiters = takeWaiters();
-        Object.assign(patch, { pending: { key: pendingKeyOf(batch), req: batch }, queued: [] });
-      } else Object.assign(patch, dropQueue());
-    }
     setState(patch);
-    if (batch !== null) {
-      const sent = batch;
-      void send(sent).then((o) => {
-        // Each queued move gets its own outcome: the ones the engine
-        // applied share the reply, the rest were dropped. A rejection
-        // answers the first; anything else (failed, stale) answers all.
-        const kept = o.ok ? appliedOf(sent, o.view, planned) : o.reason === "rejected" ? 1 : waiters.length;
-        waiters.forEach((w, i) => w(i < kept ? o : { ok: false, reason: "dropped" }));
-      });
-    }
     if (outcome.ok) {
       noteResync(outcome.view);
       return outcome;
@@ -695,20 +513,15 @@ export function createDuelClient<S = unknown, A = unknown>({
   function call(req: TransportRequest): Promise<CallOutcome<S>> {
     if (state.connection === "closed") return Promise.resolve({ ok: false, reason: "closed" });
     if (state.pending !== null) return Promise.resolve({ ok: false, reason: "inFlight" });
-    setState({ pending: { key: pendingKeyOf(req), req } });
-    return send(req);
-  }
-
-  // Sends `req`, already set as `state.pending`.
-  function send(req: TransportRequest): Promise<CallOutcome<S>> {
     lastReq = req;
+    setState({ pending: { key: pendingKeyOf(req), req } });
     if (canCorrelate) {
       const onRejected = (e: Error): CallOutcome<S> => {
         const message = `Call failed: ${e?.message ?? e}`;
         // Same guard as `settleCall`: a rejection for a superseded request
         // must not clear a newer call's pending state.
         if (state.pending !== null && state.pending.req === req) {
-          setState({ pending: null, ...dropQueue() });
+          setState({ pending: null });
           showError(message);
           refresh();
         }
@@ -780,7 +593,7 @@ export function createDuelClient<S = unknown, A = unknown>({
       // names: a late reply to an already-superseded request must not
       // clear a newer call's `pending`.
       if (state.pending !== null && state.pending.req === lastReq) {
-        setState({ pending: null, ...dropQueue() });
+        setState({ pending: null });
       }
       refresh();
       return;
@@ -818,22 +631,7 @@ export function createDuelClient<S = unknown, A = unknown>({
       call({ createTable: { seat: seatOf(seat), visibility, options } }),
     joinTable: (id, seat, code) =>
       call({ joinTable: { id, seat: seatOf(seat), code: code ? [code] : [] } }),
-    submit(move) {
-      if (state.pending === null || !state.followUp) return call(submitRequest(genOf(state.status), stepOf(state.status), [move]));
-      const v = viewOf<InGameView<S>>(state.predicted, "inGame");
-      if (v === null || applyLocal!(v.game, tag(v.seat) as SeatTag, move) === null) {
-        return Promise.resolve({ ok: false, reason: "inFlight" });
-      }
-      // Registered before `setState`, so a subscriber's `dispose()` (or a
-      // close) during the notification settles it too.
-      const outcome = new Promise<CallOutcome<S>>((resolve) => queueWaiters.push(resolve));
-      setState({ queued: [...state.queued, move] });
-      return outcome;
-    },
-    submitMoves: (moves) =>
-      moves.length === 0
-        ? Promise.resolve({ ok: false, reason: "inFlight" })
-        : call(submitRequest(genOf(state.status), stepOf(state.status), moves)),
+    submit: (move) => call({ submit: { gen: genOf(state.status), step: stepOf(state.status), move } }),
     rematch: () => call({ rematch: null }),
     leave: () => call({ leave: { gen: genOf(state.status) } }),
     reset: () => call({ reset: { gen: genOf(state.status) } }),
@@ -847,7 +645,6 @@ export function createDuelClient<S = unknown, A = unknown>({
     regenerateSid: () => identityAction("New sid", session.regenerate),
     dispose() {
       clearErrorTimer();
-      dropQueue();
       listeners.clear();
       if (transport.onopen) transport.onopen = null;
       if (transport.onmessage) transport.onmessage = null;

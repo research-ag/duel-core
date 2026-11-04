@@ -89,15 +89,15 @@ generator, one per canister in the stable data: `rng.next()`,
 
 - `src/table.mo` (`mo:duel-game-core/table`) — `Table<S, M, O>`, one
   board: `Table.new(idleTimeoutNs, claimTimeoutNs, visibility,
-createdBy, options)` plus `join`/`submit`/`submitMoves`/`rematch`/
-  `leave`/`reset`/`claimWin`/`ackEnded`/`status`/`sweep`. For a game that wants exactly one fixed
+createdBy, options)` plus `join`/`submit`/`rematch`/`leave`/`reset`/
+  `claimWin`/`ackEnded`/`status`/`sweep`. For a game that wants exactly one fixed
   board and no lobby.
 - `src/registry.mo` (`mo:duel-game-core/registry`) — `Registry<S, M, O>`,
   created once with `Registry.new()` (inside `Transport.new()`) and
   tuned with `setTimeouts(idleTimeoutNs, claimTimeoutNs)`.
   `createTable`/`createTableReserving`/`listTables`/`joinTable` create,
-  discover, and join tables; `submit`/`submitMoves`/`rematch`/`leave`/
-  `reset`/`claimWin`/`ackEnded`/`view` name their table by id and delegate to
+  discover, and join tables; `submit`/`rematch`/`leave`/`reset`/
+  `claimWin`/`ackEnded`/`view` name their table by id and delegate to
   `Table`. `tablesOf(player)` lists the tables a player has business at
   (seated, reserved for, or holding an unacked notice) — read off the
   tables, never stored; `maxTablesOf(player)` caps it
@@ -187,15 +187,6 @@ actor {
 (`duel.registry.setTimeouts`). `env.bots` and `env.scoring` add canister
 players and a leaderboard (below). The explicit type arguments on
 `createTable`/`submit` are what moc requires once `<system>` is given.
-A game whose actions can grant another adds `duel_submit_moves` the
-same way (see "Follow-up moves"):
-
-```motoko
-public shared ({ caller }) func duel_submit_moves(tableId : TP.TableId, gen : Nat, step : Nat, actions : [Rules.Action]) : async Transport.Reply<Rules.View> {
-  duel.reply(env, caller, tableId, await* duel.submitMoves<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, tableId, gen, step, actions));
-};
-
-```
 
 ### Timeouts and upgrades
 
@@ -275,7 +266,6 @@ the anonymous principal is `#unauthorized`).
 | `duel_lobby(rev)`                                       | query, host-declared  | `#unchanged`, or `#changed { rev; tables; yours }` |
 | `duel_table(tableId, rev)`                              | query, host-declared  | `#unchanged`, `#changed { rev; view }`, or `#gone` |
 | `duel_submit(tableId, gen, step, action)`               | update, host-declared | `#view { rev; view }` or `#err`                    |
-| `duel_submit_moves(tableId, gen, step, actions)`        | update, opt-in        | `#view { rev; view }` or `#err`                    |
 | `duel_create_table(seat, visibility, options)`          | update, host-declared | `Ack`, or `#badOptions`                            |
 | `duel_join_table(tableId, seat, code)`                  | update                | `Ack`                                              |
 | `duel_rematch(tableId)`                                 | update                | `Ack`                                              |
@@ -291,7 +281,7 @@ state. `yours` lists every table the caller has business at.
 **Revs.** Every `Table` has a stable `rev`, bumped by every mutation of
 that table (and by the sweep when it changes one); the lobby's `rev`
 (`state.lobbyRev`) is bumped by every lobby method and by a sweep that
-changed anything. A submit does not move the lobby. A client
+changed anything. A `duel_submit` does not move the lobby. A client
 follows one source — the lobby, or one table — with the `rev` it holds,
 and applies only views newer than the last it applied from that source.
 
@@ -307,25 +297,9 @@ resolved round for the second seat to submit. The lobby methods return
 an `Ack` and the client polls the table: they start or end a game,
 which can afford one poll, and keeping the game's types out of them is
 what lets the non-generic `TransportActorMixin` supply them.
-`Transport.submit`/`submitMoves` return only `?Err` and
-`Transport.reply` builds the view, because an `async*` result must be a
-shared type and `Reply<V>` is not.
-
-**Follow-up moves.** `duel_submit_moves` carries several actions of one
-turn — the chain a client can foresee when an action grants another
-(dots and boxes: a closed box draws again) — stamped with the `step`
-before the first. In `#turnBased` the engine applies them one by one
-through `move`, exactly as separate submits would, and stops at the
-first that is illegal or comes after the turn passed or the game
-ended: the actions before it stay applied, the rest are dropped, and
-only a failing first action is the call's `#err`. Each applied action
-is one `step`, and the reply's `step` (a debrief's `steps`) less the
-stamp is how many applied — plus one if a canister bot answered inside
-the same call. For timing a batch is one step: `lastStepDurationNs`
-runs from before its first action, and the seat's last move is its last
-applied action. `#simultaneous` takes exactly one action
-(`#illegalMove` otherwise). A client plans such a batch only when nothing hidden or
-random lies between the actions; the engine re-checks every one anyway.
+`Transport.submit` returns only `?Err` and `Transport.reply` builds the
+view, because an `async*` result must be a shared type and `Reply<V>`
+is not.
 
 **Steps.** `step` counts applied actions (`#turnBased`) or resolved
 rounds (`#simultaneous`); a client stamps it on every submit. It is not
@@ -341,9 +315,9 @@ heard from within `PRESENCE_TTL_NS`, 60 s), bumps the revs of what it
 changed, prunes presence, and settles canister players everywhere.
 Silence never ends a game in progress; `claimWin` and idle takeover do.
 
-**Replay safety.** `duel_submit`/`duel_submit_moves`/`duel_leave`/
-`duel_reset`/`duel_claim_win` carry the `gen` (and the submits the
-`step`) the client last saw. The client resends a call it cannot tell landed or not, so
+**Replay safety.** `duel_submit`/`duel_leave`/`duel_reset`/
+`duel_claim_win` carry the `gen` (and `submit` the `step`) the client
+last saw. The client resends a call it cannot tell landed or not, so
 without this a resent `submit` could replay against a later round, and a
 resent `leave`/`reset` could abort a new match. A mismatch is
 `Err.#stale`. `create`/`join`/`rematch`/`ackEnded` recompute from live
@@ -487,10 +461,7 @@ an update method: a query's state changes are never committed. That
 costs consensus latency, so size `claimTimeoutNs`/`idleTimeoutNs` more
 generously. Per-match memory keys off `(tableId, gen)` (`gen` bumps on
 every fresh stage, rematch included); per-opponent memory keys off
-`opponent`. `opponentLastMove` is always the last RESOLVED move: after
-a `duel_submit_moves` batch, the last action the batch applied (the
-final action of the opponent's turn when the batch was the whole turn),
-with `lastStepDurationNs` the whole batch's duration. See
+`opponent`. `opponentLastMove` is always the last RESOLVED move. See
 `skills/duel-game-core/references/canister-player-bots.md`.
 
 **Bot discovery.** A bot self-registers with the host so a human can
@@ -668,7 +639,7 @@ from `State` (`examples/racing` serves its track polygons at `/track`).
 `SEMANTICS` is the whole contract a frontend author gets besides the
 canister's Candid, and the only place the game's types are explained:
 the Candid gives them (`View` and `Options` in the queries, `Action` in
-`duel_submit`/`duel_submit_moves`), not what they mean. Write it for a reader who cannot
+`duel_submit`), not what they mean. Write it for a reader who cannot
 see the source, in these sections:
 
 - `GAME`, `MODE` (`simultaneous`, or `turnBased` with a word on what a
@@ -787,8 +758,7 @@ waiting for: `toMove(s)` reads it off the state, so a turn may take
 several actions (draw, then place), an action may grant another turn,
 and the order is the game's own. The engine rejects an action from any
 other seat with `Err.#notYourTurn`, applies one with `move` (which
-checks and applies in a single call), and asks `toMove` again — for
-each action of a `duel_submit_moves` batch in turn. Only a
+checks and applies in a single call), and asks `toMove` again. Only a
 seat NOT on turn may `claimWin`; the seat on turn gets `#wrongPhase`.
 
 **Rule contract for `Spec<S, M, V, O>`:**
@@ -841,8 +811,7 @@ hold at both the `Table` and `Registry` layer):
 - **Module layout.** `lib.mo` is the type surface; `table.mo`/
   `registry.mo` the operations; `transport.mo` +
   `transport_actor_mixin.mo` the mandatory transport (plus the host's
-  own `duel_create_table`/`duel_lobby`/`duel_submit`/`duel_table`, and
-  opt-in `duel_submit_moves`);
+  own `duel_create_table`/`duel_lobby`/`duel_submit`/`duel_table`);
   `canister_players.mo` + `canister_players_actor_mixin.mo`,
   `leaderboard.mo` + `elo.mo` + `leaderboard_actor_mixin.mo` are
   optional, wired through the transport's `Env`: `env.bots` (the store

@@ -44,3 +44,9 @@ export function steadyScreen(el, kindOf) {
     },
   });
 }
+
+// Morphs `el` itself into `html` (one element), e.g. a board redrawn
+// between two statuses.
+export function morph(el, html) {
+  morphdom(el, html, { onBeforeElUpdated: (from, to) => !from.isEqualNode(to) });
+}

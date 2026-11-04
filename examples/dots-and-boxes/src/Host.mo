@@ -47,8 +47,7 @@ actor {
   // Every method that names none of the game's types, and the sweep timer.
   include TransportActorMixin<system>(duel.lobby(env));
 
-  // The methods whose Candid types name the game's own types;
-  // `duel_submit_moves` is the template's FOLLOW-UP lines, turned on.
+  // The four methods whose Candid types name the game's own types.
   public shared ({ caller }) func duel_create_table(seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options) : async Transport.Ack {
     await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, seat, visibility, options);
   };
@@ -59,10 +58,6 @@ actor {
 
   public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, step : Nat, action : Rules.Action) : async Transport.Reply<Rules.View> {
     duel.reply(env, caller, tableId, await* duel.submit<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, tableId, gen, step, action));
-  };
-
-  public shared ({ caller }) func duel_submit_moves(tableId : TP.TableId, gen : Nat, step : Nat, actions : [Rules.Action]) : async Transport.Reply<Rules.View> {
-    duel.reply(env, caller, tableId, await* duel.submitMoves<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, tableId, gen, step, actions));
   };
 
   public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.View> {

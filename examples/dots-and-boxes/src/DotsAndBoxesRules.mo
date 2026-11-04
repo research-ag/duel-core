@@ -7,12 +7,14 @@
 /// Rules:
 ///   BOARD   an N x N grid of boxes drawn on (N+1) x (N+1) dots; N is the
 ///           table option `size` (2..8).
-///   DRAW    the seat on turn draws ONE undrawn line between two
-///           horizontally or vertically adjacent dots.
+///   DRAW    a line joins two horizontally or vertically adjacent dots.
 ///   CLAIM   a box whose fourth side was just drawn belongs to the seat that
 ///           drew it (one line can close two boxes at once).
-///   AGAIN   closing at least one box grants the same seat another turn;
-///           drawing a line that closes nothing passes the turn.
+///   AGAIN   closing at least one box makes the same seat draw again;
+///           drawing a line that closes nothing ends the turn.
+///   TURN    one action is a whole turn: every line that closed a box, in
+///           order, then the line that closed nothing (or the line that
+///           filled the board). Seats strictly alternate.
 ///   END     once every line is drawn (every box is claimed) the seat with
 ///           more boxes wins; an equal count is a draw.
 ///
@@ -27,7 +29,6 @@
 ///   v(r, c+1).
 
 import Array "mo:core/Array";
-import Iter "mo:core/Iter";
 import Nat "mo:core/Nat";
 
 import TP "mo:duel-game-core";
@@ -37,7 +38,7 @@ module {
   /// Served at `GET /semantics`: everything a frontend author who cannot
   /// see this file needs. No `"` or `\` inside.
   public let SEMANTICS : Text = "GAME: Dots and Boxes
-MODE: turnBased (one action per step; a seat that closes a box moves again)
+MODE: turnBased (one action = one whole turn; seats alternate)
 SEATS: p1 = Blue pencil (moves first), p2 = Red pencil
 OPTIONS: type Options = record { size : nat };
   size = boxes per side, 2..8 (the page offers 3, 4, 5 and 6). The board
@@ -50,7 +51,7 @@ VIEW (Candid)
     lines : vec opt Seat;
     boxes : vec opt Seat;
     toMove : Seat;
-    lastLine : opt nat;
+    lastTurn : vec nat;
   };
   Nothing is hidden: both seats receive the whole state.
   size      boxes per side, N.
@@ -65,20 +66,23 @@ VIEW (Candid)
             claimed, opt seat = claimed by that seat. Box (r, c) has
             sides h(r, c), h(r+1, c), v(r, c) and v(r, c+1).
   toMove    the seat whose action is expected next.
-  lastLine  the index of the most recently drawn line, null before the
-            first move. Who drew it is lines[lastLine].
+  lastTurn  the lines of the most recent turn, in the order drawn; empty
+            before the first move. Who drew them is lines[lastTurn[0]].
 
 ACTION (Candid)
-  type Action = variant { draw : record { line : nat } };
+  type Action = variant { draw : record { lines : vec nat } };
 
 RULES
-  The seat on turn draws the line with index `line`.
-  Rejected: line >= 2*N*(N+1) (off the board), or lines[line] is already
-  drawn. The engine itself rejects an action from the seat not on turn.
-  After the line is drawn, every box that now has all four sides drawn
-  and was unclaimed is claimed by the mover (a line between two boxes
-  can claim both). If at least one box was claimed, toMove stays with
-  the mover; otherwise toMove switches to the other seat.
+  An action is the mover's whole turn: the lines in `lines` are drawn
+  one after another. After each line, every box that now has all four
+  sides drawn and was unclaimed is claimed by the mover (a line between
+  two boxes can claim both). Every line but the last must claim at
+  least one box; the last must claim none, unless it fills the board.
+  Rejected: an empty `lines`; a line >= 2*N*(N+1) (off the board) or
+  already drawn (an earlier line of the same turn included); a line
+  other than the last that claims nothing; a last line that claims a box
+  while undrawn lines remain. The engine itself rejects an action from
+  the seat not on turn. After the turn, toMove is the other seat.
 
 ENDINGS
   When every line is drawn (equivalently, every box is claimed): the
@@ -86,18 +90,16 @@ ENDINGS
   The game never ends earlier.
 
 CLIENT NOTES
-  Scores are not stored: count boxes per seat. The last move is
-  lastLine; the boxes it closed are the one or two boxes adjacent to
-  that line whose owner is lines[lastLine]. Legal moves are exactly the
-  null entries of lines. The page also shows your own line the moment
-  you click it, mirroring the rules locally. A chain of lines you know
-  will each close a box can go in one duel_submit_moves call (lines in
-  order); the engine applies them one by one and drops the rest once
-  the turn passes.
+  Scores are not stored: count boxes per seat. The opponent's last turn
+  is lastTurn, to be replayed in order. Every move is deterministic, so
+  a page builds the turn locally: a click on a line that closes a box
+  draws it at once and waits for the next click; a click on a line that
+  closes nothing (or fills the board) sends every line of the turn as
+  one action.
 ";
 
-  /// The raw decision only: which line to draw.
-  public type Action = { #draw : { line : Nat } };
+  /// A whole turn: the lines in the order drawn.
+  public type Action = { #draw : { lines : [Nat] } };
 
   /// null = not drawn; ?seat = drawn by that seat.
   public type Line = ?TP.Seat;
@@ -107,7 +109,7 @@ CLIENT NOTES
     lines : [Line];
     boxes : [?TP.Seat];
     toMove : TP.Seat;
-    lastLine : ?Nat;
+    lastTurn : [Nat];
   };
 
   /// Nothing is hidden: every seat sees the whole state.
@@ -193,39 +195,19 @@ CLIENT NOTES
     lines = Array.repeat<Line>(null, lineCount(o.size));
     boxes = Array.repeat<?TP.Seat>(null, o.size * o.size);
     toMove = #p1;
-    lastLine = null;
+    lastTurn = [];
   };
 
   public func toMove(s : State) : TP.Seat = s.toMove;
 
   public func view(s : State, _ : TP.Seat, _ : Bool) : View = s;
 
-  /// Every undrawn line — exactly what `validate` accepts.
-  public func legalActions(s : State, _seat : TP.Seat) : [Action] {
-    s.lines.enumerate().toArray().filterMap<(Nat, Line), Action>(
-      func((i, l)) = if (l == null) ?#draw { line = i } else null
-    );
-  };
-
-  public func validate(s : State, _seat : TP.Seat, a : Action) : ?Text {
-    switch (a) {
-      case (#draw { line }) {
-        if (line >= s.lines.size()) return ?"That line is off the board.";
-        switch (s.lines[line]) {
-          case null null;
-          case (?_) ?"That line is already drawn.";
-        };
-      };
-    };
-  };
-
-  /// Applies an already-validated draw: the line, the boxes it closes,
-  /// whose turn it is next, and the verdict once the board is full.
-  public func resolve(s : State, seat : TP.Seat, a : Action) : {
+  /// Draws one undrawn `line` for `seat` and claims the boxes it closes;
+  /// `toMove` and `lastTurn` stay as they are.
+  public func drawLine(s : State, seat : TP.Seat, line : Nat) : {
     state : State;
-    verdict : ?TP.Verdict;
+    closed : Bool;
   } {
-    let line = switch (a) { case (#draw d) d.line };
     let lines = s.lines.mapEntries<Line, Line>(func(cur, i) = if (i == line) ?seat else cur);
     let drawn = { s with lines };
     let closing = boxesOfLine(s.size, line).filter(
@@ -234,31 +216,33 @@ CLIENT NOTES
     let boxes = s.boxes.mapEntries<?TP.Seat, ?TP.Seat>(
       func(cur, b) = if (closing.any(func(x) = x == b)) ?seat else cur
     );
-    let toMove = if (closing.size() > 0) seat else otherSeat(seat);
-    let state : State = {
-      size = s.size;
-      lines;
-      boxes;
-      toMove;
-      lastLine = ?line;
-    };
+    { state = { drawn with boxes }; closed = closing.size() > 0 };
+  };
 
+  /// One whole turn of the seat on turn: checked line by line, then the
+  /// turn passes, with the verdict once the board is full.
+  public func move(s : State, seat : TP.Seat, a : Action, _ : TP.Rng) : {
+    #ok : { state : State; verdict : ?TP.Verdict };
+    #err : Text;
+  } {
+    let turn = switch (a) { case (#draw d) d.lines };
+    if (turn.size() == 0) return #err "Draw at least one line.";
+    var cur = s;
+    for ((k, line) in turn.enumerate()) {
+      if (line >= cur.lines.size()) return #err "That line is off the board.";
+      if (cur.lines[line] != null) return #err "That line is already drawn.";
+      let r = drawLine(cur, seat, line);
+      cur := r.state;
+      if (k + 1 < turn.size() and not r.closed) return #err "Only a line that closes a box draws again.";
+      if (k + 1 == turn.size() and r.closed and not isFull(cur)) return #err "A closed box draws again: the turn needs another line.";
+    };
+    let state = { cur with toMove = otherSeat(seat); lastTurn = turn };
     let verdict : ?TP.Verdict = if (isFull(state)) {
       let b1 = boxesOf(state, #p1);
       let b2 = boxesOf(state, #p2);
       if (b1 > b2) ?#p1Wins else if (b2 > b1) ?#p2Wins else ?#draw;
     } else null;
-
-    { state; verdict };
-  };
-
-  /// One action of the seat on turn: checked, then applied.
-  public func move(s : State, seat : TP.Seat, a : Action, _ : TP.Rng) : {
-    #ok : { state : State; verdict : ?TP.Verdict };
-    #err : Text;
-  } = switch (validate(s, seat, a)) {
-    case (?why) #err why;
-    case null #ok(resolve(s, seat, a));
+    #ok { state; verdict };
   };
 
   /// The functions the framework calls. Never stored by it: the host hands

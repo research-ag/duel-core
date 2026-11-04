@@ -1,7 +1,7 @@
 // Headless check of the bot and the leaderboard for Dots & Boxes: a player
 // with a fresh key opens an access-code table per bot complexity, invites
 // the registered bot through its own `play` (exactly what the page's 🤖
-// dialog does), plays random legal lines from the plugin's own buttons
+// dialog does), plays random legal turns from the plugin's own buttons
 // until the debrief, then checks that `get_leaderboard` rated both.
 // Run from frontend/, after the bot registered with the backend:
 //
@@ -19,7 +19,7 @@ import { atTableOf, createDuelClient, viewOf } from "@research-ag/duel-game-core
 import { makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
 import { tag } from "@research-ag/duel-game-core/render.js";
 import { connectTransport } from "@research-ag/duel-game-core/transport.js";
-import { plugin } from "./src/dots-and-boxes-plugin.js";
+import { drawAgain, plugin } from "./src/dots-and-boxes-plugin.js";
 
 const args = process.argv.slice(2);
 const onIc = args.includes("--ic");
@@ -52,16 +52,22 @@ const viewIs = (t) => (s) => s.status !== null && viewOf(s.status, t) !== null;
 function decodeEntities(s) {
   return s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
+const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];
+// A whole turn: `data-line` clicks while any is offered (most of the
+// time), then one of the `data-act` lines that end it.
 function offeredMoves(game, seat) {
   const opp = seat === "p1" ? "p2" : "p1";
-  const html = plugin.renderBoard(game, seat, opp, true) + plugin.renderActions(game, seat);
-  const out = [];
-  for (const [, attrs] of html.matchAll(/<\w+\b([^>]*\bdata-act='[^']*'[^>]*)>/g)) {
-    if (!/\bdisabled\b/.test(attrs)) out.push(JSON.parse(decodeEntities(attrs.match(/data-act='([^']*)'/)[1])));
+  for (;;) {
+    const html = plugin.renderBoard(game, seat, opp, true) + plugin.renderActions(game, seat);
+    const again = [...html.matchAll(/data-line="(\d+)"/g)].map((m) => Number(m[1]));
+    const out = [];
+    for (const [, attrs] of html.matchAll(/<\w+\b([^>]*\bdata-act='[^']*'[^>]*)>/g)) {
+      if (!/\bdisabled\b/.test(attrs)) out.push(JSON.parse(decodeEntities(attrs.match(/data-act='([^']*)'/)[1])));
+    }
+    if (again.length > 0 && (out.length === 0 || Math.random() < 0.8)) drawAgain(pick(again));
+    else return out;
   }
-  return out;
 }
-const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];
 
 const identity = Ed25519KeyIdentity.generate();
 const principal = identity.getPrincipal();

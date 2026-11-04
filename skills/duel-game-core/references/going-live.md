@@ -52,7 +52,7 @@ for an existing game) may sit on the cloud engine while it plays a
 mainnet backend; a bot may not. On mainnet a bot also sits on its
 game backend's subnet: the backend asks it once per action, and a
 cross-subnet ask takes seconds where a same-subnet one is quick, so a
-chain of moves crawls. Look the backend's subnet up before creating the
+game against it crawls. Look the backend's subnet up before creating the
 bot's canister (`bot-for-existing-game.md`, step 6). A bot for a live
 game is tried out beside a cloud engine copy of that game, or in a
 rented mainnet canister (`bot-for-existing-game.md`, step 5).
