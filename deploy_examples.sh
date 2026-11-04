@@ -69,19 +69,11 @@ top_up_low() {
   done
 }
 
-# Examples whose canisters are controlled through hosty.live, not by this
-# identity; each one's CLAUDE.md has its own upgrade steps.
-hosty_deployed=" dots-and-boxes "
-
 for example in "$root"/examples/*/; do
   index=$((index + 1))
   [ "$index" -le "$skip" ] && continue
   [ -d "$example/frontend" ] || continue
   name="$(basename "$example")"
-  if [[ "$hosty_deployed" == *" $name "* ]]; then
-    echo "==> Skipping examples/$name (deployed through hosty.live)"
-    continue
-  fi
   echo "==> Deploying examples/$name"
   (
     cd "$example"

@@ -150,8 +150,7 @@ actor + `GamePlugin` frontend + deploy config, with its own `CLAUDE.md`:
 `tic-tac-toe`, `ultimate-tic-tac-toe`, `chopsticks`, `dots-and-boxes`
 (`#turnBased`). `dots-and-boxes` (a closed box draws again) is the
 follow-up-moves reference: one `Action` is the whole turn, built
-locally by its plugin and sent in one submit; it is deployed through
-hosty.live, not `deploy_examples.sh`.
+locally by its plugin and sent in one submit.
 `rock-paper-scissors` (`Options = { variant; winsNeeded }`, gated in
 `validate`, bounded by `checkOptions`) and `chopsticks` (`Options =
 Variant`, branching in `validate` and `resolve`) are the table-options
@@ -241,9 +240,7 @@ entry otherwise makes npm skip the new sub-dependencies. Verify with
 `ls node_modules/<new package>`.
 
 `./deploy_examples.sh` builds `frontend/`, reinstalls each example, and
-deploys each to the IC, skipping those listed in its `hosty_deployed`
-(their canisters are controlled through hosty.live; see the example's
-`CLAUDE.md`).
+deploys all of them to the IC.
 
 ## Architecture rules (violating these reintroduces shipped bugs)
 

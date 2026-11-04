@@ -49,9 +49,7 @@ line] } }`, submitted by app.js, so the whole turn is one round trip.
 
 `.icp/data/mappings/ic.ids.json`: backend `kozn2-waaaa-aaaau-ahhsq-cai`,
 frontend `kh2gg-aiaaa-aaaau-ahhta-cai`, bot `ka3as-nqaaa-aaaau-ahhtq-cai`
-(registered as "Pencil Bot"), all on hosty.live's mainnet subnet. They
-are controlled through hosty.live, not by an `icp` identity, so
-`../../deploy_examples.sh` skips this example. To upgrade:
+(registered as "Pencil Bot"). To upgrade:
 
 1. `mops test`; locally `icp deploy`, register the bot
    (`icp canister call bot register "(principal \"$(icp canister status backend -i)\", \"Pencil Bot\")"`),
@@ -59,11 +57,12 @@ are controlled through hosty.live, not by an `icp` identity, so
 2. `cd frontend && node check-upgrade.mjs kozn2-waaaa-aaaau-ahhsq-cai`
    must exit 0. `State` sits in stable memory: any change to it needs a
    migration or a reinstall (`../../skills/duel-game-core/references/changing-a-live-game.md`).
-3. In a hosty.live deploy session: `icp build backend`, gzip the module,
-   `hosty_prepare_wasm_upload` (`mode: upgrade`,
-   `snapshotBeforeUpgrade: true`), run the returned `curl`,
-   `hosty_wait_for_deployment`; the frontend's `dist/` as a zip upload.
-   After a REINSTALL of the backend, register the bot again.
+3. `icp deploy backend -e ic` (its sync step publishes the module),
+   `icp deploy bot -e ic`, then the frontend. After a REINSTALL of the
+   backend, register the bot again
+   (`icp canister call bot register '(principal "kozn2-waaaa-aaaau-ahhsq-cai", "Pencil Bot")' -e ic`)
+   and run `play-test.mjs`/`bot-test.mjs` with
+   `kozn2-waaaa-aaaau-ahhsq-cai --ic`.
 
 ## Toolchain / Build & test
 
