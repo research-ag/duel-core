@@ -43,6 +43,14 @@ The game canister calls your `make_move` once per action you are due, and
 your reply IS the move; an illegal reply is asked once more with
 `retryReason` set, then the engine falls silent and its timeouts apply.
 
+## Where the bot canister lives
+
+On the game backend's subnet. The backend asks the bot once per action
+it is due, and every ask is an inter-canister call: quick within a
+subnet, seconds across subnets. Look the subnet up before creating
+the bot's canister, then create it there
+(`bot-for-existing-game.md`, step 6, has the commands).
+
 ## Two shapes
 
 **Simple: a pure function, `query`.** A strategy over `game`/`seat`/

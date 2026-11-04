@@ -20,6 +20,7 @@ export const NETWORK_DOMAINS = [
   "icp0.io",
   "*.icp0.io",
   "ic0.app",
+  "ic-api.internetcomputer.org",
 ].join("\n");
 
 export const SETUP_SCRIPT = "npm install -g @icp-sdk/icp-cli ic-mops";

@@ -1,0 +1,81 @@
+// Host actor for dots-and-boxes. Copy verbatim; only the `Rules` import,
+// the two timeouts, and the two optional features change between games.
+// Each optional feature is the lines marked with its name: uncomment all
+// of them to turn it on (SKILL.md Step 4), and replace the `null` they
+// stand next to. `http_request` is the only plain Candid method — every
+// game read and mutation goes through `mo:duel-game-core/transport`.
+
+import TP "mo:duel-game-core";
+import Registry "mo:duel-game-core/registry";
+import Transport "mo:duel-game-core/transport";
+import TransportActorMixin "mo:duel-game-core/transport_actor_mixin";
+import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
+import CanisterPlayers "mo:duel-game-core/canister_players"; // BOTS
+import CanisterPlayersActorMixin "mo:duel-game-core/canister_players_actor_mixin"; // BOTS
+import Leaderboard "mo:duel-game-core/leaderboard"; // LEADERBOARD
+import LeaderboardActorMixin "mo:duel-game-core/leaderboard_actor_mixin"; // LEADERBOARD
+import PT "mo:promtracker";
+import Tracker "mo:promtracker/Tracker"; // brings `pt.toValue()` into scope
+
+import BotIface "BotIface"; // BOTS
+import Rules "DotsAndBoxesRules";
+
+actor {
+  // Metrics: the registry's four game metrics plus promtracker's system
+  // ones, served at GET /metrics (Prometheus exposition).
+  let pt = PT.Tracker.new(); // plain data — stable
+  transient let renderer = PT.Renderer(); // closures — rebuilt on upgrade
+  renderer.addValue(PT.allSystemMetrics);
+  renderer.addValue(pt.toValue());
+
+  // All the data — tables, lobby, random-number generator. Stable.
+  let duel = Transport.new<Rules.State, Rules.Action, Rules.Options>();
+  duel.registry.setTimeouts(90_000_000_000, 60_000_000_000); // re-applied on every upgrade
+  duel.registry.attachMetrics(pt); // games_started / active_games / rounds_per_game / matchmaking_wait_seconds
+
+  let bots = CanisterPlayers.newStore(); // BOTS: the bot directory and in-flight asks — stable
+  let leaderboard = Leaderboard.new(50, 1200); // LEADERBOARD: keep 50, start at 1200 — stable
+
+  // The function values the framework calls — the game's rules, and how
+  // to ask a seated bot and score a finished game. Rebuilt on every upgrade.
+  transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+    spec = Rules.spec;
+    bots = ?{ store = bots; call = BotIface.callBot }; // BOTS
+    scoring = ?{ board = leaderboard; rating = #elo { k = 32 } }; // LEADERBOARD
+  };
+
+  // Every method that names none of the game's types, and the sweep timer.
+  include TransportActorMixin<system>(duel.lobby(env));
+
+  // The four methods whose Candid types name the game's own types.
+  public shared ({ caller }) func duel_create_table(seat : TP.Seat, visibility : TP.TableVisibility, options : Rules.Options) : async Transport.Ack {
+    await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, seat, visibility, options);
+  };
+
+  public shared query ({ caller }) func duel_lobby(rev : Nat) : async Transport.LobbyResult<Rules.Options> {
+    duel.lobbyView(caller, rev);
+  };
+
+  public shared ({ caller }) func duel_submit(tableId : TP.TableId, gen : Nat, step : Nat, action : Rules.Action) : async Transport.Reply<Rules.View> {
+    duel.reply(env, caller, tableId, await* duel.submit<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, tableId, gen, step, action));
+  };
+
+  public shared query ({ caller }) func duel_table(tableId : TP.TableId, rev : Nat) : async Transport.TableResult<Rules.View> {
+    duel.table(env, caller, tableId, rev);
+  };
+
+  // BOTS: join/leave/ack/claim/reset as a canister player, and
+  // register_bot/unregister_bot/list_bots. With LEADERBOARD too, pass
+  // `?leaderboard` for `null` so `list_bots` carries each bot's rating.
+  include CanisterPlayersActorMixin(duel.canisterPlayers(env), bots.directory, ?leaderboard);
+
+  // LEADERBOARD: get_leaderboard(), the top 25.
+  include LeaderboardActorMixin(leaderboard, 25);
+
+  // GET /semantics — the rules text a third-party frontend is built from;
+  // GET /metrics — the metrics above.
+  include HttpActorMixin([
+    ("/semantics", func() : Text = Rules.SEMANTICS),
+    ("/metrics", renderer.renderExposition),
+  ]);
+};

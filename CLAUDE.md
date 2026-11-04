@@ -147,7 +147,10 @@ session, screens?, confirm?, promptCode? })` binds client to screens in
 `examples/` holds reference games, each a pure rules module + thin host
 actor + `GamePlugin` frontend + deploy config, with its own `CLAUDE.md`:
 `007`, `racing`, `rock-paper-scissors` (`#simultaneous`); `checkers`,
-`tic-tac-toe`, `ultimate-tic-tac-toe`, `chopsticks` (`#turnBased`).
+`tic-tac-toe`, `ultimate-tic-tac-toe`, `chopsticks`, `dots-and-boxes`
+(`#turnBased`). `dots-and-boxes` (a closed box draws again) is the
+follow-up-moves reference: one `Action` is the whole turn, built
+locally by its plugin and sent in one submit.
 `rock-paper-scissors` (`Options = { variant; winsNeeded }`, gated in
 `validate`, bounded by `checkOptions`) and `chopsticks` (`Options =
 Variant`, branching in `validate` and `resolve`) are the table-options

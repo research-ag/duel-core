@@ -62,5 +62,7 @@ module {
     #gameAlreadyRegistered;
     #noSuchGame;
     #notOwner;
+    #notController;
+    #anonymousDeveloper;
   };
 };

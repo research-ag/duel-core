@@ -1,0 +1,12 @@
+[package]
+name = "dots-and-boxes"
+version = "0.1.0"
+description = "dots-and-boxes — reference #turnBased game with follow-up moves, built on duel-game-core"
+
+[dependencies]
+duel-game-core = "../../backend"
+core = "2.6.2"
+promtracker = "1.0.2"
+
+[toolchain]
+moc = "2.0.0"

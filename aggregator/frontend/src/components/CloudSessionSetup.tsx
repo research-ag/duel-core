@@ -29,7 +29,9 @@ export function HostyAccountSteps() {
       <li>
         <strong>Cycles</strong> → <strong>Deposit using Cycle Express</strong>{" "}
         tops up your balance by card. At the time of writing a page costs
-        0.84 TC (about a dollar), a game's backend or a bot 1.5 TC.
+        0.84 TC (about a dollar), a game's backend or a bot 1.5 TC. You can
+        do this later, just before going live, or skip it if you never go
+        live.
       </li>
     </ol>
   );

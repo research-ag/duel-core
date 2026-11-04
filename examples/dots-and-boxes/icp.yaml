@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://github.com/dfinity/icp-cli/raw/refs/tags/v0.1.0-beta.2/docs/schemas/icp-yaml-schema.json
+
+canisters:
+  - name: backend
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: src/Host.mo
+    sync:
+      steps:
+        - type: script
+          commands:
+            - sh publish_wasm.sh backend
+  - name: bot
+    recipe:
+      type: "@dfinity/motoko@v4.1.0"
+      configuration:
+        main: bot/Bot.mo
+  - name: frontend
+    recipe:
+      type: "@dfinity/static-site@v0.4.0"
+      configuration:
+        dir: frontend/dist
+        build:
+          - cd frontend && npm run build

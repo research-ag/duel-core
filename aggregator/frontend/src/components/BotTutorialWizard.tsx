@@ -240,11 +240,24 @@ function GoLiveStep({ target }: { target: Target }) {
         </li>
         <li>
           Publish the bot and add it to the game's list of bots, in the project
-          folder (the AI left these in its <code>README.md</code> too). Put the
-          name players should see in place of <code>&lt;bot name&gt;</code>:
+          folder (the AI left these in its <code>README.md</code> too). First
+          find the game's subnet: the bot goes on the same one, so its moves
+          stay quick.
           <CodeBlock
-            code={`icp canister link backend ${backend} -e ic --force\nicp deploy bot -e ic\nicp canister call bot register '(principal "${backend}", "<bot name>")' -e ic`}
+            code={`curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/${backend} | grep -o '"subnet_id":"[^"]*"' | cut -d'"' -f4`}
           />
+          If it prints nothing, stop here and ask the AI. Otherwise put the
+          subnet id it printed in place of{" "}
+          <code>&lt;the game's subnet&gt;</code> below, and the name players
+          should see in place of <code>&lt;bot name&gt;</code>:
+          <CodeBlock
+            code={`icp canister link backend ${backend} -e ic --force\nicp deploy bot -e ic --subnet <the game's subnet>\nicp canister call bot register '(principal "${backend}", "<bot name>")' -e ic`}
+          />
+          Later upgrades run <code>icp deploy bot -e ic</code> again, without{" "}
+          <code>--subnet</code>. If the project folder lost its record of the
+          bot (<code>.icp/data/mappings/ic.ids.json</code> has no{" "}
+          <code>bot</code> entry), link the bot's canister id first:
+          <CodeBlock code="icp canister link bot <bot id> -e ic" />
         </li>
       </ol>
       <p>

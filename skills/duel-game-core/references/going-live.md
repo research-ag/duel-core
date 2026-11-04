@@ -49,9 +49,13 @@ A game's canisters talk to each other (the backend asks a bot for its
 moves), which works only on one network: a game is either all on the
 cloud engine or all on mainnet, never split. A page alone (a frontend
 for an existing game) may sit on the cloud engine while it plays a
-mainnet backend; a bot may not. A bot for a live game is tried out
-beside a cloud engine copy of that game, or in a rented mainnet
-canister (`bot-for-existing-game.md`, step 5).
+mainnet backend; a bot may not. On mainnet a bot also sits on its
+game backend's subnet: the backend asks it once per action, and a
+cross-subnet ask takes seconds where a same-subnet one is quick, so a
+game against it crawls. Look the backend's subnet up before creating the
+bot's canister (`bot-for-existing-game.md`, step 6). A bot for a live
+game is tried out beside a cloud engine copy of that game, or in a
+rented mainnet canister (`bot-for-existing-game.md`, step 5).
 
 Going live spends the user's money. Buy a canister or deploy to one
 only when the user asks for it, after saying what it costs; a
@@ -161,9 +165,11 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
      token.
    - **Network access**: **Custom**, with "Also include default list"
      on, and these domains: `api.hosty.live`, `icp-api.io`, `icp0.io`,
-     `*.icp0.io`, `ic0.app`. hosty.live's tools answer with `curl`
-     uploads to `api.hosty.live`; mops, icp-cli's mainnet reads and the
-     play-test against a deployed backend talk to the others.
+     `*.icp0.io`, `ic0.app`, `ic-api.internetcomputer.org`. hosty.live's
+     tools answer with `curl` uploads to `api.hosty.live`; a bot's
+     subnet lookup goes to `ic-api.internetcomputer.org`; mops,
+     icp-cli's mainnet reads and the play-test against a deployed
+     backend talk to the others.
    - **Setup script**, which installs every tool before the session
      starts (a binary fetched mid-session may be refused, and icp-cli
      looks up its local network launcher on `api.github.com`, which
@@ -349,7 +355,12 @@ Without an agent, the backend canister's page in hosty.live takes the
 same file in its install form, after the same approval.
 
 A bot goes up the same way (`icp build bot`, its own backend
-canister on the same network as the game's backend), then lists itself
+canister on the same network as the game's backend, and on mainnet on
+the same subnet: `hosty_create_canister` creates every mainnet canister
+on hosty.live's one subnet,
+`c4isl-65rwf-emhk5-5ta5m-ngl73-rgrl3-tcc56-2hkja-4erqd-iivmy-7ae`, so a
+bot of a game whose backend is elsewhere goes up with icp-cli and
+`--subnet` instead; `bot-for-existing-game.md`, step 6), then lists itself
 in the game's bot directory: `hosty_call_canister` on the bot, method
 `register`, argument `(principal "<backend-id>", "<Bot Name>")`, with
 `update: true`. `register` requires its caller to be the bot's
@@ -484,8 +495,18 @@ mkdir -p ~/.config/hosty && printf 'hosty.live token: ' && read -rs t && echo &&
 export HOSTY_TOKEN=$(cat ~/.config/hosty/token)
 icp deploy backend -e ic              # a game's backend
 icp deploy frontend -e ic             # its page; sets the ic_env cookie itself
-icp deploy bot -e ic                  # a bot (bot-for-existing-game.md)
+icp deploy bot -e ic --subnet <subnet-id>   # a bot, on its game's subnet (bot-for-existing-game.md)
 ```
+
+`<subnet-id>` is the backend's, looked up before the bot's first
+deploy (later upgrades need no `--subnet`):
+
+```bash
+curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/<backend-id> | grep -o '"subnet_id":"[^"]*"'
+```
+
+If it fails or prints no `subnet_id`, deploy nothing until the subnet
+is known.
 
 Always name what to deploy: a bare `icp deploy -e ic` also creates
 every other canister in `icp.yaml` on mainnet, 2T cycles each, and for

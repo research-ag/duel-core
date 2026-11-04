@@ -6,7 +6,9 @@ card, then place it), or an action can grant another turn.
 `templates/Rules.mo.template` is written for `#simultaneous`;
 `examples/checkers/src/CheckersRules.mo` and
 `examples/tic-tac-toe/src/TicTacToeRules.mo` in the framework repo are
-the worked `#turnBased` examples to copy.
+the worked `#turnBased` examples to copy;
+`examples/dots-and-boxes` is the one whose action can grant another
+("Follow-up moves", below).
 
 ## The shape
 
@@ -63,7 +65,7 @@ That is what makes every turn structure a plain matter of state:
   for `#placeDrawn`/`#discardDrawn`. The engine counts each action as a
   `step`; your state counts turns if the game wants to show them.
 - **A repeat turn** (a capture grants another move) is the same thing:
-  `resolve` simply does not flip `toMove`.
+  `resolve` simply does not flip `toMove` ("Follow-up moves", below).
 - **A turn that must stay atomic** can still be ONE `Action` validated
   and applied as a whole — checkers' `#jump { path : [Nat] }` carries
   the entire capture chain, because a half-chain is never a legal
@@ -124,3 +126,40 @@ is the worked example; its `stepTargets`/`jumpTargets` mirror `validate`
 cosmetically, deciding what to highlight. This does not need
 `references/rich-ui.md` unless the UI genuinely can't be clickable
 squares.
+
+## Follow-up moves
+
+An action that earns the same seat another one — dots and boxes' line
+closing a box, a capture that moves again — works as one action per
+`move` with `resolve` keeping `toMove`, but then every follow-up is a
+round trip with the board locked while it is out. When the mover can
+tell whether the turn continues (nothing hidden or random decides it),
+make the `Action` the whole turn instead, as checkers' `#jump { path }`
+is the whole capture chain. Dots and boxes' `#draw { lines : [Nat] }`
+carries every line of the turn in order; `move` checks them one by one
+(every line but the last must close a box, the last must not unless it
+fills the board) and then passes the turn. A turn is one submit, one
+`step` and one bot ask, seats strictly alternate, and `State` records
+the whole turn (`lastTurn : [Nat]`) so the opponent's page replays it
+in order.
+
+The page builds the turn locally, the way checkers builds a jump chain.
+A click that grants another action is local state: a plain button the
+plugin's own listener handles, adding the action to a draft and
+redrawing the board with the draft applied (and offering to take the
+last one back). The click that ends the turn is a real `data-act`
+button carrying the draft plus that action, so `app.js` submits the
+whole turn unchanged, and `applyLocal` applies it all while it is in
+flight. The draft belongs to the board it was drawn on: a new view
+clears it. `examples/dots-and-boxes/frontend/src/dots-and-boxes-plugin.js`
+is the worked example; its `play-test.mjs` drives the same clicks
+headlessly. The claim clock runs over the whole turn, as over any move.
+
+When the outcome is hidden from the mover (battleship: a shot's hit or
+miss), the page cannot know whether the turn continues: keep one action
+per call, let `resolve` keep `toMove` on a hit, and the player sees each
+result before choosing the next shot.
+
+A bot answers with the whole turn too: pick the actions one after
+another over the rules' own helper (dots and boxes' `drawLine`) until
+one ends the turn.

@@ -309,7 +309,10 @@ pure `query`, which is the right default; a bot that needs randomness
 stays one by seeding from `Time.now()`. Read
 `references/canister-player-bots.md` before writing a bot that picks at
 random or remembers anything — the latter makes `make_move` no longer a
-`query`.
+`query`. On mainnet the bot's canister sits on its backend's subnet:
+the backend asks it once per action, and a cross-subnet ask takes
+seconds (`references/canister-player-bots.md`, "Where the bot canister
+lives").
 
 A challengeable bot self-registers once, by hand, after both canisters
 are deployed (and again after any reinstall of the game):

@@ -1,3 +1,4 @@
+import Principal "mo:core/Principal";
 import Time "mo:core/Time";
 import PT "mo:promtracker";
 import Http "mo:promtracker/mixins/http";
@@ -41,6 +42,13 @@ actor {
 
   public shared ({ caller }) func deregisterGame(id : T.GameId) : async Store.Res<()> {
     state.deregisterGame(caller, id);
+  };
+
+  /// Admin: moves a listing from one developer to another. Controllers
+  /// only.
+  public shared ({ caller }) func transferGame(id : T.GameId, from : Principal, to : Principal) : async Store.Res<()> {
+    if (not caller.isController()) return #err(#notController);
+    state.transferGame(Time.now(), id, from, to);
   };
 
   public query func listGames() : async [T.GameView] {

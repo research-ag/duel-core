@@ -197,6 +197,16 @@ module {
     out.toArray();
   };
 
+  /// Hands game `id` from developer `from` to developer `to`. No caller:
+  /// `Main.mo` lets only a controller call it.
+  public func transferGame(self : State, now : Int, id : T.GameId, from : Principal, to : Principal) : Res<()> {
+    if (to.isAnonymous()) return #err(#anonymousDeveloper);
+    let ?existing = self.games.get(id) else return #err(#noSuchGame);
+    if (existing.developer != from) return #err(#notOwner);
+    self.games.add(id, { existing with developer = to; updatedAt = now });
+    #ok(());
+  };
+
   public func deregisterGame(self : State, caller : Principal, id : T.GameId) : Res<()> {
     if (caller.isAnonymous()) return #err(#anonymousCaller);
     let ?existing = self.games.get(id) else return #err(#noSuchGame);

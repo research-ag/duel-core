@@ -11,16 +11,20 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
 - **`src/Png.mo`** — reads the PNG signature + `IHDR` to recover banner
   dimensions. Pure.
 - **`src/Store.mo`** — every operation (`setDisplayName`, `registerGame`,
-  `updateGame`, `deregisterGame`, reads) over an explicit `State` (two
+  `updateGame`, `deregisterGame`, `transferGame`, reads) over an explicit `State` (two
   `mo:core/Map`s). `now` is a parameter, no `Time`. A game is keyed by its
   `frontendCanisterId` (its `GameId`), the only canister id a listing
   holds; registering the same one twice is rejected, and an edit that
   changes it re-keys the game (`#gameAlreadyRegistered` if taken).
   `deregisterGame` uses `updateGame`'s ownership gate
   (`#notOwner`) and removes the record and banner; it never touches the
-  game's own canisters.
+  game's own canisters. `transferGame(now, id, from, to)` hands a listing
+  to another developer: `from` must be its developer (`#notOwner`), `to`
+  not anonymous (`#anonymousDeveloper`).
 - **`src/Main.mo`** — thin host actor: owns the `Store.State`, reads
-  `msg.caller`/`Time.now()`, forwards to `Store`. Plain Candid methods are
+  `msg.caller`/`Time.now()`, forwards to `Store`. `transferGame(id,
+from, to)` is the one admin method: controllers only
+  (`#notController`). Plain Candid methods are
   fine here — independent developers never contend the way two seats at
   one table do. `mo:promtracker/mixins/http` serves `/metrics` (promtracker's
   system metrics, cycles included, plus a `games_registered` gauge) so
@@ -29,6 +33,7 @@ backend, bundled static frontend), its own Candid interface, no `transport.mo`.
 - **`test/Store.test.mo`** — interpreter suite over `Png.dimensions` and
   every `Store.mo` entry point (anonymous rejection, validation,
   ownership on edit/deregister, re-keying on a frontend change,
+  transfers,
   display-name resolution, deregistered games gone from every read
   path).
 - **`icp.yaml`** — `src/Main.mo` as `backend`, `frontend/dist` as

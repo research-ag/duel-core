@@ -328,7 +328,9 @@ kind: "backend", alias: "<game name> backend" }`, `hosty_install_module
 2. **A rented mainnet canister, against the live game.**
    `hosty_rent_canister { kind: "backend", alias: "<game name> bot" }`
    is a mainnet canister, free for 24 hours and then wiped, one per
-   user, with the user as a controller: install the bot with
+   user, with the user as a controller; check its subnet against the
+   game's first (step 6, "The game's subnet") and fall back to the
+   cloud engine copy when they differ. Install the bot with
    `hosty_prepare_wasm_upload` (no deploy session; the canister still
    holds hosty.live's page module, so the first install is a reinstall:
    omit `mode`, pass `confirmReinstall: true`), then `register` on the
@@ -346,15 +348,38 @@ kind: "backend", alias: "<game name> backend" }`, `hosty_install_module
 
 Going live spends the user's money and is theirs to trigger: run these
 only when asked. Finish by telling them, step by step, what comes next,
-and leave the same in `README.md`. A bot is a canister like a backend;
-it goes up by either route of `going-live.md`:
+and leave the same in `README.md`.
+
+**The game's subnet, first.** The bot's canister goes on the same
+subnet as the game's backend: the backend asks the bot once per
+action, and an ask across subnets takes seconds where one inside a
+subnet is quick. Before
+creating any canister for the bot, look the backend's subnet up:
+
+```bash
+curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/<backend-id> | grep -o '"subnet_id":"[^"]*"'
+```
+
+If the call fails or prints no `subnet_id`, stop and tell the user:
+nothing is created or installed until the subnet is known. The same
+lookup, with the same stop, gives the subnet of any existing canister
+meant for the bot (a rented one, or one the user names). Then pick the
+route that creates the bot's canister there.
+
+A bot is a canister like a backend; it goes up by either route of
+`going-live.md`:
 
 - **Through hosty.live** (section 1's account, section 3's "The
   backend (and a bot)"; the only route from a cloud session): in one
   deploy session the user approves, `hosty_create_canister { kind:
 "backend", alias: "<game name> bot" }` (a mainnet canister, 1.5 TC
   from the hosty.live balance, a few dollars) or a backend canister
-  they created in the web UI, `icp build bot`, the install with
+  they created in the web UI (hosty.live creates every mainnet
+  canister on one subnet,
+  `c4isl-65rwf-emhk5-5ta5m-ngl73-rgrl3-tcc56-2hkja-4erqd-iivmy-7ae`:
+  this route is for a game whose backend is on it; for any other
+  subnet use icp-cli below, and from a cloud session tell the user the
+  bot has to be deployed from their computer), `icp build bot`, the install with
   `hosty_prepare_wasm_upload`, then `register` through
   `hosty_call_canister` with `update: true`. No `icp deploy` against
   mainnet, so step 2's link is not needed. The canister is a bought
@@ -367,13 +392,19 @@ it goes up by either route of `going-live.md`:
 
   ```bash
   icp canister link backend <backend-id> -e ic --force   # step 2's link
-  icp deploy bot -e ic                                   # the bot only
+  icp deploy bot -e ic --subnet <subnet-id>              # the bot only, a new canister on the game's subnet
   icp canister call bot register '(principal "<backend-id>", "<Bot Name>")' -e ic
   ```
 
   Always name `bot` on the deploy line: a bare `icp deploy -e ic` also
   attempts `backend` (which fails) and `sparring` (a paid canister with
-  no use on mainnet).
+  no use on mainnet). `--subnet` matters only on the deploy that
+  creates the canister (`icp canister create bot` takes it too); later
+  upgrades omit it. Into an existing canister the user names, compare
+  its subnet (the lookup above) with the game's `subnet_id` first: if
+  they differ, stop and tell the user. Only when they match, link it,
+  `icp canister link bot <bot-id> -e ic`, and deploy with `icp deploy
+bot -e ic`, without `--subnet`.
 
 Then check the game lists the bot. `list_bots` is a query anybody may
 send; in a cloud session, which has no identity of its own, send it
