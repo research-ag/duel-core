@@ -37,10 +37,13 @@ Work in this order.
 
 7. Every later change: test locally again, then upgrade the same bot canister, never a new one: through hosty.live, hosty_prepare_wasm_upload with its id and snapshotBeforeUpgrade; a bot that went up with icp-cli is upgraded from my computer with icp deploy bot -e ic (after icp canister link bot <bot id> -e ic when .icp/data/mappings/ic.ids.json has no bot entry): tell me so. Call register again if its name or levels changed, and check list_bots again.
 
-8. Write into README.md how to build, test and update the bot, the bot's canister id, the hosty.live steps above, and, for my own computer only, the icp-cli way (--subnet only when the bot's canister is first created):
+8. Write into README.md how to build, test and update the bot, the bot's canister id, the hosty.live steps above, and, for my own computer only, the icp-cli way. The first deploy creates the bot's canister:
      icp canister link backend ${backend} -e ic --force
      icp deploy bot -e ic --subnet <the game's subnet>
      icp canister call bot register '(principal "${backend}", "<bot name>")' -e ic
+   Every upgrade goes into that recorded canister, without --subnet (the link only when .icp/data/mappings/ic.ids.json has no bot entry):
+     icp canister link bot <bot id> -e ic
+     icp deploy bot -e ic
 
 If the semantics page or the wasm is missing, or the hashes differ, stop and tell me instead of guessing.
 

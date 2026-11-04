@@ -76,6 +76,7 @@ export interface AggregatorActor {
   registerGame(input: GameInput): Promise<GameIdResult>;
   updateGame(id: GameId, edit: GameEdit): Promise<UnitResult>;
   deregisterGame(id: GameId): Promise<UnitResult>;
+  transferGame(id: GameId, from: Principal, to: Principal): Promise<UnitResult>;
   listGames(): Promise<GameView[]>;
   listGamesByDeveloper(developer: Principal): Promise<GameView[]>;
   getGame(id: GameId): Promise<[] | [GameView]>;

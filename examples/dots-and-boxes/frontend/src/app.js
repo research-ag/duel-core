@@ -10,7 +10,7 @@ import { makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
 import { start } from "@research-ag/duel-game-core/app.js";
 import { botPlayer, mountBotChallenge, mountLeaderboard } from "@research-ag/duel-game-core/bots.js"; // BOTS, LEADERBOARD
 import { connectTransport } from "@research-ag/duel-game-core/transport.js";
-import { resolveAnonymousIdentity } from "@research-ag/duel-game-core/anon-identity.js";
+import { regenerateAnonymousIdentity, resolveAnonymousIdentity } from "@research-ag/duel-game-core/anon-identity.js";
 import { deriveHost } from "@research-ag/duel-game-core/ic-env.js";
 import { viewTagOf } from "@research-ag/duel-game-core/client.js";
 import { plugin } from "./dots-and-boxes-plugin.js";
@@ -48,7 +48,15 @@ if (!canisterId) {
 const host = deriveHost();
 // The same identity must build the agent and sign the transport calls;
 // the backend checks the two match on every request.
-const session = resolveAnonymousIdentity();
+// `regenerate` backs the header's "new" button: a fresh keypair, then a
+// reload, since the agent below is bound to this one.
+const session = {
+  ...resolveAnonymousIdentity(),
+  regenerate: async () => {
+    regenerateAnonymousIdentity();
+    location.reload();
+  },
+};
 const agent = await HttpAgent.create({
   host,
   identity: session.identity,
