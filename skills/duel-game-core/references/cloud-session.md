@@ -17,9 +17,9 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
   user's approval in hosty.live.
 - The user's first look at anything is online, on free cloud engine
   canisters when hosty.live has an engine with a free slot
-  (`hosty_whoami`; `going-live.md`, section 3, "Canisters"). A new game: a cloud engine
-  backend and frontend (and bot), created once its local tests pass;
-  every later version redeploys into them until the user says the game
+  (`hosty_whoami`; `going-live.md`, section 3, "Canisters"). A new
+  game: a cloud engine backend and frontend (and bot), created once its
+  local tests pass; every later version redeploys into them until the user says the game
   goes live, which buys its mainnet canisters. If hosty.live deletes
   one of these cloud engine canisters, its replacement is created on
   the cloud engine, never on mainnet, and set up by kind: a backend is
@@ -69,8 +69,7 @@ first look online. The user:
    - **Network secrets** → **Add secret**: secret type **Bearer**, name
      `hosty.live`, allowed website `api.hosty.live`, and in the custom
      header row (`Authorization`, prefix `Bearer`) the token from
-     `going-live.md`, section 1, as
-     the value. Anthropic's proxy adds it to every request to
+     `going-live.md`, section 1, as the value. Anthropic's proxy adds it to every request to
      `api.hosty.live` after the request leaves the session's VM, so the
      session never sees the token. On a Team plan without an
      organization admin role the form is shorter: host

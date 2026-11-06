@@ -48,8 +48,9 @@ it. `references/` covers nine situations the templates don't:
 `cloud-session.md` (a Claude Code cloud session's setup, read first
 there), `turn-based-games.md`, `canister-player-bots.md`, `rich-ui.md`,
 `testing-deep-dive.md`, `going-live.md` (putting any of this online,
-through hosty.live or with icp-cli), `changing-a-live-game.md` (bot support, a leaderboard or
-any other change to a game already online), and, for a game
+through hosty.live or with icp-cli), `changing-a-live-game.md` (bot
+support, a leaderboard or any other change to a game already online),
+and, for a game
 someone else already deployed, from its canister id alone,
 `frontend-for-existing-game.md` (a new frontend) and
 `bot-for-existing-game.md` (a canister player) — read them only when
@@ -471,18 +472,18 @@ the player most wants to see. If the UI genuinely doesn't fit that
 
 ## Step 7 — Project/deploy config
 
-| Template                     | Destination                  | Fill in                                 |
-| ---------------------------- | ---------------------------- | --------------------------------------- |
-| `mops.toml.template`         | `mops.toml`                  | `__GAME_SLUG__`                         |
-| `package.json.template`      | `frontend/package.json`      | `__GAME_SLUG__`                         |
-| `build.js.template`          | `frontend/build.js`          | `__PLUGIN_FILE__` (header comment only) |
-| `icp.yaml.template`          | `icp.yaml`                   | — (unless renaming canisters)           |
-| `publish_wasm.sh.template`   | `publish_wasm.sh`            | — (next to `icp.yaml`)                  |
-| `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`     |
+| Template                     | Destination                  | Fill in                                    |
+| ---------------------------- | ---------------------------- | ------------------------------------------ |
+| `mops.toml.template`         | `mops.toml`                  | `__GAME_SLUG__`                            |
+| `package.json.template`      | `frontend/package.json`      | `__GAME_SLUG__`                            |
+| `build.js.template`          | `frontend/build.js`          | `__PLUGIN_FILE__` (header comment only)    |
+| `icp.yaml.template`          | `icp.yaml`                   | — (unless renaming canisters)              |
+| `publish_wasm.sh.template`   | `publish_wasm.sh`            | — (next to `icp.yaml`)                     |
+| `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`        |
 | `mcp.json.template`          | `.mcp.json`                  | — (cloud session only, `cloud-session.md`) |
-| `BotIface.mo.template`       | `src/BotIface.mo`            | `__RULES_MODULE__` (bot support only)   |
-| `check-upgrade.mjs.template` | `frontend/check-upgrade.mjs` | `__HOST_FILE__` (`Host.mo`)             |
-| `CLAUDE.md.template`         | `CLAUDE.md`                  | every `__...__`, at the first deploy    |
+| `BotIface.mo.template`       | `src/BotIface.mo`            | `__RULES_MODULE__` (bot support only)      |
+| `check-upgrade.mjs.template` | `frontend/check-upgrade.mjs` | `__HOST_FILE__` (`Host.mo`)                |
+| `CLAUDE.md.template`         | `CLAUDE.md`                  | every `__...__`, at the first deploy       |
 
 ```bash
 mops install && mops test
@@ -543,20 +544,20 @@ what a player sees. In a cloud session Chromium and Playwright are
 already installed (`require('playwright')`, `chromium.launch()` with no
 options); on a computer, `npm install playwright && npx playwright
 install chromium` in a scratch directory outside the project. Then, on
-the user's computer, the user plays the same local URL. In a cloud session nobody can open it:
-once the three checks above pass, tell the user the game is ready for
-its first look, which is online in free hosty.live cloud engine
-canisters (`references/going-live.md`, section 3, "Canisters": no
-cycles, no card, as many redeploys as the game needs; hosty.live may
-delete them at its discretion, and they cannot be listed on the Duel
-dashboard), and put it there when they agree: a cloud engine backend
-and frontend (and bot), named "<game name> backend" and so on, the
-backend installed with `hosty_prepare_wasm_upload`, the page uploaded
-with `hosty_prepare_zip_upload` and its `PUBLIC_CANISTER_ID:backend`
-set, then `(cd frontend && node play-test.mjs <backend-id> --ic)` and
-the `frontendUrl` for the user. Every change goes back into the same
-canisters. Tests passing and the frontend building are necessary, not
-sufficient.
+the user's computer, the user plays the same local URL. In a cloud
+session nobody can open it: once the three checks above pass, tell the
+user the game is ready for its first look, which is online in free
+hosty.live cloud engine canisters (`references/going-live.md`, section
+3, "Canisters": no cycles, no card, as many redeploys as the game needs;
+hosty.live may delete them at its discretion, and they cannot be listed
+on the Duel dashboard), and put it there when they agree: a cloud engine
+backend and frontend (and bot), named "<game name> backend" and so on,
+the backend installed with `hosty_prepare_wasm_upload`, the page
+uploaded with `hosty_prepare_zip_upload` and its
+`PUBLIC_CANISTER_ID:backend` set, then `(cd frontend && node
+play-test.mjs <backend-id> --ic)` and the `frontendUrl` for the user.
+Every change goes back into the same canisters. Tests passing and the
+frontend building are necessary, not sufficient.
 
 ## Step 8 — Go live
 
