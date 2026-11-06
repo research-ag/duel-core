@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import {
   CYCLEPAY_MAX_USD,
   CYCLEPAY_MIN_USD,
+  CYCLEPAY_NO_SIGN_IN_USD,
   cycleExpressUrl,
   cyclePayUrl,
   formatTC,
@@ -17,7 +18,7 @@ import {
 import type { Cycles } from "../cycles";
 import { CodeBlock } from "./CodeBlock";
 
-const PRESETS = [5, 10, 25];
+const PRESETS = [1, 2, 5, 10, 25];
 const WATCH_EVERY_MS = 5_000;
 const WATCH_FOR_MS = 120_000;
 
@@ -30,7 +31,7 @@ export function TopUp({
   cycles: Cycles;
   isOwner: boolean;
 }) {
-  const [usd, setUsd] = useState(10);
+  const [usd, setUsd] = useState(2);
   const [custom, setCustom] = useState("");
   /// The balance before the payment: the one on screen when the payment
   /// page opened, or the fresh read started at that moment. Never a
@@ -182,6 +183,9 @@ export function TopUp({
         <span className="note">
           Opens CyclePay's Stripe checkout in a new tab; the TC figure is an
           estimate, the checkout states the charge.
+          {valid &&
+            usd < CYCLEPAY_NO_SIGN_IN_USD &&
+            ` Sign-in needed under $${CYCLEPAY_NO_SIGN_IN_USD}.`}
         </span>
         <a
           className={`btn primary${valid ? "" : " disabled"}`}

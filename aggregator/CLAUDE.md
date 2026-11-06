@@ -117,7 +117,8 @@ from, to)` is the one admin method: controllers only
   `critical` card gets a red edge), the `Low on cycles` chip and the
   logged-in developer's `OwnerStrip` in `GameGrid.tsx`; and the top-up
   links. `TopUp.tsx` is the modal's third page: a whole-dollar amount
-  (5 to 100) into a prefilled CyclePay checkout
+  (1 to 100; under 5 CyclePay asks the payer to sign in) into a
+  prefilled CyclePay checkout
   (`cyclepay.org/c/<backend>/<usd>`, anyone can pay), Cycle Express
   (`cycle.express/?to=<backend>`) and,
   for the game's developer, the canister's hosty.live page and the

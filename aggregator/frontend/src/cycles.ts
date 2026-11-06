@@ -47,7 +47,9 @@ export function tcForUsd(usd: number): number {
   return Math.max(0, (usd * (1 - STRIPE_PCT) - STRIPE_FIXED) / XDR_USD);
 }
 
-export const CYCLEPAY_MIN_USD = 5;
+export const CYCLEPAY_MIN_USD = 1;
+/// Below it, CyclePay's card checkout asks the payer to sign in.
+export const CYCLEPAY_NO_SIGN_IN_USD = 5;
 export const CYCLEPAY_MAX_USD = 100;
 
 export function cyclePayUrl(canister: string, usd: number): string {
