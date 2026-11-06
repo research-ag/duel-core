@@ -19,7 +19,7 @@ signed by the user. There are three setups, best first:
 | Who signs        | the user's Internet Identity, approving a hosty.live session                                   | the same                                  | an icp-cli identity, a key on the user's computer         |
 | Paid with        | nothing while developing (cloud engine canisters); the hosty.live balance, by card, to go live | the same                                  | cycles bought by card at cycle.express: 2T per canister   |
 | Deploys          | `hosty_*` tools over hosty.live's MCP server                                                   | `hosty_*` tools, or the hosty.live web UI | `icp deploy <name> -e ic`                                 |
-| The module store | hosty.live stores every module it installs                                                     | the same                                  | `publish_wasm.sh` uploads it, with a hosty.live API token |
+| The module store | hosty.live stores every module it installs                                                     | the same                                  | `publish_wasm.sh` uploads it, no token needed             |
 | Suits            | anyone, from any device; nothing to install                                                    | a user who already runs a coding agent    | a user who already has an identity and cycles, or scripts |
 
 Setups 1 and 2 are the same route, through hosty.live (section 3);
@@ -27,8 +27,8 @@ setup 3 is icp-cli all the way (section 4). Keep every canister of a
 project on one route. Either way the backend's module ends up in
 hosty.live's module store, where other people's frontends and bots
 fetch it by the canister's public module hash (backend README,
-"Downloadable wasm"); every setup needs a hosty.live account for that,
-setup 3 only its API token.
+"Downloadable wasm"). Setups 1 and 2 need a hosty.live account for
+that (section 1); setup 3 needs none.
 
 hosty.live has two kinds of canister, and the route through it uses
 both in turn:
@@ -71,7 +71,7 @@ session's VM or on the computer. A cloud engine install is for a build
 that passes all three; a mainnet install is for one the user has played
 on the cloud engine and wants live.
 
-## 1. A hosty.live account and its API token (every setup)
+## 1. A hosty.live account and its API token (setups 1 and 2)
 
 The user, once, in the browser:
 
@@ -93,8 +93,7 @@ The user, once, in the browser:
    on cloud engine canisters.
 
 Where the token goes next depends on the setup: section 2 for a cloud
-session, section 3's first paragraph for an agent on the computer,
-section 4 for icp-cli.
+session, section 3's first paragraph for an agent on the computer.
 
 ## 2. Setup 1: a Claude Code cloud session
 
@@ -480,19 +479,9 @@ principal` printed into its recipient field, pay with Stripe. Then:
 icp cycles balance -n ic
 ```
 
-**The token.** The backend's sync step needs section 1's token, in a
-file outside the project that only the user can read. The user runs
-this in a terminal of their own and pastes the token at the prompt,
-which does not echo it or keep it in the shell's history:
-
-```bash
-mkdir -p ~/.config/hosty && printf 'hosty.live token: ' && read -rs t && echo && (umask 077 && printf %s "$t" > ~/.config/hosty/token); unset t
-```
-
 **Deploy**, from the project root, naming each canister:
 
 ```bash
-export HOSTY_TOKEN=$(cat ~/.config/hosty/token)
 icp deploy backend -e ic              # a game's backend
 icp deploy frontend -e ic             # its page; sets the ic_env cookie itself
 icp deploy bot -e ic --subnet <subnet-id>   # a bot, on its game's subnet (bot-for-existing-game.md)
@@ -513,8 +502,9 @@ every other canister in `icp.yaml` on mainnet, 2T cycles each, and for
 a project linked to somebody else's backend it fails on that one. The
 backend's sync step (`publish_wasm.sh`) runs by itself after every
 install and upgrade: it uploads the module the canister now runs to
-the store and has the store verify it against the canister. When it
-fails (no token, a network error), the canister is installed but its
+the store, naming the canister, which needs no token and has the store
+verify it against that canister. When it fails (a network error), the
+canister is installed but its
 module is not downloadable yet: fix the cause and run `icp sync
 backend -e ic`. Then:
 

@@ -10,14 +10,6 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 
-# Each backend's sync step publishes its module to hosty.live's module
-# store with this token (see backend/README.md, "Downloadable wasm").
-if [ -z "${HOSTY_TOKEN:-}" ]; then
-  HOSTY_TOKEN=$(cat "$HOME/.config/hosty/token") ||
-    { echo "set HOSTY_TOKEN or write it to ~/.config/hosty/token" >&2; exit 1; }
-fi
-export HOSTY_TOKEN
-
 echo "==> Building frontend/"
 (cd "$root/frontend" && npm run build)
 

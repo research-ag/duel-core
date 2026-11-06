@@ -326,9 +326,9 @@ deploys all of them to the IC.
     `sh publish_wasm.sh backend` (the script sits next to `icp.yaml`,
     copied from the skill's template), which after every
     install/reinstall/upgrade on `ic` uploads the module the canister now
-    runs to the store (`HOSTY_TOKEN`) and has it verified against the
-    canister. `snapshot_visibility` is never set to `public`, because a
-    snapshot is the whole heap, access codes and pending moves included.
+    runs to the store, naming the canister, which needs no token and has
+    it verified against that canister. `snapshot_visibility` is never set
+    to `public`, because a snapshot is the whole heap, access codes and pending moves included.
     Its host serves `Rules.SEMANTICS` at `/semantics`. That text, the
     `candid:service` metadata and the module are all a third party has
     to build a frontend or a bot

@@ -510,7 +510,7 @@ hosty.live is stored there by hosty.live; for one deployed with `icp
 deploy -e ic`, the template's `icp.yaml` runs `sh publish_wasm.sh
 backend` as the backend's sync step, which uploads the module the
 canister now runs to the store after every mainnet install, reinstall
-and upgrade (with the user's hosty.live token in `HOSTY_TOKEN`), and
+and upgrade (no token needed), and
 does nothing on a local deploy. Keep the step when adapting the file,
 and never set `snapshot_visibility: public`: a snapshot would publish
 the whole heap, access codes included. If the backend canister is
@@ -571,8 +571,7 @@ backend`) with `hosty_prepare_wasm_upload`, and upload the zipped
 - **With icp-cli** (setup 3, on the user's own computer only): the
   user's own identity (`icp identity new`), cycles bought by card at
   cycle.express, and `icp deploy backend -e ic` / `icp deploy frontend
--e ic`, with the hosty.live API token in `HOSTY_TOKEN` so the sync
-  step can publish the module.
+-e ic`, whose sync step publishes the module.
 
 Either way, the user then lists the frontend on the Duel dashboard;
 until then the game is online but unlisted. Write the repository's
