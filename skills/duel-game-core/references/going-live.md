@@ -164,25 +164,42 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
      token.
    - **Network access**: **Custom**, with "Also include default list"
      on, and these domains: `api.hosty.live`, `icp-api.io`, `icp0.io`,
-     `*.icp0.io`, `ic0.app`, `ic-api.internetcomputer.org`. hosty.live's
-     tools answer with `curl` uploads to `api.hosty.live`; a bot's
-     subnet lookup goes to `ic-api.internetcomputer.org`; mops,
-     icp-cli's mainnet reads and the play-test against a deployed
-     backend talk to the others.
+     `*.icp0.io`, `ic0.app`, `ic-api.internetcomputer.org`, `ghcr.io`,
+     `pkg-containers.githubusercontent.com`. hosty.live's tools answer
+     with `curl` uploads to `api.hosty.live`; a bot's subnet lookup goes
+     to `ic-api.internetcomputer.org`; the setup script below fetches
+     icp-cli's local network launcher from `ghcr.io`, whose downloads
+     redirect to `pkg-containers.githubusercontent.com`; mops, icp-cli's
+     mainnet reads and the play-test against a deployed backend talk to
+     the others.
    - **Setup script**, which installs every tool before the session
-     starts (a binary fetched mid-session may be refused, and icp-cli
-     looks up its local network launcher on `api.github.com`, which
-     often turns a cloud VM's shared address away; this fetches it
-     through `github.com`):
+     starts. icp-cli downloads its local network launcher from GitHub
+     releases, which a cloud session cannot reach (GitHub access there
+     is granted per repository, not per domain), so the script takes the
+     launcher and `pocket-ic` from DFINITY's official
+     `dfinity/icp-cli-network-launcher` container image on `ghcr.io`
+     (linux/amd64, pinned by digest). A failed download still lets the
+     session start; only `icp network start` then fails:
 
      ```bash
-     npm install -g @icp-sdk/icp-cli ic-mops
-     tag=$(curl -fsSIL -o /dev/null -w '%{url_effective}' https://github.com/dfinity/icp-cli-network-launcher/releases/latest)
-     tag=${tag##*/}
-     arch=$(uname -m | sed s/aarch64/arm64/)
-     mkdir -p /opt/icp-launcher
-     curl -fsSL "https://github.com/dfinity/icp-cli-network-launcher/releases/download/$tag/icp-cli-network-launcher-$arch-linux-$tag.tar.gz" | tar -xz --strip-components=1 -C /opt/icp-launcher
+     npm install -g @icp-sdk/icp-cli@1.8.0 ic-mops
+     L=/opt/icp-launcher
+     if [ ! -x "$L/icp-cli-network-launcher" ]; then
+       R=dfinity/icp-cli-network-launcher
+       M=sha256:7a98f5bd3094f79c36adc7e8c4cc2a79886d091ec23f8fcc78caae364d54e91e # linux/amd64
+       T=$(curl -fsS "https://ghcr.io/token?scope=repository:$R:pull" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+       W=$(mktemp -d)
+       curl -fsS -H "Authorization: Bearer $T" -H "Accept: application/vnd.oci.image.manifest.v1+json" "https://ghcr.io/v2/$R/manifests/$M" -o "$W/m.json"
+       for D in $(python3 -c 'import json,sys;print(" ".join(l["digest"] for l in json.load(open(sys.argv[1]))["layers"]))' "$W/m.json"); do
+         curl -fsSL -H "Authorization: Bearer $T" "https://ghcr.io/v2/$R/blobs/$D" | tar -xz -C "$W" --wildcards 'app/*' 2>/dev/null || true
+       done
+       mkdir -p "$L" && cp "$W/app/icp-cli-network-launcher" "$W/app/pocket-ic" "$L/" && rm -rf "$W"
+     fi
+     ls -l "$L" || true
      ```
+
+     The icp-cli version and the image digest go together: a newer
+     icp-cli may need a newer launcher image, so update both at once.
 
    - **Environment variables**: `ICP_CLI_NETWORK_LAUNCHER_PATH=/opt/icp-launcher/icp-cli-network-launcher`,
      so `icp network start` uses that launcher.
