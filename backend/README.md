@@ -696,11 +696,11 @@ put there by every deploy:
 
   It takes the artifact icp-cli just installed
   (`.icp/cache/artifacts/backend`), refuses to go on unless its SHA-256
-  equals the canister's `module_hash`, uploads it (`POST /modules`, with
-  the hosty.live API token in `HOSTY_TOKEN`), asks the store to verify
-  it against the canister (`POST /modules/<hash>/verify`) and checks the
-  result. Without `HOSTY_TOKEN` the step fails and says so; set it and
-  run `icp sync backend -e ic`.
+  equals the canister's `module_hash`, uploads it with the canister's id
+  (`POST /modules`, no token), which has the store verify it against
+  that canister, and checks the result. When the step fails, the
+  canister is installed but its module is not downloadable yet: fix the
+  cause and run `icp sync backend -e ic`.
 
 The store's key is the hex SHA-256 of the module exactly as installed —
 of the gzipped bytes for a gzipped module — which is the IC's
