@@ -44,11 +44,11 @@ A finished game is six pieces of game-specific code:
    fill in names.
 
 Every template lives in `templates/`; read each one right before adapting
-it. `references/` covers eight situations the templates don't:
-`turn-based-games.md`, `canister-player-bots.md`, `rich-ui.md`,
-`testing-deep-dive.md`, `going-live.md` (a Claude Code cloud
-session's setup, and putting any of this online, through hosty.live or
-with icp-cli), `changing-a-live-game.md` (bot support, a leaderboard or
+it. `references/` covers nine situations the templates don't:
+`cloud-session.md` (a Claude Code cloud session's setup, read first
+there), `turn-based-games.md`, `canister-player-bots.md`, `rich-ui.md`,
+`testing-deep-dive.md`, `going-live.md` (putting any of this online,
+through hosty.live or with icp-cli), `changing-a-live-game.md` (bot support, a leaderboard or
 any other change to a game already online), and, for a game
 someone else already deployed, from its canister id alone,
 `frontend-for-existing-game.md` (a new frontend) and
@@ -61,9 +61,11 @@ You are very likely in a new repo, separate from `research-ag/duel-core`,
 and quite possibly in a Claude Code cloud session (claude.ai/code): a
 VM the user never sees into, where you build and test and from which
 everything goes online through hosty.live's MCP server.
-`references/going-live.md`, section 2, is that session's setup; check
-it before anything else. Wherever you run, the build needs `icp`
-(icp-cli) and `mops`:
+`references/cloud-session.md` is that session's setup; read it before
+anything else. Its environment's setup script installs icp-cli together
+with the local network launcher `icp network start` needs, which icp-cli
+cannot download by itself in a cloud session. Wherever you run, the
+build needs `icp` (icp-cli) and `mops`:
 
 ```bash
 icp --version && mops --version || npm install -g @icp-sdk/icp-cli ic-mops
@@ -477,7 +479,7 @@ the player most wants to see. If the UI genuinely doesn't fit that
 | `icp.yaml.template`          | `icp.yaml`                   | — (unless renaming canisters)           |
 | `publish_wasm.sh.template`   | `publish_wasm.sh`            | — (next to `icp.yaml`)                  |
 | `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`     |
-| `mcp.json.template`          | `.mcp.json`                  | — (cloud session only, `going-live.md`) |
+| `mcp.json.template`          | `.mcp.json`                  | — (cloud session only, `cloud-session.md`) |
 | `BotIface.mo.template`       | `src/BotIface.mo`            | `__RULES_MODULE__` (bot support only)   |
 | `check-upgrade.mjs.template` | `frontend/check-upgrade.mjs` | `__HOST_FILE__` (`Host.mo`)             |
 | `CLAUDE.md.template`         | `CLAUDE.md`                  | every `__...__`, at the first deploy    |
@@ -533,8 +535,15 @@ Then the game wants human eyes: both seats in two browser tabs, a table
 created in one and joined from the other, a round resolved and the
 debrief/rematch loop. Check that your move appears the instant you
 click, that the opponent's move is marked when it lands, and that the
-debrief still shows the final move. On the user's computer that is the
-local URL `icp deploy` printed. In a cloud session nobody can open it:
+debrief still shows the final move. Check them yourself first, with
+Playwright on the local URL `icp deploy` printed: two browser contexts
+(two players with their own keys), a screenshot after each step, and
+look at every screenshot. `play-test.mjs` proves the moves; this proves
+what a player sees. In a cloud session Chromium and Playwright are
+already installed (`require('playwright')`, `chromium.launch()` with no
+options); on a computer, `npm install playwright && npx playwright
+install chromium` in a scratch directory outside the project. Then, on
+the user's computer, the user plays the same local URL. In a cloud session nobody can open it:
 once the three checks above pass, tell the user the game is ready for
 its first look, which is online in free hosty.live cloud engine
 canisters (`references/going-live.md`, section 3, "Canisters": no

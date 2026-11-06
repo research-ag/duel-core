@@ -21,8 +21,8 @@ Everything you need comes from the backend canister id:
 All of it is plain HTTPS and hosty.live. Where you work decides the
 rest:
 
-- **A Claude Code cloud session** (claude.ai/code; `going-live.md`,
-  section 2, is its setup): icp-cli and mops run in the session's VM,
+- **A Claude Code cloud session** (claude.ai/code; `cloud-session.md` is its
+  setup): icp-cli and mops run in the session's VM,
   so you test against a local copy of the game there (steps 5 and 7),
   and the user, who cannot open anything the VM serves, plays the page
   in a free hosty.live cloud engine canister (step 7).
@@ -256,7 +256,9 @@ cd frontend && node play-test.mjs && cd ..
 
 `play-test.mjs` (`SKILL.md` Step 7) plays a whole game per
 `optionChoices()` entry through your plugin's own buttons, rematches,
-leaves and acks; it is your own check, before any human looks. On the
+leaves and acks; it is your own check, before any human looks. Then
+look at the page yourself with Playwright, as `SKILL.md` Step 7
+describes. On the
 user's computer, `icp deploy` also printed the frontend's local URL:
 the user plays there in two browser tabs. The local copy starts empty:
 no bots are registered and the leaderboard is blank, so a bot list or a

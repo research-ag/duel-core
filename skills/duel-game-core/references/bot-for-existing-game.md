@@ -18,7 +18,7 @@ Everything you need comes from the backend canister id:
 | `make_move`'s contract     | `canister-player-bots.md`, the backend README's "Canister players" |
 
 This needs `icp-cli` and `mops`: in a Claude Code cloud session's VM
-(`going-live.md`, section 2, is its setup) or on the user's computer.
+(`cloud-session.md` is its setup) or on the user's computer.
 A bot cannot be tested against the live game without first being
 deployed, so there is no route through a builder without a shell. All
 testing is local (step 5), which a cloud session does as well as a

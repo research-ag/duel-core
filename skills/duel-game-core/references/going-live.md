@@ -92,8 +92,9 @@ The user, once, in the browser:
    game with a bot is about 4 TC. Nothing is paid while the game runs
    on cloud engine canisters.
 
-Where the token goes next depends on the setup: section 2 for a cloud
-session, section 3's first paragraph for an agent on the computer.
+Where the token goes next depends on the setup: `cloud-session.md`
+for a cloud session, section 3's first paragraph for an agent on the
+computer.
 
 ## 2. Setup 1: a Claude Code cloud session
 
@@ -326,7 +327,7 @@ and can attach a custom domain or make it immutable from the web UI.
 
 ## 4. Setup 3: everything with icp-cli
 
-Only on the user's own computer, never in a cloud session (section 2).
+Only on the user's own computer, never in a cloud session (`cloud-session.md`).
 
 **An identity.** `icp-cli` signs every call with a key it keeps on the
 user's computer. The user creates it once, in a terminal of their own,

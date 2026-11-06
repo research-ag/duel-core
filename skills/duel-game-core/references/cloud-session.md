@@ -1,5 +1,11 @@
 # A Claude Code cloud session
 
+Read this first whenever you run in a Claude Code cloud session
+(claude.ai/code, the Claude app), before building or testing anything.
+The environment it describes is set up once per project and serves
+every step, from the first `mops test` and the local network to going
+live through hosty.live (`going-live.md`).
+
 A cloud session runs in a fresh virtual machine that is discarded
 afterwards. The agent builds and tests there; the user never opens
 anything the VM serves (there is no `localhost` to visit), and every
@@ -11,7 +17,7 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
   user's approval in hosty.live.
 - The user's first look at anything is online, on free cloud engine
   canisters when hosty.live has an engine with a free slot
-  (`hosty_whoami`; section 3, "Canisters"). A new game: a cloud engine
+  (`hosty_whoami`; `going-live.md`, section 3, "Canisters"). A new game: a cloud engine
   backend and frontend (and bot), created once its local tests pass;
   every later version redeploys into them until the user says the game
   goes live, which buys its mainnet canisters. If hosty.live deletes
@@ -27,7 +33,12 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
   themselves: say what they cost and create them only once the user
   agrees.
 
-**Once per project, the user:**
+**Once per project, before the first build, the user** sets up the
+repository and the session's environment. Building and testing need
+only its network access, setup script and environment variable; the
+hosty.live network secret (a hosty.live account and its API token,
+`going-live.md`, section 1) can follow when the game is ready for its
+first look online. The user:
 
 1. Creates a GitHub repository (empty is fine) and adds one file at its
    root, `.mcp.json`, with exactly this content (on GitHub: **Add
@@ -57,7 +68,8 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    environment**. In it:
    - **Network secrets** → **Add secret**: secret type **Bearer**, name
      `hosty.live`, allowed website `api.hosty.live`, and in the custom
-     header row (`Authorization`, prefix `Bearer`) section 1's token as
+     header row (`Authorization`, prefix `Bearer`) the token from
+     `going-live.md`, section 1, as
      the value. Anthropic's proxy adds it to every request to
      `api.hosty.live` after the request leaves the session's VM, so the
      session never sees the token. On a Team plan without an

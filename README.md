@@ -55,8 +55,10 @@ MCP server, in canisters of your own paid by card (a few dollars), after
 you approve the deploy in hosty.live with your passkey. A coding agent
 on your computer works the same way, and `icp-cli` with your own
 identity and cycles remains an option. The skill's
+[`references/cloud-session.md`](skills/duel-game-core/references/cloud-session.md)
+sets up the cloud session and
 [`references/going-live.md`](skills/duel-game-core/references/going-live.md)
-is the walkthrough; the [Duel Dashboard](https://games.ic0.info/)'s
+is the walkthrough for going online; the [Duel Dashboard](https://games.ic0.info/)'s
 "Build a game" guide hands you the prompt.
 
 ## Building your own frontend or bot for a listed game
