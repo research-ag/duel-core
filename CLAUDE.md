@@ -345,16 +345,18 @@ deploys all of them to the IC.
 - `skills/duel-game-core/SKILL.md` (tracked, installable via `npx skills
 add research-ag/duel-core --skill duel-game-core`) — building a game
   from a rules description: `Spec` design, templates, and `references/`
-  for canister bots, turn-based games, rich UIs, long-game testing,
-  going live (a Claude Code cloud session's setup first, then
-  hosty.live by MCP or web UI, or icp-cli and cycles, then the
-  dashboard), a headless whole-game check (`play-test.mjs.template`),
-  changing a live game (bot support, a leaderboard; the
-  `check-upgrade.mjs.template` stable-compatibility check against the
-  module the canister runs), and a new frontend or a bot for an
-  already-deployed game. The Host/app/index templates carry bot support
-  and the leaderboard as commented lines marked BOTS/LEADERBOARD.
-  Read it first for any game-building task, here or elsewhere.
+  for a Claude Code cloud session's setup (read first there: network
+  access and the setup script that installs icp-cli and its local
+  network launcher), canister bots, turn-based games, rich UIs,
+  long-game testing, going live (hosty.live by MCP or web UI, or icp-cli
+  and cycles, then the dashboard), a headless whole-game check
+  (`play-test.mjs.template`), changing a live game (bot support, a
+  leaderboard; the `check-upgrade.mjs.template` stable-compatibility
+  check against the module the canister runs), and a new frontend or a
+  bot for an already-deployed game. The Host/app/index templates carry
+  bot support and the leaderboard as commented lines marked
+  BOTS/LEADERBOARD. Read it first for any game-building task, here or
+  elsewhere.
 - `.agents/skills/` (local, untracked) — general Motoko playbooks:
   `motoko-general-style-guidelines` (2-space indent, 80 cols),
   `motoko-performance-optimizations` (never `Array.concat` in a loop;

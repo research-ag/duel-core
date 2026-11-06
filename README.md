@@ -50,14 +50,18 @@ npx skills add research-ag/duel-core --skill duel-game-core
 Putting a game online needs no prior Internet Computer knowledge and
 nothing installed on your computer: a Claude Code cloud session
 (claude.ai/code) builds and tests the game in its own VM, and puts the
-backend and the frontend online through [hosty.live](https://hosty.live/)'s
-MCP server, in canisters of your own paid by card (a few dollars), after
-you approve the deploy in hosty.live with your passkey. A coding agent
-on your computer works the same way, and `icp-cli` with your own
-identity and cycles remains an option. The skill's
+backend and the frontend online through
+[hosty.live](https://hosty.live/)'s MCP server, in canisters of your own
+paid by card (a few dollars), after you approve the deploy in hosty.live
+with your passkey. A coding agent on your computer works the same way,
+and `icp-cli` with your own identity and cycles remains an option. The
+skill's
+[`references/cloud-session.md`](skills/duel-game-core/references/cloud-session.md)
+sets up the cloud session and
 [`references/going-live.md`](skills/duel-game-core/references/going-live.md)
-is the walkthrough; the [Duel Dashboard](https://games.ic0.info/)'s
-"Build a game" guide hands you the prompt.
+is the walkthrough for going online; the [Duel
+Dashboard](https://games.ic0.info/)'s "Build a game" guide hands you the
+prompt.
 
 ## Building your own frontend or bot for a listed game
 
