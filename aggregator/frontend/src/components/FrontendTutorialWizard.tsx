@@ -149,7 +149,7 @@ function HowItWorksStep({
           {
             way: "hosty",
             title: "Claude Code and hosty.live",
-            note: "Nothing to install: Claude Code on the web builds and tests the page, shows it to you on a free test canister, and hosty.live puts it online for about a dollar, paid by card. Works from an AI tool on your computer too.",
+            note: "Nothing to install: Claude Code on the web builds and tests the page, shows it to you on a free test canister, and hosty.live puts it online for about a dollar at the time of writing, paid by card. Works from an AI tool on your computer too.",
           },
           {
             way: "own",

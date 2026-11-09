@@ -103,7 +103,7 @@ function HowItWorksStep({
           {
             way: "hosty",
             title: "Through hosty.live",
-            note: "Nothing to install: Claude Code on the web builds the game, you try it on free test canisters, and it goes live for a few dollars, paid by card. Works from an AI tool on your computer too.",
+            note: "Nothing to install: Claude Code on the web builds the game, you try it on free test canisters, and it goes live for a few dollars at the time of writing, paid by card. Works from an AI tool on your computer too.",
           },
           {
             way: "own",
