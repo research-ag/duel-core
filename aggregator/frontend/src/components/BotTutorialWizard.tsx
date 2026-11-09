@@ -210,6 +210,14 @@ function GoLiveStep({ target, way }: { target: Target; way: BotWay }) {
     <>
       {way === "hosty" ? (
         <>
+          <p>
+            Before paying anything, ask the session which subnet the game is
+            on. A bot must sit on its game's subnet, and hosty.live creates
+            every canister on one subnet. If the game is elsewhere, the bot goes
+            online from your computer with icp-cli, your own key and cycles
+            instead: the session gives you those steps, and you skip the
+            top-up below.
+          </p>
           <HostyCycles cost="a bot's canister costs 1.5 TC (a few dollars)" />
           <p>Then tell the session</p>
           <CodeBlock code="Put my bot online through hosty.live and register it as <bot name>." />
