@@ -2,9 +2,9 @@
 
 Read this first whenever you run in a Claude Code cloud session
 (claude.ai/code, the Claude app), before building or testing anything.
-The environment it describes is set up once per project and serves
-every step, from the first `mops test` and the local network to going
-live through hosty.live (`going-live.md`).
+The environment it describes is set up once and serves every step,
+from the first `mops test` and the local network to going live through
+hosty.live (`going-live.md`).
 
 A cloud session runs in a fresh virtual machine that is discarded
 afterwards. The agent builds and tests there; the user never opens
@@ -33,54 +33,27 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
   themselves: say what they cost and create them only once the user
   agrees.
 
-**Once per project, before the first build, the user** sets up the
-repository and the session's environment. Building and testing need
-only its network access, setup script and environment variable; the
-hosty.live network secret (a hosty.live account and its API token,
-`going-live.md`, section 1) can follow when the game is ready for its
-first look online. The user:
+**Once, before the first build, the user:**
 
-1. Creates a GitHub repository (empty is fine) and adds one file at its
-   root, `.mcp.json`, with exactly this content (on GitHub: **Add
-   file** → **Create new file**), from `templates/mcp.json.template`:
-
-   ```json
-   {
-     "mcpServers": {
-       "hosty": {
-         "type": "http",
-         "url": "https://api.hosty.live/mcp"
-       }
-     }
-   }
-   ```
-
-   It holds no token, and none ever goes into the repository: the next
-   step adds it outside the session.
-
-2. Opens https://claude.ai/code in a browser (in the desktop app, its
-   **Code** tab, not the chat home) and, on a first visit, connects
-   GitHub for that repository. On the new-session screen, opens the
-   environment selector (the first control under the message box) and
-   either picks **New environment** or edits **Default** (the settings
-   icon on its row under **Cloud**). In a running session the same
-   dialog is the caret after the session title → **Edit cloud
+1. Adds the hosty.live connector in claude.ai (`going-live.md`,
+   section 1). Its tool calls go from Anthropic's servers to
+   hosty.live, outside the session's VM and its network list, and no
+   credential enters the VM. Every new session has the `hosty_*` tools.
+2. Creates a GitHub repository for the work.
+3. Opens https://claude.ai/code in a browser and, on a first visit,
+   connects GitHub for that repository. On the new-session screen,
+   opens the environment selector (the first control under the message
+   box) and either picks **New environment** or edits **Default** (the
+   settings icon on its row under **Cloud**). In a running session the
+   same dialog is the caret after the session title → **Edit cloud
    environment**. In it:
-   - **Network secrets** → **Add secret**: secret type **Bearer**, name
-     `hosty.live`, allowed website `api.hosty.live`, and in the custom
-     header row (`Authorization`, prefix `Bearer`) the token from
-     `going-live.md`, section 1, as the value. Anthropic's proxy adds it to every request to
-     `api.hosty.live` after the request leaves the session's VM, so the
-     session never sees the token. On a Team plan without an
-     organization admin role the form is shorter: host
-     `api.hosty.live`, secret type **Token**, the token as the value;
-     the session's first `hosty_whoami` confirms it arrives as a Bearer
-     token.
    - **Network access**: **Custom**, with "Also include default list"
      on, and these domains: `api.hosty.live`, `icp-api.io`, `icp0.io`,
-     `*.icp0.io`, `ic0.app`, `ic-api.internetcomputer.org`, `ghcr.io`,
+     `*.icp0.io`, `icp.net`, `*.icp.net`, `ic0.app`,
+     `ic-api.internetcomputer.org`, `ghcr.io`,
      `pkg-containers.githubusercontent.com`. hosty.live's tools answer
-     with `curl` uploads to `api.hosty.live`; a bot's subnet lookup goes
+     with `curl` uploads to `api.hosty.live`; the Duel dashboard hands
+     out game addresses on `icp.net`; a bot's subnet lookup goes
      to `ic-api.internetcomputer.org`; the setup script below fetches
      icp-cli's local network launcher from `ghcr.io`, whose downloads
      redirect to `pkg-containers.githubusercontent.com`; mops, icp-cli's
@@ -118,28 +91,22 @@ first look online. The user:
    - **Environment variables**: `ICP_CLI_NETWORK_LAUNCHER_PATH=/opt/icp-launcher/icp-cli-network-launcher`,
      so `icp network start` uses that launcher.
 
-3. Starts a session on that repository with that environment.
-
-Where the user cannot add a network secret (an Enterprise seat without
-an organization admin role, an organization with customer-managed
-encryption keys), the fallback is an environment variable: add
-`"headers": { "Authorization": "Bearer ${HOSTY_TOKEN}" }` to the
-server in `.mcp.json` (still no token in the file) and
-`HOSTY_TOKEN=hl_...` under the environment's **Environment variables**.
-Anyone who uses that environment, and every command the session runs,
-can read such a variable; revoke the token when the project is done.
+4. Starts a session on that repository with that environment.
 
 **In the session, you:** check `icp --version`, `mops --version` and
-`hosty_whoami` first. A missing `hosty_*` tool means the setup is
-incomplete: without `.mcp.json`, write it from the template, commit
-and push it; without the network secret, the user adds it to the
-environment; the tools appear in the next session on that branch. A
-`401` from `hosty_whoami` means the server was reached but the token
-was not accepted: the user checks `.mcp.json`, that the network
-secret's host is `api.hosty.live` and sends the token as `Bearer`, and
-that the token is not revoked (**Settings** → **AI agent access**).
-Either way, tell the user and build meanwhile. Never ask for the token,
-and never write it into a file or a command. Unless
+`hosty_whoami` first. Missing `hosty_*` tools mean one of three
+things, and the user fixes each in claude.ai: the connector is not
+added (https://claude.ai/customize/connectors), it is switched off for
+this session (the **+** under the message box → **Connectors**), or it
+needs reconnecting (in the connector settings; hosty.live shows
+connected apps under **Settings** → **AI agent access**, and
+disconnecting one there ends its deploy sessions until the user
+reconnects). A new session has the tools once that is fixed. Never
+offer the user a sign-in from the session: connectors are authorized in
+claude.ai. A `hosty` server from a `.mcp.json` in the repository that
+"requires authentication" is left over from the token setup below:
+tell the user to delete that `.mcp.json`, unless they set up the token
+way on purpose. Tell the user what you found and build meanwhile. Unless
 `.claude/skills/duel-game-core/` is already there, install this skill
 into the repository and commit it:
 
@@ -156,3 +123,60 @@ prefers), so the next session finds the game where it looks first.
 From the first deploy on, keep the repository's `CLAUDE.md`
 (`templates/CLAUDE.md.template`) current: the canister ids and what
 each one runs.
+
+## Without connectors: an API token
+
+On Team and Enterprise plans only an admin can add connectors. Where
+none is added, a cloud session reaches hosty.live with an API token
+instead, which hosty.live supports as well. The user, once, in addition
+to the environment above:
+
+1. Creates the token in hosty.live: **Settings** → **AI agent access**
+   → create. It starts with `hl_` and is shown once. It is a password
+   to the user's canisters: never commit it, never paste it into a
+   chat, and revoke it on the same page when done.
+2. Adds one file at the repository's root, `.mcp.json`, with exactly
+   this content (`templates/mcp.json.template`). It holds no token:
+
+   ```json
+   {
+     "mcpServers": {
+       "hosty": {
+         "type": "http",
+         "url": "https://api.hosty.live/mcp"
+       }
+     }
+   }
+   ```
+
+3. In the environment, **Network secrets** → **Add secret**: secret
+   type **Bearer**, name `hosty.live`, allowed website
+   `api.hosty.live`, and in the custom header row (`Authorization`,
+   prefix `Bearer`) the token as the value. Anthropic's proxy adds it
+   to every request to `api.hosty.live` after the request leaves the
+   session's VM, so the session never sees the token. On a Team plan
+   without an organization admin role the form is shorter: host
+   `api.hosty.live`, secret type **Token**, the token as the value; the
+   session's first `hosty_whoami` confirms it arrives as a Bearer
+   token.
+
+Where the user cannot add a network secret (an Enterprise seat without
+an organization admin role, an organization with customer-managed
+encryption keys), the fallback is an environment variable: add
+`"headers": { "Authorization": "Bearer ${HOSTY_TOKEN}" }` to the
+server in `.mcp.json` (still no token in the file) and
+`HOSTY_TOKEN=hl_...` under the environment's **Environment variables**.
+Anyone who uses that environment, and every command the session runs,
+can read such a variable; revoke the token when the work is done.
+
+**In a session on the token setup, you:** reading `.mcp.json` does not
+connect its server; that happens when the session starts. Missing
+`hosty_*` tools mean the file or the secret is missing: without
+`.mcp.json`, write it from the template, commit and push it; without
+the network secret, the user adds it to the environment. The tools
+appear once the session restarts, which a new session on the same
+branch always does. A `401` from `hosty_whoami` means the server was
+reached but the token was not accepted: the user checks `.mcp.json`,
+that the network secret's host is `api.hosty.live` and sends the token
+as `Bearer`, and that the token is not revoked. Never ask for the
+token, and never write it into a file or a command.

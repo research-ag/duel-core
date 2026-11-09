@@ -57,46 +57,55 @@ from, to)` is the one admin method: controllers only
   `Modal`). `Modal.tsx` is the one dialog shell
   (blurred backdrop, Escape/backdrop close, scroll lock) and `Wizard.tsx`
   the two-pane stepper every guide is built on (`initialStep`, and
-  `reachable` locking later steps). Every guide puts a Claude Code
-  cloud session first: `CloudSessionSetup.tsx` (the hosty.live account
-  and token, then the GitHub repository with its `.mcp.json`, the
-  claude.ai environment's network secret for `api.hosty.live`, network
-  domains and setup script;
-  the texts in `cloudSession.ts`, with `SESSION_RULES`, the paragraph
-  every prompt carries). `TutorialWizard.tsx` ("Build a new game")
-  stands alone: how it works, the account, the session's setup,
+  `reachable` locking later steps). Every guide ends its "How it works"
+  step in `WayPicker.tsx`, a choice between the ways of `cloudSession.ts`'s
+  `Way`, and shows only that way's steps and prompt afterwards (later steps
+  stay locked until one is picked): `"caffeine"` (caffeine.ai alone, the
+  frontend guide only), `"hosty"` (hosty.live, from a Claude Code cloud
+  session or an agent on the computer) and `"own"` (icp-cli on the
+  computer, the user's own key and cycles, no hosty.live).
+  `CloudSessionSetup.tsx` holds the shared steps: `HostySetup` (the
+  hosty.live connector once, `ConnectorSteps`, then `CloudSessionSetup`,
+  the GitHub repository and the claude.ai environment's network domains
+  and setup script, or `LocalAgentSetup` on the computer, then
+  `TokenSetup`, the `hl_` token, `.mcp.json` and network secret for a
+  plan without connectors, collapsed behind "No connectors on your
+  Team/Enterprise plan?"), `OwnSetup`, and for going live `HostyCycles`
+  (the three ways hosty.live's Cycles page tops up a balance) and
+  `IcpIdentitySteps` (an icp identity and cycles). The texts are in
+  `cloudSession.ts`, with `SESSION_RULES` (where the `hosty_*` tools come
+  from, the three reasons they may be missing, never a sign-in from the
+  session) and `OWN_RULES`, the paragraphs the prompts carry; each
+  prompt function takes the way. `TutorialWizard.tsx` ("Build a new
+  game", ways `hosty` and `own`) stands alone: how it works, the set-up,
   `gamePrompt.ts`'s prompt finished with the user's rules (build, test
-  with `play-test.mjs`, then the game's canisters (and bot) on hosty.live's free cloud
-  engine for the user's look, and the bought mainnet ones, unlisted,
-  when the user says the game goes live), playing it online, and the
-  register flow. The other two guides are about one listed game, opened either
-  from the header on step 0, `GamePicker.tsx` (every listing, each
-  checked by `support.ts` and disabled with its reason when the guide
-  can't be followed for it: no published backend, no `/semantics`, or,
-  for a bot, no `list_bots`), or from `GameInfoModal.tsx`'s two actions
-  already filled in for that game (`Target`: the listing plus its
-  backend id). `FrontendTutorialWizard.tsx` ("Make your own frontend")
-  is written for a player with no ICP or coding background: three
-  routes, Claude Code on the web, caffeine.ai (chat builder, builds and
-  hosts itself, paid plan) or an AI coding tool on their own computer
-  (the page goes online through hosty.live in both coding routes, in a
-  canister paid by card, by the tool over hosty's MCP server or by hand
-  in its web UI, its `PUBLIC_CANISTER_ID:backend` canister variable set
-  on the canister's page or with the upload; no icp-cli), ending in the
-  register flow. Its prompt step shows `frontendPrompt.ts`'s prompt,
-  filled with the game's title, URL and backend id, which adapts to
-  what the builder can run (a local wasm copy with icp-cli and the
-  play-test, in a cloud session or on a computer; then, in a cloud
-  session, a free hosty.live cloud engine page on the live backend's
-  code-protected tables for the user's look; on a computer without
-  icp-cli, a staging copy of the game in a cloud engine canister; in a
-  builder without a shell, the live backend on code-protected tables). `BotTutorialWizard.tsx` ("Build a bot") has the two coding
-  routes, cloud session first, since the bot is tested against a local
-  copy of the game: `botPrompt.ts`'s prompt, then going live through
-  hosty.live (the agent creates, installs and registers in one deploy
-  session) or with icp-cli, each ending in the bot's own `register`
-  call with the backend id filled in (a bot is never listed on this
-  dashboard). The prompts condense `../skills/duel-game-core/SKILL.md`
+  with `play-test.mjs`; then on hosty.live the game's canisters (and bot)
+  on its free cloud engine for the user's look and the bought mainnet
+  ones, unlisted, when the user says the game goes live; on the own way a
+  local address, then `icp deploy`), trying it, going live and the
+  register flow. The other two guides are about one listed game, opened
+  either from the header on step 0, `GamePicker.tsx` (every listing,
+  each checked by `support.ts` and disabled with its reason when the
+  guide can't be followed for it: no published backend, no `/semantics`,
+  or, for a bot, no `list_bots`), or from `GameInfoModal.tsx`'s two
+  actions already filled in for that game (`Target`: the listing plus
+  its backend id). `FrontendTutorialWizard.tsx` ("Make your own
+  frontend") is written for a player with no ICP or coding background,
+  all three ways, ending in the register flow. Its prompt step shows
+  `frontendPrompt.ts`'s prompt for the way, filled with the game's title,
+  URL and backend id: caffeine.ai tests in its preview on the live
+  backend's code-protected tables and goes live with its own action;
+  hosty.live tests against a local wasm copy with icp-cli and the
+  play-test, then, in a cloud session, puts the page on a free cloud
+  engine canister on the live backend's code-protected tables, and goes
+  live in a canister paid by card; the own way tests on the local copy
+  and goes live with `icp deploy frontend`. `BotTutorialWizard.tsx`
+  ("Build a bot", ways `hosty` and `own`, since the bot is tested
+  against a local copy of the game): `botPrompt.ts`'s prompt, then going
+  live through hosty.live (the agent creates, installs and registers in
+  one deploy session) or with icp-cli, each ending in the bot's own
+  `register` call with the backend id filled in (a bot is never listed on
+  this dashboard). The prompts condense `../skills/duel-game-core/SKILL.md`
   with `references/going-live.md` (`gamePrompt.ts`),
   `references/frontend-for-existing-game.md` and
   `bot-for-existing-game.md`; change each pair together. Pricing

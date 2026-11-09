@@ -18,7 +18,7 @@ signed by the user. There are three setups, best first:
 | Builds and tests | icp-cli and mops in the session's VM                                                           | icp-cli and mops on the computer          | icp-cli and mops on the computer                          |
 | Who signs        | the user's Internet Identity, approving a hosty.live session                                   | the same                                  | an icp-cli identity, a key on the user's computer         |
 | Paid with        | nothing while developing (cloud engine canisters); the hosty.live balance, by card, to go live | the same                                  | cycles bought by card at cycle.express: 2T per canister   |
-| Deploys          | `hosty_*` tools over hosty.live's MCP server                                                   | `hosty_*` tools, or the hosty.live web UI | `icp deploy <name> -e ic`                                 |
+| Deploys          | `hosty_*` tools from the hosty.live connector                                                  | `hosty_*` tools, or the hosty.live web UI | `icp deploy <name> -e ic`                                 |
 | The module store | hosty.live stores every module it installs                                                     | the same                                  | `publish_wasm.sh` uploads it, no token needed             |
 | Suits            | anyone, from any device; nothing to install                                                    | a user who already runs a coding agent    | a user who already has an identity and cycles, or scripts |
 
@@ -58,8 +58,8 @@ game is tried out beside a cloud engine copy of that game, or in a
 rented mainnet canister (`bot-for-existing-game.md`, step 5).
 
 Going live spends the user's money. Buy a canister or deploy to one
-only when the user asks for it, after saying what it costs; a
-hosty.live MCP server connected to your session is the means, never the
+only when the user asks for it, after saying what it costs; the
+hosty.live connector in your session is the means, never the
 permission. A cloud engine canister costs nothing, so the first copy of
 a game that passes its local tests goes there as soon as the user wants
 to see it. In setup 3, `icp deploy -e ic` is the user's command to run,
@@ -71,38 +71,40 @@ session's VM or on the computer. A cloud engine install is for a build
 that passes all three; a mainnet install is for one the user has played
 on the cloud engine and wants live.
 
-## 1. A hosty.live account and its API token (setups 1 and 2)
+## 1. A hosty.live account and the connector (setups 1 and 2)
 
-The user, once, in the browser:
+The user, once per Claude account, in the browser:
 
-1. Sign in at https://hosty.live/ with Internet Identity (a passkey; no
-   password, no email).
-2. **Settings** → **AI agent access** → name the token (say, "Claude
-   Code") → create. The page shows the token (`hl_...`) once, with the
-   one-line command that connects Claude Code on a computer to
-   hosty.live's MCP server and the equivalent JSON for other MCP
-   clients. The token is a password to the user's canisters: revoke it
-   on the same page when done, never commit it, never paste it into a
-   chat.
-3. When the game goes live, **Cycles** → **Deposit using Cycle
-   Express** pays the balance by card. Prices at the time of writing: a
-   frontend canister 0.84 TC (about a dollar), a backend or bot
-   canister 1.5 TC when the agent creates it (an install needs 0.5T on
-   the canister itself, after a creation fee of about 0.5T). A whole
-   game with a bot is about 4 TC. Nothing is paid while the game runs
-   on cloud engine canisters.
+1. Opens https://claude.ai/customize/connectors → **Add custom
+   connector** (the labels are as at the time of writing) and pastes
+   `https://api.hosty.live/mcp`.
+2. hosty.live opens: they sign in with Internet Identity (a passkey; no
+   password, no email) and approve.
 
-Where the token goes next depends on the setup: `cloud-session.md`
-for a cloud session, section 3's first paragraph for an agent on the
-computer.
+From then on claude.ai, every Claude Code cloud session and Claude Code
+on the user's computer signed in with their claude.ai plan have the
+`hosty_*` tools. hosty.live lists the connection under **Settings** →
+**AI agent access**, where the user can disconnect it; that ends its
+deploy sessions until they reconnect in claude.ai. Connecting gives
+the agent hosty.live's tools as the user; spending cycles and mainnet
+installs still need a deploy session the user approves in the web app
+with their passkey.
+
+Nothing is paid while the game runs on cloud engine canisters. Cycles
+come in at going live (section 3, "For going live").
+
+On Team and Enterprise plans only an admin can add connectors. Without
+one, a cloud session uses an API token instead:
+`cloud-session.md`, "Without connectors: an API token". Other MCP
+clients and scripts: hosty.live's own guide, https://api.hosty.live/skill,
+"Connecting an agent".
 
 ## 2. Setup 1: a Claude Code cloud session
 
 The session's environment (network access, the setup script that
-installs icp-cli and its local network launcher, the hosty.live network
-secret, `.mcp.json`) and the rules for working in its VM are in
-`cloud-session.md`, set up before the first build. Everything it puts
-online goes through hosty.live, section 3.
+installs icp-cli and its local network launcher) and the rules for
+working in its VM are in `cloud-session.md`, set up before the first
+build. Everything it puts online goes through hosty.live, section 3.
 
 **Deploy sessions from anywhere.** A `userAction` from
 `hosty_request_deploy_session` is approved in the hosty.live web app,
@@ -112,11 +114,18 @@ until `ACTIVE`.
 
 ## 3. Setups 1 and 2: everything through hosty.live
 
-On the user's own computer (setup 2), the agent connects with the
-one-line command from section 1 (`claude mcp add --transport http hosty
-https://api.hosty.live/mcp --header "Authorization: Bearer hl_..."`),
-run by the user in a terminal of their own; after a restart the
-`hosty_*` tools appear. Without an agent, every step below has a form
+On the user's own computer (setup 2), Claude Code signed in with a
+claude.ai plan has section 1's connector by itself (`/mcp` lists it).
+Otherwise the user connects it once, in a terminal of their own:
+
+```bash
+claude mcp add --transport http hosty https://api.hosty.live/mcp
+```
+
+then `/mcp` → **hosty** → **Authenticate**, signs in with their
+passkey and approves. A server added this way with the same URL hides
+the connector in that CLI. Other agents (Cursor, Codex and the like)
+take the same URL and open the hosty.live sign-in. Without an agent, every step below has a form
 in the hosty.live web app. The server's own guide is
 https://api.hosty.live/skill (the MCP resource `hosty://skill` is the
 same text), with a REST equivalent of every tool.
@@ -163,9 +172,15 @@ must be seen playing the live game before its canister is bought
 (`bot-for-existing-game.md`, step 5); for everything else the cloud
 engine is better, since it has no clock.
 
-**For going live: mainnet canisters, bought.** With the user's
-go-ahead and a deploy session (section 2, "Deploy sessions from
-anywhere"):
+**For going live: mainnet canisters, bought.** They are paid from the
+user's hosty.live balance. The user tops it up in hosty.live under
+**Cycles**: **Deposit using CyclePay** or **Deposit using Cycle
+Express** (both by card), or **Deposit ICP**. Prices at the time of
+writing: a frontend canister 0.84 TC (about a dollar), a backend or bot
+canister 1.5 TC when the agent creates it (an install needs 0.5T on
+the canister itself, after a creation fee of about 0.5T). A whole game
+with a bot is about 4 TC. With the user's go-ahead and a deploy session
+(section 2, "Deploy sessions from anywhere"):
 
 - `hosty_create_canister { kind: "backend", alias }` for the backend
   and for each bot: created empty, 1.5 TC.

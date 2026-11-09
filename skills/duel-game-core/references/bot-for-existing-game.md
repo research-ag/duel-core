@@ -369,7 +369,7 @@ route that creates the bot's canister there.
 A bot is a canister like a backend; it goes up by either route of
 `going-live.md`:
 
-- **Through hosty.live** (section 1's account, section 3's "The
+- **Through hosty.live** (section 1's connector, section 3's "The
   backend (and a bot)"; the only route from a cloud session): in one
   deploy session the user approves, `hosty_create_canister { kind:
 "backend", alias: "<game name> bot" }` (a mainnet canister, 1.5 TC

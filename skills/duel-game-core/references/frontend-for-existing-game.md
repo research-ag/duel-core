@@ -28,9 +28,10 @@ rest:
   in a free hosty.live cloud engine canister (step 7).
 - **A coding agent on the user's computer**: the same local copy, with
   icp-cli on the computer, and the page on `localhost`.
-- **A browser-based builder** (caffeine.ai), which runs no shell: skip
-  the steps that say so; the semantics text is sufficient to build
-  from.
+- **A browser-based builder** (caffeine.ai), which runs no shell and
+  needs no hosty.live: skip the steps that say so; the semantics text
+  is sufficient to build from, and the builder's own "go live" action
+  puts the page online (step 8).
 
 ## 1. Resolve the backend id
 
@@ -87,8 +88,8 @@ curl -s https://api.hosty.live/modules/canister/$BACKEND
 
 `found: true` comes with `module`: `module.hash` (the module the
 canister runs right now), `module.candid` (the service Candid; save it
-as `backend.did`) and `module.downloadUrl`. With the hosty.live MCP
-server connected, `hosty_get_module { canisterId: BACKEND }` answers the
+as `backend.did`) and `module.downloadUrl`. With the hosty.live
+connector, `hosty_get_module { canisterId: BACKEND }` answers the
 same. The lookup allows 20 calls per hour from one address without a
 token: make it once and keep the answer.
 
@@ -295,8 +296,8 @@ Each change is another build and upload into `PREVIEW`, at no cost.
 **Against a staging copy (through hosty.live, on the user's
 computer):** the game's own module in a cloud engine backend canister,
 free and private to the user, for a user without icp-cli. It needs the
-user's hosty.live account and its MCP server connected to your session
-(`going-live.md`, section 3), and step 3's `module.hash`:
+hosty.live connector (`going-live.md`, section 1) and step 3's
+`module.hash`:
 
 1. `hosty_create_canister { network: "cloud", kind: "backend", alias:
 "<game name> backend" }`. Its canister id is `STAGING`.
@@ -312,7 +313,7 @@ user's hosty.live account and its MCP server connected to your session
 Set the hardcoded backend constant to `STAGING`, build, and serve
 `frontend/dist` from any local web server. The staging copy starts
 empty, as the local copy does. Set the constant back to `BACKEND`
-before the build that goes online. Without the MCP server, the user
+before the build that goes online. Without the connector, the user
 does the same in the web UI: create a **Cloud engine (free)** backend
 canister, then install into it with **Install from module store** and
 the hash. `hosty_delete_canister` frees the slot when the work is done.
@@ -338,7 +339,7 @@ engine canisters are the only ones you take unasked.
 There is no backend of the user's own to deploy: only the page goes
 online, by either route of `going-live.md`.
 
-- **Through hosty.live** (section 3, after section 1's account; the
+- **Through hosty.live** (section 3, after section 1's connector; the
   only route from a cloud session): no cycles and no icp-cli of the
   user's. `hosty_create_canister { kind: "frontend", alias: "<game
 name> frontend" }` (a mainnet canister, 0.84 TC from the hosty.live

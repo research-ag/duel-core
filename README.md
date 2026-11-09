@@ -51,7 +51,8 @@ Putting a game online needs no prior Internet Computer knowledge and
 nothing installed on your computer: a Claude Code cloud session
 (claude.ai/code) builds and tests the game in its own VM, and puts the
 backend and the frontend online through
-[hosty.live](https://hosty.live/)'s MCP server, in canisters of your own
+[hosty.live](https://hosty.live/), a connector you add to Claude once,
+in canisters of your own
 paid by card (a few dollars), after you approve the deploy in hosty.live
 with your passkey. A coding agent on your computer works the same way,
 and `icp-cli` with your own identity and cycles remains an option. The

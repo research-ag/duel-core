@@ -1,21 +1,31 @@
 // "Build a bot": a canister player for a game already listed here, built
-// by an AI coding agent from botPrompt.ts's prompt, in a Claude Code
-// cloud session first or on the developer's own computer. The agent tests
-// it against a local copy of the game made from the module the backend
-// runs, then puts it online through hosty.live (or the developer does with
-// icp-cli) and has it register itself with the game (a bot is never
-// listed on this dashboard). Opened from a game's info dialog it starts filled in
+// by an AI coding agent from botPrompt.ts's prompt. Two ways, picked at
+// the end of "How it works": through hosty.live (a Claude Code cloud
+// session first, or an agent on the computer) or everything the
+// developer's own (icp-cli, their key and cycles). The agent tests it
+// against a local copy of the game made from the module the backend runs,
+// then puts it online and has it register itself with the game (a bot is
+// never listed on this dashboard). Opened from a game's info dialog it starts filled in
 // for that game; from the header it starts by picking one.
 
 import { useState } from "react";
 
 import { botPrompt } from "../botPrompt";
+import type { Way } from "../cloudSession";
 import type { AggregatorActor, GameView, Target } from "../types";
 import { gameUrl } from "../types";
-import { CloudSessionSetup, HostyAccountSteps } from "./CloudSessionSetup";
+import {
+  HostyCycles,
+  HostySetup,
+  IcpIdentitySteps,
+  OwnSetup,
+} from "./CloudSessionSetup";
 import { CodeBlock } from "./CodeBlock";
 import { GamePicker } from "./GamePicker";
 import { Wizard } from "./Wizard";
+import { WayPicker } from "./WayPicker";
+
+type BotWay = Exclude<Way, "caffeine">;
 
 const STEPS = [
   "Pick a game",
@@ -40,6 +50,7 @@ export function BotTutorialWizard({
   onClose: () => void;
 }) {
   const [target, setTarget] = useState(initial);
+  const [way, setWay] = useState<BotWay>();
   return (
     <Wizard
       kicker="Build a bot"
@@ -50,7 +61,7 @@ export function BotTutorialWizard({
       }
       steps={STEPS}
       initialStep={initial ? 1 : 0}
-      reachable={target ? STEPS.length - 1 : 0}
+      reachable={!target ? 0 : !way ? 1 : STEPS.length - 1}
       onClose={onClose}
       finish={{ label: "Done", onClick: onClose }}
       render={(step, next) => (
@@ -74,18 +85,39 @@ export function BotTutorialWizard({
               />
             </>
           )}
-          {target && step === 1 && <HowItWorksStep />}
-          {target && step === 2 && <SetupStep />}
-          {target && step === 3 && <PromptStep target={target} />}
-          {target && step === 4 && <BuildStep />}
-          {target && step === 5 && <GoLiveStep target={target} />}
+          {target && step === 1 && (
+            <HowItWorksStep
+              way={way}
+              onPick={(w) => {
+                setWay(w);
+                next();
+              }}
+            />
+          )}
+          {target &&
+            way &&
+            step === 2 &&
+            (way === "hosty" ? <HostySetup /> : <OwnSetup />)}
+          {target && way && step === 3 && (
+            <PromptStep target={target} way={way} />
+          )}
+          {target && way && step === 4 && <BuildStep way={way} />}
+          {target && way && step === 5 && (
+            <GoLiveStep target={target} way={way} />
+          )}
         </>
       )}
     />
   );
 }
 
-function HowItWorksStep() {
+function HowItWorksStep({
+  way,
+  onPick,
+}: {
+  way: BotWay | undefined;
+  onPick: (way: BotWay) => void;
+}) {
   return (
     <>
       <p>
@@ -97,57 +129,38 @@ function HowItWorksStep() {
       </p>
       <p>
         You don't write it yourself. An AI coding tool does, from a prompt we
-        give you plus your own description of how the bot should play: simplest
-        is{" "}
-        <a href="https://claude.ai/code" target="_blank" rel="noreferrer">
-          Claude Code on the web
-        </a>
-        , with nothing to install, or a coding tool on your own computer
-        (Claude Code, Cursor, Codex and the like). It tests the bot against a
-        private copy of the game before anything goes online.
+        give you plus your own description of how the bot should play. It tests
+        the bot against a private copy of the game before anything goes online,
+        so a browser-based app builder can't make one. Pick your way:
       </p>
-      <p className="hint">
-        A browser-based app builder can't make a bot, since the bot is tested
-        next to a copy of the game. Building and testing are free; the bot goes
-        online through{" "}
-        <a href="https://hosty.live" target="_blank" rel="noreferrer">
-          hosty.live
-        </a>{" "}
-        for 1.5 TC (a few dollars at the time of writing), paid in the last
-        step.
-      </p>
+      <WayPicker
+        picked={way}
+        onPick={(w) => onPick(w as BotWay)}
+        options={[
+          {
+            way: "hosty",
+            title: "Through hosty.live",
+            note: "Nothing to install: Claude Code on the web builds and tests the bot, and hosty.live puts it online for 1.5 TC (a few dollars at the time of writing), paid by card. Works from an AI tool on your computer too.",
+          },
+          {
+            way: "own",
+            title: "All your own, with icp-cli",
+            note: "An AI tool on your computer, your own key and cycles, no hosty.live. For people who already work with icp-cli.",
+          },
+        ]}
+      />
     </>
   );
 }
 
-function SetupStep() {
-  return (
-    <>
-      <p>Once, a hosty.live account:</p>
-      <HostyAccountSteps />
-      <p>
-        <strong>For Claude Code on the web</strong>, once per bot, a session
-        that can reach it with your token:
-      </p>
-      <CloudSessionSetup />
-      <p className="hint">
-        <strong>In a coding tool on your computer</strong>, connect it to
-        hosty.live with the one-line command shown next to your token; the AI
-        installs the build tools it needs, or tells you how.
-      </p>
-    </>
-  );
-}
-
-function PromptStep({ target }: { target: Target }) {
+function PromptStep({ target, way }: { target: Target; way: BotWay }) {
   return (
     <>
       <p>
         This prompt is filled in for <strong>{target.game.title}</strong>. Paste
-        it into the session (on your computer: start your coding tool in an
-        empty folder and paste it there):
+        it into the session (on your computer: into your coding tool):
       </p>
-      <CodeBlock code={botPrompt(target)} wrap />
+      <CodeBlock code={botPrompt(target, way)} wrap />
       <p>Finish it with your own description after its last line:</p>
       <CodeBlock
         code={
@@ -163,7 +176,7 @@ function PromptStep({ target }: { target: Target }) {
   );
 }
 
-function BuildStep() {
+function BuildStep({ way }: { way: BotWay }) {
   return (
     <>
       <p>The AI works through it on its own:</p>
@@ -182,96 +195,71 @@ function BuildStep() {
       <p>
         Ask for changes until it plays the way you want: stronger, weaker, a new
         level. Nothing on the real game changes, and nothing costs anything up
-        to here. To watch it yourself before paying, ask for a free online
-        try-out: a temporary copy of the game on hosty.live's cloud engine with
-        your bot beside it (an empty copy, not the real game), or your bot in
-        a free 24-hour canister playing the real game.
+        to here.
+        {way === "hosty" &&
+          " To watch it yourself before paying, ask for a free online try-out: a temporary copy of the game on hosty.live's cloud engine with your bot beside it (an empty copy, not the real game), or your bot in a free 24-hour canister playing the real game."}
       </p>
     </>
   );
 }
 
-function GoLiveStep({ target }: { target: Target }) {
+function GoLiveStep({ target, way }: { target: Target; way: BotWay }) {
   const { game, backend } = target;
+  const unregister = `icp canister call bot unregister '(principal "${backend}")' -e ic`;
   return (
     <>
-      <p>
-        <strong>Through hosty.live</strong> (from Claude Code on the web or a
-        coding tool connected to hosty.live): tell it
-      </p>
-      <CodeBlock code="Put my bot online through hosty.live and register it as <bot name>." />
-      <p>
-        with the name players should see. It asks you to approve a deploy
-        session in hosty.live (with your passkey; a phone works), creates the
-        bot's canister in your account (1.5 TC from your balance), installs
-        the bot, and adds it to the game's list of bots in that same session.
-        It checks the game lists it and gives you the bot's canister id (also
-        in its <code>README.md</code>). Ask for changes any time later: each
-        one is tested again and upgrades the same canister, so the bot keeps
-        its place in the list.
-      </p>
-      <p>
-        <strong>With icp-cli</strong> (on your own computer, with your own key
-        and cycles)
-      </p>
-      <ol className="tutorial-list">
-        <li>
-          Create your publishing key (keep it; it is what proves the bot is
-          yours), or skip this if you already have an <code>icp</code> identity
-          you want to use:
-          <CodeBlock
-            code={
-              "icp identity new my-bot\nicp identity default my-bot\nicp identity principal"
-            }
-          />
-        </li>
-        <li>
-          Pay for hosting. Programs on the Internet Computer run on prepaid
-          “cycles”; about 2–3T cycles (a few dollars) is comfortable for a bot.
-          The simplest way is by card at{" "}
-          <a href="https://cycle.express/" target="_blank" rel="noreferrer">
-            cycle.express
-          </a>
-          : paste the long address that the last command above printed (your
-          “principal”) into its Canister ID field. If you already hold ICP,{" "}
-          <code>icp cycles mint --icp 1 -e ic</code> converts it instead. Check
-          it arrived:
-          <CodeBlock code="icp cycles balance -e ic" />
-        </li>
-        <li>
-          Publish the bot and add it to the game's list of bots, in the project
-          folder (the AI left these in its <code>README.md</code> too). First
-          find the game's subnet: the bot goes on the same one, so its moves
-          stay quick.
-          <CodeBlock
-            code={`curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/${backend} | grep -o '"subnet_id":"[^"]*"' | cut -d'"' -f4`}
-          />
-          If it prints nothing, stop here and ask the AI. Otherwise put the
-          subnet id it printed in place of{" "}
-          <code>&lt;the game's subnet&gt;</code> below, and the name players
-          should see in place of <code>&lt;bot name&gt;</code>:
-          <CodeBlock
-            code={`icp canister link backend ${backend} -e ic --force\nicp deploy bot -e ic --subnet <the game's subnet>\nicp canister call bot register '(principal "${backend}", "<bot name>")' -e ic`}
-          />
-          Later upgrades run <code>icp deploy bot -e ic</code> again, without{" "}
-          <code>--subnet</code>. If the project folder lost its record of the
-          bot (<code>.icp/data/mappings/ic.ids.json</code> has no{" "}
-          <code>bot</code> entry), link the bot's canister id first:
-          <CodeBlock code="icp canister link bot <bot id> -e ic" />
-        </li>
-      </ol>
+      {way === "hosty" ? (
+        <>
+          <HostyCycles cost="a bot's canister costs 1.5 TC (a few dollars)" />
+          <p>Then tell the session</p>
+          <CodeBlock code="Put my bot online through hosty.live and register it as <bot name>." />
+          <p>
+            with the name players should see. It asks you to approve a deploy
+            session in hosty.live (with your passkey; a phone works), creates
+            the bot's canister in your account, installs the bot, and adds it to
+            the game's list of bots in that same session. It checks the game
+            lists it and gives you the bot's canister id (also in its{" "}
+            <code>README.md</code>). Ask for changes any time later: each one is
+            tested again and upgrades the same canister, so the bot keeps its
+            place in the list.
+          </p>
+        </>
+      ) : (
+        <ol className="tutorial-list">
+          <IcpIdentitySteps cycles="about 2–3T (a few dollars) is comfortable for a bot" />
+          <li>
+            Publish the bot and add it to the game's list of bots, in the
+            project folder (the AI left these in its <code>README.md</code>{" "}
+            too). First find the game's subnet: the bot goes on the same one, so
+            its moves stay quick.
+            <CodeBlock
+              code={`curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/${backend} | grep -o '"subnet_id":"[^"]*"' | cut -d'"' -f4`}
+            />
+            If it prints nothing, stop here and ask the AI. Otherwise put the
+            subnet id it printed in place of{" "}
+            <code>&lt;the game's subnet&gt;</code> below, and the name players
+            should see in place of <code>&lt;bot name&gt;</code>:
+            <CodeBlock
+              code={`icp canister link backend ${backend} -e ic --force\nicp deploy bot -e ic --subnet <the game's subnet>\nicp canister call bot register '(principal "${backend}", "<bot name>")' -e ic`}
+            />
+            Later upgrades run <code>icp deploy bot -e ic</code> again, without{" "}
+            <code>--subnet</code>. If the project folder lost its record of the
+            bot (<code>.icp/data/mappings/ic.ids.json</code> has no{" "}
+            <code>bot</code> entry), link the bot's canister id first:
+            <CodeBlock code="icp canister link bot <bot id> -e ic" />
+          </li>
+        </ol>
+      )}
       <p>
         That's it: open{" "}
         <a href={gameUrl(game)} target="_blank" rel="noreferrer">
           {game.title}
         </a>{" "}
         and challenge your bot from its list of bots. Registering again renames
-        it; unregistering takes it off the list (through hosty.live, ask your
-        AI; with icp-cli):
+        it; unregistering takes it off the list
+        {way === "hosty" ? " (ask your AI)." : ":"}
       </p>
-      <CodeBlock
-        code={`icp canister call bot unregister '(principal "${backend}")' -e ic`}
-      />
+      {way === "own" && <CodeBlock code={unregister} />}
     </>
   );
 }
