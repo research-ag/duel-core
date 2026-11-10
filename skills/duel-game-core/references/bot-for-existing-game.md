@@ -97,7 +97,8 @@ mainnet. Keep `.icp/data/mappings/ic.ids.json` in version control.
 ## 3. Translate the types
 
 `GameTypes.mo` holds `View`, `Action` and `Options` translated
-literally from `VIEW (Candid)`, `ACTION (Candid)` and `OPTIONS`:
+literally from `VIEW (Candid)` (`STATE (Candid)` in a game where a
+seat sees the whole state), `ACTION (Candid)` and `OPTIONS`:
 
 | Candid                         | Motoko                      |
 | ------------------------------ | --------------------------- |
