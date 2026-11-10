@@ -684,9 +684,7 @@ put there by every deploy:
   ```yaml
   - name: backend
     recipe:
-      type: "@dfinity/motoko@v4.1.0"
-      configuration:
-        main: src/Host.mo
+      type: "@dfinity/motoko@v5.1.0"
     sync:
       steps:
         - type: script
