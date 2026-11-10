@@ -67,12 +67,12 @@ tools.
 anything else. Its environment's setup script installs icp-cli together
 with the local network launcher `icp network start` needs, which icp-cli
 cannot download by itself in a cloud session. Wherever you run, the
-build needs `icp` (icp-cli) and `mops` 2.0 or later (the Motoko recipe
-runs `mops build`):
+build needs `icp` (icp-cli) and `mops` 3.4.1 or later (an older one
+fails `mops build` or, with moc 2.0, `mops test`):
 
 ```bash
 icp --version || npm install -g @icp-sdk/icp-cli
-mops --version | grep -qE '^CLI ([2-9]|[0-9]{2,})\.' || npm install -g ic-mops
+npm install -g ic-mops     # installs mops, or updates it to the latest
 ```
 
 If there is no `mops.toml`, create one from `templates/mops.toml.template`
