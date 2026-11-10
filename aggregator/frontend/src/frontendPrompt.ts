@@ -33,7 +33,7 @@ The game is "${game.title}", playable at ${url}. Its backend canister is ${backe
 
   const learn = `Work in this order.
 
-1. Learn the game from https://${backend}.raw.icp0.io/semantics — plain text with the rules, who moves when, and the exact Candid types of State and Action. This is the whole specification; Action appears nowhere else. Fetch any other path it mentions.
+1. Learn the game from https://${backend}.raw.icp0.io/semantics — plain text with the rules, who moves when, and the exact Candid types of View (what a seat sees), Action and Options. This is the whole specification; Action appears nowhere else. Fetch any other path it mentions.
 
 2. Read how a frontend talks to the backend: ${RAW}/frontend/README.md (the GamePlugin contract, the headless client, the transport) and the step "Write the frontend GamePlugin" in ${RAW}/skills/duel-game-core/SKILL.md. The full procedure for exactly this task is ${ref}/frontend-for-existing-game.md — read it and follow it.
 
