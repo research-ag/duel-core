@@ -205,10 +205,15 @@ export function TokenSetup() {
           password to your canisters; never paste it into a chat.
         </li>
         <li>
-          Add one file at your repository's root named <code>.mcp.json</code>,
-          with exactly this content. It tells the session where hosty.live is;
-          your token never goes into the repository:
+          On your repository's page on GitHub, <strong>Add file</strong> →{" "}
+          <strong>Create new file</strong>, name it <code>.mcp.json</code>,
+          paste exactly this and click <strong>Commit changes</strong>. It tells
+          the session where hosty.live is; your token never goes into the
+          repository:
           <CodeBlock code={MCP_JSON} />
+          Or skip this and add “I connect with an API token.” to your first
+          prompt: the session writes and pushes the file itself, and a new
+          session on its branch then has the tools.
         </li>
         <li>
           In the session's environment (its gear icon in the environment

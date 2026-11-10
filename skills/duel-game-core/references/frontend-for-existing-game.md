@@ -239,8 +239,8 @@ copy as `PUBLIC_CANISTER_ID:backend` in its own `ic_env` cookie.
 Follow `SKILL.md` Step 6, with the semantics text standing in for the
 rules module:
 
-- `idlTypes({ IDL })` — translate `VIEW (Candid)`, `ACTION (Candid)`
-  and `OPTIONS` literally (`Options` is `IDL.Record({})` when `OPTIONS`
+- `idlTypes({ IDL })` — translate `VIEW (Candid)` (`STATE (Candid)` in
+  older games), `ACTION (Candid)` and `OPTIONS` literally (`Options` is `IDL.Record({})` when `OPTIONS`
   is `none`). `nat` is `IDL.Nat` (a `bigint` in JS), `opt T` is
   `IDL.Opt(T)` (`[]` or `[value]`), `vec T` is `IDL.Vec(T)`, a variant
   with no payload is `IDL.Null`. One wrong field and every status fails

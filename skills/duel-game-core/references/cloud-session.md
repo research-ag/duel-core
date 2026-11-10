@@ -120,14 +120,15 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    and environment.
 
 **In the session, you:** check `icp --version`, `mops --version` and
-`hosty_whoami` first. A missing `icp` or `mops` means the environment
-lacks the setup script, or gained it after this session started: run
-the script above yourself, with `ICP_CLI_NETWORK_LAUNCHER_PATH` set as
-above for every `icp` command, and tell the user to complete the
-environment for the next session; with the `update_environment`
-tool, offer to save the script there yourself, for the user's
-approval. Missing `hosty_*` tools mean one of three
-things, and the user fixes each in claude.ai: the connector is not
+`hosty_whoami` first. A `mops` older than 3.4.1 is updated with
+`npm install -g ic-mops` (`SKILL.md`, Step 1). A missing `icp` or
+`mops` means the environment lacks the setup script, or gained it after
+this session started: run the script above yourself, with
+`ICP_CLI_NETWORK_LAUNCHER_PATH` set as above for every `icp` command,
+and tell the user to complete the environment for the next session;
+with the `update_environment` tool, offer to save the script there
+yourself, for the user's approval. Missing `hosty_*` tools mean one of
+three things, and the user fixes each in claude.ai: the connector is not
 added (https://claude.ai/customize/connectors), it is switched off for
 this session (the **+** under the message box → **Connectors**), or it
 needs reconnecting (in the connector settings; hosty.live shows
