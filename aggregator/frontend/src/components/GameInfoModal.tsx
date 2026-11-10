@@ -15,7 +15,7 @@ import type { Purpose } from "../support";
 import { blocker } from "../support";
 import type { GameView, Target } from "../types";
 import { gameUrl, optToMaybe } from "../types";
-import { CodeBlock } from "./CodeBlock";
+import { CodeBlock, CopyId } from "./CodeBlock";
 import { CyclesBadge } from "./CyclesBadge";
 import { ArrowRight, Bot, Brush } from "./Icons";
 import { Modal } from "./Modal";
@@ -114,8 +114,7 @@ function FrontendInfo({
     : undefined;
   const frontendBlocker = support && blocker(support, "frontend");
   const botBlocker = support && blocker(support, "bot");
-  const developer =
-    optToMaybe(game.developerDisplayName) ?? game.developer.toText();
+  const developerName = optToMaybe(game.developerDisplayName);
   return (
     <>
       <div className="modal-kicker">Frontend</div>
@@ -130,7 +129,10 @@ function FrontendInfo({
         <dt>Frontend canister</dt>
         <dd className="mono">{game.frontendCanisterId.toText()}</dd>
         <dt>Developer</dt>
-        <dd>{developer}</dd>
+        <dd>
+          {developerName && <div>{developerName}</div>}
+          <CopyId id={game.developer.toText()} />
+        </dd>
         <dt>Backend canister</dt>
         <dd>
           {backend === undefined && (

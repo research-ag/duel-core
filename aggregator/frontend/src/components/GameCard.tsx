@@ -30,8 +30,7 @@ export function GameCard({
   const banner = useBanner(actor, game.frontendCanisterId);
   const cycles = cyclesOfGame(useCycleStore(), game);
   const critical = cycles != null && bandOf(cycles) === "critical";
-  const developerName =
-    optToMaybe(game.developerDisplayName) ?? shortPrincipal(game.developer);
+  const developerName = optToMaybe(game.developerDisplayName);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -85,7 +84,14 @@ export function GameCard({
                 className="avatar small"
                 style={avatarStyle(game.developer)}
               />
-              <span className="name">{developerName}</span>
+              <span className="name" title={game.developer.toText()}>
+                {developerName ?? shortPrincipal(game.developer)}
+              </span>
+              {developerName && (
+                <span className="principal">
+                  {shortPrincipal(game.developer)}
+                </span>
+              )}
               <CyclesBadge cycles={cycles} />
             </span>
             <span className="card-desc">{game.description}</span>

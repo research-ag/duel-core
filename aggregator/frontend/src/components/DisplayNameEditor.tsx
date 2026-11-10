@@ -1,11 +1,12 @@
 // The logged-in developer's chip in the topbar: avatar + display name,
-// opening a small popover to rename (or log out).
+// opening a small popover with the principal, to rename (or log out).
 
 import { useEffect, useRef, useState } from "react";
 import type { Principal } from "@icp-sdk/core/principal";
 
 import type { Err } from "../types";
 import { errMessage } from "../types";
+import { CopyId } from "./CodeBlock";
 
 export function DisplayNameEditor({
   principal,
@@ -92,6 +93,12 @@ export function DisplayNameEditor({
             onChange={(e) => setDraft(e.target.value)}
           />
           {error && <p className="error">{error}</p>}
+          {principal && (
+            <div className="profile-principal">
+              <span className="label">Principal</span>
+              <CopyId id={principal.toText()} />
+            </div>
+          )}
           <div className="row">
             <button
               type="button"

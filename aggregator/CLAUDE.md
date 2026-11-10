@@ -46,8 +46,9 @@ from, to)` is the one admin method: controllers only
   browsing is anonymous). `hooks/useBanner.ts` fetches `getBanner` into
   a cached object URL (`invalidateBanner` after a banner edit).
   `App.tsx` lays out the page: `Header.tsx` (sticky topbar; the
-  logged-in developer's chip is `DisplayNameEditor.tsx`, a popover to
-  rename or log out, with a principal-derived `avatarStyle`), `Hero.tsx`
+  logged-in developer's chip is `DisplayNameEditor.tsx`, a popover with
+  the principal, to rename or log out, with a principal-derived
+  `avatarStyle`), `Hero.tsx`
   (headline over a slow crossfade of the registered banners, paused
   under `prefers-reduced-motion`), `GameGrid.tsx` (search with a `/`
   shortcut, developer chips, skeleton cards while loading) and a footer.
@@ -153,7 +154,9 @@ from, to)` is the one admin method: controllers only
   anonymous Candid query (no CORS, no cookie filtering), reading each
   frontend's `PUBLIC_CANISTER_ID:backend` from its asset canister's
   `ic_env` cookie, cached per page load. All three share `CodeBlock.tsx` (`wrap` for
-  prose). `Icons.tsx` holds the inline SVG icons and
+  prose; `CopyId`, a principal with a copy button, in the info dialog's
+  Developer row and the profile popover). A card shows the developer's
+  display name with the principal shortened beside it. `Icons.tsx` holds the inline SVG icons and
   the brand mark. `GameFormModal.tsx` is the register/edit form. Before
   calling the backend it refuses a page, or a page whose cookie names a
   backend, on hosty.live's cloud engine (`canisterHttp.ts`'s
