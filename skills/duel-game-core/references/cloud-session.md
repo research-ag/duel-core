@@ -143,8 +143,9 @@ way on purpose. Tell the user what you found and build meanwhile.
 The repository holds one top-level directory per project (a game, a
 frontend, a bot): a new one goes into a new directory named after it,
 unless the user names one, and leaves the others alone; a project
-already at the root stays there. Its `CLAUDE.md`, `README.md` and every
-command run from there. The skill is installed once, at the
+already at the root stays there. Keep each project's `CLAUDE.md` and
+`README.md` in its directory, and run its commands from there. The
+skill is installed once, at the
 repository's root: unless `.claude/skills/duel-game-core/` is already
 there, install it from the root and commit it:
 
