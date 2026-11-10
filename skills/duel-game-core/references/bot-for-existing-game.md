@@ -56,8 +56,9 @@ README.md
 
 `mops.toml` from `templates/mops.toml.template`, then `mops add
 duel-game-core` (`SKILL.md` Step 1 has the fallback when that fails).
-Its `[canisters]` names the two Motoko canisters below, each under its
-`icp.yaml` name (the recipe builds it with `mops build <name>`):
+Replace the template's `[canisters]` entry (`backend`, which is prebuilt
+here) with the two Motoko canisters below, each under its `icp.yaml`
+name (the recipe builds it with `mops build <name>`):
 
 ```toml
 [canisters]
