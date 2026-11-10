@@ -39,16 +39,19 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    section 1). Its tool calls go from Anthropic's servers to
    hosty.live, outside the session's VM and its network list, and no
    credential enters the VM. Every new session has the `hosty_*` tools.
-2. Creates a GitHub repository for the work.
+2. Creates a GitHub repository for the work (with **Add README** on,
+   so it is not empty).
 3. Opens https://claude.ai/code in a browser and, on a first visit,
    connects GitHub for that repository. On the new-session screen,
    opens the environment selector (the first control under the message
-   box) and either picks **New environment** or edits **Default** (the
-   settings icon on its row under **Cloud**). In a running session the
+   box) and either picks **New environment** or edits an existing one
+   (the gear icon that hovering over its row under **Cloud** shows). In a running session the
    same dialog is the caret after the session title → **Edit cloud
-   environment**. In it:
-   - **Network access**: **Custom**, with "Also include default list"
-     on, and these domains: `api.hosty.live`, `icp-api.io`, `icp0.io`,
+   environment**. The environment must be complete before the session
+   starts: a running session never sees a change to it, and only a new
+   session picks the change up. In the dialog:
+   - **Network access**: **Limited**, with **Allow package managers**
+     on, and under **Allowed domains**, one per line: `api.hosty.live`, `icp-api.io`, `icp0.io`,
      `*.icp0.io`, `icp.net`, `*.icp.net`, `ic0.app`,
      `ic-api.internetcomputer.org`, `ghcr.io`,
      `pkg-containers.githubusercontent.com`. hosty.live's tools answer
@@ -71,7 +74,7 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
      ```bash
      npm install -g @icp-sdk/icp-cli@1.8.0 ic-mops
      L=/opt/icp-launcher
-     if [ ! -x "$L/icp-cli-network-launcher" ]; then
+     if [ ! -x "$L/icp-cli-network-launcher" ] || [ ! -x "$L/pocket-ic" ]; then
        R=dfinity/icp-cli-network-launcher
        M=sha256:7a98f5bd3094f79c36adc7e8c4cc2a79886d091ec23f8fcc78caae364d54e91e # linux/amd64
        T=$(curl -fsS "https://ghcr.io/token?scope=repository:$R:pull" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
@@ -91,10 +94,16 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    - **Environment variables**: `ICP_CLI_NETWORK_LAUNCHER_PATH=/opt/icp-launcher/icp-cli-network-launcher`,
      so `icp network start` uses that launcher.
 
+   Then **Add environment** (or save the edit).
+
 4. Starts a session on that repository with that environment.
 
 **In the session, you:** check `icp --version`, `mops --version` and
-`hosty_whoami` first. Missing `hosty_*` tools mean one of three
+`hosty_whoami` first. A missing `icp` or `mops` means the environment
+lacks the setup script, or gained it after this session started: run
+the script above yourself, with `ICP_CLI_NETWORK_LAUNCHER_PATH` set as
+above for every `icp` command, and tell the user to complete the
+environment for the next session. Missing `hosty_*` tools mean one of three
 things, and the user fixes each in claude.ai: the connector is not
 added (https://claude.ai/customize/connectors), it is switched off for
 this session (the **+** under the message box → **Connectors**), or it
@@ -134,7 +143,9 @@ to the environment above:
 1. Creates the token in hosty.live: **Settings** → **AI agent access**
    → create. It starts with `hl_` and is shown once. It is a password
    to the user's canisters: never commit it, never paste it into a
-   chat, and revoke it on the same page when done.
+   chat, and revoke it on the same page when done. On an approval
+   request they did not expect, the user clicks **Decline and revoke
+   token** on its card.
 2. Adds one file at the repository's root, `.mcp.json`, with exactly
    this content (`templates/mcp.json.template`). It holds no token:
 
@@ -149,16 +160,15 @@ to the environment above:
    }
    ```
 
-3. In the environment, **Network secrets** → **Add secret**: secret
-   type **Bearer**, name `hosty.live`, allowed website
-   `api.hosty.live`, and in the custom header row (`Authorization`,
-   prefix `Bearer`) the token as the value. Anthropic's proxy adds it
-   to every request to `api.hosty.live` after the request leaves the
-   session's VM, so the session never sees the token. On a Team plan
-   without an organization admin role the form is shorter: host
-   `api.hosty.live`, secret type **Token**, the token as the value; the
-   session's first `hosty_whoami` confirms it arrives as a Bearer
-   token.
+3. In the environment, **Network secrets** → **+ Add secret**:
+   - **Host**: `api.hosty.live`;
+   - **Secret type**: **Token**, with **Header** `Authorization` and
+     **Prefix** `Bearer` as they are;
+   - **Token**: the `hl_` token.
+
+   Anthropic's proxy adds it to every request to `api.hosty.live` after
+   the request leaves the session's VM, so the session never sees the
+   token. The session's first `hosty_whoami` confirms it arrives.
 
 Where the user cannot add a network secret (an Enterprise seat without
 an organization admin role, an organization with customer-managed

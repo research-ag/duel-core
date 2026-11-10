@@ -15,6 +15,7 @@ import type { Way } from "../cloudSession";
 import type { AggregatorActor, GameView, Target } from "../types";
 import { gameUrl } from "../types";
 import {
+  DeploySessionNote,
   HostyCycles,
   HostySetup,
   IcpIdentitySteps,
@@ -220,17 +221,17 @@ function GoLiveStep({ target, way }: { target: Target; way: BotWay }) {
           </p>
           <HostyCycles cost="a bot's canister costs 1.5 TC (a few dollars)" />
           <p>Then tell the session</p>
-          <CodeBlock code="Put my bot online through hosty.live and register it as <bot name>." />
+          <CodeBlock code="Put my bot live on mainnet through hosty.live (buy its canister) and register it as <bot name>." />
           <p>
             with the name players should see. It asks you to approve a deploy
-            session in hosty.live (with your passkey; a phone works), creates
-            the bot's canister in your account, installs the bot, and adds it to
-            the game's list of bots in that same session. It checks the game
-            lists it and gives you the bot's canister id (also in its{" "}
-            <code>README.md</code>). Ask for changes any time later: each one is
-            tested again and upgrades the same canister, so the bot keeps its
-            place in the list.
+            session, buys the bot's canister from your balance, installs the
+            bot, and adds it to the game's list of bots in that same session. It
+            checks the game lists it and gives you the bot's canister id (also
+            in its <code>README.md</code>). Ask for changes any time later: each
+            one is tested again and upgrades the same canister, so the bot keeps
+            its place in the list.
           </p>
+          <DeploySessionNote />
         </>
       ) : (
         <ol className="tutorial-list">

@@ -76,7 +76,7 @@ ${goLive}
      icp canister link bot <bot id> -e ic
      icp deploy bot -e ic
 
-If the semantics page or the wasm is missing, or the hashes differ, stop and tell me instead of guessing.
+If the semantics page or the wasm is missing, or the hashes differ, stop and tell me instead of guessing. For a missing wasm, look the game up at https://api.hosty.live/modules/canister/${backend}: if it answers found: false, tell me its hint (the module store keeps a game's module, not the canister, and the hint says how the game's owner adds it); if it answers found: true, tell me the download failed, with the hashes, since the canister may have been upgraded since you read its module_hash.
 
 Here is the bot I want (its name, how it should play, and any difficulty levels):
 `;

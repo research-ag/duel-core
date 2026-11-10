@@ -9,6 +9,9 @@
 /// user's own, icp-cli on their computer.
 export type Way = "caffeine" | "hosty" | "own";
 
+const RAW_REFS =
+  "https://raw.githubusercontent.com/research-ag/duel-core/main/skills/duel-game-core/references";
+
 export const CONNECTOR_URL = "https://api.hosty.live/mcp";
 export const CONNECTORS_PAGE = "https://claude.ai/customize/connectors";
 export const CLI_CONNECT = `claude mcp add --transport http hosty ${CONNECTOR_URL}`;
@@ -34,9 +37,32 @@ export const NETWORK_DOMAINS = [
   "*.icp.net",
   "ic0.app",
   "ic-api.internetcomputer.org",
+  "ghcr.io",
+  "pkg-containers.githubusercontent.com",
 ].join("\n");
 
-export const SETUP_SCRIPT = "npm install -g @icp-sdk/icp-cli ic-mops";
+/// icp-cli and mops on a computer of the user's own.
+export const INSTALL_TOOLS = "npm install -g @icp-sdk/icp-cli ic-mops";
+
+/// A cloud environment's setup script: icp-cli, mops and icp-cli's local
+/// network launcher (cloud-session.md explains it).
+export const SETUP_SCRIPT = `npm install -g @icp-sdk/icp-cli@1.8.0 ic-mops
+L=/opt/icp-launcher
+if [ ! -x "$L/icp-cli-network-launcher" ] || [ ! -x "$L/pocket-ic" ]; then
+  R=dfinity/icp-cli-network-launcher
+  M=sha256:7a98f5bd3094f79c36adc7e8c4cc2a79886d091ec23f8fcc78caae364d54e91e # linux/amd64
+  T=$(curl -fsS "https://ghcr.io/token?scope=repository:$R:pull" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+  W=$(mktemp -d)
+  curl -fsS -H "Authorization: Bearer $T" -H "Accept: application/vnd.oci.image.manifest.v1+json" "https://ghcr.io/v2/$R/manifests/$M" -o "$W/m.json"
+  for D in $(python3 -c 'import json,sys;print(" ".join(l["digest"] for l in json.load(open(sys.argv[1]))["layers"]))' "$W/m.json"); do
+    curl -fsSL -H "Authorization: Bearer $T" "https://ghcr.io/v2/$R/blobs/$D" | tar -xz -C "$W" --wildcards 'app/*' 2>/dev/null || true
+  done
+  mkdir -p "$L" && cp "$W/app/icp-cli-network-launcher" "$W/app/pocket-ic" "$L/" && rm -rf "$W"
+fi
+ls -l "$L" || true`;
+
+export const LAUNCHER_ENV =
+  "ICP_CLI_NETWORK_LAUNCHER_PATH=/opt/icp-launcher/icp-cli-network-launcher";
 
 export const SKILL_INSTALL =
   "npx skills add research-ag/duel-core --skill duel-game-core -a claude-code -y --copy";
@@ -44,8 +70,8 @@ export const SKILL_INSTALL =
 /// The opening lines every hosty.live prompt shares: where the tools come
 /// from, what to say when they are missing, and what the agent may never
 /// do on mainnet.
-export const SESSION_RULES = `hosty.live's tools (hosty_*) come from the hosty.live connector I added in claude.ai; call hosty_whoami first. If the hosty_* tools are missing, tell me which of three it is: the connector is not added (${CONNECTORS_PAGE}), it is switched off for this session (the + under the message box → Connectors), or it needs reconnecting in claude.ai's connector settings; a new session has the tools once that is fixed. On my computer, the fix is ${CLI_CONNECT}, then /mcp → hosty → Authenticate. Never offer me a sign-in from this session. A hosty server from a .mcp.json in the repository that says it needs authentication is left over from an older setup: tell me to delete that .mcp.json, unless I told you I connect with an API token. Build and test meanwhile. If you run in a Claude Code cloud session: its environment installs icp-cli and mops (otherwise install them with ${SETUP_SCRIPT}). Nobody can open a page that session serves, so whatever I should look at goes online through hosty.live. Never create an icp-cli identity, buy cycles or run icp deploy -e ic there: everything on mainnet is created and installed through the hosty_* tools, after I approve a deploy session in the hosty.live web app. Commit and push your work as you go; the session keeps nothing.`;
+export const SESSION_RULES = `hosty.live's tools (hosty_*) come from the hosty.live connector I added in claude.ai; call hosty_whoami first. If the hosty_* tools are missing, tell me which of three it is: the connector is not added (${CONNECTORS_PAGE}), it is switched off for this session (the + under the message box → Connectors), or it needs reconnecting in claude.ai's connector settings; a new session has the tools once that is fixed. On my computer, the fix is ${CLI_CONNECT}, then /mcp → hosty → Authenticate. Never offer me a sign-in from this session. A hosty server from a .mcp.json in the repository that says it needs authentication is left over from an older setup: tell me to delete that .mcp.json, unless I told you I connect with an API token. Build and test meanwhile. If you run in a Claude Code cloud session: its environment's setup script installs icp-cli, mops and the local network launcher (${RAW_REFS}/cloud-session.md). If icp or mops is missing, run that script yourself, with ${LAUNCHER_ENV} set for icp, and tell me the environment needs it for the next session: a running session never sees an edited environment. Nobody can open a page that session serves, so whatever I should look at goes online through hosty.live. Never create an icp-cli identity, buy cycles or run icp deploy -e ic there: everything on mainnet is created and installed through the hosty_* tools, after I approve a deploy session in the hosty.live web app. For every deploy session, tell me first what it is for and pass the same as purpose to hosty_request_deploy_session; show me its requestCode and ask me to approve the request with that code in the hosty.live web app; then call hosty_wait_for_deploy_session right away, and again while it answers PENDING. Never wait for me to tell you I approved. Commit and push your work as you go; the session keeps nothing.`;
 
 /// The opening lines of every prompt on the user's own way: no hosty.live,
 /// icp-cli on the computer, the user's own identity and cycles.
-export const OWN_RULES = `You run on my computer, with icp-cli (https://github.com/dfinity/icp-cli) and mops (https://mops.one): check icp --version and mops --version first, and if either is missing, ask me to run ${SETUP_SCRIPT}. Do not use hosty.live's tools or an account there (its public module store needs neither): everything goes online with icp-cli, signed by my own icp identity and paid with my own cycles. Never create an identity, export a key or buy cycles yourself: those are my steps, in my own terminal.`;
+export const OWN_RULES = `You run on my computer, with icp-cli (https://github.com/dfinity/icp-cli) and mops (https://mops.one): check icp --version and mops --version first, and if either is missing, ask me to run ${INSTALL_TOOLS}. Do not use hosty.live's tools or an account there (its public module store needs neither): everything goes online with icp-cli, signed by my own icp identity and paid with my own cycles. Never create an identity, export a key or buy cycles yourself: those are my steps, in my own terminal.`;

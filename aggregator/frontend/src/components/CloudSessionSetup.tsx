@@ -7,6 +7,8 @@ import {
   CLI_CONNECT,
   CONNECTOR_URL,
   CONNECTORS_PAGE,
+  INSTALL_TOOLS,
+  LAUNCHER_ENV,
   MCP_JSON,
   NETWORK_DOMAINS,
   SECRET_HOST,
@@ -55,8 +57,8 @@ export function ConnectorSteps() {
         <a href={CONNECTORS_PAGE} target="_blank" rel="noreferrer">
           Claude's connector settings
         </a>{" "}
-        and click <strong>Add custom connector</strong> (the labels are as at
-        the time of writing). Paste this address:
+        and click <strong>+ Add</strong> → <strong>Add custom connector</strong>{" "}
+        (the labels are as at the time of writing). Paste this address:
         <CodeBlock code={CONNECTOR_URL} />
       </li>
       <li>
@@ -77,7 +79,7 @@ export function CloudSessionSetup() {
         <a href="https://github.com/new" target="_blank" rel="noreferrer">
           GitHub
         </a>{" "}
-        for your work (tick <strong>Add a README file</strong>, so it is not
+        for your work (switch on <strong>Add README</strong>, so it is not
         empty).
       </li>
       <li>
@@ -89,19 +91,29 @@ export function CloudSessionSetup() {
         for that repository. On the screen where you start a new session, click
         the first control in the row under the message box (the environment
         selector), then <strong>New environment</strong> at the bottom of its
-        menu. In the dialog:
+        menu. In the dialog, give it a <strong>Name</strong> (say,{" "}
+        <code>hosty.live</code>), then:
         <ul>
           <li>
-            <strong>Network access</strong>: <strong>Custom</strong>, with “Also
-            include default list” on, and these domains:
+            <strong>Network access</strong>: keep <strong>Limited</strong> and{" "}
+            <strong>Allow package managers</strong>, and put these under{" "}
+            <strong>Allowed domains</strong>:
             <CodeBlock code={NETWORK_DOMAINS} />
           </li>
           <li>
-            <strong>Setup script</strong>:
+            <strong>Setup script</strong> (it installs the build tools before
+            each session starts):
             <CodeBlock code={SETUP_SCRIPT} />
           </li>
+          <li>
+            <strong>Environment variables</strong>:
+            <CodeBlock code={LAUNCHER_ENV} />
+          </li>
         </ul>
-        Then save the environment.
+        Then <strong>Add environment</strong>. Set it up completely before the
+        first session: a session that is already running never sees a change to
+        its environment, so after any change start a new one. To change it
+        later, hover over it in the same selector and click its gear icon.
       </li>
       <li>
         Back on the new-session screen, with that environment selected, pick
@@ -120,7 +132,7 @@ export function LocalAgentSetup() {
           Node.js
         </a>
         ):
-        <CodeBlock code={SETUP_SCRIPT} />
+        <CodeBlock code={INSTALL_TOOLS} />
       </li>
       <li>
         Claude Code signed in with your Claude plan has the connector already:{" "}
@@ -160,25 +172,51 @@ export function TokenSetup() {
           <CodeBlock code={MCP_JSON} />
         </li>
         <li>
-          In the session's environment (as above), add{" "}
-          <strong>Network secrets</strong> → <strong>Add secret</strong>: type{" "}
-          <strong>Bearer</strong>, name <code>hosty.live</code>, allowed website
-          <CodeBlock code={SECRET_HOST} />
-          and your <code>hl_</code> token as the value of the{" "}
-          <code>Authorization</code> header row (prefix <code>Bearer</code>).
+          In the session's environment (as above),{" "}
+          <strong>Network secrets</strong> → <strong>+ Add secret</strong>:
+          <ul>
+            <li>
+              <strong>Host</strong>:
+              <CodeBlock code={SECRET_HOST} />
+            </li>
+            <li>
+              <strong>Secret type</strong>: <strong>Token</strong>, with{" "}
+              <strong>Header</strong> <code>Authorization</code> and{" "}
+              <strong>Prefix</strong> <code>Bearer</code> as they are.
+            </li>
+            <li>
+              <strong>Token</strong>: your <code>hl_</code> token.
+            </li>
+          </ul>
           Claude's servers add it to every request to hosty.live, so the session
-          itself never sees your token. On a Team plan without an organization
-          admin role the form is shorter: host <code>{SECRET_HOST}</code>,
-          secret type <strong>Token</strong>, your token as the value. Then make
-          sure it arrives as a Bearer token: the session's first{" "}
-          <code>hosty_whoami</code> must answer, not fail with 401.
+          itself never sees your token.
         </li>
       </ol>
       <p className="hint">
         A session started before the file and the secret existed gets the tools
-        once it restarts; a new session on the same branch always has them.
+        once it restarts; a new session on the same branch always has them. An
+        approval request you did not expect:{" "}
+        <strong>Decline and revoke token</strong> on its card in hosty.live.
+        Revoke the token there too once the work is done.
       </p>
     </details>
+  );
+}
+
+/// What a deploy session is for, and how to tell the agent's request apart.
+export function DeploySessionNote() {
+  return (
+    <p className="hint">
+      Connected, hosty.live lets the AI use free cloud engine canisters and
+      upload pages into canisters you already have. Anything that spends your
+      cycles or acts as you on mainnet (buying a canister, a top-up, installing
+      a backend or bot, changing a page's settings) waits for a{" "}
+      <strong>deploy session</strong> you approve each time. The AI says what it
+      is for and shows you a request code. Open {HOSTY} (a phone works too),
+      check that the request shows the same code and purpose, and approve it
+      with your passkey: the AI notices by itself. A request you did not expect:{" "}
+      <strong>Decline and disconnect app</strong>.
+    </p>
   );
 }
 
@@ -240,7 +278,7 @@ export function OwnSetup() {
           Node.js
         </a>
         ):
-        <CodeBlock code={SETUP_SCRIPT} />
+        <CodeBlock code={INSTALL_TOOLS} />
       </li>
       <li>Start the tool in an empty folder.</li>
     </ol>

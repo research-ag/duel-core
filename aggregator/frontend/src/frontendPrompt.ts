@@ -43,16 +43,18 @@ The game is "${game.title}", playable at ${url}. Its backend canister is ${backe
 
 5. Test by playing whole games: both seats, every kind of move, an illegal move (the backend's rejection text must show, not a crash), an ending, a rematch.`;
 
-  const localCopy = `Download the game's module and run it as a private local copy next to the page (step 5 of the reference; the module store lookup https://api.hosty.live/modules/canister/${backend} needs no account), and play it headlessly with the skill's ${RAW}/skills/duel-game-core/templates/play-test.mjs.template against what icp deploy creates.`;
+  const localCopy = `Download the game's module and run it as a private local copy next to the page (step 5 of the reference; the module store lookup https://api.hosty.live/modules/canister/${backend} needs no account), and play it headlessly with the skill's ${RAW}/skills/duel-game-core/templates/play-test.mjs.template against what icp deploy creates. If the lookup answers found: false, tell me its hint, build from the semantics alone, and skip every copy of the game and the tests against one: test against the live backend instead, on tables with an access code only.`;
+
+  const computerLook = `give me the local address icp deploy printed; without a local copy, serve frontend/dist from any local web server and give me that address (it plays the live backend, on tables with an access code only)`;
 
   const test =
     way === "caffeine"
       ? `Test in your preview against the live backend, always on a table with an access code (never an open one), so real players are not disturbed.`
       : way === "hosty"
         ? `${localCopy}
-   Then let me look. In a cloud session, put the page into a free hosty.live cloud engine canister (hosty_whoami for a free cloudEngine slot, hosty_create_canister with network "cloud" and kind "frontend", then hosty_prepare_zip_upload with pureAssets and ${env}; step 7 of the reference), and give me its address: I play it in two browser tabs, on tables with an access code only. On my computer, give me the local address icp deploy printed.`
+   Then let me look. In a cloud session, put the page into a free hosty.live cloud engine canister (hosty_whoami for a free cloudEngine slot, hosty_create_canister with network "cloud" and kind "frontend", then hosty_prepare_zip_upload with pureAssets and ${env}; step 7 of the reference), and give me its address: I play it in two browser tabs, on tables with an access code only. On my computer, ${computerLook}.`
         : `${localCopy}
-   Then give me the local address icp deploy printed: I play it in two browser tabs.`;
+   Then ${computerLook}: I play it in two browser tabs.`;
 
   const stop =
     way === "caffeine"
@@ -60,12 +62,12 @@ The game is "${game.title}", playable at ${url}. Its backend canister is ${backe
 
 7. When I ask, I put it online with your own "Go live" action: tell me how, and then tell me the live page's address and its frontend canister id.`
       : way === "hosty"
-        ? `6. Stop once the page works and I'm happy with it. Do not put it online and do not buy any canister for it: the free cloud engine canisters in step 5 are the only ones you take without asking. Write into README.md how to build the page and zip the dist folder for upload, and the backend id it needs, PUBLIC_CANISTER_ID:backend=${backend}.
+        ? `6. Stop once the page works and I'm happy with it. Do not put it live and do not buy any canister for it: the free cloud engine canisters in step 5 are the only ones you take without asking. Write into README.md how to build the page and zip the dist folder for upload, and the backend id it needs, PUBLIC_CANISTER_ID:backend=${backend}.
 
-7. Later, when I ask you to put the page online: it goes online through hosty.live (https://hosty.live/), into a canister of my own: ${ref}/going-live.md, section 3, has the procedure. In a deploy session I approve: hosty_create_canister with kind "frontend" and alias "<game name> frontend" (a mainnet canister, 0.84 TC from my balance) unless I name a canister, build, zip the dist folder, hosty_prepare_zip_upload with pureAssets and ${env}, run the curl it returns, hosty_wait_for_deployment, and give me the frontendUrl and the canister id. If the hosty_* tools are missing, tell me the steps instead.`
+7. Later, when I ask you to put the page live: it goes live on mainnet through hosty.live (https://hosty.live/), into a canister of my own; a cloud engine page never counts as live, and the Duel dashboard refuses it: ${ref}/going-live.md, section 3, has the procedure. In a deploy session I approve: hosty_create_canister with kind "frontend" and alias "<game name> frontend" (a mainnet canister, 0.84 TC from my balance) unless I name a canister, build, zip the dist folder, hosty_prepare_zip_upload with pureAssets and ${env}, run the curl it returns, hosty_wait_for_deployment, and give me the frontendUrl and the canister id. If the hosty_* tools are missing, tell me the steps instead.`
         : `6. Stop once the page works and I'm happy with it. Do not put it online until I ask. Write into README.md how to build and deploy the page.
 
-7. Later, when I ask you to put the page online: walk me through ${ref}/going-live.md, section 4. I create my icp identity and buy the cycles (at the time of writing 2T for the page's canister, a few dollars). Then icp deploy frontend -e ic, after the reference's icp canister link backend ${backend} -e ic, which gives the page the backend's id. Give me the page's address and its canister id.`;
+7. Later, when I ask you to put the page online: walk me through ${ref}/going-live.md, section 4. I create my icp identity and buy the cycles (at the time of writing 2T for the page's canister, a few dollars). Then icp deploy frontend -e ic, after the reference's icp canister link backend ${backend} -e ic, which gives the page the backend's id (without a local copy, the reference's frontend-only icp.yaml of step 3 gives it instead). Give me the page's address and its canister id.`;
 
   return `${intro}${rules}
 

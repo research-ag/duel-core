@@ -105,12 +105,35 @@ page on `start()`, `createBotInviter` for a UI of its own (the package
 README, "Bots and the leaderboard").
 
 `found: false` with a `liveModuleHash` means the module the backend
-runs is not in the store at the moment: build from the semantics alone,
+runs is not in the store at the moment. Tell the user why in a
+sentence: a game's module is kept in hosty.live's module store, by its
+hash, not served by the canister, and this one is not there. Then
+relay the answer's `hint`, which says how the game's owner publishes
+it (no account needed). Build from the semantics alone,
 and skip every copy of the game: step 5, and step 7's local and staging
 copies. Step 7's cloud engine preview page and its access-code tests
-against the live backend still apply. With icp-cli, `icp
+against the live backend still apply; on the user's computer, the page
+served from any local web server plays the live backend the same way.
+With icp-cli, `icp
 canister metadata $BACKEND candid:service -n ic > backend.did` reads
-the Candid from the canister itself.
+the Candid from the canister itself, and the project's `icp.yaml`
+declares only the frontend, with the live backend's id as its
+environment variable. `icp deploy` puts that into the page's `ic_env`
+cookie, locally and on mainnet, so there is no `icp canister link`:
+
+```yaml
+canisters:
+  - name: frontend
+    recipe:
+      type: "@dfinity/static-site@v0.4.0"
+      configuration:
+        dir: frontend/dist
+        build:
+          - cd frontend && npm run build
+    settings:
+      environment_variables:
+        "PUBLIC_CANISTER_ID:backend": <BACKEND>
+```
 
 ## 4. Lay out the project
 
@@ -164,9 +187,12 @@ exactly as installed, gzipped or not. The two hashes must be equal:
 that proves the file is the module the canister runs right now. (In
 JavaScript, the client package's `module-store.js` does the same:
 `fetchGameModule(BACKEND)`, see its README, "Fetching a game's
-module".) An empty `HASH`, a 404 or a mismatch means the module is not
-available at the moment: stop and tell the user; do not fall back to
-the live canister on your own.
+module".) A mismatch means the downloaded file is not the module the
+canister runs: stop and tell the user, with both hashes. An empty
+`HASH` or a 404 means the module is not available at the moment: stop
+and tell the user, adding step 3's explanation and `hint` only when
+step 3's lookup answered `found: false`. Either way, do not fall back
+to the live canister on your own.
 
 The downloaded wasm becomes a `prebuilt` canister named `backend`
 beside your frontend, in an `icp.yaml` at the project root:
@@ -351,8 +377,9 @@ name> frontend" }` (a mainnet canister, 0.84 TC from the hosty.live
   lists mainnet canisters only.
 - **With icp-cli** (section 4, the identity and the cycles, on the
   user's own computer only): `icp deploy frontend -e ic`, 2T cycles,
-  after step 5's `icp canister link backend $BACKEND -e ic`; the deploy
-  sets the environment variable itself.
+  after step 5's `icp canister link backend $BACKEND -e ic`, or with
+  step 3's frontend-only `icp.yaml` when there is no local copy; either
+  way the deploy sets the environment variable itself.
 
 Without a way to deploy for the user, tell them the steps from the
 `README.md` instead.

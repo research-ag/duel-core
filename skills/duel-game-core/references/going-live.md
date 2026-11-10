@@ -75,8 +75,8 @@ on the cloud engine and wants live.
 
 The user, once per Claude account, in the browser:
 
-1. Opens https://claude.ai/customize/connectors → **Add custom
-   connector** (the labels are as at the time of writing) and pastes
+1. Opens https://claude.ai/customize/connectors → **+ Add** → **Add
+   custom connector** (the labels are as at the time of writing) and pastes
    `https://api.hosty.live/mcp`.
 2. hosty.live opens: they sign in with Internet Identity (a passkey; no
    password, no email) and approve.
@@ -106,11 +106,21 @@ installs icp-cli and its local network launcher) and the rules for
 working in its VM are in `cloud-session.md`, set up before the first
 build. Everything it puts online goes through hosty.live, section 3.
 
-**Deploy sessions from anywhere.** A `userAction` from
-`hosty_request_deploy_session` is approved in the hosty.live web app,
-on a phone as well as a computer. Relay it verbatim, say what you are
-about to create, install or spend, and poll `hosty_get_deploy_session`
-until `ACTIVE`.
+**Deploy sessions from anywhere.** The connector alone lets you use
+cloud engine canisters and upload into frontend canisters that are
+ready for it. A mainnet create, a top-up, a backend or bot install on
+mainnet and a mainnet canister's environment variables need a deploy
+session: the user's passkey approval, each time. Say why when they
+ask. Before requesting one, tell the user what you are about to
+create, install or spend, and pass the same as `purpose` to
+`hosty_request_deploy_session`. Show them the `requestCode` from its
+answer, and ask them to approve, in the hosty.live web app (on a phone
+as well as a computer), the request that shows that code and purpose,
+and to decline any other (**Decline and disconnect app** on its card
+also disconnects the app that made it). Then call
+`hosty_wait_for_deploy_session { sessionId }` right away, and again
+while it answers `PENDING`; never wait for the user to say they
+approved.
 
 ## 3. Setups 1 and 2: everything through hosty.live
 
@@ -219,9 +229,9 @@ whichever file was installed, byte for byte. Then:
 1. `hosty_check_backend_canister { canisterId }`. With `ready: true`
    (a cloud engine canister, a deploy session active, or unattended
    deploys allowed on that canister), skip to step 3.
-2. On a mainnet canister, `hosty_request_deploy_session { hours: 1 }`,
-   relay its `userAction`, say what you are going to install, poll
-   `hosty_get_deploy_session` until `status: "ACTIVE"`. The approval
+2. On a mainnet canister, `hosty_request_deploy_session { hours: 1,
+purpose }` and `hosty_wait_for_deploy_session` until `status:
+"ACTIVE"` (section 2, "Deploy sessions from anywhere"). The approval
    covers every canister the user controls until it expires.
 3. `hosty_prepare_wasm_upload { canisterId, wasmPath:
 ".icp/cache/artifacts/backend" }`, plus `snapshotBeforeUpgrade: true`
