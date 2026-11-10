@@ -412,6 +412,22 @@ code {
   margin-bottom: 0.5rem;
 }
 
+.profile-principal {
+  margin-top: 0.85rem;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+}
+
+.profile-principal .label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
 .profile-pop .row {
   display: flex;
   gap: 0.5rem;
@@ -934,6 +950,17 @@ select:disabled {
 .card-meta .name {
   color: var(--ink-2);
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-meta .principal {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .cycles {
@@ -1590,6 +1617,54 @@ input[type="range"] {
 }
 
 .code-block .copy.done {
+  color: var(--green);
+  border-color: rgba(116, 214, 156, 0.4);
+}
+
+.code-block .copy.failed,
+.copy-id-btn.failed {
+  color: var(--red);
+  border-color: rgba(255, 111, 97, 0.5);
+}
+
+.copy-id {
+  display: inline;
+}
+
+.copy-id .mono {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.copy-id-btn {
+  font: inherit;
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+  border-radius: 7px;
+  border: 1px solid var(--line-2);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    color 0.2s var(--ease),
+    border-color 0.2s var(--ease);
+}
+
+.copy-id-btn svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.copy-id-btn:hover {
+  border-color: var(--gold-line);
+  color: var(--gold-2);
+}
+
+.copy-id-btn.done {
   color: var(--green);
   border-color: rgba(116, 214, 156, 0.4);
 }
