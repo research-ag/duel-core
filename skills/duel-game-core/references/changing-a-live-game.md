@@ -30,13 +30,15 @@ pick the rating first (SKILL.md Step 4, "Leaderboard").
 
 ## 2. Find the source and what is live
 
-Start from the repository's `CLAUDE.md` (`templates/CLAUDE.md.template`):
-it names the canisters and what each runs. Without one, or with an
+Start from the game's `CLAUDE.md` (`templates/CLAUDE.md.template`), in
+its directory (a repository can hold several projects, one directory
+each): it names the canisters and what each runs. Without one, or with an
 empty default branch, look before writing anything:
 
 - `git branch -a`: a cloud session's work lands on `claude/...`
   branches, and a game may never have been merged.
-- The backend's canister id: the repo's `CLAUDE.md` or `README.md`, the
+- The backend's canister id: the game's `CLAUDE.md` or `README.md`, in
+  its directory, the
   `PUBLIC_CANISTER_ID:backend` the page was uploaded with, or the user.
 - What it runs now, by that id, from hosty.live's module store:
 
@@ -52,8 +54,8 @@ If the source on the default branch does not match that interface,
 stop and ask which version is the game's: deploying an older tree over
 a newer canister throws away features.
 
-When you are done, write or update the repo's `CLAUDE.md` from the
-template, and merge into the default branch (or open a pull request
+When you are done, write or update the game's `CLAUDE.md` in its
+directory from the template, and merge into the default branch (or open a pull request
 there, as the user prefers).
 
 ## 3. The backend

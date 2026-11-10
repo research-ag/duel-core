@@ -7,12 +7,15 @@ import {
   CLI_CONNECT,
   CONNECTOR_URL,
   CONNECTORS_PAGE,
+  ENV_NAME,
+  ENV_SETUP_PROMPT,
   INSTALL_TOOLS,
   LAUNCHER_ENV,
   MCP_JSON,
   NETWORK_DOMAINS,
   SECRET_HOST,
   SETUP_SCRIPT,
+  WILDCARD_DOMAINS,
 } from "../cloudSession";
 import { CodeBlock } from "./CodeBlock";
 
@@ -73,26 +76,67 @@ export function ConnectorSteps() {
 
 export function CloudSessionSetup() {
   return (
-    <ol className="tutorial-list">
-      <li>
-        Create a repository on{" "}
-        <a href="https://github.com/new" target="_blank" rel="noreferrer">
-          GitHub
-        </a>{" "}
-        for your work (switch on <strong>Add README</strong>, so it is not
-        empty).
-      </li>
-      <li>
-        Open{" "}
-        <a href="https://claude.ai/code" target="_blank" rel="noreferrer">
-          claude.ai/code
-        </a>{" "}
-        in a browser. On a first visit it asks you to connect GitHub: allow it
-        for that repository. On the screen where you start a new session, click
-        the first control in the row under the message box (the environment
-        selector), then <strong>New environment</strong> at the bottom of its
-        menu. In the dialog, give it a <strong>Name</strong> (say,{" "}
-        <code>hosty.live</code>), then:
+    <>
+      <ol className="tutorial-list">
+        <li>
+          Create a repository on{" "}
+          <a href="https://github.com/new" target="_blank" rel="noreferrer">
+            GitHub
+          </a>{" "}
+          (switch on <strong>Add README</strong>, so it is not empty). One is
+          enough for all your work: every game, page or bot gets a folder of its
+          own in it.
+        </li>
+        <li>
+          Open{" "}
+          <a href="https://claude.ai/code" target="_blank" rel="noreferrer">
+            claude.ai/code
+          </a>{" "}
+          in a browser. On a first visit it asks you to connect GitHub: allow it
+          for that repository. On the screen where you start a new session, pick
+          your repository in the row under the message box (any environment will
+          do) and send this message. It has Claude create the session's
+          environment, named <code>{ENV_NAME}</code>: its network access, a
+          setup script that installs the build tools before each session starts,
+          and one variable.
+          <CodeBlock code={ENV_SETUP_PROMPT} />
+        </li>
+        <li>
+          Claude checks the setup script, then claude.ai asks you with a{" "}
+          <strong>Create new environment?</strong> card listing the values:
+          scroll to its end and click <strong>Create environment</strong>.
+        </li>
+        <li>
+          If Claude says it could not add{" "}
+          {WILDCARD_DOMAINS.map((d, i) => (
+            <span key={d}>
+              {i > 0 && " and "}
+              <code>{d}</code>
+            </span>
+          ))}{" "}
+          (at the time of writing it cannot add domains with a <code>*</code>),
+          add them yourself: hover over <code>{ENV_NAME}</code> in the
+          environment selector (the first control in that row), click its gear
+          icon, and add them under <strong>Network access</strong> →{" "}
+          <strong>Allowed domains</strong>.
+        </li>
+        <li>
+          Start a <strong>new</strong> session: pick <code>{ENV_NAME}</code> in
+          the environment selector (under <strong>More</strong> if it is not
+          listed), your repository in the same row, and send the prompt from the
+          next step. A session that is already running never sees a change to
+          its environment, so after any change start a new one. Your next game,
+          page or bot starts the same way, in the same repository and
+          environment.
+        </li>
+      </ol>
+      <details className="more">
+        <summary>Or set up the environment by hand</summary>
+        <p>
+          In the environment selector, click <strong>New environment</strong> at
+          the bottom of its menu (or the gear icon of an existing one). Name it{" "}
+          <code>{ENV_NAME}</code>, then:
+        </p>
         <ul>
           <li>
             <strong>Network access</strong>: keep <strong>Limited</strong> and{" "}
@@ -101,8 +145,7 @@ export function CloudSessionSetup() {
             <CodeBlock code={NETWORK_DOMAINS} />
           </li>
           <li>
-            <strong>Setup script</strong> (it installs the build tools before
-            each session starts):
+            <strong>Setup script</strong>:
             <CodeBlock code={SETUP_SCRIPT} />
           </li>
           <li>
@@ -110,16 +153,12 @@ export function CloudSessionSetup() {
             <CodeBlock code={LAUNCHER_ENV} />
           </li>
         </ul>
-        Then <strong>Add environment</strong>. Set it up completely before the
-        first session: a session that is already running never sees a change to
-        its environment, so after any change start a new one. To change it
-        later, hover over it in the same selector and click its gear icon.
-      </li>
-      <li>
-        Back on the new-session screen, with that environment selected, pick
-        your repository in the same row and send the prompt from the next step.
-      </li>
-    </ol>
+        <p>
+          Then <strong>Add environment</strong>, and start a new session on it
+          as in the last step above.
+        </p>
+      </details>
+    </>
   );
 }
 
@@ -172,8 +211,9 @@ export function TokenSetup() {
           <CodeBlock code={MCP_JSON} />
         </li>
         <li>
-          In the session's environment (as above),{" "}
-          <strong>Network secrets</strong> → <strong>+ Add secret</strong>:
+          In the session's environment (its gear icon in the environment
+          selector), <strong>Network secrets</strong> →{" "}
+          <strong>+ Add secret</strong>:
           <ul>
             <li>
               <strong>Host</strong>:
@@ -197,7 +237,8 @@ export function TokenSetup() {
         once it restarts; a new session on the same branch always has them. An
         approval request you did not expect:{" "}
         <strong>Decline and revoke token</strong> on its card in hosty.live.
-        Revoke the token there too once the work is done.
+        Revoke the token there too once the work is done. Claude Code on your
+        computer needs none of this: it connects with the command above.
       </p>
     </details>
   );
