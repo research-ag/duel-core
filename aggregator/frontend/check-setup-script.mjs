@@ -12,7 +12,7 @@ const ts = read("./src/cloudSession.ts").match(
 const block = read(
   "../../skills/duel-game-core/references/cloud-session.md"
 ).match(
-  /^( *)```bash\n((?:(?!```)[\s\S])*?icp-cli-network-launcher[\s\S]*?)\n\1```/m
+  /^( *)```bash\n((?:(?!```)[\s\S])*?icp-cli-network-launcher[\s\S]*?)\n\1```[ \t]*$/m
 );
 const md = block?.[2]
   .split("\n")

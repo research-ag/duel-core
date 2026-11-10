@@ -116,7 +116,24 @@ against the live backend still apply; on the user's computer, the page
 served from any local web server plays the live backend the same way.
 With icp-cli, `icp
 canister metadata $BACKEND candid:service -n ic > backend.did` reads
-the Candid from the canister itself.
+the Candid from the canister itself, and the project's `icp.yaml`
+declares only the frontend, with the live backend's id as its
+environment variable. `icp deploy` puts that into the page's `ic_env`
+cookie, locally and on mainnet, so there is no `icp canister link`:
+
+```yaml
+canisters:
+  - name: frontend
+    recipe:
+      type: "@dfinity/static-site@v0.4.0"
+      configuration:
+        dir: frontend/dist
+        build:
+          - cd frontend && npm run build
+    settings:
+      environment_variables:
+        "PUBLIC_CANISTER_ID:backend": <BACKEND>
+```
 
 ## 4. Lay out the project
 
@@ -360,8 +377,9 @@ name> frontend" }` (a mainnet canister, 0.84 TC from the hosty.live
   lists mainnet canisters only.
 - **With icp-cli** (section 4, the identity and the cycles, on the
   user's own computer only): `icp deploy frontend -e ic`, 2T cycles,
-  after step 5's `icp canister link backend $BACKEND -e ic`; the deploy
-  sets the environment variable itself.
+  after step 5's `icp canister link backend $BACKEND -e ic`, or with
+  step 3's frontend-only `icp.yaml` when there is no local copy; either
+  way the deploy sets the environment variable itself.
 
 Without a way to deploy for the user, tell them the steps from the
 `README.md` instead.
