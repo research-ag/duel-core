@@ -193,6 +193,7 @@ npm install --legacy-peer-deps
 npm run build
 npx tsc -p tsconfig.json
 node --check dist/app.js
+node check-setup-script.mjs   # SETUP_SCRIPT = cloud-session.md's script (CI)
 ```
 
 `icp deploy` runs `npm run build` itself; `npm install` stays manual.

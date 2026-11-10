@@ -74,7 +74,7 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
      ```bash
      npm install -g @icp-sdk/icp-cli@1.8.0 ic-mops
      L=/opt/icp-launcher
-     if [ ! -x "$L/icp-cli-network-launcher" ]; then
+     if [ ! -x "$L/icp-cli-network-launcher" ] || [ ! -x "$L/pocket-ic" ]; then
        R=dfinity/icp-cli-network-launcher
        M=sha256:7a98f5bd3094f79c36adc7e8c4cc2a79886d091ec23f8fcc78caae364d54e91e # linux/amd64
        T=$(curl -fsS "https://ghcr.io/token?scope=repository:$R:pull" | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')

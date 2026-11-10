@@ -43,16 +43,18 @@ The game is "${game.title}", playable at ${url}. Its backend canister is ${backe
 
 5. Test by playing whole games: both seats, every kind of move, an illegal move (the backend's rejection text must show, not a crash), an ending, a rematch.`;
 
-  const localCopy = `Download the game's module and run it as a private local copy next to the page (step 5 of the reference; the module store lookup https://api.hosty.live/modules/canister/${backend} needs no account; if it answers found: false, tell me its hint and build from the semantics alone, without the local copy), and play it headlessly with the skill's ${RAW}/skills/duel-game-core/templates/play-test.mjs.template against what icp deploy creates.`;
+  const localCopy = `Download the game's module and run it as a private local copy next to the page (step 5 of the reference; the module store lookup https://api.hosty.live/modules/canister/${backend} needs no account), and play it headlessly with the skill's ${RAW}/skills/duel-game-core/templates/play-test.mjs.template against what icp deploy creates. If the lookup answers found: false, tell me its hint, build from the semantics alone, and skip every copy of the game and the tests against one: test against the live backend instead, on tables with an access code only.`;
+
+  const computerLook = `give me the local address icp deploy printed; without a local copy, serve frontend/dist from any local web server and give me that address (it plays the live backend, on tables with an access code only)`;
 
   const test =
     way === "caffeine"
       ? `Test in your preview against the live backend, always on a table with an access code (never an open one), so real players are not disturbed.`
       : way === "hosty"
         ? `${localCopy}
-   Then let me look. In a cloud session, put the page into a free hosty.live cloud engine canister (hosty_whoami for a free cloudEngine slot, hosty_create_canister with network "cloud" and kind "frontend", then hosty_prepare_zip_upload with pureAssets and ${env}; step 7 of the reference), and give me its address: I play it in two browser tabs, on tables with an access code only. On my computer, give me the local address icp deploy printed.`
+   Then let me look. In a cloud session, put the page into a free hosty.live cloud engine canister (hosty_whoami for a free cloudEngine slot, hosty_create_canister with network "cloud" and kind "frontend", then hosty_prepare_zip_upload with pureAssets and ${env}; step 7 of the reference), and give me its address: I play it in two browser tabs, on tables with an access code only. On my computer, ${computerLook}.`
         : `${localCopy}
-   Then give me the local address icp deploy printed: I play it in two browser tabs.`;
+   Then ${computerLook}: I play it in two browser tabs.`;
 
   const stop =
     way === "caffeine"

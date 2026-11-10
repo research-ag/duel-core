@@ -112,7 +112,9 @@ relay the answer's `hint`, which says how the game's owner publishes
 it (no account needed). Build from the semantics alone,
 and skip every copy of the game: step 5, and step 7's local and staging
 copies. Step 7's cloud engine preview page and its access-code tests
-against the live backend still apply. With icp-cli, `icp
+against the live backend still apply; on the user's computer, the page
+served from any local web server plays the live backend the same way.
+With icp-cli, `icp
 canister metadata $BACKEND candid:service -n ic > backend.did` reads
 the Candid from the canister itself.
 
@@ -168,10 +170,12 @@ exactly as installed, gzipped or not. The two hashes must be equal:
 that proves the file is the module the canister runs right now. (In
 JavaScript, the client package's `module-store.js` does the same:
 `fetchGameModule(BACKEND)`, see its README, "Fetching a game's
-module".) An empty `HASH`, a 404 or a mismatch means the module is not
-available at the moment: stop and tell the user, with step 3's
-explanation and `hint`; do not fall back to the live canister on your
-own.
+module".) A mismatch means the downloaded file is not the module the
+canister runs: stop and tell the user, with both hashes. An empty
+`HASH` or a 404 means the module is not available at the moment: stop
+and tell the user, adding step 3's explanation and `hint` only when
+step 3's lookup answered `found: false`. Either way, do not fall back
+to the live canister on your own.
 
 The downloaded wasm becomes a `prebuilt` canister named `backend`
 beside your frontend, in an `icp.yaml` at the project root:

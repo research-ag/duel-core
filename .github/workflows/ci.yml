@@ -113,6 +113,21 @@ jobs:
       - name: Run tests
         run: npm test
 
+  setup-script-sync:
+    name: Setup script in sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: latest
+
+      - name: Compare cloudSession.ts with cloud-session.md
+        run: node aggregator/frontend/check-setup-script.mjs
+
   fmt:
     name: Formatting Check
     runs-on: ubuntu-latest
