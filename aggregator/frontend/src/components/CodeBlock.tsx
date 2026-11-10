@@ -4,59 +4,75 @@
 // since this is a browser page and can't run anything on their machine
 // itself. `CopyId` is the inline form, for a principal.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import type { RefObject } from "react";
 
 import { Check, Copy } from "./Icons";
 
-function useCopy(text: string): [boolean, () => void] {
-  const [copied, setCopied] = useState(false);
+type CopyState = "idle" | "done" | "failed";
+
+/// Without clipboard access (e.g. an insecure context) the copy fails,
+/// and the text in `target` is selected for the user to copy by hand.
+function useCopy(
+  text: string,
+  target: RefObject<HTMLElement | null>
+): [CopyState, () => void] {
+  const [state, setState] = useState<CopyState>("idle");
 
   async function copy() {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setState("done");
     } catch {
-      // Clipboard API unavailable (e.g. insecure context) — nothing else to do.
+      if (target.current)
+        window.getSelection()?.selectAllChildren(target.current);
+      setState("failed");
     }
+    setTimeout(() => setState("idle"), 1500);
   }
 
-  return [copied, () => void copy()];
+  return [state, () => void copy()];
 }
+
+const LABEL: Record<CopyState, string> = {
+  idle: "Copy",
+  done: "Copied",
+  failed: "Copy failed",
+};
 
 /// `wrap` is for prose (a prompt): long lines fold instead of scrolling.
 export function CodeBlock({ code, wrap }: { code: string; wrap?: boolean }) {
-  const [copied, copy] = useCopy(code);
+  const pre = useRef<HTMLPreElement>(null);
+  const [state, copy] = useCopy(code, pre);
 
   return (
     <div className={`code-block${wrap ? " wrap" : ""}`}>
-      <button
-        type="button"
-        className={`copy${copied ? " done" : ""}`}
-        onClick={copy}
-      >
-        {copied ? <Check /> : <Copy />}
-        {copied ? "Copied" : "Copy"}
+      <button type="button" className={`copy ${state}`} onClick={copy}>
+        {state === "done" ? <Check /> : <Copy />}
+        {LABEL[state]}
       </button>
-      <pre>{code}</pre>
+      <pre ref={pre}>{code}</pre>
     </div>
   );
 }
 
 export function CopyId({ id }: { id: string }) {
-  const [copied, copy] = useCopy(id);
+  const text = useRef<HTMLSpanElement>(null);
+  const [state, copy] = useCopy(id, text);
 
   return (
     <span className="copy-id">
-      <span className="mono">{id}</span>
+      <span className="mono" ref={text}>
+        {id}
+      </span>
       <button
         type="button"
-        className={`copy-id-btn${copied ? " done" : ""}`}
+        className={`copy-id-btn ${state}`}
         onClick={copy}
-        aria-label={copied ? "Copied" : "Copy"}
-        title={copied ? "Copied" : "Copy"}
+        aria-label={LABEL[state]}
+        title={LABEL[state]}
       >
-        {copied ? <Check /> : <Copy />}
+        {state === "done" ? <Check /> : <Copy />}
       </button>
     </span>
   );

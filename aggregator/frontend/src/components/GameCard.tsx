@@ -84,7 +84,12 @@ export function GameCard({
                 className="avatar small"
                 style={avatarStyle(game.developer)}
               />
-              <span className="name" title={game.developer.toText()}>
+              <span
+                className="name"
+                title={[developerName, game.developer.toText()]
+                  .filter(Boolean)
+                  .join(" · ")}
+              >
                 {developerName ?? shortPrincipal(game.developer)}
               </span>
               {developerName && (
