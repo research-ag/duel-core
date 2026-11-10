@@ -586,8 +586,8 @@ backend`) with `hosty_prepare_wasm_upload`, and upload the zipped
 -e ic`, whose sync step publishes the module.
 
 Either way, the user then lists the frontend on the Duel dashboard;
-until then the game is online but unlisted. Write the repository's
-`CLAUDE.md` from its template once the canister ids exist, and keep the
+until then the game is online but unlisted. Write the game's
+`CLAUDE.md` (in the game's directory) from its template once the canister ids exist, and keep the
 game on the default branch. Every later upgrade of the backend first
 passes `(cd frontend && node check-upgrade.mjs <backend-id>)`
 (`references/changing-a-live-game.md`).

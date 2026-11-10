@@ -39,17 +39,35 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    section 1). Its tool calls go from Anthropic's servers to
    hosty.live, outside the session's VM and its network list, and no
    credential enters the VM. Every new session has the `hosty_*` tools.
-2. Creates a GitHub repository for the work (with **Add README** on,
-   so it is not empty).
+2. Creates a GitHub repository (with **Add README** on, so it is not
+   empty). One serves all their work: every game, frontend or bot is a
+   top-level directory of its own in it (below).
 3. Opens https://claude.ai/code in a browser and, on a first visit,
-   connects GitHub for that repository. On the new-session screen,
-   opens the environment selector (the first control under the message
-   box) and either picks **New environment** or edits an existing one
-   (the gear icon that hovering over its row under **Cloud** shows). In a running session the
-   same dialog is the caret after the session title → **Edit cloud
-   environment**. The environment must be complete before the session
+   connects GitHub for that repository. Then gets the cloud environment
+   below, named `hosty.live`, in one of two ways:
+   - **By one message** (the Duel dashboard's guides show it): in a
+     session on that repository, on any environment, the user asks for
+     the environment with the values below. That session saves them
+     with its built-in `create_environment` tool (`update_environment`
+     for one that exists), after the user approves the **Create new
+     environment?** card claude.ai shows, scrolled to its end. In that
+     session, you: check the script with `bash -n`, but do not run it
+     there; show the values and ask before saving. The tool refuses
+     wildcard domains: leave `*.icp0.io` and `*.icp.net` out when it
+     does and say so, and the user adds them by hand (the gear icon on
+     the environment's row in the selector → **Network access** →
+     **Allowed domains**). The tool reports that a script or variable
+     is set, not its text; the edit dialog shows both.
+   - **By hand**: on the new-session screen, the environment selector
+     (the first control under the message box) → **New environment**,
+     or the gear icon that hovering over an existing one's row shows.
+     In a running session the same dialog is the caret after the
+     session title → **Edit cloud environment**.
+
+   The environment must be complete before the session that builds
    starts: a running session never sees a change to it, and only a new
-   session picks the change up. In the dialog:
+   session picks the change up. The values:
+
    - **Network access**: **Limited**, with **Allow package managers**
      on, and under **Allowed domains**, one per line: `api.hosty.live`, `icp-api.io`, `icp0.io`,
      `*.icp0.io`, `icp.net`, `*.icp.net`, `ic0.app`,
@@ -94,16 +112,21 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    - **Environment variables**: `ICP_CLI_NETWORK_LAUNCHER_PATH=/opt/icp-launcher/icp-cli-network-launcher`,
      so `icp network start` uses that launcher.
 
-   Then **Add environment** (or save the edit).
+   By hand, finish with **Add environment** (or save the edit).
 
-4. Starts a session on that repository with that environment.
+4. Starts a new session on that repository with that environment
+   (under **More** in the selector when it is not listed). Every later
+   game, frontend or bot starts the same way, in the same repository
+   and environment.
 
 **In the session, you:** check `icp --version`, `mops --version` and
 `hosty_whoami` first. A missing `icp` or `mops` means the environment
 lacks the setup script, or gained it after this session started: run
 the script above yourself, with `ICP_CLI_NETWORK_LAUNCHER_PATH` set as
 above for every `icp` command, and tell the user to complete the
-environment for the next session. Missing `hosty_*` tools mean one of three
+environment for the next session; with the `update_environment`
+tool, offer to save the script there yourself, for the user's
+approval. Missing `hosty_*` tools mean one of three
 things, and the user fixes each in claude.ai: the connector is not
 added (https://claude.ai/customize/connectors), it is switched off for
 this session (the **+** under the message box → **Connectors**), or it
@@ -115,9 +138,15 @@ offer the user a sign-in from the session: connectors are authorized in
 claude.ai. A `hosty` server from a `.mcp.json` in the repository that
 "requires authentication" is left over from the token setup below:
 tell the user to delete that `.mcp.json`, unless they set up the token
-way on purpose. Tell the user what you found and build meanwhile. Unless
-`.claude/skills/duel-game-core/` is already there, install this skill
-into the repository and commit it:
+way on purpose. Tell the user what you found and build meanwhile.
+
+The repository holds one top-level directory per project (a game, a
+frontend, a bot): a new one goes into a new directory named after it,
+unless the user names one, and leaves the others alone; a project
+already at the root stays there. Its `CLAUDE.md`, `README.md` and every
+command run from there. The skill is installed once, at the
+repository's root: unless `.claude/skills/duel-game-core/` is already
+there, install it from the root and commit it:
 
 ```bash
 npx skills add research-ag/duel-core --skill duel-game-core -a claude-code -y --copy
@@ -129,16 +158,18 @@ push your work as you go: the VM keeps nothing. A session pushes to a
 branch of its own (`claude/...`); once the game works, merge it into
 the default branch (or open a pull request there, as the user
 prefers), so the next session finds the game where it looks first.
-From the first deploy on, keep the repository's `CLAUDE.md`
-(`templates/CLAUDE.md.template`) current: the canister ids and what
+From the first deploy on, keep the project's `CLAUDE.md`
+(`templates/CLAUDE.md.template`, in its directory) current: the canister ids and what
 each one runs.
 
 ## Without connectors: an API token
 
 On Team and Enterprise plans only an admin can add connectors. Where
 none is added, a cloud session reaches hosty.live with an API token
-instead, which hosty.live supports as well. The user, once, in addition
-to the environment above:
+instead, which hosty.live supports as well. An agent on the user's
+computer needs none of this: it connects with `claude mcp add`
+(`going-live.md`, section 3). The user, once, in addition to the
+environment above:
 
 1. Creates the token in hosty.live: **Settings** → **AI agent access**
    → create. It starts with `hl_` and is shown once. It is a password

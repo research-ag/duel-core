@@ -30,8 +30,9 @@ pick the rating first (SKILL.md Step 4, "Leaderboard").
 
 ## 2. Find the source and what is live
 
-Start from the repository's `CLAUDE.md` (`templates/CLAUDE.md.template`):
-it names the canisters and what each runs. Without one, or with an
+Start from the game's `CLAUDE.md` (`templates/CLAUDE.md.template`), in
+its directory (a repository can hold several projects, one directory
+each): it names the canisters and what each runs. Without one, or with an
 empty default branch, look before writing anything:
 
 - `git branch -a`: a cloud session's work lands on `claude/...`

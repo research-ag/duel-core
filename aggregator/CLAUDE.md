@@ -66,9 +66,13 @@ from, to)` is the one admin method: controllers only
   computer, the user's own key and cycles, no hosty.live).
   `CloudSessionSetup.tsx` holds the shared steps: `HostySetup` (the
   hosty.live connector once, `ConnectorSteps`, then `CloudSessionSetup`,
-  the GitHub repository and the claude.ai environment's network domains,
-  setup script (`SETUP_SCRIPT`, the same as `cloud-session.md`'s) and
-  launcher variable, or `LocalAgentSetup` on the computer, then
+  one GitHub repository for all the user's work and `ENV_SETUP_PROMPT`,
+  the message that has a session create the claude.ai environment
+  (network domains, setup script (`SETUP_SCRIPT`, the same as
+  `cloud-session.md`'s), launcher variable) with its
+  `create_environment` tool, the wildcard domains added by hand, and
+  the same values for the dialog collapsed behind "Or set up the
+  environment by hand", or `LocalAgentSetup` on the computer, then
   `TokenSetup`, the `hl_` token, `.mcp.json` and network secret for a
   plan without connectors, collapsed behind "No connectors on your
   Team/Enterprise plan?"), `OwnSetup`, and for going live `HostyCycles`
@@ -77,7 +81,8 @@ from, to)` is the one admin method: controllers only
   request code) and `IcpIdentitySteps` (an icp identity and cycles). The texts are in
   `cloudSession.ts`, with `SESSION_RULES` (where the `hosty_*` tools come
   from, the three reasons they may be missing, never a sign-in from the
-  session, a missing setup script, each deploy session's purpose,
+  session, one directory per project in the repository, a missing setup
+  script, each deploy session's purpose,
   request code and `hosty_wait_for_deploy_session`) and `OWN_RULES`, the paragraphs the prompts carry; each
   prompt function takes the way. `TutorialWizard.tsx` ("Build a new
   game", ways `hosty` and `own`) stands alone: how it works, the set-up,
