@@ -72,7 +72,9 @@ fails `mops build` or, with moc 2.0, `mops test`):
 
 ```bash
 icp --version || npm install -g @icp-sdk/icp-cli
-npm install -g ic-mops     # installs mops, or updates it to the latest
+v=$(mops --version 2>/dev/null | sed -n 's/^CLI //p')
+[ -n "$v" ] && [ "$(printf '3.4.1\n%s\n' "$v" | sort -V | head -1)" = 3.4.1 ] ||
+  npm install -g ic-mops
 ```
 
 If there is no `mops.toml`, create one from `templates/mops.toml.template`
