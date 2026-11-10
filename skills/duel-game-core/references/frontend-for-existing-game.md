@@ -105,7 +105,11 @@ page on `start()`, `createBotInviter` for a UI of its own (the package
 README, "Bots and the leaderboard").
 
 `found: false` with a `liveModuleHash` means the module the backend
-runs is not in the store at the moment: build from the semantics alone,
+runs is not in the store at the moment. Tell the user why in a
+sentence: a game's module is kept in hosty.live's module store, by its
+hash, not served by the canister, and this one is not there. Then
+relay the answer's `hint`, which says how the game's owner publishes
+it (no account needed). Build from the semantics alone,
 and skip every copy of the game: step 5, and step 7's local and staging
 copies. Step 7's cloud engine preview page and its access-code tests
 against the live backend still apply. With icp-cli, `icp
@@ -165,8 +169,9 @@ that proves the file is the module the canister runs right now. (In
 JavaScript, the client package's `module-store.js` does the same:
 `fetchGameModule(BACKEND)`, see its README, "Fetching a game's
 module".) An empty `HASH`, a 404 or a mismatch means the module is not
-available at the moment: stop and tell the user; do not fall back to
-the live canister on your own.
+available at the moment: stop and tell the user, with step 3's
+explanation and `hint`; do not fall back to the live canister on your
+own.
 
 The downloaded wasm becomes a `prebuilt` canister named `backend`
 beside your frontend, in an `icp.yaml` at the project root:

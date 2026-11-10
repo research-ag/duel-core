@@ -12,6 +12,7 @@ import { useState } from "react";
 import type { Way } from "../cloudSession";
 import { gamePrompt } from "../gamePrompt";
 import {
+  DeploySessionNote,
   HostyCycles,
   HostySetup,
   IcpIdentitySteps,
@@ -177,12 +178,12 @@ function GoLiveStep({ way }: { way: GameWay }) {
         <>
           <HostyCycles cost="a game costs about 2.5 TC (a few dollars), about 4 TC with a bot" />
           <p>
-            Then tell the session the game goes live. It asks you to approve a{" "}
-            <strong>deploy session</strong> (open hosty.live, a phone works too,
-            and approve it with your passkey), buys the game's canisters from
-            your balance, and deploys the same game there, at its permanent
-            address. Later changes upgrade those canisters, keeping the address.
+            Then tell the session the game goes live on mainnet. It asks you to
+            approve a deploy session, buys the game's canisters from your
+            balance, and deploys the same game there, at its permanent address.
+            Later changes upgrade those canisters, keeping the address.
           </p>
+          <DeploySessionNote />
         </>
       ) : (
         <>

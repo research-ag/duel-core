@@ -14,6 +14,7 @@ import type { Way } from "../cloudSession";
 import { frontendPrompt } from "../frontendPrompt";
 import type { AggregatorActor, GameView, Target } from "../types";
 import {
+  DeploySessionNote,
   HostyCycles,
   HostySetup,
   IcpIdentitySteps,
@@ -280,16 +281,17 @@ function GoLiveStep({ way }: { way: Way }) {
     <>
       <HostyCycles cost="a page costs 0.84 TC, about a dollar" />
       <p>Then tell the session:</p>
-      <CodeBlock code="Put my frontend online through hosty.live." />
+      <CodeBlock code="Put my frontend live on mainnet through hosty.live (buy its canister)." />
       <p>
-        It asks you to approve a deploy session in hosty.live (with your
-        passkey; a phone works), creates the page's canister in your account,
-        uploads the page pointed at the game, and gives you its address and the
-        canister id (the <code>xxxxx-…-cai</code> code). Write both down for the
-        next step. Later changes are another upload into the same canister; your
-        own web address (a custom domain) can be set up from the canister's page
-        in hosty.live.
+        It asks you to approve a deploy session, buys the page's canister from
+        your balance, uploads the page pointed at the game, and gives you its
+        address and the canister id (the <code>xxxxx-…-cai</code> code). Write
+        both down for the next step. The free test page does not count: it
+        cannot be registered. Later changes are another upload into the same
+        canister; your own web address (a custom domain) can be set up from the
+        canister's page in hosty.live.
       </p>
+      <DeploySessionNote />
     </>
   );
 }
