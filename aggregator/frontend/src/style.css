@@ -1475,6 +1475,24 @@ input[type="range"] {
   transition: width 0.4s var(--ease);
 }
 
+.wizard-body details.more {
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--panel-2);
+}
+
+.wizard-body details.more summary {
+  cursor: pointer;
+  font-size: 0.86rem;
+  color: var(--ink-2);
+}
+
+.wizard-body details.more[open] summary {
+  margin-bottom: 0.9rem;
+}
+
 .tutorial-list {
   list-style: none;
   counter-reset: step;
@@ -1485,13 +1503,13 @@ input[type="range"] {
   gap: 1.1rem;
 }
 
-.tutorial-list li {
+.tutorial-list > li {
   position: relative;
   padding-left: 2.2rem;
   color: var(--ink-2);
 }
 
-.tutorial-list li::before {
+.tutorial-list > li::before {
   counter-increment: step;
   content: counter(step);
   position: absolute;

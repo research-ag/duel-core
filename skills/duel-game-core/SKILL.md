@@ -61,7 +61,8 @@ you hit that situation.
 You are very likely in a new repo, separate from `research-ag/duel-core`,
 and quite possibly in a Claude Code cloud session (claude.ai/code): a
 VM the user never sees into, where you build and test and from which
-everything goes online through hosty.live's MCP server.
+everything goes online through the hosty.live connector's `hosty_*`
+tools.
 `references/cloud-session.md` is that session's setup; read it before
 anything else. Its environment's setup script installs icp-cli together
 with the local network launcher `icp network start` needs, which icp-cli
@@ -472,18 +473,18 @@ the player most wants to see. If the UI genuinely doesn't fit that
 
 ## Step 7 — Project/deploy config
 
-| Template                     | Destination                  | Fill in                                    |
-| ---------------------------- | ---------------------------- | ------------------------------------------ |
-| `mops.toml.template`         | `mops.toml`                  | `__GAME_SLUG__`                            |
-| `package.json.template`      | `frontend/package.json`      | `__GAME_SLUG__`                            |
-| `build.js.template`          | `frontend/build.js`          | `__PLUGIN_FILE__` (header comment only)    |
-| `icp.yaml.template`          | `icp.yaml`                   | — (unless renaming canisters)              |
-| `publish_wasm.sh.template`   | `publish_wasm.sh`            | — (next to `icp.yaml`)                     |
-| `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`        |
-| `mcp.json.template`          | `.mcp.json`                  | — (cloud session only, `cloud-session.md`) |
-| `BotIface.mo.template`       | `src/BotIface.mo`            | `__RULES_MODULE__` (bot support only)      |
-| `check-upgrade.mjs.template` | `frontend/check-upgrade.mjs` | `__HOST_FILE__` (`Host.mo`)                |
-| `CLAUDE.md.template`         | `CLAUDE.md`                  | every `__...__`, at the first deploy       |
+| Template                     | Destination                  | Fill in                                  |
+| ---------------------------- | ---------------------------- | ---------------------------------------- |
+| `mops.toml.template`         | `mops.toml`                  | `__GAME_SLUG__`                          |
+| `package.json.template`      | `frontend/package.json`      | `__GAME_SLUG__`                          |
+| `build.js.template`          | `frontend/build.js`          | `__PLUGIN_FILE__` (header comment only)  |
+| `icp.yaml.template`          | `icp.yaml`                   | — (unless renaming canisters)            |
+| `publish_wasm.sh.template`   | `publish_wasm.sh`            | — (next to `icp.yaml`)                   |
+| `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`      |
+| `mcp.json.template`          | `.mcp.json`                  | — (token setup only, `cloud-session.md`) |
+| `BotIface.mo.template`       | `src/BotIface.mo`            | `__RULES_MODULE__` (bot support only)    |
+| `check-upgrade.mjs.template` | `frontend/check-upgrade.mjs` | `__HOST_FILE__` (`Host.mo`)              |
+| `CLAUDE.md.template`         | `CLAUDE.md`                  | every `__...__`, at the first deploy     |
 
 ```bash
 mops install && mops test
@@ -567,7 +568,8 @@ the whole game on one route:
 
 - **Through hosty.live** (setups 1 and 2; the only one in a cloud
   session, and the right one for a user new to the Internet Computer):
-  an Internet Identity login and a balance paid by card. You buy the
+  the hosty.live connector (`references/going-live.md`, section 1) and
+  a balance the user tops up there, by card or with ICP. You buy the
   backend, bot and page canisters with `hosty_create_canister` (mainnet,
   each with its `alias`), install the backend's module (`icp build
 backend`) with `hosty_prepare_wasm_upload`, and upload the zipped

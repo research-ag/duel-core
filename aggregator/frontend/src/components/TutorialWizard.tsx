@@ -1,22 +1,34 @@
 // A step-by-step guide for a developer who has NOT built a game yet — the
 // counterpart to GameFormModal's "register a game you already built" flow.
-// Cloud first: a Claude Code session on claude.ai builds and tests the
-// game from gamePrompt.ts's prompt and puts it online through hosty.live;
-// an agent on the developer's own computer, or icp-cli, are the
-// alternatives. Ends with the same registration form the existing flow
-// uses.
+// Two ways, picked at the end of "How it works": through hosty.live (a
+// Claude Code cloud session or an agent on the computer builds and tests
+// the game from gamePrompt.ts's prompt, free cloud engine canisters for
+// the first look, bought ones to go live), or everything the developer's
+// own (icp-cli, their key and cycles). Ends with the same registration
+// form the existing flow uses.
 
+import { useState } from "react";
+
+import type { Way } from "../cloudSession";
 import { gamePrompt } from "../gamePrompt";
-import { CloudSessionSetup, HostyAccountSteps } from "./CloudSessionSetup";
+import {
+  HostyCycles,
+  HostySetup,
+  IcpIdentitySteps,
+  OwnSetup,
+} from "./CloudSessionSetup";
 import { CodeBlock } from "./CodeBlock";
 import { Wizard } from "./Wizard";
+import { WayPicker } from "./WayPicker";
+
+type GameWay = Exclude<Way, "caffeine">;
 
 const STEPS = [
   "How it works",
-  "hosty.live account",
-  "Set up Claude Code",
+  "Set up",
   "Copy the prompt",
-  "Play and go live",
+  "Try it",
+  "Go live",
   "Register",
 ] as const;
 
@@ -32,32 +44,50 @@ export function TutorialWizard({
   onClose: () => void;
   onRegister: () => void;
 }) {
+  const [way, setWay] = useState<GameWay>();
   return (
     <Wizard
       kicker="Build a new game"
       title="From your rules to a listed game."
       steps={STEPS}
+      reachable={way ? STEPS.length - 1 : 0}
       onClose={onClose}
       finish={{
         label: "Register your game",
         onClick: onRegister,
         disabled: !isLoggedIn,
       }}
-      render={(step) => (
+      render={(step, next) => (
         <>
-          {step === 0 && <HowItWorksStep />}
-          {step === 1 && <AccountStep />}
-          {step === 2 && <SetupStep />}
-          {step === 3 && <PromptStep />}
-          {step === 4 && <GoLiveStep />}
-          {step === 5 && <RegisterStep isLoggedIn={isLoggedIn} />}
+          {step === 0 && (
+            <HowItWorksStep
+              way={way}
+              onPick={(w) => {
+                setWay(w);
+                next();
+              }}
+            />
+          )}
+          {way &&
+            step === 1 &&
+            (way === "hosty" ? <HostySetup /> : <OwnSetup />)}
+          {way && step === 2 && <PromptStep way={way} />}
+          {way && step === 3 && <TryStep way={way} />}
+          {way && step === 4 && <GoLiveStep way={way} />}
+          {way && step === 5 && <RegisterStep isLoggedIn={isLoggedIn} />}
         </>
       )}
     />
   );
 }
 
-function HowItWorksStep() {
+function HowItWorksStep({
+  way,
+  onPick,
+}: {
+  way: GameWay | undefined;
+  onPick: (way: GameWay) => void;
+}) {
   return (
     <>
       <p>
@@ -65,75 +95,38 @@ function HowItWorksStep() {
         backend holding the rules and the tables, and a frontend, the page
         players open. You describe the rules; an AI writes and tests both.
       </p>
-      <p>
-        The simplest way needs nothing on your computer:{" "}
-        <a href="https://claude.ai/code" target="_blank" rel="noreferrer">
-          Claude Code on the web
-        </a>{" "}
-        builds and tests the game on Anthropic's servers, and{" "}
-        <a href="https://hosty.live/" target="_blank" rel="noreferrer">
-          hosty.live
-        </a>{" "}
-        puts it online: first on free test canisters while you try it and
-        ask for changes, then, when you say so, in canisters of your own,
-        paid by card from a balance you top up there. You approve every
-        paid deploy in the hosty.live tab with your passkey, so nothing is
-        spent without you.
-      </p>
-      <p className="hint">
-        Building, testing and trying the game online cost nothing beyond
-        your Claude plan. Going live costs about 2.5 TC (a few dollars at
-        the time of writing) up front; a live canister then slowly spends
-        its cycles on storage and updates, and the dashboard shows when a
-        top-up is due.
-      </p>
+      <p>Pick your way:</p>
+      <WayPicker
+        picked={way}
+        onPick={(w) => onPick(w as GameWay)}
+        options={[
+          {
+            way: "hosty",
+            title: "Through hosty.live",
+            note: "Nothing to install: Claude Code on the web builds the game, you try it on free test canisters, and it goes live for a few dollars at the time of writing, paid by card. Works from an AI tool on your computer too.",
+          },
+          {
+            way: "own",
+            title: "All your own, with icp-cli",
+            note: "An AI tool on your computer, your own key and cycles, no hosty.live. For people who already work with icp-cli.",
+          },
+        ]}
+      />
     </>
   );
 }
 
-function AccountStep() {
-  return (
-    <>
-      <p>Once, in the browser:</p>
-      <HostyAccountSteps />
-    </>
-  );
-}
-
-function SetupStep() {
+function PromptStep({ way }: { way: GameWay }) {
   return (
     <>
       <p>
-        Once per game, so the session has the tools it needs and can reach
-        hosty.live with your token:
+        Paste this into the session{way === "own" ? " (your coding tool)" : ""}:
       </p>
-      <CloudSessionSetup />
-      <p className="hint">
-        Prefer an AI coding tool on your own computer? Install{" "}
-        <a
-          href="https://github.com/dfinity/icp-cli"
-          target="_blank"
-          rel="noreferrer"
-        >
-          icp-cli
-        </a>{" "}
-        and mops (<code>npm install -g @icp-sdk/icp-cli ic-mops</code>), and
-        connect the tool to hosty.live with the one-line command shown next to
-        your token. The prompt works the same.
-      </p>
-    </>
-  );
-}
-
-function PromptStep() {
-  return (
-    <>
-      <p>Paste this into the session:</p>
-      <CodeBlock code={gamePrompt()} wrap />
+      <CodeBlock code={gamePrompt(way)} wrap />
       <p>Finish it with your rules, in your own words, after its last line:</p>
       <CodeBlock
         code={
-          "Rock-paper-scissors with a twist: each player also has one \"well\"\nper game, which beats rock and scissors and loses to paper. First to\nthree round wins takes the match; a tie scores nobody."
+          'Rock-paper-scissors with a twist: each player also has one "well"\nper game, which beats rock and scissors and loses to paper. First to\nthree round wins takes the match; a tie scores nobody.'
         }
       />
       <p className="hint">
@@ -145,49 +138,74 @@ function PromptStep() {
   );
 }
 
-function GoLiveStep() {
+function TryStep({ way }: { way: GameWay }) {
   return (
     <>
+      {way === "hosty" ? (
+        <p>
+          When its own tests pass, the AI puts the game on free{" "}
+          <strong>cloud engine</strong> canisters in your hosty.live account (no
+          approval, nothing spent), plays a test game against them, and gives
+          you the page's address. On your computer it gives you a local address
+          instead.
+        </p>
+      ) : (
+        <p>
+          When its own tests pass, the AI gives you the local address where the
+          game runs on your computer.
+        </p>
+      )}
       <p>
-        When its own tests pass, the AI asks before anything goes online.
-        Then:
+        Open it in two browser tabs, start a table in one and join it from the
+        other, and play. Ask for changes until it is right: each one is tested
+        again and redeployed to the same place.
       </p>
-      <ol className="tutorial-list">
-        <li>
-          It puts the game on two free <strong>cloud engine</strong>{" "}
-          canisters in your hosty.live account (no approval, nothing spent),
-          installs the backend, uploads the page, and plays a test game
-          against them.
-        </li>
-        <li>
-          It gives you the page's address. Open it in two browser tabs, start
-          a table in one and join it from the other, and play. Ask for changes
-          until it is right: each one is tested again and redeployed to the
-          same free canisters. They are for testing: hosty.live may delete
-          them, and they cannot be registered here.
-        </li>
-        <li>
-          When the game is right, tell the session to go live. It asks you to
-          approve a <strong>deploy session</strong> (open hosty.live, a phone
-          works too, and approve it with your passkey), buys the game's two
-          canisters from your balance, and deploys the same game there, at
-          its permanent address. Later changes upgrade those canisters,
-          keeping the address.
-        </li>
-      </ol>
+      {way === "hosty" && (
+        <p className="hint">
+          The free canisters are for testing: hosty.live may delete them, and
+          they cannot be registered here.
+        </p>
+      )}
+    </>
+  );
+}
+
+function GoLiveStep({ way }: { way: GameWay }) {
+  return (
+    <>
+      {way === "hosty" ? (
+        <>
+          <HostyCycles cost="a game costs about 2.5 TC (a few dollars), about 4 TC with a bot" />
+          <p>
+            Then tell the session the game goes live. It asks you to approve a{" "}
+            <strong>deploy session</strong> (open hosty.live, a phone works too,
+            and approve it with your passkey), buys the game's canisters from
+            your balance, and deploys the same game there, at its permanent
+            address. Later changes upgrade those canisters, keeping the address.
+          </p>
+        </>
+      ) : (
+        <>
+          <p>In a terminal of your own:</p>
+          <ol className="tutorial-list">
+            <IcpIdentitySteps cycles="about 5T (a few dollars) is comfortable for a game, 7T with a bot" />
+          </ol>
+          <p>
+            Then tell the AI the game goes live. It deploys the backend and the
+            page with icp-cli and gives you the address. Later changes upgrade
+            the same canisters, keeping the address.{" "}
+            <a href={GOING_LIVE} target="_blank" rel="noreferrer">
+              going-live.md
+            </a>{" "}
+            has the details.
+          </p>
+        </>
+      )}
       <p>
         The game is online but unlisted: only who has its address finds it,
         until you register it in the next step. Note the live{" "}
         <strong>frontend canister id</strong> (the <code>xxxxx-…-cai</code>{" "}
         code), which the registration asks for.
-      </p>
-      <p className="hint">
-        Already have an <code>icp</code> identity and cycles? The game can also
-        go online with icp-cli from your own computer;{" "}
-        <a href={GOING_LIVE} target="_blank" rel="noreferrer">
-          going-live.md
-        </a>{" "}
-        has both ways, and an AI with the playbook follows it by itself.
       </p>
     </>
   );
@@ -198,8 +216,8 @@ function RegisterStep({ isLoggedIn }: { isLoggedIn: boolean }) {
     <>
       <p>
         Last step — list your game on this dashboard so players can find it.
-        You'll need the frontend canister id from the previous step, a title,
-        a short description, and a banner image.
+        You'll need the frontend canister id from the previous step, a title, a
+        short description, and a banner image.
       </p>
       {isLoggedIn ? (
         <p>Click "Register your game" below to open the registration form.</p>
