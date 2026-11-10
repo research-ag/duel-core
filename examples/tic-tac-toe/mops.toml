@@ -7,5 +7,9 @@ description = "tic-tac-toe — reference #alternating game built on duel-game-co
 duel-game-core = "../../backend"
 core = "2.6.2"
 
+[canisters]
+backend = "src/Host.mo"
+bot = "bot/Bot.mo"
+
 [toolchain]
 moc = "2.0.0"

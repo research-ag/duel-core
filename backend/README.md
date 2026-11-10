@@ -684,9 +684,7 @@ put there by every deploy:
   ```yaml
   - name: backend
     recipe:
-      type: "@dfinity/motoko@v4.1.0"
-      configuration:
-        main: src/Host.mo
+      type: "@dfinity/motoko@v5.1.0"
     sync:
       steps:
         - type: script
@@ -694,7 +692,15 @@ put there by every deploy:
             - sh publish_wasm.sh backend
   ```
 
-  It takes the artifact icp-cli just installed
+  The recipe builds it with `mops build backend`, from the `[canisters]`
+  entry in `mops.toml`:
+
+  ```toml
+  [canisters]
+  backend = "src/Host.mo"
+  ```
+
+  `publish_wasm.sh` takes the artifact icp-cli just installed
   (`.icp/cache/artifacts/backend`), refuses to go on unless its SHA-256
   equals the canister's `module_hash`, uploads it with the canister's id
   (`POST /modules`, no token), which has the store verify it against

@@ -3,9 +3,7 @@
 canisters:
   - name: backend
     recipe:
-      type: "@dfinity/motoko@v4.1.0"
-      configuration:
-        main: src/Host.mo
+      type: "@dfinity/motoko@v5.1.0"
     sync:
       steps:
         - type: script
@@ -13,9 +11,7 @@ canisters:
             - sh publish_wasm.sh backend
   - name: bot
     recipe:
-      type: "@dfinity/motoko@v4.1.0"
-      configuration:
-        main: bot/Bot.mo
+      type: "@dfinity/motoko@v5.1.0"
   - name: frontend
     recipe:
       type: "@dfinity/static-site@v0.4.0"

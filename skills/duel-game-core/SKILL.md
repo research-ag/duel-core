@@ -67,10 +67,14 @@ tools.
 anything else. Its environment's setup script installs icp-cli together
 with the local network launcher `icp network start` needs, which icp-cli
 cannot download by itself in a cloud session. Wherever you run, the
-build needs `icp` (icp-cli) and `mops`:
+build needs `icp` (icp-cli) and `mops` 3.4.1 or later (an older one
+fails `mops build` or, with moc 2.0, `mops test`):
 
 ```bash
-icp --version && mops --version || npm install -g @icp-sdk/icp-cli ic-mops
+icp --version || npm install -g @icp-sdk/icp-cli
+v=$(mops --version 2>/dev/null | sed -n 's/^CLI //p')
+[ -n "$v" ] && [ "$(printf '3.4.1\n%s\n' "$v" | sort -V | head -1)" = 3.4.1 ] ||
+  npm install -g ic-mops
 ```
 
 If there is no `mops.toml`, create one from `templates/mops.toml.template`
@@ -304,8 +308,11 @@ null)` (`?leaderboard` once that is wired too), which supplies
 human at 3. The page's half is Step 6.
 
 If writing the bot, add a `bot/Bot.mo`/`bot/BotLogic.mo` pair like
-`examples/checkers/bot/`. The backend README's "Canister players" has
-the full design. `MoveRequest<View, Action>` carries `game` (the bot's
+`examples/checkers/bot/`, and its canister, `bot`, to `icp.yaml` (the
+backend's Motoko recipe, without its sync step) and to `mops.toml`'s
+`[canisters]` (`bot = "bot/Bot.mo"`), as `examples/checkers/` does.
+The backend README's "Canister players" has the full design.
+`MoveRequest<View, Action>` carries `game` (the bot's
 own `View` — a bot sees exactly what a human at its seat sees), `seat`,
 `mode`, `step`/`gen`, `complexity`, `opponent`, `opponentLastMove`, and
 `lastStepDurationNs`; a bot that only reads `game`/`seat`/`step` is a
@@ -478,7 +485,7 @@ the player most wants to see. If the UI genuinely doesn't fit that
 | `mops.toml.template`         | `mops.toml`                  | `__GAME_SLUG__`                          |
 | `package.json.template`      | `frontend/package.json`      | `__GAME_SLUG__`                          |
 | `build.js.template`          | `frontend/build.js`          | `__PLUGIN_FILE__` (header comment only)  |
-| `icp.yaml.template`          | `icp.yaml`                   | — (unless renaming canisters)            |
+| `icp.yaml.template`          | `icp.yaml`                   | — (renamed canister: `mops.toml` too)    |
 | `publish_wasm.sh.template`   | `publish_wasm.sh`            | — (next to `icp.yaml`)                   |
 | `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`      |
 | `mcp.json.template`          | `.mcp.json`                  | — (token setup only, `cloud-session.md`) |

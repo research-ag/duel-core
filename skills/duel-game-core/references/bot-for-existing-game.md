@@ -56,6 +56,15 @@ README.md
 
 `mops.toml` from `templates/mops.toml.template`, then `mops add
 duel-game-core` (`SKILL.md` Step 1 has the fallback when that fails).
+Replace the template's `[canisters]` entry (`backend`, which is prebuilt
+here) with the two Motoko canisters below, each under its `icp.yaml`
+name (the recipe builds it with `mops build <name>`):
+
+```toml
+[canisters]
+bot = "src/Bot.mo"
+sparring = "src/Sparring.mo"
+```
 
 ```yaml
 canisters:
@@ -67,14 +76,10 @@ canisters:
         sha256: <the hash from step 1, without 0x>
   - name: bot
     recipe:
-      type: "@dfinity/motoko@v4.1.0"
-      configuration:
-        main: src/Bot.mo
+      type: "@dfinity/motoko@v5.1.0"
   - name: sparring
     recipe:
-      type: "@dfinity/motoko@v4.1.0"
-      configuration:
-        main: src/Sparring.mo
+      type: "@dfinity/motoko@v5.1.0"
 ```
 
 `sparring` plays against the bot in local tests and never goes to

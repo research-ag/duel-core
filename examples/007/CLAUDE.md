@@ -34,7 +34,8 @@ LeaderboardActorMixin(leaderboard, 25)`); the transport and
   Medium beating Easy over full games, and two canister bots playing real
   matches.
 - **`icp.yaml`** — deploys `src/Host.mo` as `backend`, `bot/Bot.mo` as
-  `bot`, and `frontend/dist` as a static-site canister.
+  `bot` (both built by `mops build`, from `mops.toml`'s `[canisters]`),
+  and `frontend/dist` as a static-site canister.
 - **`frontend/`** — vanilla JS bundled with esbuild, and the framework's
   CUSTOM-UI reference: nothing from `@research-ag/duel-game-core/app.js` runs here,
   and the look is its own (light paper, typewriter headings, red stamp

@@ -7,5 +7,8 @@ description = "Game aggregator — Internet Identity login, developer profiles, 
 core = "2.6.2"
 promtracker = "1.0.1"
 
+[canisters]
+backend = "src/Main.mo"
+
 [toolchain]
 moc = "2.0.0"

@@ -36,8 +36,8 @@ from, to)` is the one admin method: controllers only
   transfers,
   display-name resolution, deregistered games gone from every read
   path).
-- **`icp.yaml`** — `src/Main.mo` as `backend`, `frontend/dist` as
-  `frontend`.
+- **`icp.yaml`** — `src/Main.mo` as `backend` (built by `mops build`,
+  from `mops.toml`'s `[canisters]`), `frontend/dist` as `frontend`.
 - **`frontend/`** — React + TypeScript, esbuild. `idl.ts` is a
   hand-written `IDL.InterfaceFactory` for `Main.mo` (verify against
   `moc --idl` when the service changes). `api.ts` builds the actor
