@@ -100,13 +100,14 @@ export const SKILL_URL =
 /// How every hosty.live prompt hands the work to the skill, which carries
 /// every rule the work needs (cloud-session.md, going-live.md): load it,
 /// or one of its references for a task it covers, and say what is wrong
-/// when the connector's tools are missing.
+/// when the connector's tools are missing, in a cloud session or on the
+/// computer.
 export function loadSkill(reference?: string): string {
   const url = `"url": "${SKILL_URL}"`;
   const follow = reference
     ? `, then its ${reference} ({ ${url}, "path": "${reference}" }), and follow that reference: it is the procedure for exactly this task`
     : ", and follow it";
-  return `Load the duel-game-core skill with hosty.live's hosty_get_skill tool, { ${url} }${follow}. If the hosty_* tools are missing, tell me whether the hosty.live connector is not added (${CONNECTORS_PAGE}), switched off for this session (the + under the message box → Connectors) or in need of reconnecting, and never offer me a sign-in from here.`;
+  return `Load the duel-game-core skill with hosty.live's hosty_get_skill tool, { ${url} }${follow}. If the hosty_* tools are missing in a cloud session, tell me whether the hosty.live connector is not added (${CONNECTORS_PAGE}), switched off for this session (the + under the message box → Connectors) or in need of reconnecting, and never offer me a sign-in from there. On my computer, the fix is ${CLI_CONNECT}, then /mcp → hosty → Authenticate; another AI tool takes ${CONNECTOR_URL} and opens the hosty.live sign-in.`;
 }
 
 /// The opening lines of every prompt on the user's own way: no hosty.live,

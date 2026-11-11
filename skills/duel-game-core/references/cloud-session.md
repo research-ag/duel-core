@@ -141,9 +141,9 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
   the tools. Never offer the user a sign-in from the session:
   connectors are authorized in claude.ai.
 - A `hosty` server from a `.mcp.json` in the repository that "requires
-  authentication" is left over from the token setup below: tell the
-  user to delete that `.mcp.json`, unless they set up the token way on
-  purpose.
+  authentication" is left over from the token setup below, unless the
+  user set up the token way on purpose: tell them to remove its `hosty`
+  entry, or the whole file when `hosty` is its only server.
 - Every deploy session goes as `going-live.md`, section 2, says: its
   purpose first, its request code for the user, and
   `hosty_wait_for_deploy_session` right away.
