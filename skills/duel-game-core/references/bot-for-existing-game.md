@@ -308,7 +308,12 @@ cannot watch the local games, and a user on their computer may want to
 see the bot in a real page before buying anything. A bot and the game
 it joins must share one network (a bot calls the backend and the
 backend calls it back), so a free cloud engine canister cannot host a
-bot for the live game. Two ways, both free, the first by default:
+bot for the live game. On the icp-cli route (`going-live.md`, section
+4), which uses no hosty.live, there is no free online copy: the local
+games are the check, and the user first sees the bot online once it
+is live (section 6). Through hosty.live, two ways, both free: offer
+them when the user wants to see the bot online, ask which (the first
+by default), and do neither unasked:
 
 1. **A cloud engine copy of the game.** Install the game's own module
    into a cloud engine backend, as `frontend-for-existing-game.md`

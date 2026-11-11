@@ -136,12 +136,12 @@ function HowItWorksStep({
       </p>
       <WayPicker
         picked={way}
-        onPick={(w) => onPick(w as BotWay)}
+        onPick={onPick}
         options={[
           {
             way: "hosty",
             title: "Through hosty.live",
-            note: "Nothing to install: Claude Code on the web builds and tests the bot, and hosty.live puts it online for 1.5 TC (a few dollars at the time of writing), paid by card. Works from an AI tool on your computer too.",
+            note: "Nothing to install: Claude Code on the web builds and tests the bot, and hosty.live puts it online for 1.5 TC (a few dollars), paid by card. Works from an AI tool on your computer too.",
           },
           {
             way: "own",
@@ -169,9 +169,10 @@ function PromptStep({ target, way }: { target: Target; way: BotWay }) {
         }
       />
       <p className="hint">
-        You don't need to understand the prompt. It tells the AI where to find
-        the game's rules and its program, how to test, and what not to touch.
-        The AI installs the tools it needs, or tells you how.
+        You don't need to understand the prompt. It points the AI at the game's
+        rules and at the framework's playbook for exactly this task: where the
+        game's program is, how to test, and what not to touch. The AI installs
+        the tools it needs, or tells you how.
       </p>
     </>
   );
@@ -219,7 +220,7 @@ function GoLiveStep({ target, way }: { target: Target; way: BotWay }) {
             instead: the session gives you those steps, and you skip the top-up
             below.
           </p>
-          <HostyCycles cost="a bot's canister costs 1.5 TC (a few dollars)" />
+          <HostyCycles cost="A bot's canister costs 1.5 TC (a few dollars)." />
           <p>Then tell the session</p>
           <CodeBlock code="Put my bot live on mainnet through hosty.live (buy its canister) and register it as <bot name>." />
           <p>

@@ -60,39 +60,43 @@ from, to)` is the one admin method: controllers only
   the two-pane stepper every guide is built on (`initialStep`, and
   `reachable` locking later steps). Every guide ends its "How it works"
   step in `WayPicker.tsx`, a choice between the ways of `cloudSession.ts`'s
-  `Way`, and shows only that way's steps and prompt afterwards (later steps
+  `Way` (generic over its keys, so `HostySetup` reuses it), and shows
+  only that way's steps and prompt afterwards (later steps
   stay locked until one is picked): `"caffeine"` (caffeine.ai alone, the
   frontend guide only), `"hosty"` (hosty.live, from a Claude Code cloud
   session or an agent on the computer) and `"own"` (icp-cli on the
   computer, the user's own key and cycles, no hosty.live).
   `CloudSessionSetup.tsx` holds the shared steps: `HostySetup` (the
-  hosty.live connector once, `ConnectorSteps`, then `CloudSessionSetup`,
-  one GitHub repository for all the user's work and `ENV_SETUP_PROMPT`,
-  the message that has a session create the claude.ai environment
-  (network domains, setup script (`SETUP_SCRIPT`, the same as
-  `cloud-session.md`'s), launcher variable) with its
-  `create_environment` tool, the wildcard domains added by hand, and
-  the same values for the dialog collapsed behind "Or set up the
-  environment by hand", or `LocalAgentSetup` on the computer, then
-  `TokenSetup`, the `hl_` token, `.mcp.json` and network secret for a
-  plan without connectors, collapsed behind "No connectors on your
-  Team/Enterprise plan?"), `OwnSetup`, and for going live `HostyCycles`
+  hosty.live connector once, `ConnectorSteps`, then one path picked for
+  where the agent runs, each naming the desktop app's Code tab: "In the
+  cloud" is `CloudSessionSetup`, one GitHub repository for all the
+  user's work and `ENV_SETUP_PROMPT`, the message that has a session
+  create the claude.ai environment (network domains, setup script
+  (`SETUP_SCRIPT`, the same as `cloud-session.md`'s), launcher variable)
+  with its `create_environment` tool, the wildcard domains added by hand
+  after its approval card, and the same values for the dialog collapsed
+  behind "Or set up the environment by hand", then `TokenSetup`, the
+  `hl_` token, `.mcp.json` and network secret for a plan without
+  connectors, collapsed behind "No connectors on your Team/Enterprise
+  plan?"; "On your computer" is `LocalAgentSetup`), `OwnSetup`, and for
+  going live `HostyCycles`
   (the three ways hosty.live's Cycles page tops up a balance),
   `DeploySessionNote` (what needs a deploy session, and checking its
   request code) and `IcpIdentitySteps` (an icp identity and cycles). The texts are in
-  `cloudSession.ts`, with `SESSION_RULES` (where the `hosty_*` tools come
-  from, the three reasons they may be missing, never a sign-in from the
-  session, one directory per project in the repository, a missing setup
-  script, each deploy session's purpose,
-  request code and `hosty_wait_for_deploy_session`) and `OWN_RULES`, the paragraphs the prompts carry; each
-  prompt function takes the way. `TutorialWizard.tsx` ("Build a new
-  game", ways `hosty` and `own`) stands alone: how it works, the set-up,
-  `gamePrompt.ts`'s prompt finished with the user's rules (build, test
-  with `play-test.mjs`; then on hosty.live the game's canisters (and bot)
-  on its free cloud engine for the user's look and the bought mainnet
-  ones, unlisted, when the user says the game goes live; on the own way a
-  local address, then `icp deploy`), trying it, going live and the
-  register flow. The other two guides are about one listed game, opened
+  `cloudSession.ts`: `loadSkill`, the one paragraph every hosty.live
+  prompt carries (load the skill from `SKILL_URL` with the connector's
+  `hosty_get_skill`, or one of its references for the task, and what to
+  say when the `hosty_*` tools are missing; every other rule of that way
+  lives in the skill, `cloud-session.md` and `going-live.md`), and
+  `OWN_RULES`, the opening of the own way's prompts, which install the
+  skill with `SKILL_INSTALL`; each prompt function takes the way.
+  `TutorialWizard.tsx` ("Build a new game", ways `hosty` and `own`)
+  stands alone: how it works, the set-up, `gamePrompt.ts`'s prompt
+  finished with the user's rules (on hosty.live the skill builds, tests
+  with `play-test.mjs`, shows the game on free cloud engine canisters
+  and buys the mainnet ones, unlisted, when the user says it goes live;
+  on the own way the prompt's own steps: a local address, then `icp
+deploy`), trying it, going live and the register flow. The other two guides are about one listed game, opened
   either from the header on step 0, `GamePicker.tsx` (every listing,
   each checked by `support.ts` and disabled with its reason when the
   guide can't be followed for it: no published backend, no `/semantics`,
@@ -114,11 +118,11 @@ from, to)` is the one admin method: controllers only
   live through hosty.live (the agent creates, installs and registers in
   one deploy session) or with icp-cli, each ending in the bot's own
   `register` call with the backend id filled in (a bot is never listed on
-  this dashboard). The prompts condense `../skills/duel-game-core/SKILL.md`
-  with `references/going-live.md` (`gamePrompt.ts`),
-  `references/frontend-for-existing-game.md` and
-  `bot-for-existing-game.md`; change each pair together. Pricing
-  facts in the wizards are dated "at the time of writing".
+  this dashboard). The own and caffeine.ai prompts condense
+  `../skills/duel-game-core/SKILL.md` with `references/going-live.md`
+  (`gamePrompt.ts`), `references/frontend-for-existing-game.md` and
+  `bot-for-existing-game.md`, which the hosty.live prompts hand the work
+  to; change each pair together.
   `GameInfoModal.tsx` (the card's info button) shows a listing's details
   and, one click further, its backend: `/metrics` and `/semantics`
   links, its Grafana dashboard, the semantics text, and

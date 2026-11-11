@@ -119,44 +119,57 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    game, frontend or bot starts the same way, in the same repository
    and environment.
 
-**In the session, you:** check `icp --version`, `mops --version` and
-`hosty_whoami` first. A `mops` older than 3.4.1 is updated with
-`npm install -g ic-mops` (`SKILL.md`, Step 1). A missing `icp` or
-`mops` means the environment lacks the setup script, or gained it after
-this session started: run the script above yourself, with
-`ICP_CLI_NETWORK_LAUNCHER_PATH` set as above for every `icp` command,
-and tell the user to complete the environment for the next session;
-with the `update_environment` tool, offer to save the script there
-yourself, for the user's approval. Missing `hosty_*` tools mean one of
-three things, and the user fixes each in claude.ai: the connector is not
-added (https://claude.ai/customize/connectors), it is switched off for
-this session (the **+** under the message box → **Connectors**), or it
-needs reconnecting (in the connector settings; hosty.live shows
-connected apps under **Settings** → **AI agent access**, and
-disconnecting one there ends its deploy sessions until the user
-reconnects). A new session has the tools once that is fixed. Never
-offer the user a sign-in from the session: connectors are authorized in
-claude.ai. A `hosty` server from a `.mcp.json` in the repository that
-"requires authentication" is left over from the token setup below:
-tell the user to delete that `.mcp.json`, unless they set up the token
-way on purpose. Tell the user what you found and build meanwhile.
+**In the session, you:**
+
+- Check `icp --version`, `mops --version` and `hosty_whoami` first,
+  tell the user what you found, and build meanwhile.
+- A `mops` older than 3.4.1: `npm install -g ic-mops` (`SKILL.md`,
+  Step 1).
+- A missing `icp` or `mops`: the environment lacks the setup script, or
+  gained it after this session started. Run the script above yourself,
+  with `ICP_CLI_NETWORK_LAUNCHER_PATH` set as above for every `icp`
+  command, and tell the user to complete the environment for the next
+  session; with the `update_environment` tool, offer to save the script
+  there yourself, for the user's approval.
+- Missing `hosty_*` tools: the connector is not added
+  (https://claude.ai/customize/connectors), switched off for this
+  session (the **+** under the message box → **Connectors**), or in
+  need of reconnecting (in the connector settings; hosty.live shows
+  connected apps under **Settings** → **AI agent access**, and
+  disconnecting one there ends its deploy sessions until the user
+  reconnects). The user fixes each in claude.ai, and a new session has
+  the tools. Never offer the user a sign-in from the session:
+  connectors are authorized in claude.ai.
+- A `hosty` server from a `.mcp.json` in the repository that "requires
+  authentication" is left over from the token setup below, unless the
+  user set up the token way on purpose: tell them to remove its `hosty`
+  entry, or the whole file when `hosty` is its only server.
+- Every deploy session goes as `going-live.md`, section 2, says: its
+  purpose first, its request code for the user, and
+  `hosty_wait_for_deploy_session` right away.
 
 The repository holds one top-level directory per project (a game, a
 frontend, a bot): a new one goes into a new directory named after it,
 unless the user names one, and leaves the others alone; a project
 already at the root stays there. Keep each project's `CLAUDE.md` and
-`README.md` in its directory, and run its commands from there. The
-skill is installed once, at the
-repository's root: unless `.claude/skills/duel-game-core/` is already
-there, install it from the root and commit it:
+`README.md` in its directory, and run its commands from there.
 
-```bash
-npx skills add research-ag/duel-core --skill duel-game-core -a claude-code -y --copy
+The skill comes through the connector, not from the repository: every
+session loads it with `hosty_get_skill { url:
+"https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core" }`,
+and each file it names with `{ url, path }` (`SKILL.md`, "Where these
+files are"). So that a later session finds it without the Duel
+dashboard's prompt, the repository's root `CLAUDE.md` names it: create
+the file when it is missing, or add this line to it:
+
+```markdown
+Games, frontends and bots here are built on duel-game-core: before working on one, load its skill with hosty.live's `hosty_get_skill { url: "https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core" }`.
 ```
 
-It lands in `.claude/skills/duel-game-core/`, which later sessions load
-by themselves; in this one, read its `SKILL.md` from there. Commit and
-push your work as you go: the VM keeps nothing. A session pushes to a
+A copy in `.claude/skills/duel-game-core/` from an earlier setup is
+loaded by Claude Code too and may be out of date: follow the one
+`hosty_get_skill` returns, and offer the user to delete the copy.
+Commit and push your work as you go: the VM keeps nothing. A session pushes to a
 branch of its own (`claude/...`); once the game works, merge it into
 the default branch (or open a pull request there, as the user
 prefers), so the next session finds the game where it looks first.

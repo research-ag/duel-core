@@ -343,7 +343,9 @@ deploys all of them to the IC.
 ## Skills (read before editing)
 
 - `skills/duel-game-core/SKILL.md` (tracked, installable via `npx skills
-add research-ag/duel-core --skill duel-game-core`) — building a game
+add research-ag/duel-core --skill duel-game-core`, or loaded by its
+  GitHub URL through hosty.live's `hosty_get_skill`, the hosty.live
+  prompts' way) — building a game
   from a rules description: `Spec` design, templates, and `references/`
   for a Claude Code cloud session's setup (read first there: network
   access and the setup script that installs icp-cli and its local

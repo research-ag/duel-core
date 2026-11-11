@@ -76,8 +76,7 @@ on the cloud engine and wants live.
 The user, once per Claude account, in the browser:
 
 1. Opens https://claude.ai/customize/connectors → **+ Add** → **Add
-   custom connector** (the labels are as at the time of writing) and pastes
-   `https://api.hosty.live/mcp`.
+   custom connector** and pastes `https://api.hosty.live/mcp`.
 2. hosty.live opens: they sign in with Internet Identity (a passkey; no
    password, no email) and approve.
 
@@ -136,9 +135,10 @@ then `/mcp` → **hosty** → **Authenticate**, signs in with their
 passkey and approves. A server added this way with the same URL hides
 the connector in that CLI. Other agents (Cursor, Codex and the like)
 take the same URL and open the hosty.live sign-in. Without an agent, every step below has a form
-in the hosty.live web app. The server's own guide is
-https://api.hosty.live/skill (the MCP resource `hosty://skill` is the
-same text), with a REST equivalent of every tool.
+in the hosty.live web app. hosty.live's own guide is its skill
+`hosty-live-deploy` (`hosty_get_skill { skill: "hosty-live-deploy" }`,
+or https://api.hosty.live/skill), with a REST equivalent of every tool;
+`hosty-live-build` says what building for hosty.live takes.
 
 ### Canisters
 
@@ -185,8 +185,8 @@ engine is better, since it has no clock.
 **For going live: mainnet canisters, bought.** They are paid from the
 user's hosty.live balance. The user tops it up in hosty.live under
 **Cycles**: **Deposit using CyclePay** or **Deposit using Cycle
-Express** (both by card), or **Deposit ICP**. Prices at the time of
-writing: a frontend canister 0.84 TC (about a dollar), a backend or bot
+Express** (both by card), or **Deposit ICP**. Prices: a frontend
+canister 0.84 TC (about a dollar), a backend or bot
 canister 1.5 TC when the agent creates it (an install needs 0.5T on
 the canister itself, after a creation fee of about 0.5T). A whole game
 with a bot is about 4 TC. With the user's go-ahead and a deploy session

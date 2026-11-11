@@ -99,12 +99,12 @@ function HowItWorksStep({
       <p>Pick your way:</p>
       <WayPicker
         picked={way}
-        onPick={(w) => onPick(w as GameWay)}
+        onPick={onPick}
         options={[
           {
             way: "hosty",
             title: "Through hosty.live",
-            note: "Nothing to install: Claude Code on the web builds the game, you try it on free test canisters, and it goes live for a few dollars at the time of writing, paid by card. Works from an AI tool on your computer too.",
+            note: "Nothing to install: Claude Code on the web builds the game, you try it on free test canisters, and it goes live for a few dollars, paid by card. Works from an AI tool on your computer too.",
           },
           {
             way: "own",
@@ -131,9 +131,9 @@ function PromptStep({ way }: { way: GameWay }) {
         }
       />
       <p className="hint">
-        The prompt has the AI install the framework's playbook, build every
-        piece of the game, and test it by playing whole games against itself
-        before it asks you to look.
+        The prompt points the AI at the framework's playbook, which has it build
+        every piece of the game and test it by playing whole games against
+        itself before it asks you to look.
       </p>
     </>
   );
@@ -176,7 +176,7 @@ function GoLiveStep({ way }: { way: GameWay }) {
     <>
       {way === "hosty" ? (
         <>
-          <HostyCycles cost="a game costs about 2.5 TC (a few dollars), about 4 TC with a bot" />
+          <HostyCycles cost="A game costs about 2.5 TC (a few dollars), about 4 TC with a bot." />
           <p>
             Then tell the session the game goes live on mainnet. It asks you to
             approve a deploy session, buys the game's canisters from your

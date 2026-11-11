@@ -1,6 +1,7 @@
 // What an agent needs before any of the hosty.live prompts can deploy:
 // the hosty.live connector, and for a Claude Code cloud session
-// (claude.ai/code) its environment. The procedure behind it is
+// (claude.ai/code) its environment, then the framework's skill through
+// the connector. The procedure behind it is
 // skills/duel-game-core/references/going-live.md, section 1, and
 // cloud-session.md. Keep them in step.
 
@@ -8,9 +9,6 @@
 /// from a cloud session or an agent on the computer; or everything the
 /// user's own, icp-cli on their computer.
 export type Way = "caffeine" | "hosty" | "own";
-
-const RAW_REFS =
-  "https://raw.githubusercontent.com/research-ag/duel-core/main/skills/duel-game-core/references";
 
 export const CONNECTOR_URL = "https://api.hosty.live/mcp";
 export const CONNECTORS_PAGE = "https://claude.ai/customize/connectors";
@@ -90,13 +88,28 @@ ${SETUP_SCRIPT}
 
 Check the script with bash -n, but do not run it in this session. Ask me before saving. Afterwards tell me which domains you could not add, so I add them by hand.`;
 
+/// The skill on the own way, installed on the user's computer.
 export const SKILL_INSTALL =
   "npx skills add research-ag/duel-core --skill duel-game-core -a claude-code -y --copy";
 
-/// The opening lines every hosty.live prompt shares: where the tools come
-/// from, what to say when they are missing, and what the agent may never
-/// do on mainnet.
-export const SESSION_RULES = `hosty.live's tools (hosty_*) come from the hosty.live connector I added in claude.ai; call hosty_whoami first. If the hosty_* tools are missing, tell me which of three it is: the connector is not added (${CONNECTORS_PAGE}), it is switched off for this session (the + under the message box → Connectors), or it needs reconnecting in claude.ai's connector settings; a new session has the tools once that is fixed. On my computer, the fix is ${CLI_CONNECT}, then /mcp → hosty → Authenticate. Never offer me a sign-in from this session. A hosty server from a .mcp.json in the repository that says it needs authentication is left over from an older setup: tell me to delete that .mcp.json, unless I told you I connect with an API token. Build and test meanwhile. If you run in a Claude Code cloud session: its environment's setup script installs icp-cli, mops and the local network launcher (${RAW_REFS}/cloud-session.md). If mops is older than 3.4.1, run npm install -g ic-mops. If icp or mops is missing, run that script yourself, with ${LAUNCHER_ENV} set for icp, and tell me the environment needs it for the next session (with your update_environment tool, offer to save it there for my approval): a running session never sees an edited environment. Nobody can open a page that session serves, so whatever I should look at goes online through hosty.live. This repository holds all my work, one top-level directory per project (a game, a frontend or a bot): put this one in a new directory named after it unless I name one, leave the others alone (one already at the root stays there), keep the skill installed once at the repository's root (skip installing it when .claude/skills/duel-game-core/ is there) and the project's CLAUDE.md and README.md in its directory. Never create an icp-cli identity, buy cycles or run icp deploy -e ic there: everything on mainnet is created and installed through the hosty_* tools, after I approve a deploy session in the hosty.live web app. For every deploy session, tell me first what it is for and pass the same as purpose to hosty_request_deploy_session; show me its requestCode and ask me to approve the request with that code in the hosty.live web app; then call hosty_wait_for_deploy_session right away, and again while it answers PENDING. Never wait for me to tell you I approved. Commit and push your work as you go; the session keeps nothing.`;
+/// The skill on the hosty.live way: hosty.live's connector loads it from
+/// this address (hosty_get_skill), wherever the agent runs.
+export const SKILL_URL =
+  "https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core";
+
+/// How every hosty.live prompt hands the work to the skill, which carries
+/// every rule the work needs (cloud-session.md, going-live.md): load it,
+/// or one of its references for a task it covers, and say what is wrong
+/// when the hosty.live tools are missing: in a cloud session with the
+/// connector or with an API token (the skill is out of reach then, so
+/// the token steps are here), or on the computer.
+export function loadSkill(reference?: string): string {
+  const url = `"url": "${SKILL_URL}"`;
+  const follow = reference
+    ? `, then its ${reference} ({ ${url}, "path": "${reference}" }), and follow that reference: it is the procedure for exactly this task`
+    : ", and follow it";
+  return `Load the duel-game-core skill with hosty.live's hosty_get_skill tool, { ${url} }${follow}. If the hosty_* tools are missing in a cloud session, tell me whether the hosty.live connector is not added (${CONNECTORS_PAGE}), switched off for this session (the + under the message box → Connectors) or in need of reconnecting, and never offer me a sign-in from there. If I said I connect with an API token, they come instead from a .mcp.json at the repository's root with this hosty server, ${JSON.stringify(JSON.parse(MCP_JSON))}, and the environment's network secret for ${SECRET_HOST}, or instead its HOSTY_TOKEN variable, which needs the server to also carry "headers": { "Authorization": "Bearer \${HOSTY_TOKEN}" }: write, commit and push the file if it is missing, tell me if the secret is, and a new session on this branch then has the tools; never ask for the token or write it anywhere. On my computer, the fix is ${CLI_CONNECT}, then /mcp → hosty → Authenticate; another AI tool takes ${CONNECTOR_URL} and opens the hosty.live sign-in.`;
+}
 
 /// The opening lines of every prompt on the user's own way: no hosty.live,
 /// icp-cli on the computer, the user's own identity and cycles.

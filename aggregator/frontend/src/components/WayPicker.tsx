@@ -1,23 +1,23 @@
 // The choice at the end of every guide's "How it works": which of the
-// ways (cloudSession.ts's `Way`) the rest of the guide follows.
+// ways (cloudSession.ts's `Way`) the rest of the guide follows. The
+// hosty.live set-up uses it again for where the agent runs.
 
-import type { Way } from "../cloudSession";
 import { ArrowRight } from "./Icons";
 
-export interface WayOption {
-  way: Way;
+export interface WayOption<W extends string> {
+  way: W;
   title: string;
   note: string;
 }
 
-export function WayPicker({
+export function WayPicker<W extends string>({
   options,
   picked,
   onPick,
 }: {
-  options: WayOption[];
-  picked: Way | undefined;
-  onPick: (way: Way) => void;
+  options: WayOption<W>[];
+  picked: W | undefined;
+  onPick: (way: W) => void;
 }) {
   return (
     <div className="picker">
