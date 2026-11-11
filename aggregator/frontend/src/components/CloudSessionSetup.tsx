@@ -228,9 +228,6 @@ export function TokenSetup() {
           the session where hosty.live is; your token never goes into the
           repository:
           <CodeBlock code={MCP_JSON} />
-          Or skip this and add “I connect with an API token.” to your first
-          prompt: the session writes and pushes the file itself, and a new
-          session on its branch then has the tools.
         </li>
         <li>
           In the session's environment (its gear icon in the environment
