@@ -72,23 +72,32 @@ export function HostySetup() {
 
 export function ConnectorSteps() {
   return (
-    <ol className="tutorial-list">
-      <li>
-        Open{" "}
-        <a href={CONNECTORS_PAGE} target="_blank" rel="noreferrer">
-          Claude's connector settings
-        </a>{" "}
-        and click <strong>+ Add</strong> → <strong>Add custom connector</strong>
-        . Paste this address:
-        <CodeBlock code={CONNECTOR_URL} />
-      </li>
-      <li>
-        {HOSTY} opens. Sign in with Internet Identity (a passkey; no password,
-        no email) and approve. Once per Claude account: claude.ai, its cloud
-        sessions, the desktop app and Claude Code on your computer then all have
-        hosty.live's tools.
-      </li>
-    </ol>
+    <>
+      <ol className="tutorial-list">
+        <li>
+          Open{" "}
+          <a href={CONNECTORS_PAGE} target="_blank" rel="noreferrer">
+            Claude's connector settings
+          </a>{" "}
+          and click <strong>+ Add</strong> →{" "}
+          <strong>Add custom connector</strong>. Paste this address:
+          <CodeBlock code={CONNECTOR_URL} />
+        </li>
+        <li>
+          {HOSTY} opens. Sign in with Internet Identity (a passkey; no password,
+          no email) and approve. Once per Claude account: claude.ai, its cloud
+          sessions, the desktop app and Claude Code on your computer then all
+          have hosty.live's tools.
+        </li>
+      </ol>
+      <p className="hint">
+        If a session later says it has no hosty.live tools, the connector is
+        switched off for that session (the <strong>+</strong> under the message
+        box → <strong>Connectors</strong>) or needs reconnecting, in the same
+        connector settings. Fix it there and start a new session. On your
+        computer, <code>/mcp</code> shows it.
+      </p>
+    </>
   );
 }
 
