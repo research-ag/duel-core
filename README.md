@@ -47,6 +47,11 @@ Tracked in git, so it installs standalone into your own game's repo:
 npx skills add research-ag/duel-core --skill duel-game-core
 ```
 
+An agent with the hosty.live connector needs no install: it loads the
+skill with `hosty_get_skill { url:
+"https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core" }`,
+which is what the Duel dashboard's prompts ask for.
+
 Putting a game online needs no prior Internet Computer knowledge and
 nothing installed on your computer: a Claude Code cloud session
 (claude.ai/code) builds and tests the game in its own VM, and puts the

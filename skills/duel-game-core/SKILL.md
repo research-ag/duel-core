@@ -1,6 +1,6 @@
 ---
 name: duel-game-core
-description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko rules module (Spec<S,M,V,O>), Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, a game whose ending takes many rounds to reach in a test, or putting the result online, through hosty.live from a Claude Code cloud session or a computer, or with icp-cli) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone via `npx skills add research-ag/duel-core --skill duel-game-core`). Also use when someone wants to change a live game of their own — add bot support, a leaderboard, a bot, or anything else (references/changing-a-live-game.md) — or wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
+description: Build a complete, deployable 2-player game on duel-game-core from nothing but a plain-English rules description in the prompt — the user supplies only the rules, you write the Motoko rules module (Spec<S,M,V,O>), Host actor, tests, and the frontend GamePlugin end to end, using this skill's own templates and (for a canvas/3D UI, an existing client to port, a game whose ending takes many rounds to reach in a test, or putting the result online, through hosty.live from a Claude Code cloud session or a computer, or with icp-cli) its references/. Use whenever someone hands you the rules for a duel/card/board/arena game (in their own words, a design doc, or a rulebook excerpt) and wants it built as a duel-game-core game, especially in a repo that does not already contain duel-game-core's own source (installed standalone with `npx skills add research-ag/duel-core --skill duel-game-core`, or loaded through hosty.live's connector with `hosty_get_skill` from https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core). Also use when someone wants to change a live game of their own — add bot support, a leaderboard, a bot, or anything else (references/changing-a-live-game.md) — or wants their own frontend (references/frontend-for-existing-game.md) or a bot (references/bot-for-existing-game.md) for an already-deployed duel-game-core game, given only its canister id.
 ---
 
 # Building a duel-game-core Game From Rules Alone
@@ -55,6 +55,15 @@ someone else already deployed, from its canister id alone,
 `frontend-for-existing-game.md` (a new frontend) and
 `bot-for-existing-game.md` (a canister player) — read them only when
 you hit that situation.
+
+**Where these files are.** Installed, they sit next to this `SKILL.md`.
+Loaded through hosty.live's connector (`hosty_get_skill { url }`), the
+answer lists every file with its size, its sha256 and a download URL:
+read one with `hosty_get_skill { url, path }` (`path:
+"templates/Host.mo.template"`, `"references/going-live.md"`), or save
+it with `curl -sSfL -o <destination> <download URL>` where the network
+reaches `raw.githubusercontent.com` (a cloud session's often does not).
+Every new session loads the skill the same way again.
 
 ## Step 1 — Get the packages into the project
 
@@ -587,13 +596,20 @@ backend`) with `hosty_prepare_wasm_upload`, and upload the zipped
   `frontendUrl` for the user. The cloud engine copies from Step 7 are
   not the live game: the live addresses are the new ones, which go into
   `index.html`'s tags and the README, and the copies can be deleted.
+  When Step 7's first look already went onto mainnet canisters (no
+  cloud engine, or no free slot), those are the live ones: buy nothing
+  more. From then on every change the user approves upgrades the live
+  canisters (`snapshotBeforeUpgrade: true` for the backend), never the
+  copies.
 - **With icp-cli** (setup 3, on the user's own computer only): the
   user's own identity (`icp identity new`), cycles bought by card at
   cycle.express, and `icp deploy backend -e ic` / `icp deploy frontend
 -e ic`, whose sync step publishes the module.
 
 Either way, the user then lists the frontend on the Duel dashboard;
-until then the game is online but unlisted. Write the game's
+until then the game is online but unlisted. The `README.md` says how
+to build, test and update the game and lists every canister id, saying
+which ones are the live game. Write the game's
 `CLAUDE.md` (in the game's directory) from its template once the canister ids exist, and keep the
 game on the default branch. Every later upgrade of the backend first
 passes `(cd frontend && node check-upgrade.mjs <backend-id>)`

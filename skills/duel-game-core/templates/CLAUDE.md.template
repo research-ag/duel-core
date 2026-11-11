@@ -3,9 +3,11 @@
 A 2-player game on duel-game-core
 (https://github.com/research-ag/duel-core): `src/__RULES_MODULE__.mo`
 holds the rules, `src/Host.mo` the host actor, `frontend/` the page.
-Read `.claude/skills/duel-game-core/SKILL.md` (at the repository's
-root) before changing anything;
-for a change to the live game, its `references/changing-a-live-game.md`.
+Load the duel-game-core skill before changing anything: through
+hosty.live, `hosty_get_skill { url:
+"https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core" }`;
+where it is installed, `.claude/skills/duel-game-core/SKILL.md`. For a
+change to the live game, its `references/changing-a-live-game.md`.
 
 ## Live
 

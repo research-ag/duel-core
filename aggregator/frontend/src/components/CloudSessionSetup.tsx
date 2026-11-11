@@ -1,7 +1,9 @@
 // The setup steps the guides share (cloudSession.ts has the texts): the
-// hosty.live connector, a Claude Code cloud session or an agent on the
-// computer, the API token way for a plan without connectors, and the
-// cycles each way pays for going live with.
+// hosty.live connector, then either a Claude Code cloud session (with the
+// API token way for a plan without connectors) or an agent on the
+// computer, and the cycles each way pays for going live with.
+
+import { useState } from "react";
 
 import {
   CLI_CONNECT,
@@ -18,6 +20,7 @@ import {
   WILDCARD_DOMAINS,
 } from "../cloudSession";
 import { CodeBlock } from "./CodeBlock";
+import { WayPicker } from "./WayPicker";
 
 const HOSTY = (
   <a href="https://hosty.live/" target="_blank" rel="noreferrer">
@@ -25,9 +28,12 @@ const HOSTY = (
   </a>
 );
 
-/// The whole hosty.live setup: the connector once, then where the agent
-/// runs.
+type Where = "cloud" | "computer";
+
+/// The whole hosty.live setup: the connector once, then one path for
+/// where the agent runs.
 export function HostySetup() {
+  const [where, setWhere] = useState<Where>();
   return (
     <>
       <p>
@@ -35,19 +41,31 @@ export function HostySetup() {
       </p>
       <ConnectorSteps />
       <p>
-        <strong>Then pick where the AI works.</strong> Simplest is a{" "}
-        <strong>cloud session</strong>: Claude Code runs on Anthropic's servers,
-        so you can send the prompt, close your laptop and come back later.
-        Nothing it serves can be opened from your browser, so every look at your
-        work is online, on hosty.live.
+        <strong>Then pick where the AI works:</strong>
       </p>
-      <CloudSessionSetup />
-      <p>
-        <strong>Or on your computer</strong>, in Claude Code or another AI
-        coding tool:
-      </p>
-      <LocalAgentSetup />
-      <TokenSetup />
+      <WayPicker
+        picked={where}
+        onPick={setWhere}
+        options={[
+          {
+            way: "cloud",
+            title: "In the cloud",
+            note: "Claude Code on Anthropic's servers, in the browser at claude.ai/code or in the Claude desktop app's Code tab. Send the prompt, close your laptop and come back later; you look at your work online, on hosty.live. Nothing to install.",
+          },
+          {
+            way: "computer",
+            title: "On your computer",
+            note: "Claude Code in a terminal or in the desktop app's Code tab (a local session), or another AI coding tool such as Cursor or Codex. You install the build tools.",
+          },
+        ]}
+      />
+      {where === "cloud" && (
+        <>
+          <CloudSessionSetup />
+          <TokenSetup />
+        </>
+      )}
+      {where === "computer" && <LocalAgentSetup />}
     </>
   );
 }
@@ -60,15 +78,15 @@ export function ConnectorSteps() {
         <a href={CONNECTORS_PAGE} target="_blank" rel="noreferrer">
           Claude's connector settings
         </a>{" "}
-        and click <strong>+ Add</strong> → <strong>Add custom connector</strong>{" "}
-        (the labels are as at the time of writing). Paste this address:
+        and click <strong>+ Add</strong> → <strong>Add custom connector</strong>
+        . Paste this address:
         <CodeBlock code={CONNECTOR_URL} />
       </li>
       <li>
         {HOSTY} opens. Sign in with Internet Identity (a passkey; no password,
         no email) and approve. Once per Claude account: claude.ai, its cloud
-        sessions and Claude Code on your computer then all have hosty.live's
-        tools.
+        sessions, the desktop app and Claude Code on your computer then all have
+        hosty.live's tools.
       </li>
     </ol>
   );
@@ -92,32 +110,30 @@ export function CloudSessionSetup() {
           <a href="https://claude.ai/code" target="_blank" rel="noreferrer">
             claude.ai/code
           </a>{" "}
-          in a browser. On a first visit it asks you to connect GitHub: allow it
-          for that repository. On the screen where you start a new session, pick
-          your repository in the row under the message box (any environment will
-          do) and send this message. It has Claude create the session's
-          environment, named <code>{ENV_NAME}</code>: its network access, a
-          setup script that installs the build tools before each session starts,
-          and one variable.
+          in a browser (or the desktop app's Code tab, with an environment under{" "}
+          <strong>Cloud</strong>). On a first visit it asks you to connect
+          GitHub: allow it for that repository. On the screen where you start a
+          new session, pick your repository in the row under the message box
+          (any environment will do) and send this message. It has Claude create
+          the session's environment, named <code>{ENV_NAME}</code>: its network
+          access, a setup script that installs the build tools before each
+          session starts, and one variable.
           <CodeBlock code={ENV_SETUP_PROMPT} />
         </li>
         <li>
           Claude checks the setup script, then claude.ai asks you with a{" "}
           <strong>Create new environment?</strong> card listing the values:
           scroll to its end and click <strong>Create environment</strong>.
-        </li>
-        <li>
-          If Claude says it could not add{" "}
+          Claude cannot add domains with a <code>*</code>, so add{" "}
           {WILDCARD_DOMAINS.map((d, i) => (
             <span key={d}>
               {i > 0 && " and "}
               <code>{d}</code>
             </span>
           ))}{" "}
-          (at the time of writing it cannot add domains with a <code>*</code>),
-          add them yourself: hover over <code>{ENV_NAME}</code> in the
-          environment selector (the first control in that row), click its gear
-          icon, and add them under <strong>Network access</strong> →{" "}
+          yourself: hover over <code>{ENV_NAME}</code> in the environment
+          selector (the first control in that row), click its gear icon, and add
+          them under <strong>Network access</strong> →{" "}
           <strong>Allowed domains</strong>.
         </li>
         <li>
@@ -174,7 +190,8 @@ export function LocalAgentSetup() {
         <CodeBlock code={INSTALL_TOOLS} />
       </li>
       <li>
-        Claude Code signed in with your Claude plan has the connector already:{" "}
+        Claude Code signed in with your Claude plan, in a terminal or in a local
+        session of the desktop app's Code tab, has the connector already:{" "}
         <code>/mcp</code> lists it. Otherwise connect hosty.live once:
         <CodeBlock code={CLI_CONNECT} />
         then <code>/mcp</code> → <strong>hosty</strong> →{" "}
@@ -243,7 +260,7 @@ export function TokenSetup() {
         approval request you did not expect:{" "}
         <strong>Decline and revoke token</strong> on its card in hosty.live.
         Revoke the token there too once the work is done. Claude Code on your
-        computer needs none of this: it connects with the command above.
+        computer needs none of this (<strong>On your computer</strong> above).
       </p>
     </details>
   );
@@ -273,8 +290,7 @@ export function HostyCycles({ cost }: { cost: string }) {
       First top up your hosty.live balance: <strong>Cycles</strong>, then{" "}
       <strong>Deposit using CyclePay</strong> or{" "}
       <strong>Deposit using Cycle Express</strong> (both by card), or{" "}
-      <strong>Deposit ICP</strong> if you hold ICP. At the time of writing{" "}
-      {cost}.
+      <strong>Deposit ICP</strong> if you hold ICP. {cost}
     </p>
   );
 }
@@ -296,8 +312,7 @@ export function IcpIdentitySteps({ cycles }: { cycles: string }) {
       </li>
       <li>
         Pay for hosting. Programs on the Internet Computer run on prepaid
-        “cycles”; {cycles} at the time of writing. The simplest way is by card
-        at{" "}
+        “cycles”; {cycles}. The simplest way is by card at{" "}
         <a href="https://cycle.express/" target="_blank" rel="noreferrer">
           cycle.express
         </a>

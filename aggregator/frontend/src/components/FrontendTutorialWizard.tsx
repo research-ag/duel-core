@@ -150,7 +150,7 @@ function HowItWorksStep({
           {
             way: "hosty",
             title: "Claude Code and hosty.live",
-            note: "Nothing to install: Claude Code on the web builds and tests the page, shows it to you on a free test canister, and hosty.live puts it online for about a dollar at the time of writing, paid by card. Works from an AI tool on your computer too.",
+            note: "Nothing to install: Claude Code on the web builds and tests the page, shows it to you on a free test canister, and hosty.live puts it online for about a dollar, paid by card. Works from an AI tool on your computer too.",
           },
           {
             way: "own",
@@ -173,9 +173,8 @@ function SetupStep({ way }: { way: Way }) {
         caffeine.ai
       </a>{" "}
       and pick a plan from your profile menu. Building a new app and taking it
-      online need a paid plan: at the time of writing the cheapest is “Host” at
-      $5 a month (paid by card), which covers building and keeping the page
-      online.
+      online need a paid plan: the cheapest is “Host” at $5 a month (paid by
+      card), which covers building and keeping the page online.
     </p>
   );
 }
@@ -189,9 +188,9 @@ function PromptStep({ target, way }: { target: Target; way: Way }) {
       </p>
       <CodeBlock code={frontendPrompt(target, way)} wrap />
       <p className="hint">
-        You don't need to understand it. It tells the AI where to find the
-        game's rules, how to talk to the game, how to test, and what not to
-        touch.
+        You don't need to understand it. It points the AI at the game's rules
+        and at the framework's playbook for exactly this task: how to talk to
+        the game, how to test, and what not to touch.
       </p>
     </>
   );
@@ -279,7 +278,7 @@ function GoLiveStep({ way }: { way: Way }) {
     );
   return (
     <>
-      <HostyCycles cost="a page costs 0.84 TC, about a dollar" />
+      <HostyCycles cost="A page costs 0.84 TC, about a dollar." />
       <p>Then tell the session:</p>
       <CodeBlock code="Put my frontend live on mainnet through hosty.live (buy its canister)." />
       <p>
