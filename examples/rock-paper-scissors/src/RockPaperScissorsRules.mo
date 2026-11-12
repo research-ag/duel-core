@@ -29,11 +29,11 @@ OPTIONS (picked by the table's creator)
   variant: classic (rock, paper, scissors) or well (adds a fourth
   symbol, well). winsNeeded: round wins that take the match, 1 to 9.
 
-STATE (Candid)
+VIEW (Candid)
   type Action = variant { rock; paper; scissors; well };
   type Round = record { p1Action : Action; p2Action : Action };
   type Variant = variant { classic; well };
-  type State = record {
+  type View = record {
     p1Score : nat;
     p2Score : nat;
     lastRound : opt Round;

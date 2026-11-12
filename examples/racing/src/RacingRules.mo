@@ -31,7 +31,7 @@ MODE: simultaneous
 SEATS: p1 and p2 are the two cars on the starting grid
 OPTIONS: none (type Options = record {})
 
-STATE (Candid)
+VIEW (Candid)
   type Vec2 = record { float64; float64 };
   type CarState = record {
     position : Vec2;
@@ -41,7 +41,7 @@ STATE (Candid)
     distanceFromStart : float64;
     crashPenaltyRemaining : nat;
   };
-  type State = record { p1 : CarState; p2 : CarState; step : nat };
+  type View = record { p1 : CarState; p2 : CarState; step : nat };
   position: world units (x, y). rotation: heading in radians. speed:
   world units per step, never negative. lap: crossings of the road
   path's wrap point; the grid sits just before it, so the first

@@ -30,10 +30,10 @@ MODE: turnBased (one action per turn, seats alternate)
 SEATS: p1 = X (moves first), p2 = O
 OPTIONS: none (type Options = record {})
 
-STATE (Candid)
+VIEW (Candid)
   type Seat = variant { p1; p2 };
   type BoardResult = variant { p1; p2; tie };
-  type State = record {
+  type View = record {
     cells : vec opt Seat;
     results : vec opt BoardResult;
     activeBoard : opt nat;
@@ -62,7 +62,7 @@ ENDINGS
   Every local board decided with no meta-line: draw.
 
 CLIENT NOTES
-  State carries no move history; find the opponent's last mark by
+  View carries no move history; find the opponent's last mark by
   diffing two consecutive cells arrays.
 ";
 
