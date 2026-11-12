@@ -35,9 +35,9 @@ MODE: turnBased (one action per turn, seats alternate)
 SEATS: p1 = Black (moves first), p2 = Red
 OPTIONS: none (type Options = record {})
 
-STATE (Candid)
+VIEW (Candid)
   type Piece = variant { manP1; manP2; kingP1; kingP2 };
-  type State = record { board : vec opt Piece; toMove : Seat };
+  type View = record { board : vec opt Piece; toMove : Seat };
   board has 64 squares, row-major: index = row*8 + col. Only dark
   squares, (row + col) odd, are ever used. p1 starts on rows 5..7 and
   moves toward row 0; p2 starts on rows 0..2 and moves toward row 7.
@@ -66,7 +66,7 @@ ENDINGS
   A seat with no legal action on its turn loses. No draw.
 
 CLIENT NOTES
-  State carries no move history; find the opponent's last move by
+  View carries no move history; find the opponent's last move by
   diffing two consecutive boards.
 ";
 

@@ -27,10 +27,10 @@ SEATS: p1 moves first
 OPTIONS (picked by the table's creator)
   type Options = variant { classic; instructables };
 
-STATE (Candid)
+VIEW (Candid)
   type Variant = variant { classic; instructables };
   type Hands = record { l : nat; r : nat };
-  type State = record { variant : Variant; p1 : Hands; p2 : Hands; toMove : Seat };
+  type View = record { variant : Variant; p1 : Hands; p2 : Hands; toMove : Seat };
   toMove is the seat whose action the game is waiting for.
   Each hand holds 0 (out) to 4 fingers; every hand starts at 1.
 
@@ -59,7 +59,7 @@ ENDINGS
   The seat that puts both of the opponent's hands out wins. No draw.
 
 CLIENT NOTES
-  State carries no move history; derive the opponent's last move by
+  View carries no move history; derive the opponent's last move by
   diffing two consecutive states.
 ";
 

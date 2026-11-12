@@ -25,7 +25,7 @@ MODE: simultaneous
 SEATS: p1 = BOND, p2 = SILVA
 OPTIONS: none (type Options = record {})
 
-STATE (Candid)
+VIEW (Candid)
   type Action = variant { load; shoot; shield; mirror };
   type AgentStats = record {
     ammo : nat;
@@ -38,7 +38,7 @@ STATE (Candid)
     p2Action : Action;
     narration : text;
   };
-  type State = record { p1 : AgentStats; p2 : AgentStats; lastRound : opt Round };
+  type View = record { p1 : AgentStats; p2 : AgentStats; lastRound : opt Round };
   ammo: shots available. shieldHits: hits the shield has absorbed, 3 =
   broken. mirrors: mirror uses left, starts at 3. charge: consecutive
   loads, 5 = laser ready. lastRound: the round just resolved with an
