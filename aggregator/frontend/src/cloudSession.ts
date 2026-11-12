@@ -86,7 +86,7 @@ Setup script, exactly the lines inside this block:
 ${SETUP_SCRIPT}
 \`\`\`
 
-Check the script with bash -n, but do not run it in this session. Ask me before saving. Afterwards tell me which domains you could not add, so I add them by hand.`;
+Check the script with bash -n, but do not run it in this session. Leave every setting not listed here at its default. Ask me before saving. Afterwards name the domains you could not add and tell me how I add them: New in the sidebar; in the environment selector under the message box, hover over ${ENV_NAME}, its gear icon → Network access → Allowed domains → Save changes. Then I pick ${ENV_NAME} in that selector and start a new session: this one keeps its environment.`;
 
 /// The skill on the own way, installed on the user's computer.
 export const SKILL_INSTALL =

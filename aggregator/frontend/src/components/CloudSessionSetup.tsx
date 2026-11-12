@@ -132,25 +132,30 @@ export function CloudSessionSetup() {
         <li>
           Claude checks the setup script, then claude.ai asks you with a{" "}
           <strong>Create new environment?</strong> card listing the values:
-          scroll to its end and click <strong>Create environment</strong>.
-          Claude cannot add domains with a <code>*</code>, so add{" "}
+          scroll to its end and click <strong>Create environment</strong>. That
+          session is done: it keeps the environment it started with.
+        </li>
+        <li>
+          Click <strong>New</strong> at the top of the sidebar. In the row under
+          the message box, click the environment selector (the first control)
+          and type <code>{ENV_NAME}</code> in its search box. Claude cannot add
+          domains with a <code>*</code>, so add{" "}
           {WILDCARD_DOMAINS.map((d, i) => (
             <span key={d}>
               {i > 0 && " and "}
               <code>{d}</code>
             </span>
           ))}{" "}
-          yourself: hover over <code>{ENV_NAME}</code> in the environment
-          selector (the first control in that row), click its gear icon, and add
-          them under <strong>Network access</strong> →{" "}
-          <strong>Allowed domains</strong>.
+          yourself: hover over <code>{ENV_NAME}</code>, click its gear icon,
+          then <strong>Network access</strong>, add them to{" "}
+          <strong>Allowed domains</strong>, one per line, and click{" "}
+          <strong>Save changes</strong>.
         </li>
         <li>
-          Start a <strong>new</strong> session: pick <code>{ENV_NAME}</code> in
-          the environment selector (under <strong>More</strong> if it is not
-          listed), your repository in the same row, and send the prompt from the
-          next step. A session that is already running never sees a change to
-          its environment, so after any change start a new one. Your next game,
+          Then click <code>{ENV_NAME}</code> itself in the same selector to pick
+          it, check that your repository is next to it, and send the prompt from
+          the next step. A running session never sees a change to its
+          environment: after any change, start a new session. Your next game,
           page or bot starts the same way, in the same repository and
           environment.
         </li>
@@ -158,8 +163,10 @@ export function CloudSessionSetup() {
       <details className="more">
         <summary>Or set up the environment by hand</summary>
         <p>
-          In the environment selector, click <strong>New environment</strong> at
-          the bottom of its menu (or the gear icon of an existing one). Name it{" "}
+          Click <strong>New</strong> at the top of the sidebar, open the
+          environment selector under the message box and click{" "}
+          <strong>New environment</strong> at the bottom of its menu (or the
+          gear icon that hovering over an existing one shows). Name it{" "}
           <code>{ENV_NAME}</code>, then:
         </p>
         <ul>
@@ -239,9 +246,9 @@ export function TokenSetup() {
           <CodeBlock code={MCP_JSON} />
         </li>
         <li>
-          In the session's environment (its gear icon in the environment
-          selector), <strong>Network secrets</strong> →{" "}
-          <strong>+ Add secret</strong>:
+          In the settings of your <code>{ENV_NAME}</code> environment (its gear
+          icon in the environment selector, as above),{" "}
+          <strong>Network secrets</strong> → <strong>+ Add secret</strong>:
           <ul>
             <li>
               <strong>Host</strong>:
