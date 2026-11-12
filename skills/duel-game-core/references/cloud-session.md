@@ -39,9 +39,10 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    section 1). Its tool calls go from Anthropic's servers to
    hosty.live, outside the session's VM and its network list, and no
    credential enters the VM. Every new session has the `hosty_*` tools.
-2. Creates a GitHub repository (with **Add README** on, so it is not
-   empty). One serves all their work: every game, frontend or bot is a
-   top-level directory of its own in it (below).
+2. Creates a GitHub repository with **Add README** on, which gives it
+   the default branch every session starts from. One serves all their
+   work: every game, frontend or bot is a top-level directory of its
+   own in it (below).
 3. Opens https://claude.ai/code in a browser and, on a first visit,
    connects GitHub for that repository. Then gets the cloud environment
    below, named `hosty.live`, in one of two ways:
@@ -52,15 +53,20 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
      for one that exists), after the user approves the **Create new
      environment?** card claude.ai shows, scrolled to its end. In that
      session, you: check the script with `bash -n`, but do not run it
-     there; show the values and ask before saving. The tool refuses
-     wildcard domains: leave `*.icp0.io` and `*.icp.net` out when it
-     does and say so, and the user adds them by hand (the gear icon on
-     the environment's row in the selector → **Network access** →
-     **Allowed domains**). The tool reports that a script or variable
-     is set, not its text; the edit dialog shows both.
-   - **By hand**: on the new-session screen, the environment selector
-     (the first control under the message box) → **New environment**,
-     or the gear icon that hovering over an existing one's row shows.
+     there; leave every setting not in the values below at its default;
+     show the values and ask before saving. The tool refuses wildcard
+     domains: leave `*.icp0.io` and `*.icp.net` out when it does, name
+     them, and tell the user how to add them by hand: **New** in the
+     sidebar; in the environment selector under the message box, hover
+     over `hosty.live`, its gear icon → **Network access** → **Allowed
+     domains** → **Save changes**. The tool reports that a script or
+     variable is set, not its text; the edit dialog shows both. That
+     session keeps the environment it started with: the work starts in
+     a new session on `hosty.live`.
+   - **By hand**: **New** in the sidebar opens the new-session screen;
+     its environment selector (the first control under the message
+     box) → **New environment**, or the gear icon that hovering over an
+     existing one shows (the selector's search box finds one by name).
      In a running session the same dialog is the caret after the
      session title → **Edit cloud environment**.
 
@@ -115,7 +121,7 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    By hand, finish with **Add environment** (or save the edit).
 
 4. Starts a new session on that repository with that environment
-   (under **More** in the selector when it is not listed). Every later
+   (the selector's search box finds it by name). Every later
    game, frontend or bot starts the same way, in the same repository
    and environment.
 
