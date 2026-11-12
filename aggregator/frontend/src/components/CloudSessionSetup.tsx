@@ -110,9 +110,9 @@ export function CloudSessionSetup() {
           <a href="https://github.com/new" target="_blank" rel="noreferrer">
             GitHub
           </a>{" "}
-          (switch on <strong>Add README</strong>, so it is not empty). One is
-          enough for all your work: every game, page or bot gets a folder of its
-          own in it.
+          and switch on <strong>Add README</strong>: that gives it the main
+          branch every session starts from. One is enough for all your work:
+          every game, page or bot gets a folder of its own in it.
         </li>
         <li>
           Open{" "}

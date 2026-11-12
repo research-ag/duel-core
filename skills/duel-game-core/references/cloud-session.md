@@ -39,9 +39,10 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    section 1). Its tool calls go from Anthropic's servers to
    hosty.live, outside the session's VM and its network list, and no
    credential enters the VM. Every new session has the `hosty_*` tools.
-2. Creates a GitHub repository (with **Add README** on, so it is not
-   empty). One serves all their work: every game, frontend or bot is a
-   top-level directory of its own in it (below).
+2. Creates a GitHub repository with **Add README** on, which gives it
+   the default branch every session starts from. One serves all their
+   work: every game, frontend or bot is a top-level directory of its
+   own in it (below).
 3. Opens https://claude.ai/code in a browser and, on a first visit,
    connects GitHub for that repository. Then gets the cloud environment
    below, named `hosty.live`, in one of two ways:
