@@ -1,9 +1,9 @@
-/// __RULES_MODULE__ — __GAME_TITLE__ game logic, as a pure module.
+/// __RULES_MODULE__: __GAME_TITLE__ game logic, as a pure module.
 ///
 /// `#simultaneous`: both seats act every round. For a game where the
 /// rules decide whose turn it is (chess, checkers, a card game with a
 /// draw-then-place turn) build `#turnBased { checkOptions; init; toMove;
-/// move; view }` instead — see references/turn-based-games.md.
+/// move; view }` instead (references/turn-based-games.md).
 ///
 /// Seats: #p1 = __P1_NAME__, #p2 = __P2_NAME__ (display only).
 ///
@@ -41,7 +41,7 @@ CLIENT NOTES
   What a UI must know that the view does not say outright.
 ";
 
-  /// The raw decision only — never a value the server can derive from
+  /// The raw decision only, never a value the server can derive from
   /// State (SKILL.md step 2).
   public type Action = { /* #yourMove; #anotherMove; ... */ };
 

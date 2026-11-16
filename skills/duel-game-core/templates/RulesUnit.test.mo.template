@@ -1,10 +1,6 @@
 // Unit checks for __RULES_MODULE__: init/validate/resolve (or move) called
 // directly, no engine. One block per illegal move and per win/lose/draw
-// path. `assert` + `Runtime.trap`.
-//
-// Run: moc -r --package core <path-to-core/src> --package duel-game-core
-//      <path-to-duel-game-core-backend/src> --package prng <path-to-prng/src>
-//      test/RulesUnit.test.mo
+// path. `assert` + `Runtime.trap`. Run with `mops test`.
 import R "../src/__RULES_MODULE__";
 import TP "mo:duel-game-core";
 import Rng "mo:duel-game-core/rng";

@@ -84,10 +84,9 @@ export function ConnectorSteps() {
           <CodeBlock code={CONNECTOR_URL} />
         </li>
         <li>
-          {HOSTY} opens. Sign in with Internet Identity (a passkey; no password,
-          no email) and approve. Once per Claude account: claude.ai, its cloud
-          sessions, the desktop app and Claude Code on your computer then all
-          have hosty.live's tools.
+          {HOSTY} opens. Sign in with Internet Identity and approve. Once per
+          Claude account: claude.ai, its cloud sessions, the desktop app and
+          Claude Code on your computer then all have hosty.live's tools.
         </li>
       </ol>
       <p className="hint">
@@ -211,8 +210,8 @@ export function LocalAgentSetup() {
         <code>/mcp</code> lists it. Otherwise connect hosty.live once:
         <CodeBlock code={CLI_CONNECT} />
         then <code>/mcp</code> → <strong>hosty</strong> →{" "}
-        <strong>Authenticate</strong>, sign in with your passkey and approve.
-        Other tools (Cursor, Codex and the like) take the same address,{" "}
+        <strong>Authenticate</strong>, sign in with Internet Identity and
+        approve. Other tools (Cursor, Codex and the like) take the same address,{" "}
         <code>{CONNECTOR_URL}</code>, and open the hosty.live sign-in.
       </li>
       <li>Start the tool in an empty folder.</li>
@@ -289,8 +288,8 @@ export function DeploySessionNote() {
       a backend or bot, changing a page's settings) waits for a{" "}
       <strong>deploy session</strong> you approve each time. The AI says what it
       is for and shows you a request code. Open {HOSTY} (a phone works too),
-      check that the request shows the same code and purpose, and approve it
-      with your passkey: the AI notices by itself. A request you did not expect:{" "}
+      check that the request shows the same code and purpose, and approve it:
+      the AI notices by itself. A request you did not expect:{" "}
       <strong>Decline and disconnect app</strong>.
     </p>
   );

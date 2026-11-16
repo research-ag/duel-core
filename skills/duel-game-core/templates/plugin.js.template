@@ -1,4 +1,4 @@
-// GamePlugin for __GAME_TITLE__ — the only game-specific client code.
+// GamePlugin for __GAME_TITLE__: the only game-specific client code.
 // Action/View/Options must mirror ../src/__RULES_MODULE__.mo exactly.
 // `legal()` is a cosmetic echo of that module's `validate`, `applyLocal`
 // of its `resolve`.
@@ -78,7 +78,7 @@ export const plugin = {
     return gameState;
   },
 
-  // Optional — only for a leaderboard storing a converted score (an ELO
+  // Optional, only for a leaderboard storing a converted score (an ELO
   // game keeps the default plain integer):
   //
   // formatScore(score) {
@@ -86,7 +86,7 @@ export const plugin = {
   //   ...format ms as a time string...
   // },
 
-  // Optional pair — only for a game with table options. First entry is
+  // Optional pair, only for a game with table options. First entry is
   // the default; `options` is the typed value `duel_create_table`
   // receives (Nat fields as bigint), `key` only names the radio button.
   // `formatOptions` labels a table's stored options in the lobby.

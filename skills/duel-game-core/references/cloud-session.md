@@ -1,37 +1,40 @@
 # A Claude Code cloud session
 
-Read this first whenever you run in a Claude Code cloud session
-(claude.ai/code, the Claude app), before building or testing anything.
-The environment it describes is set up once and serves every step,
-from the first `mops test` and the local network to going live through
-hosty.live (`going-live.md`).
+Read this first in a Claude Code cloud session (claude.ai/code, the
+Claude app), before building or testing anything. The environment it
+describes is set up once and serves every step, from the first `mops
+test` to going live through hosty.live (`going-live.md`).
 
 A cloud session runs in a fresh virtual machine that is discarded
-afterwards. The agent builds and tests there; the user never opens
-anything the VM serves (there is no `localhost` to visit), and every
-key made in the VM is lost with it. Hence two rules:
+afterwards. You build and test there, but the user never opens anything
+the VM serves (there is no `localhost` to visit), and every key made in
+the VM is lost with it. Two rules follow:
 
-- Nothing on mainnet is signed by a key of the session. No `icp
-identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
+- Nothing on mainnet is signed by a key of the session: no
+  `icp identity new`, no `icp cycles`, no `icp deploy -e ic`. Every canister
   is created and installed through the `hosty_*` tools, signed by the
   user's approval in hosty.live.
 - The user's first look at anything is online, on free cloud engine
   canisters when hosty.live has an engine with a free slot
-  (`hosty_whoami`; `going-live.md`, section 3, "Canisters"). A new
-  game: a cloud engine backend and frontend (and bot), created once its
-  local tests pass; every later version redeploys into them until the user says the game
-  goes live, which buys its mainnet canisters. If hosty.live deletes
-  one of these cloud engine canisters, its replacement is created on
-  the cloud engine, never on mainnet, and set up by kind: a backend is
-  installed, the page's `PUBLIC_CANISTER_ID:backend` set to it and
-  every bot registered with it again; a frontend gets the build
-  uploaded with `PUBLIC_CANISTER_ID:backend` naming the backend, and
-  the user its new address; a bot is installed and registered with the
-  backend. Then give the user the new ids. A new frontend for an
-  existing game: a cloud engine page (`frontend-for-existing-game.md`,
-  step 7). Without an engine, the first look is the mainnet canisters
-  themselves: say what they cost and create them only once the user
-  agrees.
+  (`hosty_whoami`; `going-live.md`, section 3, "Canisters"). Without an
+  engine, the first look is the mainnet canisters themselves: say what
+  they cost and create them only once the user agrees.
+
+A new game gets a cloud engine backend and frontend (and bot) once its
+local tests pass, and every later version is redeployed into them until
+the user says the game goes live, which buys its mainnet canisters. A
+new frontend for an existing game gets a cloud engine page
+(`frontend-for-existing-game.md`, step 7).
+
+If hosty.live deletes one of these cloud engine canisters, create its
+replacement on the cloud engine, never on mainnet, set it up by kind,
+and give the user the new ids:
+
+- a backend: install it, set the page's `PUBLIC_CANISTER_ID:backend` to
+  it, and register every bot with it again;
+- a frontend: upload the build with `PUBLIC_CANISTER_ID:backend` naming
+  the backend, and give the user its new address;
+- a bot: install it and register it with the backend.
 
 **Once, before the first build, the user:**
 
@@ -40,29 +43,32 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    hosty.live, outside the session's VM and its network list, and no
    credential enters the VM. Every new session has the `hosty_*` tools.
 2. Creates a GitHub repository with **Add README** on, which gives it
-   the default branch every session starts from. One serves all their
-   work: every game, frontend or bot is a top-level directory of its
-   own in it (below).
+   the default branch every session starts from. One repository serves
+   all their work: every game, frontend or bot is a top-level directory
+   of its own in it (below).
 3. Opens https://claude.ai/code in a browser and, on a first visit,
    connects GitHub for that repository. Then gets the cloud environment
    below, named `hosty.live`, in one of two ways:
-   - **By one message** (the Duel dashboard's guides show it): in a
+   - **By one message** (the Duel dashboard's guides show it). In a
      session on that repository, on any environment, the user asks for
      the environment with the values below. That session saves them
      with its built-in `create_environment` tool (`update_environment`
-     for one that exists), after the user approves the **Create new
+     for one that exists), once the user approves the **Create new
      environment?** card claude.ai shows, scrolled to its end. In that
-     session, you: check the script with `bash -n`, but do not run it
-     there; leave every setting not in the values below at its default;
-     show the values and ask before saving. The tool refuses wildcard
-     domains: leave `*.icp0.io` and `*.icp.net` out when it does, name
-     them, and tell the user how to add them by hand: **New** in the
-     sidebar; in the environment selector under the message box, hover
-     over `hosty.live`, its gear icon → **Network access** → **Allowed
-     domains** → **Save changes**. The tool reports that a script or
-     variable is set, not its text; the edit dialog shows both. That
-     session keeps the environment it started with: the work starts in
-     a new session on `hosty.live`.
+     session, you:
+     - check the script with `bash -n`, but do not run it there;
+     - leave every setting not in the values below at its default;
+     - show the values and ask before saving;
+     - when the tool refuses wildcard domains, leave `*.icp0.io` and
+       `*.icp.net` out, name them, and tell the user how to add them by
+       hand: **New** in the sidebar; in the environment selector under
+       the message box, hover over `hosty.live`, its gear icon →
+       **Network access** → **Allowed domains** → **Save changes**.
+
+     The tool reports that a script or variable is set, not its text;
+     the edit dialog shows both. That session keeps the environment it
+     started with, so the work starts in a new session on `hosty.live`.
+
    - **By hand**: **New** in the sidebar opens the new-session screen;
      its environment selector (the first control under the message
      box) → **New environment**, or the gear icon that hovering over an
@@ -75,22 +81,22 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
    session picks the change up. The values:
 
    - **Network access**: **Limited**, with **Allow package managers**
-     on, and under **Allowed domains**, one per line: `api.hosty.live`, `icp-api.io`, `icp0.io`,
-     `*.icp0.io`, `icp.net`, `*.icp.net`, `ic0.app`,
-     `ic-api.internetcomputer.org`, `ghcr.io`,
+     on, and under **Allowed domains**, one per line: `api.hosty.live`,
+     `icp-api.io`, `icp0.io`, `*.icp0.io`, `icp.net`, `*.icp.net`,
+     `ic0.app`, `ic-api.internetcomputer.org`, `ghcr.io`,
      `pkg-containers.githubusercontent.com`. hosty.live's tools answer
-     with `curl` uploads to `api.hosty.live`; the Duel dashboard hands
-     out game addresses on `icp.net`; a bot's subnet lookup goes
-     to `ic-api.internetcomputer.org`; the setup script below fetches
+     with `curl` uploads to `api.hosty.live`. The Duel dashboard hands
+     out game addresses on `icp.net`. A bot's subnet lookup goes to
+     `ic-api.internetcomputer.org`. The setup script below fetches
      icp-cli's local network launcher from `ghcr.io`, whose downloads
-     redirect to `pkg-containers.githubusercontent.com`; mops, icp-cli's
-     mainnet reads and the play-test against a deployed backend talk to
-     the others.
+     redirect to `pkg-containers.githubusercontent.com`. mops, icp-cli's
+     mainnet reads and the play-test against a deployed backend use the
+     others.
    - **Setup script**, which installs every tool before the session
      starts. icp-cli downloads its local network launcher from GitHub
      releases, which a cloud session cannot reach (GitHub access there
-     is granted per repository, not per domain), so the script takes the
-     launcher and `pocket-ic` from DFINITY's official
+     is granted per repository, not per domain). So the script takes
+     the launcher and `pocket-ic` from DFINITY's official
      `dfinity/icp-cli-network-launcher` container image on `ghcr.io`
      (linux/amd64, pinned by digest). A failed download still lets the
      session start; only `icp network start` then fails:
@@ -115,15 +121,15 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
      The icp-cli version and the image digest go together: a newer
      icp-cli may need a newer launcher image, so update both at once.
 
-   - **Environment variables**: `ICP_CLI_NETWORK_LAUNCHER_PATH=/opt/icp-launcher/icp-cli-network-launcher`,
+   - **Environment variables**:
+     `ICP_CLI_NETWORK_LAUNCHER_PATH=/opt/icp-launcher/icp-cli-network-launcher`,
      so `icp network start` uses that launcher.
 
    By hand, finish with **Add environment** (or save the edit).
 
-4. Starts a new session on that repository with that environment
-   (the selector's search box finds it by name). Every later
-   game, frontend or bot starts the same way, in the same repository
-   and environment.
+4. Starts a new session on that repository with that environment (the
+   selector's search box finds it by name). Every later game, frontend
+   or bot starts the same way, in the same repository and environment.
 
 **In the session, you:**
 
@@ -131,21 +137,21 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
   tell the user what you found, and build meanwhile.
 - A `mops` older than 3.4.1: `npm install -g ic-mops` (`SKILL.md`,
   Step 1).
-- A missing `icp` or `mops`: the environment lacks the setup script, or
-  gained it after this session started. Run the script above yourself,
-  with `ICP_CLI_NETWORK_LAUNCHER_PATH` set as above for every `icp`
-  command, and tell the user to complete the environment for the next
-  session; with the `update_environment` tool, offer to save the script
-  there yourself, for the user's approval.
-- Missing `hosty_*` tools: the connector is not added
-  (https://claude.ai/customize/connectors), switched off for this
-  session (the **+** under the message box → **Connectors**), or in
-  need of reconnecting (in the connector settings; hosty.live shows
-  connected apps under **Settings** → **AI agent access**, and
-  disconnecting one there ends its deploy sessions until the user
-  reconnects). The user fixes each in claude.ai, and a new session has
-  the tools. Never offer the user a sign-in from the session:
-  connectors are authorized in claude.ai.
+- A missing `icp` or `mops` means the environment lacks the setup
+  script, or gained it after this session started. Run the script above
+  yourself, with `ICP_CLI_NETWORK_LAUNCHER_PATH` set as above for every
+  `icp` command, and tell the user to complete the environment for the
+  next session. With the `update_environment` tool, offer to save the
+  script there yourself, for the user's approval.
+- Missing `hosty_*` tools mean the connector is not added
+  (https://claude.ai/customize/connectors), is switched off for this
+  session (the **+** under the message box → **Connectors**), or needs
+  reconnecting in the connector settings. The user fixes each in
+  claude.ai, and a new session has the tools. Never offer the user a
+  sign-in from the session: connectors are authorized in claude.ai.
+  hosty.live lists connected apps under **Settings** → **AI agent
+  access**; disconnecting one there ends its deploy sessions until the
+  user reconnects.
 - A `hosty` server from a `.mcp.json` in the repository that "requires
   authentication" is left over from the token setup below, unless the
   user set up the token way on purpose: tell them to remove its `hosty`
@@ -155,49 +161,49 @@ identity new`, no `icp cycles`, no `icp deploy -e ic`: every canister
   `hosty_wait_for_deploy_session` right away.
 
 The repository holds one top-level directory per project (a game, a
-frontend, a bot): a new one goes into a new directory named after it,
-unless the user names one, and leaves the others alone; a project
+frontend, a bot). A new project goes into a new directory named after
+it, unless the user names one, and leaves the others alone; a project
 already at the root stays there. Keep each project's `CLAUDE.md` and
 `README.md` in its directory, and run its commands from there.
 
-The skill comes through the connector, not from the repository: every
+The skill comes through the connector, not from the repository. Every
 session loads it with `hosty_get_skill { url:
 "https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core" }`,
 and each file it names with `{ url, path }` (`SKILL.md`, "Where these
 files are"). So that a later session finds it without the Duel
-dashboard's prompt, the repository's root `CLAUDE.md` names it: create
+dashboard's prompt, the repository's root `CLAUDE.md` names it. Create
 the file when it is missing, or add this line to it:
 
 ```markdown
 Games, frontends and bots here are built on duel-game-core: before working on one, load its skill with hosty.live's `hosty_get_skill { url: "https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core" }`.
 ```
 
-A copy in `.claude/skills/duel-game-core/` from an earlier setup is
-loaded by Claude Code too and may be out of date: follow the one
+Claude Code also loads a copy in `.claude/skills/duel-game-core/` from
+an earlier setup, which may be out of date: follow the one
 `hosty_get_skill` returns, and offer the user to delete the copy.
-Commit and push your work as you go: the VM keeps nothing. A session pushes to a
-branch of its own (`claude/...`); once the game works, merge it into
+
+Commit and push as you go: the VM keeps nothing. A session pushes to a
+branch of its own (`claude/...`). Once the game works, merge it into
 the default branch (or open a pull request there, as the user
-prefers), so the next session finds the game where it looks first.
-From the first deploy on, keep the project's `CLAUDE.md`
-(`templates/CLAUDE.md.template`, in its directory) current: the canister ids and what
-each one runs.
+prefers), so the next session finds the game where it looks first. From
+the first deploy on, keep the project's `CLAUDE.md`
+(`templates/CLAUDE.md.template`, in its directory) current: the
+canister ids and what each one runs.
 
 ## Without connectors: an API token
 
 On Team and Enterprise plans only an admin can add connectors. Where
 none is added, a cloud session reaches hosty.live with an API token
-instead, which hosty.live supports as well. An agent on the user's
-computer needs none of this: it connects with `claude mcp add`
-(`going-live.md`, section 3). The user, once, in addition to the
-environment above:
+instead. An agent on the user's computer needs none of this: it
+connects with `claude mcp add` (`going-live.md`, section 3). Once, in
+addition to the environment above, the user:
 
 1. Creates the token in hosty.live: **Settings** → **AI agent access**
-   → create. It starts with `hl_` and is shown once. It is a password
-   to the user's canisters: never commit it, never paste it into a
-   chat, and revoke it on the same page when done. On an approval
-   request they did not expect, the user clicks **Decline and revoke
-   token** on its card.
+   → create. It starts with `hl_` and is shown once. It opens the
+   user's canisters like a password: never commit it, never paste it
+   into a chat, and revoke it on the same page when done. On an
+   approval request they did not expect, the user clicks **Decline and
+   revoke token** on its card.
 2. Adds one file at the repository's root, `.mcp.json`, with exactly
    this content (`templates/mcp.json.template`). It holds no token:
 
@@ -231,14 +237,17 @@ server in `.mcp.json` (still no token in the file) and
 Anyone who uses that environment, and every command the session runs,
 can read such a variable; revoke the token when the work is done.
 
-**In a session on the token setup, you:** reading `.mcp.json` does not
-connect its server; that happens when the session starts. Missing
-`hosty_*` tools mean the file or the secret is missing: without
-`.mcp.json`, write it from the template, commit and push it; without
-the network secret, the user adds it to the environment. The tools
-appear once the session restarts, which a new session on the same
-branch always does. A `401` from `hosty_whoami` means the server was
-reached but the token was not accepted: the user checks `.mcp.json`,
-that the network secret's host is `api.hosty.live` and sends the token
-as `Bearer`, and that the token is not revoked. Never ask for the
-token, and never write it into a file or a command.
+**In a session on the token setup, you:**
+
+- Remember that reading `.mcp.json` does not connect its server; that
+  happens when the session starts.
+- Missing `hosty_*` tools mean the file or the secret is missing.
+  Without `.mcp.json`, write it from the template, commit and push it;
+  without the network secret, the user adds it to the environment. The
+  tools appear once the session restarts, which a new session on the
+  same branch always does.
+- A `401` from `hosty_whoami` means the server was reached but the
+  token was not accepted. The user checks `.mcp.json`, that the network
+  secret's host is `api.hosty.live` and sends the token as `Bearer`, and
+  that the token is not revoked.
+- Never ask for the token, and never write it into a file or a command.
