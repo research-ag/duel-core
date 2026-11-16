@@ -1,30 +1,31 @@
-# tic-tac-toe duel — reference #turnBased game built on duel-game-core
+# tic-tac-toe duel: reference #turnBased game built on duel-game-core
 
 Standard 3x3 tic-tac-toe: the smallest `#turnBased` reference, and the
 reference for a bot with two complexities. Not part of either package.
 
-- **`src/TicTacToeRules.mo`** — `#turnBased`, X/`#p1` first; `toMove`
-  is derived from the number of marks (no turn field in `State = {
-board }`); `move` = `validate` then `resolve`; `View = State`, `Options
-= {}`. `legalActions(s, seat)` is every empty cell (seat-independent).
-- **`src/Host.mo`** — same shape as `examples/checkers/src/Host.mo`
-  (metrics, canister players, bot discovery, ELO; 90s/60s, `STARTING_ELO
-= 1200`).
-- **`src/BotIface.mo`** — `make_move`.
-- **`bot/BotLogic.mo`** — `COMPLEXITIES = ["Easy", "Hard"]`. Easy:
+- **`src/TicTacToeRules.mo`**: `#turnBased`, X/`#p1` first; `toMove` is
+  derived from the number of marks (no turn field in
+  `State = { board }`); `move` = `validate` then `resolve`;
+  `View = State`, `Options = {}`. `legalActions(s, seat)` is every empty
+  cell (seat-independent).
+- **`src/Host.mo`**: same shape as `examples/checkers/src/Host.mo`
+  (metrics, canister players, bot discovery, ELO; 90s/60s,
+  `STARTING_ELO = 1200`).
+- **`src/BotIface.mo`**: `make_move`.
+- **`bot/BotLogic.mo`**: `COMPLEXITIES = ["Easy", "Hard"]`. Easy:
   `legalActions(...)[step % n]`. Hard: negamax with alpha-beta over
   `Rules.resolve` itself, never loses. Unknown complexities play Easy.
-- **`bot/Bot.mo`** — `make_move` (`query`), `play(...)`, `register`/
+- **`bot/Bot.mo`**: `make_move` (`query`), `play(...)`, `register`/
   `unregister` (sends `COMPLEXITIES`, listing "TicTacToeBot (Easy)" and
   "(Hard)").
-- **`test/*.test.mo`** — `RulesUnit` (empty/occupied/out-of-bounds, each
+- **`test/*.test.mo`**: `RulesUnit` (empty/occupied/out-of-bounds, each
   line type, full-board draw, `legalActions`); `Lifecycle`
   (join, opening moves, seed to one placement from the end); `Bot` (Easy
   stays legal including the last cell; Hard wins, blocks, draws itself,
   never loses to Easy; unknown complexity = Easy; two canister bots at
   different complexities through real plies).
-- **`icp.yaml`** — `backend`, `bot`, `frontend/dist`.
-- **`frontend/`** — `tictactoe-plugin.js`: every empty cell is a `data-act`
+- **`icp.yaml`**: `backend`, `bot`, `frontend/dist`.
+- **`frontend/`**: `tictactoe-plugin.js`: every empty cell is a `data-act`
   button while `yourTurn`, otherwise a plain `<div>`; the opponent's last
   mark (`.ttt-last`) is found by diffing consecutive boards, since `State`
   has no move history; `applyLocal` places your mark the moment you

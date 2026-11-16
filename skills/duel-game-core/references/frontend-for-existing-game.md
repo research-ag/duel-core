@@ -21,9 +21,9 @@ Everything you need comes from the backend canister id:
 All of it is plain HTTPS and hosty.live. Where you work decides the
 rest:
 
-- **A Claude Code cloud session** (claude.ai/code; `cloud-session.md` is its
-  setup): icp-cli and mops run in the session's VM,
-  so you test against a local copy of the game there (steps 5 and 7),
+- **A Claude Code cloud session** (claude.ai/code; `cloud-session.md`
+  is its setup): icp-cli and mops run in the session's VM, so you test
+  against a local copy of the game there (steps 5 and 7),
   and the user, who cannot open anything the VM serves, plays the page
   in a free hosty.live cloud engine canister (step 7).
 - **A coding agent on the user's computer**: the same local copy, with
@@ -61,7 +61,7 @@ curl -s https://$BACKEND.raw.icp0.io/semantics
 ```
 
 Plain text, written for a reader without the source: `MODE`
-(`simultaneous` — both seats submit every round; `turnBased` — the seat
+(`simultaneous`: both seats submit every round; `turnBased`: the seat
 the rules put on turn submits, possibly several actions per turn),
 `SEATS`, `OPTIONS` (what a table's creator picks), the exact Candid of
 `View` (what a seat sees of the game) and `Action` with every field
@@ -73,8 +73,8 @@ says what they mean.
 
 A 404 lists the paths the backend does serve; fetch any that
 `/semantics` refers to (a fixed map, for instance). If `/semantics`
-itself is missing, the backend predates this procedure: stop and tell
-the user.
+itself is missing, there is nothing to build from: stop and tell the
+user.
 
 ## 3. Look up the module
 
@@ -95,31 +95,33 @@ token: make it once and keep the answer.
 
 The Candid confirms `View` and shows which optional features the game
 has: `get_leaderboard` (rankings), `list_bots` (challengeable canister
-players). You do not generate bindings from it; `@research-ag/duel-game-core/idl.js`
-already declares the engine's service, and your plugin supplies `View`
-and `Action`. Without it (a builder with no shell), assume both
-optional features may exist and let their calls fail quietly
-(`.catch(() => [])`). With them, `@research-ag/duel-game-core/bots.js`
-is the whole flow: `mountBotChallenge` and `mountLeaderboard` for a
-page on `start()`, `createBotInviter` for a UI of its own (the package
-README, "Bots and the leaderboard").
+players). You do not generate bindings from it:
+`@research-ag/duel-game-core/idl.js` already declares the engine's
+service, and your plugin supplies `View` and `Action`. Without it (a
+builder with no shell), assume both optional features may exist and let
+their calls fail quietly (`.catch(() => [])`). With them,
+`@research-ag/duel-game-core/bots.js` is the whole flow:
+`mountBotChallenge` and `mountLeaderboard` for a page on `start()`,
+`createBotInviter` for a UI of its own (the package README, "Bots and
+the leaderboard").
 
 `found: false` with a `liveModuleHash` means the module the backend
 runs is not in the store at the moment. Tell the user why in a
 sentence: a game's module is kept in hosty.live's module store, by its
 hash, not served by the canister, and this one is not there. Then
 relay the answer's `hint`, which says how the game's owner publishes
-it (no account needed). Build from the semantics alone,
-and skip every copy of the game: step 5, and step 7's local and staging
-copies. Step 7's cloud engine preview page and its access-code tests
-against the live backend still apply; on the user's computer, the page
-served from any local web server plays the live backend the same way.
-With icp-cli, `icp
-canister metadata $BACKEND candid:service -n ic > backend.did` reads
-the Candid from the canister itself, and the project's `icp.yaml`
-declares only the frontend, with the live backend's id as its
-environment variable. `icp deploy` puts that into the page's `ic_env`
-cookie, locally and on mainnet, so there is no `icp canister link`:
+it (no account needed). Build from the semantics alone, and skip every
+copy of the game: step 5, and step 7's local and staging copies. Step
+7's cloud engine preview page and its access-code tests against the
+live backend still apply; on the user's computer, the page served from
+any local web server plays the live backend the same way.
+
+With icp-cli, `icp canister metadata $BACKEND candid:service -n ic >
+backend.did` reads the Candid from the canister itself, and the
+project's `icp.yaml` declares only the frontend, with the live
+backend's id as its environment variable. `icp deploy` puts that into
+the page's `ic_env` cookie, locally and on mainnet, so there is no `icp
+canister link`:
 
 ```yaml
 canisters:
@@ -145,13 +147,15 @@ backend.did     # step 3, when found
 ```
 
 The `frontend/` files come from this skill's templates exactly as for a
-new game: `package.json.template`, `build.js.template`, `index.html.template`, `app.js.template`,
-`style.css.template`, `play-test.mjs.template`. Get the `@research-ag/duel-game-core` npm package as `SKILL.md`
-Step 1 describes (the frontend half only; there is no `mops.toml`).
+new game: `package.json.template`, `build.js.template`,
+`index.html.template`, `app.js.template`, `style.css.template`,
+`play-test.mjs.template`. Get the `@research-ag/duel-game-core` npm
+package as `SKILL.md` Step 1 describes (the frontend half only; there
+is no `mops.toml`).
 
 In a builder with its own project layout (caffeine.ai: React, Vite),
-keep its layout and add the `@research-ag/duel-game-core` npm package to it. Never
-rewrite the wire protocol yourself.
+keep its layout and add the `@research-ag/duel-game-core` npm package
+to it. Never rewrite the wire protocol yourself.
 
 **Backend id in the frontend.** Read `PUBLIC_CANISTER_ID:backend` from
 the `ic_env` cookie when present (the live page once its canister
@@ -160,8 +164,9 @@ page, step 5) and fall back to a backend id hardcoded in one constant
 (a page served from `localhost`, a builder's own preview, caffeine.ai).
 The constant is `BACKEND`, or the staging copy's id while testing
 against one (step 7); step 7's cloud engine preview page carries the
-cookie, as a live page does. Whenever the page talks to a backend on mainnet,
-build the `HttpAgent` with `host: "https://icp0.io"` and no `rootKey`:
+cookie, as a live page does. Whenever the page talks to a backend on
+mainnet, build the `HttpAgent` with `host: "https://icp0.io"` and no
+`rootKey`:
 `deriveHost()` assumes the backend sits behind the page's own origin,
 which is false for a page served from `localhost` or a foreign host.
 
@@ -239,13 +244,13 @@ copy as `PUBLIC_CANISTER_ID:backend` in its own `ic_env` cookie.
 Follow `SKILL.md` Step 6, with the semantics text standing in for the
 rules module:
 
-- `idlTypes({ IDL })` — translate `VIEW (Candid)` (`STATE (Candid)` in
-  older games), `ACTION (Candid)` and `OPTIONS` literally (`Options` is `IDL.Record({})` when `OPTIONS`
-  is `none`). `nat` is `IDL.Nat` (a `bigint` in JS), `opt T` is
-  `IDL.Opt(T)` (`[]` or `[value]`), `vec T` is `IDL.Vec(T)`, a variant
-  with no payload is `IDL.Null`. One wrong field and every status fails
-  to decode, so check it against `backend.did`'s `View` when you have
-  it.
+- `idlTypes({ IDL })`: translate `VIEW (Candid)` (some games head it
+  `STATE (Candid)`), `ACTION (Candid)` and `OPTIONS` literally
+  (`Options` is `IDL.Record({})` when `OPTIONS` is `none`). `nat` is
+  `IDL.Nat` (a `bigint` in JS), `opt T` is `IDL.Opt(T)` (`[]` or
+  `[value]`), `vec T` is `IDL.Vec(T)`, a variant with no payload is
+  `IDL.Null`. One wrong field and every status fails to decode, so check
+  it against `backend.did`'s `View` when you have it.
 - `legal()` and `applyLocal` mirror `RULES`; the backend's own rules
   remain the judge.
 - `OPTIONS` other than `none` → `optionChoices()`/`formatOptions()`,
@@ -257,7 +262,7 @@ How far to depart from the default screens is the user's description's
 call: restyle through `style.css`, replace individual screens through
 `start({ screens })`, or build every screen over `createDuelClient()`
 (`references/rich-ui.md`). Whatever the UI, it must still let a player
-create a table, join one, play, see the result, and rematch or leave —
+create a table, join one, play, see the result, and rematch or leave:
 the lobby and debrief are part of the game. Its header carries a "More
 games" link to the Duel Dashboard, https://games.ic0.info/, opening in
 a new tab (`index.html.template`'s `.more-games`, or the page's own
@@ -285,8 +290,8 @@ cd frontend && node play-test.mjs && cd ..
 `optionChoices()` entry through your plugin's own buttons, rematches,
 leaves and acks; it is your own check, before any human looks. Then
 look at the page yourself with Playwright, as `SKILL.md` Step 7
-describes. On the
-user's computer, `icp deploy` also printed the frontend's local URL:
+describes. On the user's computer, `icp deploy` also printed the
+frontend's local URL:
 the user plays there in two browser tabs. The local copy starts empty:
 no bots are registered and the leaderboard is blank, so a bot list or a
 rankings panel can only be checked for its empty state.
@@ -298,18 +303,16 @@ icp network stop
 **The user's look, in a cloud session: a cloud engine page.** Nothing
 the VM serves reaches the user, so once the play-test passes, the page
 goes into a free hosty.live cloud engine canister (`going-live.md`,
-section 3, "Canisters": no cycles, no deploy session; hosty.live may
-delete it at its discretion, and it is not for going live). It plays
+section 3, "Canisters"). It plays
 the live backend, so every table opened from it must be access-code
 protected:
 
 1. `hosty_whoami` for a free `cloudEngine` slot, then
-   `hosty_create_canister { network: "cloud", kind: "frontend", alias:
-"<game name> frontend" }`. Its id is `PREVIEW`.
+   `hosty_create_canister { network: "cloud", kind: "frontend", alias: "<game name> frontend" }`.
+   Its id is `PREVIEW`.
 2. `cd frontend && npm run build && zip -r dist.zip dist -x "*.map"`.
-3. `hosty_prepare_zip_upload { canisterId: PREVIEW, pureAssets: true,
-outputDir: "dist", canisterEnv: { set: { "PUBLIC_CANISTER_ID:backend":
-BACKEND } } }`, run the `curl` command it returns from `frontend/`, and
+3. `hosty_prepare_zip_upload { canisterId: PREVIEW, pureAssets: true, outputDir: "dist", canisterEnv: { set: { "PUBLIC_CANISTER_ID:backend": BACKEND } } }`,
+   run the `curl` command it returns from `frontend/`, and
    `hosty_wait_for_deployment` until `finished: true`. The page reads
    the backend from its cookie, exactly as the live page will.
 4. Give the user `frontendUrl`, saying that it plays the real game:
@@ -325,8 +328,8 @@ free and private to the user, for a user without icp-cli. It needs the
 hosty.live connector (`going-live.md`, section 1) and step 3's
 `module.hash`:
 
-1. `hosty_create_canister { network: "cloud", kind: "backend", alias:
-"<game name> backend" }`. Its canister id is `STAGING`.
+1. `hosty_create_canister { network: "cloud", kind: "backend", alias: "<game name> backend" }`.
+   Its canister id is `STAGING`.
 2. `hosty_check_backend_canister { canisterId: STAGING }`; a cloud
    engine canister is ready without a deploy session.
 3. `hosty_install_module { canisterId: STAGING, moduleHash }`, then
@@ -367,8 +370,9 @@ online, by either route of `going-live.md`.
 
 - **Through hosty.live** (section 3, after section 1's connector; the
   only route from a cloud session): no cycles and no icp-cli of the
-  user's. `hosty_create_canister { kind: "frontend", alias: "<game
-name> frontend" }` (a mainnet canister, 0.84 TC from the hosty.live
+  user's.
+  `hosty_create_canister { kind: "frontend", alias: "<game name> frontend" }`
+  (a mainnet canister, 0.84 TC from the hosty.live
   balance, about a dollar, in a deploy session the user approves) or a
   canister they created in the web UI; the backend id goes in as the
   canister variable `PUBLIC_CANISTER_ID:backend`, with the upload

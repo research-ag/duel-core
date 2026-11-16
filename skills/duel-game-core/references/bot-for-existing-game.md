@@ -97,7 +97,7 @@ mainnet. Keep `.icp/data/mappings/ic.ids.json` in version control.
 ## 3. Translate the types
 
 `GameTypes.mo` holds `View`, `Action` and `Options` translated
-literally from `VIEW (Candid)` (`STATE (Candid)` in older games),
+literally from `VIEW (Candid)` (some games head it `STATE (Candid)`),
 `ACTION (Candid)` and `OPTIONS`:
 
 | Candid                         | Motoko                      |
@@ -284,16 +284,17 @@ icp canister call sparring step "(principal \"$HOST\", \"<complexity>\")"
 
 Repeat `step` until its reply is a `debrief`: `end` says how the game
 ended (`finished` with the verdict, for a game played out), `steps`
-how long it took, `finalGame` the last view. Each `step` reply shows
-`step` moving on by two in `#turnBased` (sparring's action, then the
-bot's; more when a turn is several actions) and by one in
-`#simultaneous`. A `step` that returns the same
-`inGame` view with `youSubmitted = true` means the bot did not reply:
-its move was rejected twice (compare with `RULES`) or did not decode
-(compare `GameTypes.mo` with `backend.did`); a sparring call whose
-types do not match `backend.did` is rejected by Candid decoding. Once
-the game is over, a bot acks its own debrief right away; `ack_ended`
-(or a `duel_leave`) clears sparring's before the next `open_table`.
+how long it took, `finalGame` the last view. `step` moves on by two per
+reply in `#turnBased` (sparring's action, then the bot's; more when a
+turn is several actions) and by one in `#simultaneous`.
+
+A `step` that returns the same `inGame` view with `youSubmitted = true`
+means the bot did not reply: its move was rejected twice (compare with
+`RULES`) or did not decode (compare `GameTypes.mo` with `backend.did`).
+A sparring call whose types do not match `backend.did` is rejected by
+Candid decoding. Once the game is over, a bot acks its own debrief
+right away; `ack_ended` (or a `duel_leave`) clears sparring's before
+the next `open_table`.
 
 Play at least one game per complexity, with the bot in each seat
 (`open_table`'s seat is sparring's; give `play` the other one), and
@@ -308,51 +309,60 @@ cannot watch the local games, and a user on their computer may want to
 see the bot in a real page before buying anything. A bot and the game
 it joins must share one network (a bot calls the backend and the
 backend calls it back), so a free cloud engine canister cannot host a
-bot for the live game. On the icp-cli route (`going-live.md`, section
-4), which uses no hosty.live, there is no free online copy: the local
-games are the check, and the user first sees the bot online once it
-is live (section 6). Through hosty.live, two ways, both free: offer
-them when the user wants to see the bot online, ask which (the first
-by default), and do neither unasked:
+bot for the live game. On the icp-cli route (section 4 of
+`going-live.md`) there is no free online copy: the local games are the
+check, and the user first sees the bot online once it is live (step
+6). Through
+hosty.live there are two free ways. Offer them when the user wants to
+see the bot online, ask which (the first by default), and do neither
+unasked:
 
-1. **A cloud engine copy of the game.** Install the game's own module
-   into a cloud engine backend, as `frontend-for-existing-game.md`
-   step 7 ("Against a staging copy") does: `hosty_whoami` for two free
-   `cloudEngine` slots (three with a cloud engine page below),
-   `hosty_create_canister { network: "cloud",
-kind: "backend", alias: "<game name> backend" }`, `hosty_install_module
-{ canisterId, moduleHash }` with step 1's `module.hash`; then the bot
-   beside it, `hosty_create_canister { network: "cloud", kind:
-"backend", alias: "<game name> bot" }`, `icp build bot`,
-   `hosty_prepare_wasm_upload`, and `register` on the copy through
-   `hosty_call_canister` with `update: true` and no session (the call
-   signs as hosty's builder, the copy's controller; `going-live.md`,
-   section 3). Build any duel-game-core frontend with its backend
-   constant at the copy, or upload one into a cloud engine page with
-   `PUBLIC_CANISTER_ID:backend` set to the copy, and the user plays the
-   bot there. Tell the user plainly: this is a temporary copy of the
-   game, empty, with none of the real game's players, tables or
-   rankings, and not connected to the live backend; hosty.live may
-   delete it. Every change to the bot is another install into the same
-   canister. `hosty_delete_canister` on each of them (the copy, the
-   bot, the page if any) frees the slots afterwards.
+1. **A cloud engine copy of the game.** It is empty, with none of the
+   real game's players, tables or rankings, and not connected to the
+   live backend; hosty.live may delete it. Tell the user so plainly.
+   With two free `cloudEngine` slots in `hosty_whoami` (three with a
+   page):
+   - the copy:
+     `hosty_create_canister { network: "cloud", kind: "backend", alias: "<game name> backend" }`,
+     then
+     `hosty_install_module { canisterId, moduleHash }` with step 1's
+     `module.hash`, as `frontend-for-existing-game.md` step 7 ("Against
+     a staging copy") does;
+   - the bot beside it:
+     `hosty_create_canister { network: "cloud", kind: "backend", alias: "<game name> bot" }`,
+     `icp build bot`, `hosty_prepare_wasm_upload`, its `curl` command
+     run from the project root, and `hosty_wait_for_deployment` until
+     `finished: true` (`going-live.md`, section 3, "The backend (and a
+     bot)");
+   - `register` through `hosty_call_canister` on the bot, argument
+     `(principal "<copy-id>", "<Bot Name>")`, with `update: true` and no
+     session (the call signs as hosty's builder, the bot's controller;
+     `going-live.md`, section 3);
+   - a page: any duel-game-core frontend built with its backend
+     constant at the copy, or one uploaded into a cloud engine page
+     with `PUBLIC_CANISTER_ID:backend` set to the copy.
+
+   Every change to the bot is another install into the same canister.
+   `hosty_delete_canister` on each of them (the copy, the bot, the page
+   if any) frees the slots afterwards.
+
 2. **A rented mainnet canister, against the live game.**
    `hosty_rent_canister { kind: "backend", alias: "<game name> bot" }`
    is a mainnet canister, free for 24 hours and then wiped, one per
-   user, with the user as a controller; check its subnet against the
-   game's first (step 6, "The game's subnet") and fall back to the
+   user, with the user as a controller. Check its subnet against the
+   game's first (step 6, "The game's subnet"), and fall back to the
    cloud engine copy when they differ. Install the bot with
    `hosty_prepare_wasm_upload` (no deploy session; the canister still
    holds hosty.live's page module, so the first install is a reinstall:
    omit `mode`, pass `confirmReinstall: true`), then `register` on the
-   LIVE backend inside a deploy session, as in section 6 below. The bot
-   plays real players from the moment it registers, so only do this
-   with a bot that passed every game of step 5, and `unregister` it
-   (same call, `(principal "<backend-id>")`) before the rental ends:
-   a wiped canister stays in the game's bot list and fails every
-   invitation until the game's timeouts remove it from each table.
-   Use this when the user wants the bot seen in the real game's page
-   before buying its canister, or when the cloud engine is unavailable
+   LIVE backend inside a deploy session, as in step 6. The bot plays
+   real players from the moment it registers, so do this only with a
+   bot that passed every game of step 5. `unregister` it (same call,
+   `(principal "<backend-id>")`) before the rental ends: a wiped
+   canister stays in the game's bot list and fails every invitation
+   until the game's timeouts remove it from each table. Use this when
+   the user wants the bot seen in the real game's page before buying
+   its canister, or when the cloud engine is unavailable
    (`cloudEngine.enabled: false`, no free slot).
 
 ## 6. Going live
@@ -361,11 +371,10 @@ Going live spends the user's money and is theirs to trigger: run these
 only when asked. Finish by telling them, step by step, what comes next,
 and leave the same in `README.md`.
 
-**The game's subnet, first.** The bot's canister goes on the same
-subnet as the game's backend: the backend asks the bot once per
-action, and an ask across subnets takes seconds where one inside a
-subnet is quick. Before
-creating any canister for the bot, look the backend's subnet up:
+**The game's subnet, first.** The bot's canister goes on the game
+backend's subnet (`canister-player-bots.md`, "Where the bot canister
+lives"). Before creating any canister for the bot, look the backend's
+subnet up:
 
 ```bash
 curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/<backend-id> | grep -o '"subnet_id":"[^"]*"'
@@ -381,23 +390,22 @@ A bot is a canister like a backend; it goes up by either route of
 `going-live.md`:
 
 - **Through hosty.live** (section 1's connector, section 3's "The
-  backend (and a bot)"; the only route from a cloud session): in one
-  deploy session the user approves, `hosty_create_canister { kind:
-"backend", alias: "<game name> bot" }` (a mainnet canister, 1.5 TC
-  from the hosty.live balance, a few dollars) or a backend canister
-  they created in the web UI (hosty.live creates every mainnet
-  canister on one subnet,
-  `c4isl-65rwf-emhk5-5ta5m-ngl73-rgrl3-tcc56-2hkja-4erqd-iivmy-7ae`:
-  this route is for a game whose backend is on it; for any other
-  subnet use icp-cli below, and from a cloud session tell the user the
-  bot has to be deployed from their computer), `icp build bot`, the install with
-  `hosty_prepare_wasm_upload`, then `register` through
-  `hosty_call_canister` with `update: true`. No `icp deploy` against
-  mainnet, so step 2's link is not needed. The canister is a bought
-  mainnet one, like the game it joins (step 5, "Online before paying
-  for its canister", says why a cloud engine canister cannot be, and
-  what to use meanwhile); a bot tested in a rental is unregistered
-  there first.
+  backend (and a bot)"; the only route from a cloud session).
+  hosty.live creates every mainnet canister on one subnet,
+  `c4isl-65rwf-emhk5-5ta5m-ngl73-rgrl3-tcc56-2hkja-4erqd-iivmy-7ae`, so
+  this route is for a game whose backend is on it. For any other subnet
+  use icp-cli below; from a cloud session, tell the user the bot has to
+  be deployed from their computer. In one deploy session the user
+  approves:
+  `hosty_create_canister { kind: "backend", alias: "<game name> bot" }`
+  (a mainnet canister, 1.5 TC from the hosty.live
+  balance, a few dollars) or a backend canister they created in the web
+  UI; `icp build bot`; the install with `hosty_prepare_wasm_upload`;
+  then `register` through `hosty_call_canister` with `update: true`.
+  No `icp deploy` goes against mainnet, so step 2's link is not needed.
+  The canister is a bought mainnet one, like the game it joins (step 5,
+  "Online before paying for its canister", says why); a bot tested in a
+  rental is unregistered there first.
 - **With icp-cli** (section 4's identity and cycles, about 3T bought by
   card at cycle.express, on the user's own computer only):
 
@@ -414,8 +422,8 @@ A bot is a canister like a backend; it goes up by either route of
   upgrades omit it. Into an existing canister the user names, compare
   its subnet (the lookup above) with the game's `subnet_id` first: if
   they differ, stop and tell the user. Only when they match, link it,
-  `icp canister link bot <bot-id> -e ic`, and deploy with `icp deploy
-bot -e ic`, without `--subnet`.
+  `icp canister link bot <bot-id> -e ic`, and deploy with
+  `icp deploy bot -e ic`, without `--subnet`.
 
 Then check the game lists the bot. `list_bots` is a query anybody may
 send; in a cloud session, which has no identity of its own, send it
@@ -430,14 +438,14 @@ and update it: a cloud session keeps nothing, and the next one finds
 the canister there.
 
 **Every later version** is tested locally again (step 5), then upgrades
-the same canister, never a new one: through hosty.live,
-`hosty_prepare_wasm_upload` with the bot's canister id and
-`snapshotBeforeUpgrade: true`; with icp-cli, `icp deploy bot -e ic`
-again, after `icp canister link bot <bot-id> -e ic` when
-`.icp/data/mappings/ic.ids.json` has no `bot` entry (the bot went up
-through hosty.live, or from another checkout). A new canister would be
-paid for again and listed as a second bot. When the name or the complexities change, call `register` again
-and check `list_bots`.
+the same canister, never a new one, which would be paid for again and
+listed as a second bot. Through hosty.live: `hosty_prepare_wasm_upload`
+with the bot's canister id and `snapshotBeforeUpgrade: true`. With
+icp-cli: `icp deploy bot -e ic` again, after `icp canister link bot
+<bot-id> -e ic` when `.icp/data/mappings/ic.ids.json` has no `bot`
+entry (the bot went up through hosty.live, or from another checkout).
+When the name or the complexities change, call `register` again and
+check `list_bots`.
 
 `register` lists the bot, under its name and complexities, in the
 game's bot directory (`list_bots`), where every frontend that shows

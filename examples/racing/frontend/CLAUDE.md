@@ -1,4 +1,4 @@
-# racing duel frontend — notes for Claude
+# racing duel frontend: notes for Claude
 
 If something here costs real back-and-forth to figure out (a flag that
 silently fails, a race, an odd tool), add a terse note near the relevant
@@ -10,28 +10,30 @@ Describe the resulting state, never a diff against what used to be.
 Plain TypeScript, no framework, one track and one car:
 
 - `src/main.ts` wires the gameplay/physics/rendering services by hand
-  (`new X(...)` in dependency order — see its header) and esbuild bundles
+  (`new X(...)` in dependency order; see its header) and esbuild bundles
   it. Camera mode, control color, shadow resolution, and texture
   filtering are hardcoded constants; don't add a settings UI unasked.
 - duel-game-core's generic screens (`#screen`, driven by
-  `src/duel/duel-app.js` + `duel-racing-plugin.js`) own everything before
-  and after a race. `duel-app.js` also mounts `bots.js`'s leaderboard and bot-challenge
-  overlays (`#leaderboard-panel`, `#bot-challenge-panel`,
-  `#bot-add-panel`; styled by the shared
+  `src/duel/duel-app.js` + `duel-racing-plugin.js`) own everything
+  before and after a race. `duel-app.js` also mounts `bots.js`'s
+  leaderboard and bot-challenge overlays (`#leaderboard-panel`,
+  `#bot-challenge-panel`, `#bot-add-panel`; styled by the shared
   `@research-ag/duel-game-core/style.css`, hidden during a race via
   `body.in-race`).
-- `duel-app.js` uses `resolveIdentity()` — never the anonymous default
+- `duel-app.js` uses `resolveIdentity()`, never the anonymous default
   identity, which the canister refuses (`#unauthorized`; symptom: a
   lobby stuck on loading). The keypair persists in `sessionStorage`; its
   principal is the player, and `sid` is the tab's label for it.
 - `lobby-connection.service.ts` fires a `status` `request()` (a resync
-  by query) the moment `getDuelTransport()` resolves. Safe because `DuelTransport`'s `send()`/
-  `request()` work at any time. Don't add a wait-for-onopen here.
+  by query) the moment `getDuelTransport()` resolves. Safe because
+  `DuelTransport`'s `send()`/`request()` work at any time. Don't add a
+  wait-for-onopen here.
 - `lobby-connection.service.ts` shares the ONE `DuelTransport` via
-  `window.duelTransportReady` (an `EventTarget` listener, not `transport.onmessage`),
-  submits via `request(sid, req)` for its own reply, and has NO poll
-  loop of its own. Views arrive as snapshots in revision order; two
-  rounds resolved within one poll interval show up as one view.
+  `window.duelTransportReady` (an `EventTarget` listener, not
+  `transport.onmessage`), submits via `request(sid, req)` for its own
+  reply, and has NO poll loop of its own. Views arrive as snapshots in
+  revision order; two rounds resolved within one poll interval show up
+  as one view.
 - The HUD (`game-viewport/hud/hud.ts`) subscribes to `GameStateService`
   and pokes the DOM directly; `raceTime` is polled on a `setInterval` and
   reset by `resetRaceClock()` from `startRace()`. A page-lifetime
@@ -87,10 +89,10 @@ as `../test/RaceTestHelpers.mo` does.
 - **Screenshots lag fast state changes** (0.5–1.5s to encode). Read
   state synchronously via `page.evaluate()` where a value exists; reserve
   screenshots for visual-only checks.
-- **Temporary debug hooks:** `(window as any).__gameStateDebug = this; //
-TEMP-DEBUG-REMOVE` in a service constructor, drive via
-  `page.evaluate`; grep for `TEMP-DEBUG-REMOVE` and delete before
-  finishing.
+- **Temporary debug hooks:**
+  `(window as any).__gameStateDebug = this; //TEMP-DEBUG-REMOVE` in a
+  service constructor, drive via `page.evaluate`; grep for
+  `TEMP-DEBUG-REMOVE` and delete before finishing.
 
 ## `src/assets/` format and naming conventions
 
@@ -99,10 +101,10 @@ with `dummies` (name, position, Euler rotation, `properties`) and
 `curves` (name, ordered points). `model-loader.service.ts` loads both;
 `map-loader.service.ts` matches:
 
-- `map-polygon_outer`/`map-polygon_inner` (curves) — boundary polygons.
-- `player-position_NN` (dummies) — start positions.
-- `road_path` (curve) — centerline.
-- `proxy_<id>` (dummies, optionally `.001`, ...) — places
+- `map-polygon_outer`/`map-polygon_inner` (curves): boundary polygons.
+- `player-position_NN` (dummies): start positions.
+- `road_path` (curve): centerline.
+- `proxy_<id>` (dummies, optionally `.001`, ...): places
   `assets/proxies/<id>.glb` at the dummy, scaled by its `scale` property.
   Don't reintroduce a random scatterer unasked.
 

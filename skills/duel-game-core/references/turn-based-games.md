@@ -60,14 +60,14 @@ That is what makes every turn structure a plain matter of state:
   of marks means X) or keep `toMove : TP.Seat` on `State` and flip it in
   `resolve` (checkers, chopsticks).
 - **Several actions per turn.** Keep the turn's progress on `State` and
-  leave `toMove` unchanged until the turn is complete: Rack-O stores
-  `drawn : ?Nat` after `#drawFromPile`, so the same seat is asked again
-  for `#placeDrawn`/`#discardDrawn`. The engine counts each action as a
+  leave `toMove` unchanged until the turn is complete. A draw-then-place
+  card game stores `drawn : ?Nat` after `#drawFromPile`, so the same
+  seat is asked again for `#placeDrawn`/`#discardDrawn`. The engine counts each action as a
   `step`; your state counts turns if the game wants to show them.
 - **A repeat turn** (a capture grants another move) is the same thing:
-  `resolve` simply does not flip `toMove` ("Follow-up moves", below).
+  `resolve` does not flip `toMove` ("Follow-up moves", below).
 - **A turn that must stay atomic** can still be ONE `Action` validated
-  and applied as a whole — checkers' `#jump { path : [Nat] }` carries
+  and applied as a whole: checkers' `#jump { path : [Nat] }` carries
   the entire capture chain, because a half-chain is never a legal
   position.
 
@@ -79,12 +79,13 @@ so a multi-action turn needs no special handling in `make_move`
 
 `view(s, seat, over)` is the only thing a seat, human or bot, receives.
 A game with hidden state (a hand, a face-down draw) gives `View` its own
-shape — the own side in full, the opponent's as what is visible — and
+shape, the own side in full and the opponent's as what is visible, and
 reveals everything once `over` is true, so the debrief can show the
-final position. `rack-o`'s `View` (`SideView = { rack : ?[Nat]; score }`,
-`null` for the hidden rack; `drawn` only for the drawer) is the
-reference; `templates/Rules.mo.template`'s `View = State` is right
-whenever nothing is hidden.
+final position. In the draw-then-place card game above, a side's view is
+`SideView = { rack : ?[Nat]; score }`, with `null` for the opponent's
+hidden rack, and `drawn` reaches only the drawer.
+`templates/Rules.mo.template`'s `View = State` is right whenever nothing
+is hidden.
 
 ## Idle takeover and claim-a-win
 
@@ -97,21 +98,20 @@ hides the button from the seat on turn.
 `renderActions` is only called while it is this seat's turn, and the
 in-game view carries `toMove` and `step`. A multi-action turn is
 server-driven: render the action buttons from what the view says the
-seat may do now (Rack-O: slot buttons for the discard plus "draw" until
-`drawn` is set, then slot buttons for the drawn card plus "discard").
+seat may do now (the card game: slot buttons for the discard plus
+"draw" until `drawn` is set, then slot buttons for the drawn card plus
+"discard").
 Every button is an ordinary `data-act`; nothing is kept locally, so a
 reload shows exactly where the turn stands.
 
-Two things matter more here than in a simultaneous game, because every
-action is a visible change. `applyLocal` (SKILL.md, Step 6) places your
-piece the instant you click; without it the board sits unchanged until
-the reply, and against a canister bot your move and the bot's answer
-land together. Return `null` for an action whose outcome you cannot
-predict (a draw from a face-down pile). And the opponent's last move
-gets a mark: when `View` records none, the plugin keeps the previous
-board and diffs (one cell went from empty to theirs; for checkers, an
-origin, a landing, and the captured squares), resetting to "no mark"
-whenever the difference isn't exactly one opponent move.
+`applyLocal` and the opponent's last move (SKILL.md, Step 6) matter
+more here, since every action is a visible change. Without
+`applyLocal` the board sits unchanged until the reply, and against a
+canister bot your move and the bot's answer land together. To mark the
+opponent's last move when `View` records none, the plugin keeps the
+previous board and diffs it (one cell went from empty to theirs; for
+checkers, an origin, a landing and the captured squares), resetting to
+"no mark" whenever the difference isn't exactly one opponent move.
 `examples/tic-tac-toe`, `examples/ultimate-tic-tac-toe` and
 `examples/checkers` do both.
 
@@ -121,16 +121,16 @@ FINISHES a move is a real `<button data-act=...>` (`actionAttr()`), so
 `app.js` submits it unchanged; intermediate "select this piece"/"continue
 this chain" clicks are local UI state (`<div data-sq=...>` handled by the
 plugin's own `document.addEventListener("click", ...)`, gated by
-`yourTurn`) and never reach the engine. `examples/checkers/frontend/src/checkers-plugin.js`
-is the worked example; its `stepTargets`/`jumpTargets` mirror `validate`
-cosmetically, deciding what to highlight. This does not need
-`references/rich-ui.md` unless the UI genuinely can't be clickable
-squares.
+`yourTurn`) and never reach the engine.
+`examples/checkers/frontend/src/checkers-plugin.js` is the worked
+example; its `stepTargets`/`jumpTargets` mirror `validate` cosmetically,
+deciding what to highlight. This needs `references/rich-ui.md` only
+when the UI can't be clickable squares.
 
 ## Follow-up moves
 
-An action that earns the same seat another one — dots and boxes' line
-closing a box, a capture that moves again — works as one action per
+An action that earns the same seat another one (dots and boxes' line
+closing a box, a capture that moves again) works as one action per
 `move` with `resolve` keeping `toMove`, but then every follow-up is a
 round trip with the board locked while it is out. When the mover can
 tell whether the turn continues (nothing hidden or random decides it),

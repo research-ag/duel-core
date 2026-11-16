@@ -36,7 +36,7 @@ that hosty.live may delete, not the live game.
 - The default branch is the game: merge finished work there, and
   update this file whenever a canister or a feature changes.
 - `mops test`; `cd frontend && npm run build && node play-test.mjs`.
-- Before upgrading the backend: `cd frontend && node check-upgrade.mjs
-<backend-id>` must exit 0.
+- Before upgrading the backend,
+  `cd frontend && node check-upgrade.mjs <backend-id>` must exit 0.
 - A change to `View`, `Action`, `Options` or the rules updates
   `SEMANTICS` in the same change.

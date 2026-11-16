@@ -32,14 +32,14 @@ pick the rating first (SKILL.md Step 4, "Leaderboard").
 
 Start from the game's `CLAUDE.md` (`templates/CLAUDE.md.template`), in
 its directory (a repository can hold several projects, one directory
-each): it names the canisters and what each runs. Without one, or with an
-empty default branch, look before writing anything:
+each): it names the canisters and what each runs. Without one, or with
+an empty default branch, look before writing anything:
 
 - `git branch -a`: a cloud session's work lands on `claude/...`
   branches, and a game may never have been merged.
 - The backend's canister id: the game's `CLAUDE.md` or `README.md`, in
-  its directory, the
-  `PUBLIC_CANISTER_ID:backend` the page was uploaded with, or the user.
+  its directory, the `PUBLIC_CANISTER_ID:backend` the page was uploaded
+  with, or the user.
 - What it runs now, by that id, from hosty.live's module store:
 
   ```bash
@@ -55,15 +55,16 @@ stop and ask which version is the game's: deploying an older tree over
 a newer canister throws away features.
 
 When you are done, write or update the game's `CLAUDE.md` in its
-directory from the template, and merge into the default branch (or open a pull request
-there, as the user prefers).
+directory from the template, and merge into the default branch (or
+open a pull request there, as the user prefers).
 
 ## 3. The backend
 
 Turn on the Host template's lines marked BOTS (and LEADERBOARD, when
 asked): uncomment every one, replace the `null` each stands next to, and
-copy `templates/BotIface.mo.template` to `src/BotIface.mo`. A host
-written from an older template has the same pieces in SKILL.md Step 4.
+copy `templates/BotIface.mo.template` to `src/BotIface.mo`. A host that
+differs from the template takes the same lines from
+`templates/Host.mo.template`.
 Adding stable fields (`bots`, `leaderboard`) to an actor is a
 compatible upgrade; nothing else in the host changes.
 
@@ -127,4 +128,5 @@ Then, with the user's go-ahead, upgrade the backend (hosty.live: the
 same `hosty_prepare_wasm_upload` as the first install, with
 `snapshotBeforeUpgrade: true`; icp-cli: `icp deploy backend -e ic`),
 then upload the frontend, as `going-live.md` describes. A new bot
-canister is created and registered as in SKILL.md Step 4.
+canister is created as `going-live.md`, section 3, describes and
+registered as SKILL.md Step 4 does.

@@ -1,4 +1,4 @@
-# ultimate-tic-tac-toe duel — reference #turnBased game built on duel-game-core
+# ultimate-tic-tac-toe duel: reference #turnBased game built on duel-game-core
 
 Ultimate tic-tac-toe (https://en.wikipedia.org/wiki/Ultimate_tic-tac-toe):
 a 3x3 meta-board of nine local boards. The cell position just played
@@ -8,24 +8,23 @@ local wins in a meta-line win; every board decided with no meta-line is a
 draw. The `#turnBased` reference with real structured state (`toMove`
 derived from the mark count). Not part of either package.
 
-- **`src/UltimateTicTacToeRules.mo`** — `State = { cells (81, index =
-board*9 + cell); results (per local board: #p1/#p2/#tie); activeBoard :
-?Nat }`. `LINES` serves both the local and meta win checks.
-  `legalActions` enumerates every empty cell of every currently allowed
-  board.
-- **`src/Host.mo`** — same shape as `examples/tic-tac-toe/src/Host.mo`.
-- **`src/BotIface.mo`** — `make_move`.
-- **`bot/BotLogic.mo`** — `legalActions(...)[step % n]`; no lookahead.
-- **`bot/Bot.mo`** — `make_move` (`query`), `play(...)`, `register`/
+- **`src/UltimateTicTacToeRules.mo`**:
+  `State = { cells (81, index = board*9 + cell); results (per local board: #p1/#p2/#tie); activeBoard : ?Nat }`.
+  `LINES` serves both the local and meta win checks. `legalActions`
+  enumerates every empty cell of every currently allowed board.
+- **`src/Host.mo`**: same shape as `examples/tic-tac-toe/src/Host.mo`.
+- **`src/BotIface.mo`**: `make_move`.
+- **`bot/BotLogic.mo`**: `legalActions(...)[step % n]`; no lookahead.
+- **`bot/Bot.mo`**: `make_move` (`query`), `play(...)`, `register`/
   `unregister` (registers `[]`, "Default").
-- **`test/*.test.mo`** — `RulesUnit` (free vs routed vs
-  routed-to-decided legality, local win without ending, local tie,
-  meta-line win, full draw); `Lifecycle` (opening moves exercising routing, seed to one
+- **`test/*.test.mo`**: `RulesUnit` (free vs routed vs routed-to-decided
+  legality, local win without ending, local tie, meta-line win, full
+  draw); `Lifecycle` (opening moves exercising routing, seed to one
   placement from a meta win); `Bot` (legal including a board routed to
-  its last cell; two canister bots through real plies with a larger sweep
-  budget).
-- **`icp.yaml`** — `backend`, `bot`, `frontend/dist`.
-- **`frontend/`** — `uttt-plugin.js`: nine `.uttt-local-board` panels,
+  its last cell; two canister bots through real plies with a larger
+  sweep budget).
+- **`icp.yaml`**: `backend`, `bot`, `frontend/dist`.
+- **`frontend/`**: `uttt-plugin.js`: nine `.uttt-local-board` panels,
   playable boards outlined (`.uttt-active`), decided boards faded with an
   overlay mark (`.uttt-board-won`); every playable empty cell is a
   `data-act` button (`actionAttr({ place: { board, cell } })`); the

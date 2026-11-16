@@ -4,7 +4,7 @@ Read this when the win condition takes dozens or hundreds of rounds to
 reach (a long race, a tournament), especially if `resolve` does real
 per-round work. Ordinary `RulesUnit.test.mo` tests (build a `State` by
 hand, call `validate`/`resolve`) are unaffected; this is about reaching a
-genuine `#debrief` through the real engine in a lifecycle-style test.
+real `#debrief` through the real engine in a lifecycle-style test.
 
 ## The trap
 
@@ -17,9 +17,9 @@ genuine `#debrief` through the real engine in a lifecycle-style test.
 
 ## The fix: seed the state, then submit one real move
 
-`Table<S, M, O>.phase` is a public `var`. Join two real sessions normally,
-then overwrite just the `game : S` payload of the live `#active` phase
-with a state one legal move from finishing:
+`Table<S, M, O>.phase` is a public `var`. Join two real players
+normally, then overwrite just the `game : S` payload of the live
+`#active` phase with a state one legal move from finishing:
 
 ```motoko
 public func seedGame(t : TP.Table<R.State, R.Action, R.Options>, p1 : R.CarState, p2 : R.CarState) {
@@ -34,7 +34,7 @@ public func seedGame(t : TP.Table<R.State, R.Action, R.Options>, p1 : R.CarState
 ```
 
 Then submit ONE real move and let the real `resolve`/verdict/phase
-transition run. Milliseconds, fully reliable, no autopilot needed. See
+transition run. It takes milliseconds and needs no autopilot. See
 `examples/racing/test/RaceTestHelpers.mo` in the framework repo, which
 derives the seeded coordinates from the real track data.
 
@@ -45,5 +45,4 @@ multiply the interpreter cost.
 
 Physics bounds, penalty rules, unreachable edge cases: construct
 synthetic `State` values and call `validate`/`resolve` (or `move`)
-directly. That is
-better test design, not a compromise.
+directly.

@@ -1,19 +1,19 @@
 # A rich UI: your own screens over the headless client
 
-Read this when the game's UI genuinely doesn't fit buttons and text — a
-canvas, a 3D scene, drag-and-drop, a framework app, a lobby of its own
-design. If `renderBoard`/`renderActions` returning markup covers your
+Read this when the game's UI doesn't fit buttons and text: a canvas, a
+3D scene, drag-and-drop, a framework app, a lobby of its own design. If `renderBoard`/`renderActions` returning markup covers your
 game, skip this file; if only one or two screens need the game's own
 voice, `start({ screens })` (SKILL.md, Step 6) is enough.
 
-## The split that makes this easy
+## The headless client
 
-`@research-ag/duel-game-core/client.js` is everything the browser side does except
-drawing: `createDuelClient({ transport, session })` owns the connection, the
-current `Status`, the one call in flight, error lifetime, the identity
-lock, and the stale-view resync, and hands subscribers an immutable
-`ClientState` after every change. `@research-ag/duel-game-core/app.js`'s `start()` is
-one UI over it. Yours is another; nothing in `start()` is needed.
+`@research-ag/duel-game-core/client.js` is everything the browser side
+does except drawing: `createDuelClient({ transport, session })` owns the
+connection, the current `Status`, the one call in flight, error
+lifetime, the identity lock, and the stale-view resync, and hands
+subscribers an immutable `ClientState` after every change.
+`@research-ag/duel-game-core/app.js`'s `start()` is one UI over it.
+Yours is another; nothing in `start()` is needed.
 
 ```js
 import {
@@ -34,7 +34,7 @@ client.subscribe((state, prev) => {
 Every screen is a function of `state.status` (`null` before the first
 push, `{ browsing }`, or `{ atTable: { id, view } }` with `view` one of
 `lobby`/`busy`/`stagingYou`/`awaitingRematch`/`inGame`/`debrief`/
-`endedByOther` — the shapes are in `types.js`). Every control calls one
+`endedByOther`; the shapes are in `types.js`). Every control calls one
 client method: `createTable(seat, visibility?, options?)`,
 `joinTable(id, seat, code?)`, `submit(move)`, `rematch()`, `leave()`,
 `reset()`, `claimWin()`, `ackEnded()`. Each resolves with `{ ok: true,
@@ -84,9 +84,8 @@ same shown status to anything that diffs consecutive views (a move log,
 an opponent-move replay): it then sees your ply and the opponent's as
 two steps even when the server sends both in one view.
 
-The opponent's last move stays visible on every screen that shows the
-board, the debrief included; the move that ended the game is the one
-the player most wants to see. Mark it, or replay it as an animation and
+Keep the opponent's last move visible on every screen that shows the
+board, the debrief included: mark it, or replay it as an animation and
 then mark it.
 
 ## Drawing the board
@@ -97,41 +96,46 @@ HTML you place wherever you like; a click on a `data-act` button becomes
 `client.submit(JSON.parse(btn.dataset.act))`. A canvas or 3D board reads
 `view.game` directly instead.
 
-`examples/007/frontend/src/mission-ui.js` in the framework repo is the
-worked example: ~300 lines covering every screen, the header, the alert
-bar, two native `<dialog>`s, and clock patching, over `client.js` and
-`esc` alone, with its own stylesheet; its `app.js` seats bots through
-`bots.js`'s headless `createBotInviter`. A header of your own keeps the
-"More games" link to the Duel Dashboard (https://games.ic0.info/, new
-tab) that `index.html.template` carries, as 007's dossier and
-chopsticks' header pills do.
-`examples/chopsticks/frontend/src/chopsticks-ui.js` is the second, and
-the one to read when porting an existing app's design (there, a React/
-Tailwind app) onto the engine: a bot flow that turns `list_bots()`
-complexities into pickable characters and calls the bot's `play` after
-`client.createTable(...)` resolves, modal dialogs rendered from local
-state alongside the screen, an opponent-move replay that keeps drawing
-the previous `view.game` while animating the move inferred by diffing it
-against the new one (`step` advanced by one; the mover is the seat that
-was on turn), and a move-history sidebar built from the same diffs, both
-over `withLocalMove`. A
-design that needs the last move should carry it in `View` when it can
-change the backend; the diff is the fallback when it cannot.
+A header of your own keeps the "More games" link to the Duel Dashboard
+(https://games.ic0.info/, new tab) that `index.html.template` carries,
+as 007's dossier and chopsticks' header pills do.
+
+Two worked examples in the framework repo:
+
+- `examples/007/frontend/src/mission-ui.js`: about 300 lines covering
+  every screen, the header, the alert bar, two native `<dialog>`s and
+  clock patching, over `client.js` and `esc` alone, with its own
+  stylesheet. Its `app.js` seats bots through `bots.js`'s headless
+  `createBotInviter`.
+- `examples/chopsticks/frontend/src/chopsticks-ui.js`, the one to read
+  when porting an existing app's design (there, a React/Tailwind app)
+  onto the engine. It has a bot flow that turns `list_bots()`
+  complexities into pickable characters and calls the bot's `play`
+  after `client.createTable(...)` resolves, and modal dialogs rendered
+  from local state alongside the screen. Its opponent-move replay keeps
+  drawing the previous `view.game` while animating the move inferred by
+  diffing it against the new one (`step` advanced by one; the mover is
+  the seat that was on turn), and a move-history sidebar is built from
+  the same diffs, both over `withLocalMove`.
+
+A design that needs the last move should carry it in `View` when it
+can change the backend; the diff is the fallback when it cannot.
 
 ## Persistent DOM alongside the default shell
 
 The middle road: keep `start()` for the chrome and give a canvas or
 framework component its own region. `start()` replaces
 `screenEl.innerHTML` on every status that differs from the last, so
-anything with real state placed inside `#screen` — a mounted framework
-app, a `<canvas>` with a WebGL context — is destroyed and reparsed.
+anything with real state placed inside `#screen` (a mounted framework
+app, a `<canvas>` with a WebGL context) is destroyed and reparsed.
 
-1. Run `const client = start({ plugin, transport, session })` for the chrome.
+1. Run `const client = start({ plugin, transport, session })` for the
+   chrome.
 2. Give your UI its own persistent DOM region, a **sibling** of `#screen`.
 3. Drive it from `client.subscribe(...)`. Never open a second connection
    (two pollers can deliver views out of order); `client.submit(move)` is
-   the one way to move, and its `gen`/`step` stamping and the chrome's
-   spinner come for free.
+   the one way to move, and it brings the `gen`/`step` stamping and the
+   chrome's spinner with it.
 4. `renderBoard`/`renderActions` can be near-stubs. The step counter,
    "opponent is deciding"/"locked in", verdict banner, and claim-win
    warnings around them stay correct, since they are driven by the
@@ -139,14 +143,15 @@ app, a `<canvas>` with a WebGL context — is destroyed and reparsed.
 5. Detect round boundaries from `state.status` changes (`step`, or a
    monotonic counter in `View`), not from `renderBoard` being called.
 
-`examples/racing` in the framework repo is the worked example (a Three.js
-scene beside the chrome, sharing one `transport`); its `frontend/CLAUDE.md` and
-`lobby-connection.service.ts` show the shared-connection pattern.
+`examples/racing` in the framework repo is the worked example (a
+Three.js scene beside the chrome, sharing one `transport`); its
+`frontend/CLAUDE.md` and `lobby-connection.service.ts` show the
+shared-connection pattern.
 
 ## Adapting an existing framework-based client
 
 The framework usually only supplies dependency injection, routing, and
-page composition — and the generic chrome already replaces the last two.
+page composition, and the generic chrome already replaces the last two.
 For an Angular app:
 
 - Delete `@Injectable()`/`@Component()`/`@NgModule()` decorators and
@@ -158,8 +163,9 @@ For an Angular app:
 - `HttpClient` → `fetch`; `ElementRef`/`Renderer2` → `document.createElement`;
   routing-triggered modals → delete.
 - RxJS is not Angular-specific; keep it.
-- esbuild (one `build.js` with `esbuild.build({ entryPoints, bundle,
-outfile })` plus `cpSync` for static files) replaces the framework CLI.
-  Keep `tsc --noEmit` as the type check — esbuild doesn't type-check.
+- esbuild (one `build.js` with
+  `esbuild.build({ entryPoints, bundle, outfile })` plus `cpSync` for static files) replaces the framework CLI.
+  Keep `tsc --noEmit` as the type check, since esbuild doesn't
+  type-check.
 - Work through the compiler: strip decorators mechanically, then let
   `tsc --noEmit` and the bundler find what's left.

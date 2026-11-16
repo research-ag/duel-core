@@ -150,12 +150,12 @@ function HowItWorksStep({
           {
             way: "hosty",
             title: "Claude Code and hosty.live",
-            note: "Nothing to install: Claude Code on the web builds and tests the page, shows it to you on a free test canister, and hosty.live puts it online for about a dollar, paid by card. Works from an AI tool on your computer too.",
+            note: "Nothing to install: an AI tool writes the code, and hosty.live takes care of the whole deployment. You see the page on a free test canister, and it goes live for about a dollar, paid by card.",
           },
           {
             way: "own",
             title: "All your own, with icp-cli",
-            note: "An AI tool on your computer, your own key and cycles, no hosty.live. For people who already work with icp-cli.",
+            note: "An AI tool on your computer, your own key and cycles. For people who already work with icp-cli.",
           },
         ]}
       />

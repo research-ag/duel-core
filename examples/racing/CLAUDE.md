@@ -1,16 +1,16 @@
-# racing duel — reference game built on duel-game-core
+# racing duel: reference game built on duel-game-core
 
 Two players race one lap of a fixed track; each round both submit the
 arc they want to drive, the engine resolves both, first across the line
 wins. A `#simultaneous` example with a Three.js frontend. Not part of
 either package.
 
-- **`src/RacingRules.mo`** — pure rules (physics, collision, lap
+- **`src/RacingRules.mo`**: pure rules (physics, collision, lap
   progress); see its doc header.
-- **`src/Track.mo`** — baked geometry for the one "island" map (boundary
+- **`src/Track.mo`**: baked geometry for the one "island" map (boundary
   polygons and road centerline), generated from
   `frontend/src/assets/maps/island/scene.meta`.
-- **`src/Host.mo`** — stable `duel` (300s/45s), bots store and
+- **`src/Host.mo`**: stable `duel` (300s/45s), bots store and
   leaderboard, one transient `env` (same wiring as `examples/checkers`),
   metrics with a `/metrics` route, bot discovery, and a best-lap
   leaderboard as the `env`'s `#best bestLap` rating:
@@ -21,29 +21,29 @@ either package.
   winning car's final-round overshoot (`distanceFromStart / speed`,
   clamped to `[0, 1)`). `bestLap` returns `[(winner, score)]` for a
   clean `#finished` win and `[]` otherwise (`recordIfBetter`, per player
-  id — a bot per complexity).
-- **`src/BotIface.mo`** — `make_move` and `callBot`.
-- **`bot/BotLogic.mo`** — `SCRIPT_P1`/`SCRIPT_P2`, fixed arcs derived
+  id, so a bot per complexity).
+- **`src/BotIface.mo`**: `make_move` and `callBot`.
+- **`bot/BotLogic.mo`**: `SCRIPT_P1`/`SCRIPT_P2`, fixed arcs derived
   offline (legal forever once at cruising speed), indexed by `req.step`;
   past the script, hold `{ l = max(5, speed * 0.75); c = 0 }`.
-- **`bot/Bot.mo`** — `make_move` (`query`), `play(...)`, `register`/
-  `unregister` (registers `[]`):
+- **`bot/Bot.mo`**: `make_move` (`query`), `play(...)`,
+  `register`/`unregister` (registers `[]`):
   `icp canister call bot register '(principal "<backend-canister-id>", "RacerBot")'`.
-- **`test/*.test.mo`** — `Lifecycle`/`Rules` are scenario walks;
+- **`test/*.test.mo`**: `Lifecycle`/`Rules` are scenario walks;
   `RulesUnit` the per-operation suite. `RaceTestHelpers.mo`
   (not `.test.mo`) seeds a live table one legal step from the finish
   instead of simulating a race. `Bot.test.mo` replays both scripts (plus
   the post-script clamp) through the real `validate`/`resolve`, then
   wires `chooseMove` through `canister_players` against a human seat.
-- **`icp.yaml`** — `backend`, `bot`, `frontend/dist`.
-- **HTTP** — besides `/semantics` and `/metrics`, `/track`
+- **`icp.yaml`**: `backend`, `bot`, `frontend/dist`.
+- **HTTP**: besides `/semantics` and `/metrics`, `/track`
   (`Rules.trackText`) serves the three `Track` polylines a third-party
   client needs to draw the map.
-- **`frontend/`** — plain TypeScript + Three.js, esbuild-bundled (see
+- **`frontend/`**: plain TypeScript + Three.js, esbuild-bundled (see
   `frontend/README.md`, `frontend/CLAUDE.md`). `src/duel/duel-app.js` +
   `duel-racing-plugin.js` are the whole `duel-game-core` integration
   (lobby chrome, 🏆 leaderboard overlay, 🤖 Bots overlay and Challenge
-  flow, bot rematch re-invite — same shape as `examples/checkers`, see
+  flow, bot rematch re-invite; the same shape as `examples/checkers`, see
   `../../frontend/README.md`). `duel-racing-plugin.js`'s `formatScore`
   inverts `scoreFromLapMs` (`m:ss.mmm`; `0n` renders `"--:--.--"`). Keep
   its `3_600_000n` in sync with `Host.mo`'s `ONE_HOUR_MS`. The race
@@ -52,15 +52,14 @@ either package.
 
 ## Toolchain
 
-moc **2.0.0** (`mops.toml`).
-Motoko dependencies: `duel-game-core` (path to `../../backend`), `core`;
-`promtracker` transitively. Never import `mo:base`.
-Frontend: `@research-ag/duel-game-core` (`file:../../../frontend`) and `@icp-sdk/core`
-for `duel-app.js`; `@gg-web-engine/core`, `@gg-web-engine/three`,
-`point-in-polygon`, `rxjs`, `three` for the race. `build.js` runs
-esbuild twice (`main.ts` → `dist/main.js`, `src/duel/duel-app.js` →
-`dist/duel-app.js`). `install-links=true` copies
-`@research-ag/duel-game-core`; see
+moc **2.0.0** (`mops.toml`). Motoko dependencies: `duel-game-core` (path
+to `../../backend`), `core`; `promtracker` transitively. Never import
+`mo:base`. Frontend: `@research-ag/duel-game-core`
+(`file:../../../frontend`) and `@icp-sdk/core` for `duel-app.js`;
+`@gg-web-engine/core`, `@gg-web-engine/three`, `point-in-polygon`,
+`rxjs`, `three` for the race. `build.js` runs esbuild twice (`main.ts` →
+`dist/main.js`, `src/duel/duel-app.js` → `dist/duel-app.js`).
+`install-links=true` copies `@research-ag/duel-game-core`; see
 `../../CLAUDE.md` for the refresh procedure.
 
 ## Build & test
@@ -68,14 +67,14 @@ esbuild twice (`main.ts` → `dist/main.js`, `src/duel/duel-app.js` →
 ```bash
 cd examples/racing
 mops install
-moc --check $(mops sources) src/RacingRules.mo
-moc --check $(mops sources) src/Host.mo
+"$(mops toolchain bin moc)" --check $(mops sources) src/RacingRules.mo
+"$(mops toolchain bin moc)" --check $(mops sources) src/Host.mo
 mops test                  # all four; `mops test Rules` matches Rules and RulesUnit
 
 (cd ../../frontend && npm run build)
 cd frontend && npm install --legacy-peer-deps && cd ..
 icp deploy                 # local → http://frontend.local.localhost:8000/
-icp deploy --network ic
+icp deploy -e ic           # mainnet; spends cycles
 ```
 
 `icp.yaml`'s `build` step runs `npm run build` in `frontend/` on every
