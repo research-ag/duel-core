@@ -2,8 +2,8 @@
 
 A generic 2-player game framework for the Internet Computer, for games
 where both seats act at once and games where the rules say whose turn
-it is. It is two rules-agnostic packages, both published as
-`duel-game-core`:
+it is. It is two rules-agnostic packages, `duel-game-core` on mops and
+`@research-ag/duel-game-core` on npm:
 
 - [`backend/`](backend/README.md): the Motoko mops package, with the engine
   (tables, seating, rounds, debrief, rematch, idle takeover, claims),

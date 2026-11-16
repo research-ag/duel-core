@@ -233,7 +233,9 @@ mops bench
 
 ```bash
 cd frontend && npm install && npm run build && npm test
-node --check dist/app.js dist/client.js dist/render.js dist/idl.js dist/ic-env.js dist/transport.js dist/identity.js dist/anon-identity.js dist/bots.js dist/module-store.js
+(for f in app client render idl ic-env transport identity anon-identity bots module-store; do
+  node --check "dist/$f.js" || exit 1   # one file per call: node checks only its first argument
+done)
 ```
 
 ### After touching anything under `frontend/`: refresh every example

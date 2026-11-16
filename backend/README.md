@@ -424,10 +424,11 @@ match advances one action per message and no call carries a whole
 match. The sweep settles every table as the slow fallback.
 
 **Asking.** `notifyAndApply` builds a `MoveRequest<V, M>` from the
-bot's own view of the table (`game` is `view(s, seat, false)`, so a
-bot is handed exactly what a human at that seat sees and never the
-hidden parts), plus `opponent`/`opponentLastMove`/`lastStepDurationNs`
-off the `Active` record, calls `CallBot`, re-reads `gen`/`step` after
+bot's own view of the table (`game` is `view(s, seat, false)`, so the
+state reaches the bot exactly as a human at that seat sees it, never
+its hidden parts), plus `opponent`, `opponentLastMove` (the opponent's
+last resolved action as submitted; it does not pass through `view`)
+and `lastStepDurationNs` off the `Active` record, calls `CallBot`, re-reads `gen`/`step` after
 the reply (the human may have claimed, left, or been swept meanwhile),
 submits, and runs the transport's fan-out. An `#illegalMove` reply is
 retried once with `retryReason` set to the rules' rejection text; a
