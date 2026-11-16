@@ -11,6 +11,7 @@
 import { useState } from "react";
 
 import { botPrompt } from "../botPrompt";
+import { claudeCodeLink, ENV_NAME } from "../cloudSession";
 import type { Way } from "../cloudSession";
 import type { AggregatorActor, GameView, Target } from "../types";
 import { gameUrl } from "../types";
@@ -19,6 +20,7 @@ import {
   HostyCycles,
   HostySetup,
   IcpIdentitySteps,
+  OpenNote,
   OwnSetup,
 } from "./CloudSessionSetup";
 import { CodeBlock } from "./CodeBlock";
@@ -155,13 +157,18 @@ function HowItWorksStep({
 }
 
 function PromptStep({ target, way }: { target: Target; way: BotWay }) {
+  const prompt = botPrompt(target, way);
   return (
     <>
       <p>
         This prompt is filled in for <strong>{target.game.title}</strong>. Paste
         it into the session (on your computer: into your coding tool):
       </p>
-      <CodeBlock code={botPrompt(target, way)} wrap />
+      <CodeBlock
+        code={prompt}
+        wrap
+        open={way === "hosty" ? claudeCodeLink(prompt, ENV_NAME) : undefined}
+      />
       <p>Finish it with your own description after its last line:</p>
       <CodeBlock
         code={
@@ -174,6 +181,7 @@ function PromptStep({ target, way }: { target: Target; way: BotWay }) {
         game's program is, how to test, and what not to touch. The AI installs
         the tools it needs, or tells you how.
       </p>
+      {way === "hosty" && <OpenNote />}
     </>
   );
 }

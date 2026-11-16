@@ -1585,10 +1585,24 @@ input[type="range"] {
   padding-right: 0;
 }
 
-.code-block .copy {
+.code-block.opens {
+  padding-top: 2.6rem;
+}
+
+.code-block.opens pre {
+  padding-right: 0;
+}
+
+.code-actions {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.code-block .copy,
+.code-block .open {
   font: inherit;
   font-size: 0.72rem;
   font-weight: 700;
@@ -1601,17 +1615,20 @@ input[type="range"] {
   color: var(--ink-2);
   padding: 0.25rem 0.55rem;
   cursor: pointer;
+  text-decoration: none;
   transition:
     color 0.2s var(--ease),
     border-color 0.2s var(--ease);
 }
 
-.code-block .copy svg {
+.code-block .copy svg,
+.code-block .open svg {
   width: 0.8rem;
   height: 0.8rem;
 }
 
-.code-block .copy:hover {
+.code-block .copy:hover,
+.code-block .open:hover {
   border-color: var(--gold-line);
   color: var(--gold-2);
 }

@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 
+import { claudeCodeLink, ENV_NAME } from "../cloudSession";
 import type { Way } from "../cloudSession";
 import { gamePrompt } from "../gamePrompt";
 import {
@@ -16,6 +17,7 @@ import {
   HostyCycles,
   HostySetup,
   IcpIdentitySteps,
+  OpenNote,
   OwnSetup,
 } from "./CloudSessionSetup";
 import { CodeBlock } from "./CodeBlock";
@@ -118,12 +120,17 @@ function HowItWorksStep({
 }
 
 function PromptStep({ way }: { way: GameWay }) {
+  const prompt = gamePrompt(way);
   return (
     <>
       <p>
         Paste this into the session{way === "own" ? " (your coding tool)" : ""}:
       </p>
-      <CodeBlock code={gamePrompt(way)} wrap />
+      <CodeBlock
+        code={prompt}
+        wrap
+        open={way === "hosty" ? claudeCodeLink(prompt, ENV_NAME) : undefined}
+      />
       <p>Finish it with your rules, in your own words, after its last line:</p>
       <CodeBlock
         code={
@@ -135,6 +142,7 @@ function PromptStep({ way }: { way: GameWay }) {
         every piece of the game and test it by playing whole games against
         itself before it asks you to look.
       </p>
+      {way === "hosty" && <OpenNote />}
     </>
   );
 }

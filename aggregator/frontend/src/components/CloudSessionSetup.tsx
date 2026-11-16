@@ -6,6 +6,7 @@
 import { useState } from "react";
 
 import {
+  claudeCodeLink,
   CLI_CONNECT,
   CONNECTOR_URL,
   CONNECTORS_PAGE,
@@ -120,13 +121,17 @@ export function CloudSessionSetup() {
           </a>{" "}
           in a browser (or the desktop app's Code tab, with an environment under{" "}
           <strong>Cloud</strong>). On a first visit it asks you to connect
-          GitHub: allow it for that repository. On the screen where you start a
-          new session, pick your repository in the row under the message box
-          (any environment will do) and send this message. It has Claude create
-          the session's environment, named <code>{ENV_NAME}</code>: its network
-          access, a setup script that installs the build tools before each
-          session starts, and one variable.
-          <CodeBlock code={ENV_SETUP_PROMPT} />
+          GitHub: allow it for that repository. Then start a new session with
+          this message: <strong>Open in Claude Code</strong> puts it in the
+          message box (in the Claude app on a phone), or paste it there. Pick
+          your repository in the row under the message box (any environment will
+          do) and send it. It has Claude create the session's environment, named{" "}
+          <code>{ENV_NAME}</code>: its network access, a setup script that
+          installs the build tools before each session starts, and one variable.
+          <CodeBlock
+            code={ENV_SETUP_PROMPT}
+            open={claudeCodeLink(ENV_SETUP_PROMPT)}
+          />
         </li>
         <li>
           Claude checks the setup script, then claude.ai asks you with a{" "}
@@ -275,6 +280,19 @@ export function TokenSetup() {
         computer needs none of this (<strong>On your computer</strong> above).
       </p>
     </details>
+  );
+}
+
+/// Under a hosty.live prompt whose block carries a `claudeCodeLink`.
+export function OpenNote() {
+  return (
+    <p className="hint">
+      <strong>Open in Claude Code</strong> starts a new cloud session with the
+      prompt in its message box, in the browser or in the Claude app on a phone.
+      Check that <code>{ENV_NAME}</code> and your repository are picked under
+      the box before you send it. On your computer, copy it into your coding
+      tool instead.
+    </p>
   );
 }
 

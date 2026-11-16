@@ -70,6 +70,16 @@ export const LAUNCHER_ENV =
 
 export const ENV_NAME = "hosty.live";
 
+/// A new cloud session with `prompt` in its message box, not sent:
+/// claude.ai/code in a browser, the Claude app on a phone, which takes no
+/// environment.
+export function claudeCodeLink(prompt: string, environment?: string): string {
+  const env = environment
+    ? `&environment=${encodeURIComponent(environment)}`
+    : "";
+  return `https://claude.ai/code/new?q=${encodeURIComponent(prompt)}${env}`;
+}
+
 /// The message that has a cloud session create the environment with the
 /// values above (claude-code-remote's create_environment).
 export const ENV_SETUP_PROMPT = `Create a Claude Code cloud environment for me with your create_environment tool, or update it with update_environment if I already have one named ${ENV_NAME}. Use exactly these values, nothing else:
