@@ -165,9 +165,10 @@ function TryStep({ way }: { way: GameWay }) {
         </p>
       )}
       <p>
-        Open it in two browser tabs, start a table in one and join it from the
-        other, and play. Ask for changes until it is right: each one is tested
-        again and redeployed to the same place.
+        Open it in a normal and a private window (a browser's tabs are one
+        player), start a table in one and join it from the other, and play. Ask
+        for changes until it is right: each one is tested again and redeployed
+        to the same place.
       </p>
       {way === "hosty" && (
         <p className="hint">

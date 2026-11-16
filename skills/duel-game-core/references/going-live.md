@@ -325,7 +325,7 @@ included (hosty.live applies it as icp-cli does).
    on `FAILED`, `statusReason` and `logsTail` say why (a malformed
    `_headers` names its line).
 5. Check the cookie, then give the user `frontendUrl`: they play a
-   round from two browser tabs (or a computer and a phone) against the
+   round from a normal and a private window (or a computer and a phone) against the
    installed backend. Gateways cache for up to a minute after a deploy.
 
    ```bash

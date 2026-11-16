@@ -39,8 +39,8 @@ A deployable `#simultaneous` example on `../../backend` and
   `bot` (both built by `mops build`, from `mops.toml`'s `[canisters]`),
   and `frontend/dist` as a static-site canister.
 - **`frontend/`**: vanilla JS bundled with esbuild, and the framework's
-  CUSTOM-UI reference: nothing from `@research-ag/duel-game-core/app.js`
-  runs here, and the look is its own (light paper, typewriter headings,
+  CUSTOM-UI reference: of `@research-ag/duel-game-core/app.js` only the
+  link helpers run here, never `start()`, and the look is its own (light paper, typewriter headings,
   red stamp buttons, a sticky sidebar). `style.css` is self-contained;
   `duel-game-core.css` is not loaded.
   - `duel007-plugin.js` is the `GamePlugin` (board and action buttons;
@@ -72,6 +72,11 @@ A deployable `#simultaneous` example on `../../backend` and
     the bot's join lands) skips the seat step. After a rematch the
     staged file is reserved for the bot, and the inviter re-issues the
     same `play`.
+  - Links are `app.js`'s as well: `watchLinks` + `followLink` take a
+    contact's coded file from its link, or open a file with a bot; a
+    coded file's "Share the link" (`data-op="share"`, through
+    `mountMissionUi`'s `onShare`) and a bot row's Share
+    (`shareBotLink`) hand links out.
 
 ## Toolchain
 
@@ -114,9 +119,9 @@ Everything in `../../CLAUDE.md` applies. Additionally:
    error lifetime, identity lock). If a screen needs something the state
    lacks, add it to `client.js`.
 3. **`mission-ui.js` imports only `client.js` and `esc`.** The point of
-   this example is that the rest is the game's own. Bot discovery and
-   the challenge flow stay in `app.js`; `mission-ui.js` only exposes the
-   `onAddBot` hook and `setInviting`.
+   this example is that the rest is the game's own. Bot discovery, the
+   challenge flow and links stay in `app.js`; `mission-ui.js` only
+   exposes the `onAddBot` and `onShare` hooks and `setInviting`.
 
 ## Game-rule notes (src/Duel007Rules.mo)
 

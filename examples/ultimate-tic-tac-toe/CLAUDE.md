@@ -35,7 +35,8 @@ derived from the mark count). Not part of either package.
 
 ## Toolchain / Build & test
 
-Same as `examples/tic-tac-toe`. Play both seats in two tabs: routing,
+Same as `examples/tic-tac-toe`. Play both seats from a normal and a
+private window: routing,
 free choice after a decided board, local win/tie, meta-line win, full
 draw, claim-win.
 

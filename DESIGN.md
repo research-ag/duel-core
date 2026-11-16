@@ -127,7 +127,8 @@ seeded one for reproducible games.
 **Player.** A player is the principal that signs the call. Nothing else
 identifies anyone: no method takes a session id, and the anonymous
 principal is refused (`#unauthorized`). A browser player is a key the
-tab generates (or an Internet Identity login); a bot is
+browser keeps, shared by its tabs so a link opened in a new tab plays as
+the same player (or an Internet Identity login); a bot is
 `cp:<principal>:<complexity>`, so one bot canister may play in several
 styles, even against itself. Inside the engine a player is a `PlayerId`
 (`Text`), compared only for equality.
@@ -149,7 +150,7 @@ stateDiagram-v2
 
 Each phase carries a timestamp, so nothing waits forever: an idle game
 can be taken over, a debrief expires, and a waiting table whose creator
-went silent is swept. A player evicted that way gets an `#endedByOther`
+went silent is swept (a `#code` table, an invite, after 30 minutes). A player evicted that way gets an `#endedByOther`
 notice until they acknowledge it.
 
 **View.** What one player sees of one table: `#stagingYou`,
@@ -396,6 +397,16 @@ own business — `claimWin` once the opponent has been silent past
 `claimTimeoutNs`, or idle takeover after `idleTimeoutNs`. A player who
 closes the tab and comes back with the same key continues where they
 were.
+
+**Invites.** A `#code` table is meant for one friend, reached by a link
+(`#t=<table>&c=<code>`) sent through a messenger. A phone suspends the
+creator's tab while they send it, so presence alone would clear the
+table before the friend taps. Two engine constants cover that, neither
+a stable field: the waiting table stays `INVITE_WAIT_NS` (30 min) without
+its creator, and once the friend sits down, each seat's first move gets
+`INVITE_GRACE_NS` (10 min) more on the claim and idle clocks, so the
+creator can come back from the chat before anyone can claim. After both
+have moved, the table's own timeouts apply.
 
 ## Canister players
 

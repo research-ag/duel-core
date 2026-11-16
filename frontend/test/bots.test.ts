@@ -251,3 +251,45 @@ test("mountBotChallenge + mountLeaderboard: a leaderboard Challenge while browsi
   assert.equal(els["bot-challenge-panel"].hidden, false);
   assert.match(els["bot-challenge-body"].innerHTML, /class="error">That seat is already taken/);
 });
+
+test("mountBotChallenge: a link naming a bot opens a table with the link's seat and rules and seats that bot under its listed name", async () => {
+  const { mountBotChallenge } = await import("../src/bots.js");
+  dom();
+  const replaced: string[] = [];
+  (globalThis as unknown as { location: unknown }).location = { hash: "#new&o=second&s=p2&b=aaaaa-aa%3AHard", search: "", pathname: "/" };
+  (globalThis as unknown as { history: unknown }).history = { state: null, replaceState: (_s: unknown, _t: string, u: string) => replaced.push(u) };
+  try {
+    const c = fakeClient(browsing);
+    const p = fakePlay();
+    const twoChoices = { ...plugin, optionChoices: () => [{ key: "first", label: "1", options: { first: true } }, { key: "second", label: "2", options: { second: true } }] };
+    mountBotChallenge({ client: c.client, actor, plugin: twoChoices, play: p.play, storage: new FakeStorage() });
+    assert.deepEqual(replaced, ["/"]);
+    await tick();
+    await tick();
+    assert.deepEqual(c.created, [{ seat: "p2", options: { second: true } }]);
+    assert.deepEqual(p.calls[0]?.bot, { principal: "aaaaa-aa", complexity: "Hard", name: "Fox" });
+  } finally {
+    delete (globalThis as { location?: unknown }).location;
+    delete (globalThis as { history?: unknown }).history;
+  }
+});
+
+test("mountBotChallenge: a bot row's Share hands out a link to a new table with that bot", async () => {
+  const { mountBotChallenge } = await import("../src/bots.js");
+  const els = dom();
+  (globalThis as unknown as { location: unknown }).location = { hash: "", search: "", pathname: "/", origin: "https://game.test" };
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const copied: string[] = [];
+  Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async (t: string) => void copied.push(t) } }, configurable: true });
+  try {
+    const c = fakeClient(browsing);
+    mountBotChallenge({ client: c.client, actor, plugin, play: fakePlay().play, storage: new FakeStorage() });
+    els["bot-challenge-body"].dispatch("click", { target: makeButton({ shareBot: "aaaaa-aa", botComplexity: "Hard" }) });
+    await tick();
+    assert.deepEqual(copied, ["https://game.test/#new&b=aaaaa-aa%3AHard"]);
+    assert.equal(c.created.length, 0);
+  } finally {
+    if (saved) Object.defineProperty(globalThis, "navigator", saved);
+    delete (globalThis as { location?: unknown }).location;
+  }
+});

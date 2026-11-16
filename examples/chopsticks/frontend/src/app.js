@@ -1,11 +1,12 @@
 // Bootstrap for the chopsticks client: build the actor and push transport,
 // create duel-game-core's headless client, and mount chopsticks' own UI
-// over it (chopsticks-ui.js). Nothing from `@research-ag/duel-game-core/app.js` runs
-// here. Bundled by esbuild (../build.js).
+// over it (chopsticks-ui.js). Of `@research-ag/duel-game-core/app.js` only the
+// link helpers run here, never `start()`. Bundled by esbuild (../build.js).
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 import { Principal } from "@icp-sdk/core/principal";
+import { linkUrl, shareFromButton, watchLinks } from "@research-ag/duel-game-core/app.js";
 import { makeIdlFactory, buildBotPlayIdlFactory } from "@research-ag/duel-game-core/idl.js";
 import { createDuelClient } from "@research-ag/duel-game-core/client.js";
 import { connectTransport } from "@research-ag/duel-game-core/transport.js";
@@ -42,9 +43,10 @@ const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 
 const client = createDuelClient({ transport, session });
 
-// The plain queries the UI reads and the one call it makes on a
-// discovered bot's own canister (`play`, never through `transport.mo`). See
-// ../../../frontend/README.md, "Bot registry".
+// The plain queries the UI reads, the one call it makes on a discovered
+// bot's own canister (`play`, never through `transport.mo`), and the page's
+// links: following them, sharing one from a button. See
+// ../../../frontend/README.md, "Bot registry" and "Links".
 const hostPrincipal = Principal.fromText(canisterId);
 const services = {
   leaderboard: () => actor.get_leaderboard(),
@@ -53,6 +55,8 @@ const services = {
     const bot = Actor.createActor(buildBotPlayIdlFactory, { agent, canisterId: principalText });
     return bot.play(hostPrincipal, tableId, openSeat, code, complexity);
   },
+  share: (button, link) => shareFromButton(button, linkUrl(link), client),
+  watchLinks: (follow) => watchLinks(() => true, follow),
 };
 
 const $ = (id) => document.getElementById(id);

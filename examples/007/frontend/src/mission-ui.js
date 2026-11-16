@@ -6,7 +6,18 @@
 // `duel007-plugin.js`'s. See ../../../../frontend/README.md, "The
 // headless client".
 
-import { claimRoleOf, localSecondsElapsed, localSecondsLeft, oppSeatOf, tag, viewOf, withLocalMove } from "@research-ag/duel-game-core/client.js";
+import {
+  INVITE_WAIT_MINUTES,
+  claimRoleOf,
+  inviteLinkOf,
+  localSecondsElapsed,
+  localSecondsLeft,
+  oppSeatOf,
+  randomCode,
+  tag,
+  viewOf,
+  withLocalMove,
+} from "@research-ag/duel-game-core/client.js";
 import { esc } from "@research-ag/duel-game-core/render.js";
 
 const IDLE_WARNING_SECS = 30n;
@@ -53,7 +64,7 @@ function missionBoard(v, plugin) {
           <legend>Channel</legend>
           <label><input type="radio" name="op-visibility" value="open" checked /> Open</label>
           <label><input type="radio" name="op-visibility" value="code" /> Coded</label>
-          <input type="text" id="op-code" placeholder="access code" hidden />
+          <input type="text" id="op-code" placeholder="code, or none for a random one" hidden />
         </fieldset>
         <button class="stamp big" data-op="create" data-key="create:p1">File it</button>
       </div>
@@ -96,8 +107,8 @@ function safeHouse(id, v, plugin, inviting) {
   const brief = v.reservedForPartner
     ? `The other cover is on hold for your last opposite number. After that, anyone may take it.`
     : code !== null
-      ? `Coded channel. Your contact needs the file number and the code below.`
-      : `Open channel. A second tab, or anyone on the index, can take the other cover.`;
+      ? `Coded channel. Send your contact the file's link: it stays open ${INVITE_WAIT_MINUTES} minutes for them. Or give them the file number and the code below.`
+      : `Open channel. Anyone on the index can take the other cover.`;
   return `
     <h1 class="tw">${fileNo(id)}</h1>
     <div class="notice">
@@ -106,6 +117,7 @@ function safeHouse(id, v, plugin, inviting) {
       ${code !== null ? `<p><span class="lbl">Code</span> <code class="code">${esc(code)}</code></p>` : ""}
       ${inviting !== null ? `<p class="clock">Calling in ${esc(inviting)}…</p>` : ""}
       <p class="row">
+        ${code !== null && !v.reservedForPartner ? `<button class="stamp" data-op="share">Share the link</button>` : ""}
         ${inviting === null ? `<button class="stamp" data-op="add-bot">🤖 Add a bot</button>` : ""}
         <button class="plain" data-op="leave" data-key="leave">Withdraw</button>
       </p>
@@ -254,9 +266,10 @@ function syncClocks(root, state) {
 
 // ── Mounting ─────────────────────────────────────────────────────────────
 
-// `onAddBot` runs when the staging screen's "Add a bot" is pressed; the
-// returned `setInviting(label | null)` shows who is being called in.
-export function mountMissionUi({ client, plugin, els, onAddBot }) {
+// `onAddBot` runs when the staging screen's "Add a bot" is pressed,
+// `onShare(button, link)` when its "Share the link" is; the returned
+// `setInviting(label | null)` shows who is being called in.
+export function mountMissionUi({ client, plugin, els, onAddBot, onShare }) {
   const { screen, alert, sid, newSid, auth, channel, log, confirmDialog, codeDialog } = els;
   const session = client.session;
 
@@ -306,7 +319,7 @@ export function mountMissionUi({ client, plugin, els, onAddBot }) {
   const createSeat = () => screen.querySelector('input[name="op-seat"]:checked')?.value ?? "p1";
   const createVisibility = () => {
     const coded = screen.querySelector('input[name="op-visibility"][value="code"]')?.checked;
-    return coded ? { code: screen.querySelector("#op-code")?.value ?? "" } : { open: null };
+    return coded ? { code: screen.querySelector("#op-code")?.value.trim() || randomCode() } : { open: null };
   };
 
   screen.addEventListener("click", async (ev) => {
@@ -315,11 +328,13 @@ export function mountMissionUi({ client, plugin, els, onAddBot }) {
     if (b.dataset.act) return void client.submit(JSON.parse(b.dataset.act));
     switch (b.dataset.op) {
       case "create": {
-        const visibility = createVisibility();
-        if ("code" in visibility && visibility.code === "") return client.showError("Set an access code, or use an open channel.");
         const seat = createSeat();
         b.dataset.key = `create:${seat}`;
-        return void client.createTable(seat, visibility, {});
+        return void client.createTable(seat, createVisibility(), {});
+      }
+      case "share": {
+        const link = inviteLinkOf(client.getState().status);
+        return void (link && onShare(b, link));
       }
       case "join": {
         let code = null;

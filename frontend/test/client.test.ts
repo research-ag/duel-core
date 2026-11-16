@@ -18,6 +18,12 @@ import {
   viewTagOf,
   withLocalMove,
   pendingMoveOf,
+  followLink,
+  inviteLinkOf,
+  linkFragment,
+  optionsForKey,
+  parseLink,
+  randomCode,
 } from "../src/client.js";
 import type { ClientState, PendingCall } from "../src/client.js";
 import type { Transport, InGameView, Status, TransportPayload, TransportRequest } from "../src/types.js";
@@ -558,4 +564,117 @@ test("localSecondsLeft/localSecondsElapsed count from statusAt and never go nega
   assert.equal(localSecondsLeft(30n, 10_000, 50_000), 0n);
   assert.equal(localSecondsLeft(30n, 10_000, 5_000), 30n, "a clock skew backwards is clamped");
   assert.equal(localSecondsElapsed(12n, 10_000, 13_500), 15n);
+});
+
+// ── Links ───────────────────────────────────────────────────────────────
+
+const flush = (): Promise<void> => new Promise((r) => setImmediate(r));
+
+function lobbyWith(id: bigint, p1Open: boolean, p2Open: boolean): Status {
+  return {
+    browsing: {
+      tables: [{ id, p1Open, p2Open, p1Session: [], p2Session: [], protected: true, waitingSecs: 5n, options: {} }],
+    },
+  };
+}
+
+test("parseLink/linkFragment: a seat link and a new-table link round-trip; anything else is no link", () => {
+  const join = { kind: "join", tableId: 12n, code: "ab c&d" } as const;
+  assert.deepEqual(parseLink(linkFragment(join)), join);
+  assert.equal(linkFragment({ kind: "join", tableId: 3n, code: null }), "#t=3");
+  const bot = { kind: "new", option: "well", seat: "p2", bot: { principal: "aaaaa-aa", complexity: "Big Bear" } } as const;
+  assert.deepEqual(parseLink(linkFragment(bot)), bot);
+  assert.deepEqual(parseLink("#new"), { kind: "new", option: null, seat: "p1", bot: null });
+  assert.equal(parseLink(""), null);
+  assert.equal(parseLink("#section-2"), null);
+  assert.equal(parseLink("#t=12x"), null, "a table id is a number");
+});
+
+test("inviteLinkOf: only the caller's own #code table waiting for a friend", () => {
+  const coded: Status = {
+    atTable: { id: 4n, view: { stagingYou: { seat: { p1: null }, reservedForPartner: false, gen: 1n, visibility: { code: "k" } } } },
+  };
+  assert.deepEqual(inviteLinkOf(coded), { kind: "join", tableId: 4n, code: "k" });
+  assert.equal(inviteLinkOf(staging()), null, "an open table is no invite");
+  assert.equal(inviteLinkOf(browsing()), null);
+});
+
+test("randomCode: eight characters a friend can type", () => {
+  assert.match(randomCode(), /^[a-z2-9]{8}$/);
+  assert.notEqual(randomCode(), randomCode());
+});
+
+test("optionsForKey: the first choice by default, undefined for a key the game does not offer", () => {
+  const plugin = { optionChoices: () => [{ key: "a", label: "A", options: { n: 1 } }, { key: "b", label: "B", options: { n: 2 } }] };
+  assert.deepEqual(optionsForKey(plugin, null), { n: 1 });
+  assert.deepEqual(optionsForKey(plugin, "b"), { n: 2 });
+  assert.equal(optionsForKey(plugin, "zz"), undefined);
+  assert.deepEqual(optionsForKey({}, null), {});
+});
+
+test("followLink: a seat link takes the seat the lobby lists as free, with the code", async () => {
+  const transport = new FakeTransport();
+  const client = createDuelClient({ transport, session });
+  transport.onmessage!({ data: { view: lobbyWith(9n, true, false) } });
+  const done = followLink(client, { kind: "join", tableId: 9n, code: "k" });
+  await flush();
+  assert.deepEqual(transport.requests[0]!.req, { joinTable: { id: 9n, seat: { p1: null }, code: ["k"] } });
+  transport.requests[0]!.resolve({ view: inGame() });
+  await done;
+  assert.equal(client.getState().error, null);
+});
+
+test("followLink: a taken seat falls back to the other one; a vanished table says the invite expired", async () => {
+  const transport = new FakeTransport();
+  const client = createDuelClient({ transport, session });
+  transport.onmessage!({ data: { view: inGame({}) } });
+  // Seated in a game elsewhere: the link waits for that game.
+  await followLink(client, { kind: "join", tableId: 9n, code: "k" });
+  assert.equal(transport.requests.length, 0);
+  assert.match(client.getState().error ?? "", /Finish your game/);
+
+  transport.onmessage!({ data: { view: staging() } });
+  const done = followLink(client, { kind: "join", tableId: 9n, code: "k" });
+  await flush();
+  assert.deepEqual(transport.requests[0]!.req, { joinTable: { id: 9n, seat: { p2: null }, code: ["k"] } });
+  transport.requests[0]!.resolve({ err: { seatTaken: null } });
+  await flush();
+  assert.deepEqual(transport.requests[1]!.req, { joinTable: { id: 9n, seat: { p1: null }, code: ["k"] } });
+  transport.requests[1]!.resolve({ err: { noSuchTable: null } });
+  await done;
+  assert.equal(client.getState().error, "This invite has expired.");
+});
+
+test("followLink: the creator opening their own link stays where they are", async () => {
+  const transport = new FakeTransport();
+  const client = createDuelClient({ transport, session });
+  transport.onmessage!({ data: { view: staging() } });
+  await followLink(client, { kind: "join", tableId: 1n, code: null });
+  assert.equal(transport.requests.length, 0);
+});
+
+test("followLink: a new-table link opens an open table with the link's options; a bot goes to `challenge`", async () => {
+  const transport = new FakeTransport();
+  const client = createDuelClient({ transport, session });
+  transport.onmessage!({ data: { view: browsing() } });
+  const options = (key: string | null) => (key === "well" ? { v: "well" } : undefined);
+
+  await followLink(client, { kind: "new", option: "nope", seat: "p1", bot: null }, { options });
+  assert.equal(transport.requests.length, 0);
+  assert.match(client.getState().error ?? "", /rules this game does not offer/);
+
+  const done = followLink(client, { kind: "new", option: "well", seat: "p2", bot: null }, { options });
+  await flush();
+  assert.deepEqual(transport.requests[0]!.req, { createTable: { seat: { p2: null }, visibility: { open: null }, options: { v: "well" } } });
+  transport.requests[0]!.resolve({ view: staging() });
+  await done;
+
+  const asked: unknown[] = [];
+  await followLink(
+    client,
+    { kind: "new", option: "well", seat: "p1", bot: { principal: "aaaaa-aa", complexity: "Hard" } },
+    { options, challenge: async (...args) => (asked.push(args), true) },
+  );
+  assert.deepEqual(asked, [[{ principal: "aaaaa-aa", complexity: "Hard" }, "p1", { v: "well" }]]);
+  assert.equal(transport.requests.length, 1, "the challenge opens the bot's table itself");
 });

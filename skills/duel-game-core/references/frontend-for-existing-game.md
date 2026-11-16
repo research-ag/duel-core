@@ -103,7 +103,9 @@ their calls fail quietly (`.catch(() => [])`). With them,
 `@research-ag/duel-game-core/bots.js` is the whole flow:
 `mountBotChallenge` and `mountLeaderboard` for a page on `start()`,
 `createBotInviter` for a UI of its own (the package README, "Bots and
-the leaderboard").
+the leaderboard"). A page on `start()` follows invite links by itself;
+a UI of its own follows them with `client.js`'s `followLink` and shares
+them with `app.js`'s `shareFromButton` (the package README, "Links").
 
 `found: false` with a `liveModuleHash` means the module the backend
 runs is not in the store at the moment. Tell the user why in a
@@ -292,7 +294,8 @@ leaves and acks; it is your own check, before any human looks. Then
 look at the page yourself with Playwright, as `SKILL.md` Step 7
 describes. On the user's computer, `icp deploy` also printed the
 frontend's local URL:
-the user plays there in two browser tabs. The local copy starts empty:
+the user plays there from a normal and a private window (a browser's
+tabs share one player). The local copy starts empty:
 no bots are registered and the leaderboard is blank, so a bot list or a
 rankings panel can only be checked for its empty state.
 
@@ -316,9 +319,11 @@ protected:
    `hosty_wait_for_deployment` until `finished: true`. The page reads
    the backend from its cookie, exactly as the live page will.
 4. Give the user `frontendUrl`, saying that it plays the real game:
-   create every table with an access code, never an open one, and
-   leave when done, so real players are not drawn in. Two browser tabs
-   (or a computer and a phone) play both seats.
+   create every table with an access code ("Invite a friend" in the
+   default lobby), never an open one, and
+   leave when done, so real players are not drawn in. A normal and a
+   private window (or a computer and a phone) play both seats; the
+   protected table's invite link takes the second one straight to it.
 
 Each change is another build and upload into `PREVIEW`, at no cost.
 

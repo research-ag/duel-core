@@ -77,7 +77,8 @@ icp deploy
 icp deploy -e ic           # mainnet; spends cycles
 ```
 
-Then play both seats in two tabs: turn alternation, mandatory capture, a
+Then play both seats from a normal and a private window: turn
+alternation, mandatory capture, a
 multi-jump chain, promotion, claim-win against an idle opponent.
 
 ## Architecture rules

@@ -9,6 +9,7 @@
 import type {
   Transport,
   EngineErr,
+  GamePlugin,
   InGameView,
   Seat,
   SeatTag,
@@ -151,6 +152,151 @@ export function localSecondsLeft(pushedSecs: bigint, statusAtMs: number, nowMs =
 /// A pushed `waitingSecs` counted UP locally.
 export function localSecondsElapsed(pushedSecs: bigint, statusAtMs: number, nowMs = Date.now()): bigint {
   return pushedSecs + BigInt(Math.max(0, Math.floor((nowMs - statusAtMs) / 1000)));
+}
+
+// ── Links ───────────────────────────────────────────────────────────────
+
+/// A bot a link seats, as in `cp:<principal>:<complexity>`.
+export interface LinkBot {
+  principal: string;
+  complexity: string;
+}
+
+/// What a page link's fragment asks for. `#t=<table>&c=<code>` takes the
+/// free seat at that table; `#new` opens a table, optionally with
+/// `o=<optionChoices key>`, `s=p2` and `b=<principal>:<complexity>` (a bot
+/// to invite). See ../README.md, "Links".
+export type DuelLink =
+  | { kind: "join"; tableId: bigint; code: string | null }
+  | { kind: "new"; option: string | null; seat: SeatTag; bot: LinkBot | null };
+
+/// `null` for a fragment that is no link.
+export function parseLink(fragment: string): DuelLink | null {
+  const p = new URLSearchParams(fragment.replace(/^#/, ""));
+  const t = p.get("t");
+  if (t !== null) {
+    return /^\d+$/.test(t) ? { kind: "join", tableId: BigInt(t), code: p.get("c") || null } : null;
+  }
+  if (!p.has("new") && !p.has("o") && !p.has("b")) return null;
+  const b = p.get("b") ?? "";
+  const sep = b.indexOf(":");
+  return {
+    kind: "new",
+    option: p.get("o") || null,
+    seat: p.get("s") === "p2" ? "p2" : "p1",
+    bot: sep > 0 && sep < b.length - 1 ? { principal: b.slice(0, sep), complexity: b.slice(sep + 1) } : null,
+  };
+}
+
+/// The fragment, `#` included, that `parseLink` reads back as `link`.
+export function linkFragment(link: DuelLink): string {
+  const e = encodeURIComponent;
+  if (link.kind === "join") return `#t=${link.tableId}${link.code === null ? "" : `&c=${e(link.code)}`}`;
+  return [
+    "#new",
+    link.option === null ? "" : `&o=${e(link.option)}`,
+    link.seat === "p1" ? "" : `&s=${link.seat}`,
+    link.bot === null ? "" : `&b=${e(`${link.bot.principal}:${link.bot.complexity}`)}`,
+  ].join("");
+}
+
+/// The link to the caller's own `#code` table while it waits for a friend.
+export function inviteLinkOf(status: Status | null): DuelLink | null {
+  const at = atTableOf(status);
+  const v = viewOf<StagingYouView>(status, "stagingYou");
+  if (at === null || v === null || v.reservedForPartner || !("code" in v.visibility)) return null;
+  return { kind: "join", tableId: at.id, code: v.visibility.code };
+}
+
+/// How long an invite (`#code`) table waits for the friend without its
+/// creator: the engine's `Table.INVITE_WAIT_NS`.
+export const INVITE_WAIT_MINUTES = 30;
+
+const CODE_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
+
+/// A fresh access code for an invite table, short enough to type.
+export function randomCode(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(8));
+  return Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+}
+
+/// The typed `Options` behind an `optionChoices` key (`null`: the first
+/// choice, or `{}` for a game with none); `undefined` for a key the game
+/// does not offer.
+export function optionsForKey(plugin: Pick<GamePlugin, "optionChoices">, key: string | null): unknown {
+  const choices = plugin.optionChoices?.() ?? [];
+  if (key === null) return choices.length === 0 ? {} : choices[0].options;
+  return choices.find((c) => c.key === key)?.options;
+}
+
+/// What a failed join through a link means to the friend who opened it.
+export function linkErrText(e: EngineErr): string {
+  if ("noSuchTable" in e) return "This invite has expired.";
+  if ("badCode" in e) return "This invite link is not valid.";
+  if ("seatTaken" in e || "notIdle" in e || "reserved" in e) return "Someone else already took that seat.";
+  return errText(e);
+}
+
+export interface FollowLinkOptions {
+  /// `optionsForKey` over the game's plugin; default: `{}` for any link.
+  options?: (key: string | null) => unknown;
+  /// Seats a link's bot at a new table (`createBotInviter`'s
+  /// `challenge`). Without it a link naming a bot does nothing.
+  challenge?: (bot: LinkBot, seat: SeatTag, options: unknown) => Promise<boolean>;
+}
+
+function firstStatus<S>(client: DuelClient<S>): Promise<Status<S>> {
+  const status = client.getState().status;
+  if (status !== null) return Promise.resolve(status);
+  return new Promise((resolve) => {
+    const off = client.subscribe(({ status }) => {
+      if (status === null) return;
+      off();
+      resolve(status);
+    });
+  });
+}
+
+/// Acts on `link` once `client` has its first status: takes the free seat
+/// at the linked table, or opens a table (inviting the link's bot). What
+/// went wrong is shown in `state.error`.
+export async function followLink<S>(client: DuelClient<S>, link: DuelLink, opts: FollowLinkOptions = {}): Promise<void> {
+  const status = await firstStatus(client);
+  if (link.kind === "join" && atTableOf(status)?.id === link.tableId) return;
+  if (viewTagOf(status) === "inGame") {
+    client.showError("Finish your game before you follow a link.");
+    return;
+  }
+  if (link.kind === "join") {
+    const listed = "browsing" in status ? status.browsing.tables.find((t) => t.id === link.tableId) : undefined;
+    const first: SeatTag = listed?.p1Open && !listed.p2Open ? "p1" : "p2";
+    for (const seat of [first, oppSeatOf(first)]) {
+      const res = await client.joinTable(link.tableId, seat, link.code);
+      if (res.ok) {
+        client.clearError();
+        // Staged alone: nobody was waiting at the table any more.
+        if (viewTagOf(res.view) === "stagingYou") {
+          await client.leave();
+          client.showError(linkErrText({ noSuchTable: null }));
+        }
+        return;
+      }
+      if (res.reason !== "rejected") return;
+      if (!("seatTaken" in res.err)) {
+        client.showError(linkErrText(res.err));
+        return;
+      }
+    }
+    client.showError(linkErrText({ seatTaken: null }));
+    return;
+  }
+  const options = opts.options ? opts.options(link.option) : {};
+  if (options === undefined) {
+    client.showError("This link asks for rules this game does not offer.");
+    return;
+  }
+  if (link.bot === null) await client.createTable(link.seat, { open: null }, options);
+  else await opts.challenge?.(link.bot, link.seat, options);
 }
 
 // ── The client ──────────────────────────────────────────────────────────

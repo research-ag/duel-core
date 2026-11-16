@@ -209,10 +209,11 @@ test("renderView: stagingYou names the held seat and offers Leave", () => {
   );
   assert.match(html, /Black/);
   assert.match(html, /data-leave/);
-  assert.match(html, /Open this page in another tab/);
+  assert.match(html, /Anyone in the lobby can take the other seat/);
+  assert.doesNotMatch(html, /data-share-invite/, "an open table is no invite: it goes when its creator does");
 });
 
-test("renderView: stagingYou on a Protected table shows the access code, not the 'open this page in another tab' copy (regression: the code was never shown, and that copy is actively wrong for a protected table)", () => {
+test("renderView: stagingYou on an invite (#code) table offers the share button and shows the access code (regression: the code was never shown)", () => {
   const html = renderView<{ turn: string }>(
     {
       stagingYou: {
@@ -224,9 +225,10 @@ test("renderView: stagingYou on a Protected table shows the access code, not the
     },
     plugin,
   );
-  assert.match(html, /Protected/);
+  assert.match(html, /data-share-invite/);
   assert.match(html, /TOP-SECRET/);
-  assert.doesNotMatch(html, /Open this page in another tab/);
+  assert.match(html, /30\s+minutes/);
+  assert.doesNotMatch(html, /Anyone in the lobby/);
 });
 
 test("renderView: awaitingRematch names the open seat and offers accept + decline", () => {

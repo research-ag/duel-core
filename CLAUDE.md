@@ -25,7 +25,11 @@ behaviour).
     and handed to `init`/`move`/`resolve`.
   - `table.mo`: the single-table primitive: `Table.new` plus
     `join`/`submit`/`rematch`/`leave`/`reset`/`claimWin`/`ackEnded`/
-    `status`/`sweep`. Every `Table` carries a stable `rev`.
+    `status`/`sweep`. Every `Table` carries a stable `rev`. A `#code`
+    table is an invite: its staging waits `INVITE_WAIT_NS` (30 min)
+    without its creator, and its game gives each seat's first move
+    `INVITE_GRACE_NS` (10 min) more on both clocks (`gameClaimNs`/
+    `gameIdleNs`; every check on an `#active` phase goes through them).
   - `registry.mo`: the multi-table router built on it: `Registry.new`,
     `createTable`/`createTableReserving`/`listTables`/`joinTable`/
     `peekNextTableId`, the table-scoped operations (`submit`/`rematch`/
@@ -60,7 +64,8 @@ behaviour).
       bumps revs, scores a fresh debrief and settles canister players.
     - Presence only keeps a waiting table open (`duel_keep_alive` every
       `KEEP_ALIVE_SECS` 20; `sweep` every `SWEEP_SECS` 30;
-      `PRESENCE_TTL_NS` 60 s); silence never ends a game.
+      `PRESENCE_TTL_NS` 60 s; a `#code` table also waits out
+      `INVITE_WAIT_NS`); silence never ends a game.
     - `transport_actor_mixin.mo` supplies every method naming none of
       the game's types and the sweep timer
       (`include TransportActorMixin<system>(duel.lobby(env))`). A mixin
@@ -123,7 +128,11 @@ behaviour).
     `ClientState` snapshots; no DOM, no HTML. Its pure `withLocalMove`
     overlays a pending submit through the optional
     `GamePlugin.applyLocal`, so every UI shows the player's own move
-    before the reply.
+    before the reply. Links are its pure `parseLink`/`linkFragment`
+    (`#t=<table>&c=<code>` takes that table's free seat;
+    `#new[&o=<option key>][&s=p2][&b=<bot>:<complexity>]` opens a table,
+    optionally with a bot), `inviteLinkOf`, `randomCode` and
+    `followLink(client, link, opts)`.
   - `render.js`, the default UI: one pure `view -> HTML` function per
     generic screen (lobby/staging/rematch/busy/debrief/...), collected
     in `defaultScreens`, plus `renderLeaderboard`/`renderBotList`/
@@ -135,10 +144,15 @@ behaviour).
   - `app.js`, the default shell:
     `start({ plugin, transport, session, screens?, confirm?, promptCode? })`
     binds client to screens in `#screen` (delegated clicks, spinner,
-    countdowns, header controls, error banner, overlays) and returns
-    the client.
+    countdowns, header controls, error banner, overlays, the invite
+    table's share button) and returns the client. It follows the page's
+    link (`watchLinks`, on load and on `hashchange`); one naming a bot
+    is `mountBotChallenge`'s. `takeLink`/`linkUrl`/`shareLink`/
+    `shareFromButton` are exported for custom UIs.
 
-  Also session identity; the `DuelTransport` client (`transport.js`:
+  Also session identity (an anonymous keypair per browser in
+  `localStorage`; `regenerate` gives one tab its own in
+  `sessionStorage`); the `DuelTransport` client (`transport.js`:
   follows the lobby or one table by query, a 500 ms poll with a 3 s
   per-poll timeout, and composes the `Status`; serialized update calls;
   `duel_keep_alive` every 20 s while waiting at a table); and Candid IDL
@@ -155,7 +169,8 @@ behaviour).
   discovers the `.test.mo` suffix only). `Engine`/`Lifecycle` cover
   `table.mo`; `Lobby`/`LobbyLifecycle` cover `registry.mo` (including
   `createTableReserving`, the table cap); `Alternating` covers
-  `#turnBased` mode; `Transport` drives a real `Duel` (revs,
+  `#turnBased` mode (and an invite table's first-move grace);
+  `Transport` drives a real `Duel` (revs,
   `#unchanged`, `yours`, the cap, keep-alive through a sweep);
   `CanisterPlayers` covers `canister_players.mo` with a hand-built
   context whose fan-out settles and whose timers are only recorded (the
@@ -298,7 +313,8 @@ deploys all of them to the IC.
    `leave` while reserved declines it. Actor serialization makes
    simultaneous clicks race-free. Never replace with flag-and-poll.
 7. **No silent endings.** `leave` from a live game gives both a shared
-   `#aborted` debrief; `claimWin` (after `claimTimeoutNs`, never
+   `#aborted` debrief; `claimWin` (after `claimTimeoutNs`, plus
+   `INVITE_GRACE_NS` before a `#code` table's first moves, never
    automatic, only the WAITING seat) gives `#claimed`; an idle takeover
    records the evicted players in `lastEnded` so their view shows
    `#endedByOther` until acked (a takeover of an expired debrief

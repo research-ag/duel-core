@@ -22,8 +22,9 @@ Plain TypeScript, no framework, one track and one car:
   `body.in-race`).
 - `duel-app.js` uses `resolveIdentity()`, never the anonymous default
   identity, which the canister refuses (`#unauthorized`; symptom: a
-  lobby stuck on loading). The keypair persists in `sessionStorage`; its
-  principal is the player, and `sid` is the tab's label for it.
+  lobby stuck on loading). The keypair persists in `localStorage` (one
+  per browser; "new" gives a tab its own); its principal is the player,
+  and `sid` is the tab's label for it.
 - `lobby-connection.service.ts` fires a `status` `request()` (a resync
   by query) the moment `getDuelTransport()` resolves. Safe because
   `DuelTransport`'s `send()`/`request()` work at any time. Don't add a

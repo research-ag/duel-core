@@ -5,7 +5,8 @@ import { Actor } from "@icp-sdk/core/agent";
 import type { HttpAgent } from "@icp-sdk/core/agent";
 import { Principal } from "@icp-sdk/core/principal";
 
-import { atTableOf, errText, tag, viewOf } from "./client.js";
+import { linkUrl, shareFromButton, watchLinks } from "./app.js";
+import { atTableOf, errText, followLink, optionsForKey, tag, viewOf } from "./client.js";
 import type { DuelClient } from "./client.js";
 import { buildBotPlayIdlFactory } from "./idl.js";
 import { botDisplayName, esc, renderBotList, renderLeaderboard, renderSeatChoice } from "./render.js";
@@ -66,6 +67,17 @@ export function stagingOf(status: Status | null): Staging | null {
   };
 }
 
+/// A click on a bot row's Share (`renderBotList`, `renderLeaderboard`):
+/// hands out a link to a new table with that bot (`#new&b=…`). `false`
+/// when `target` is no Share button.
+export function shareBotLink(target: unknown, client?: Pick<DuelClient, "showError">): boolean {
+  const el = (target as { closest?: (sel: string) => HTMLElement | null }).closest?.("[data-share-bot]");
+  if (el?.dataset.shareBot === undefined) return false;
+  const bot = { principal: el.dataset.shareBot, complexity: el.dataset.botComplexity ?? "" };
+  void shareFromButton(el, linkUrl({ kind: "new", option: null, seat: "p1", bot }), client);
+  return true;
+}
+
 /// What a failed `play` means to the player: the error is the bot's own.
 export function botErrText(bot: BotRef, err: EngineErr): string {
   if ("tooManyTables" in err) {
@@ -88,8 +100,9 @@ export interface BotInviter {
   /// Called after every change. Returns the unsubscribe function.
   subscribe(listener: (state: BotInviterState) => void): () => void;
   /// Seats `bot` at this session's waiting table, or at a new one in
-  /// `seat` (required then). Resolves `true` once the bot has joined.
-  challenge(bot: BotRef, seat?: SeatTag): Promise<boolean>;
+  /// `seat` (required then) with `options` (default: the inviter's).
+  /// Resolves `true` once the bot has joined.
+  challenge(bot: BotRef, seat?: SeatTag, options?: unknown): Promise<boolean>;
   dispose(): void;
 }
 
@@ -100,7 +113,7 @@ export interface BotInviterOptions {
   /// plugin's first `optionChoices()` entry).
   options?: unknown;
   /// Where the last seated bot is remembered across a reload; default
-  /// `sessionStorage` (per tab, like an anonymous identity).
+  /// `localStorage` (per browser, like an anonymous identity).
   storage?: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
   storageKey?: string;
 }
@@ -163,7 +176,7 @@ export function createBotInviter({
     }
   }
 
-  async function challenge(bot: BotRef, seat?: SeatTag): Promise<boolean> {
+  async function challenge(bot: BotRef, seat?: SeatTag, tableOptions = options): Promise<boolean> {
     if (state.inviting !== null) return false;
     if (state.staging !== null) return invite(bot, state.staging);
     if (seat === undefined) {
@@ -171,7 +184,7 @@ export function createBotInviter({
       return false;
     }
     set({ inviting: bot, error: null });
-    const res = await client.createTable(seat, { open: null }, options);
+    const res = await client.createTable(seat, { open: null }, tableOptions);
     const staging = res.ok ? stagingOf(res.view) : null;
     if (staging === null) {
       set({ inviting: null, error: "message" in res ? res.message : "Could not open a table — try again." });
@@ -211,7 +224,7 @@ export function createBotInviter({
 
 function defaultStorage(): Storage | null {
   try {
-    return globalThis.sessionStorage ?? null;
+    return globalThis.localStorage ?? null;
   } catch {
     return null;
   }
@@ -252,8 +265,10 @@ export interface BotChallenge extends BotInviter {
 
 /// The default "🤖 Bots" overlay over `createBotInviter`: an "Add Bot"
 /// control shown only while this session waits at its own table, a bot
-/// list, a seat choice for a new table, and the invite's progress and
-/// errors. Returns the inviter with `open`/`pick` for other entry points.
+/// list (each row's Share hands out a link to a game with that bot), a
+/// seat choice for a new table, and the invite's progress and errors. It
+/// follows this page's link when it names a bot. Returns the inviter with
+/// `open`/`pick` for other entry points.
 export function mountBotChallenge(opts: BotChallengeOptions): BotChallenge {
   const { actor, plugin, ids = {} } = opts;
   const panel = required(ids.panel ?? "bot-challenge-panel");
@@ -306,6 +321,7 @@ export function mountBotChallenge(opts: BotChallengeOptions): BotChallenge {
   if (addPanel) addPanel.hidden = inviter.getState().staging === null;
 
   body.addEventListener("click", (ev) => {
+    if (shareBotLink(ev.target, opts.client)) return;
     const seatBtn = (ev.target as Element).closest?.("[data-challenge-seat]") as HTMLElement | null;
     if (seatBtn && picked !== null) {
       const bot = picked;
@@ -321,6 +337,19 @@ export function mountBotChallenge(opts: BotChallengeOptions): BotChallenge {
     picked = null;
     panel.hidden = true;
   });
+
+  watchLinks(
+    (l) => l.kind === "new" && l.bot !== null,
+    (l) =>
+      void followLink(opts.client, l, {
+        options: (key) => optionsForKey(plugin, key),
+        challenge: async (bot, seat, options) => {
+          const listed = await actor.list_bots().catch(() => [] as BotInfo[]);
+          const name = listed.find((b) => b.principal.toString() === bot.principal)?.name ?? bot.principal;
+          return inviter.challenge({ ...bot, name }, seat, options);
+        },
+      }),
+  );
 
   return { ...inviter, open: () => void open(), pick };
 }
@@ -360,6 +389,7 @@ export function mountLeaderboard({ actor, plugin, sid, onChallenge, ids = {} }: 
     panel.hidden = true;
   });
   body.addEventListener("click", (ev) => {
+    if (shareBotLink(ev.target)) return;
     const bot = botRefOf(ev.target);
     if (!bot || !onChallenge) return;
     panel.hidden = true;

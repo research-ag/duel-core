@@ -7,7 +7,22 @@
 // chopsticks-plugin.js's. See ../../../../frontend/README.md, "The
 // headless client".
 
-import { atTableOf, claimRoleOf, errText, localSecondsElapsed, localSecondsLeft, oppSeatOf, tag, viewOf, withLocalMove } from "@research-ag/duel-game-core/client.js";
+import {
+  INVITE_WAIT_MINUTES,
+  atTableOf,
+  claimRoleOf,
+  errText,
+  followLink,
+  inviteLinkOf,
+  localSecondsElapsed,
+  localSecondsLeft,
+  oppSeatOf,
+  optionsForKey,
+  randomCode,
+  tag,
+  viewOf,
+  withLocalMove,
+} from "@research-ag/duel-game-core/client.js";
 import { esc, isCanisterPlayer, parseCanisterPlayer, playerKeyOf, truncatePlayerId } from "@research-ag/duel-game-core/render.js";
 import { HAND_NAME, RULE_SETS, SEAT_NAME, SIDES, canSplit, handsOf, hit, renderHands, ruleSetOf, splitReason, splitValid, variantOf } from "./chopsticks-plugin.js";
 
@@ -325,7 +340,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     return `<div class="hero">
       <span class="hero-hand" role="img" aria-label="hands">✋</span>
       <h2>Welcome to Chopsticks</h2>
-      <p>Take on a bot, or open a second tab and play a friend. Your Player ID is per browser tab unless you log in.</p>
+      <p>Take on a bot, or invite a friend by link. Your Player ID is kept in this browser unless you log in.</p>
       <div class="hero-actions">
         <button type="button" class="btn-action primary" data-op="play-ai">Play vs AI →</button>
         <button type="button" class="btn-action muted" data-op="play-friend">Play vs a Friend</button>
@@ -369,8 +384,8 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     const brief = v.reservedForPartner
       ? "The other seat is held for your last opponent for a moment — after that anyone may take it."
       : code !== null
-        ? "Protected table. Share the table number and the code with a friend."
-        : "Open table. A second tab, or anyone in the lobby, can take the other seat.";
+        ? `Send a friend this table's link: it waits ${INVITE_WAIT_MINUTES} minutes for them, even while you switch apps. Or give them the table number and the code.`
+        : "Open table. Anyone in the lobby can take the other seat.";
     return `<div class="panel center">
       <span class="text-4xl wave" role="img">✋</span>
       <h2>${inviting ? `Inviting ${esc(pendingBotInvite.bot.complexity)}…` : "Waiting for an opponent…"}</h2>
@@ -378,6 +393,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
       <p class="faint">${brief}</p>
       ${code !== null ? `<p class="code-line"><span class="lbl">Code</span><code class="code">${esc(code)}</code></p>` : ""}
       <div class="row">
+        ${code !== null && !v.reservedForPartner && !inviting ? `<button type="button" class="btn-action tap" data-op="share">Share invite link</button>` : ""}
         ${inviting ? "" : `<button type="button" class="btn-action accent" data-op="add-bot">🤖 Add a Bot</button>`}
         <button type="button" class="btn-action muted" data-op="leave" data-key="leave">Cancel</button>
       </div>
@@ -572,7 +588,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
             <fieldset><legend>Table</legend>
               <label><input type="radio" name="op-visibility" value="open" checked /> Open</label>
               <label><input type="radio" name="op-visibility" value="code" /> Code</label>
-              <input type="text" id="op-code" placeholder="access code" autocomplete="off" hidden />
+              <input type="text" id="op-code" placeholder="code, or none for a random one" autocomplete="off" hidden />
             </fieldset>
           </div>`
         : "";
@@ -1032,8 +1048,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     }
     const seat = overlay.querySelector('input[name="op-seat"]:checked')?.value ?? "p1";
     const coded = overlay.querySelector('input[name="op-visibility"][value="code"]')?.checked ?? false;
-    const code = overlay.querySelector("#op-code")?.value ?? "";
-    if (coded && code === "") return client.showError("Set an access code, or open the table to everyone.");
+    const code = overlay.querySelector("#op-code")?.value.trim() || randomCode();
     start = null;
     createdVariant = { tableId: null, variant };
     void client.createTable(seat, coded ? { code } : { open: null }, { [variant]: null }).then((res) => {
@@ -1117,6 +1132,10 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
         return;
       case "leave":
         return void client.leave();
+      case "share": {
+        const invite = inviteLinkOf(state.status);
+        return void (invite && services.share(b, invite));
+      }
       case "rematch":
         return void client.rematch();
       case "reset":
@@ -1286,6 +1305,21 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     countEnding(state);
     maybeReinvite(state);
   }
+
+  // A link in the address: a friend's table, or a new one with a bot
+  // (always as Player 1, like "Play vs AI").
+  services.watchLinks(
+    (link) =>
+      void followLink(client, link, {
+        options: (key) => optionsForKey(plugin, key),
+        challenge: async (bot, _seat, options) => {
+          const listed = await services.listBots().catch(() => []);
+          const name = listed.find((b) => b.principal.toString() === bot.principal)?.name ?? bot.principal;
+          await startBotGame({ principalText: bot.principal, name, complexity: bot.complexity }, Object.keys(options)[0]);
+          return true;
+        },
+      }),
+  );
 
   if (!storageGet(TUTORIAL_KEY)) tutorial = { step: 0 };
   let lastShown = shown(client.getState()).status;

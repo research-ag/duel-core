@@ -521,6 +521,22 @@ switch (t.status(spec, LATER, "a")) {
 };
 Debug.print("18a. sweep on #staging OK");
 
+// A `#code` (invite) staging outlives its absent creator for
+// INVITE_WAIT_NS, then goes like any other.
+t := Table.new<Rules.State, Rules.Action, Rules.Options>(TIMEOUT, CLAIM_TIMEOUT, #code "k", "test", "");
+ignore ok(t.join(spec, rng, T0, "a", #p1), "a stages an invite table");
+t.sweep(T0 + Table.INVITE_WAIT_NS - 1, nobody);
+switch (t.status(spec, T0 + Table.INVITE_WAIT_NS - 1, "a")) {
+  case (#stagingYou _) {};
+  case (_) Runtime.trap("an invite table must wait INVITE_WAIT_NS for the friend");
+};
+t.sweep(T0 + Table.INVITE_WAIT_NS, nobody);
+switch (t.status(spec, T0 + Table.INVITE_WAIT_NS, "a")) {
+  case (#lobby _) {};
+  case (_) Runtime.trap("an invite table past INVITE_WAIT_NS must be swept away");
+};
+Debug.print("18a'. sweep keeps an invite staging for INVITE_WAIT_NS OK");
+
 // #active: untouched before the timeout; after it, freed with
 // #endedByOther for BOTH former players even though both are present —
 // nobody needs to visit the board to learn their game is over, unlike

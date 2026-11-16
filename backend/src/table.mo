@@ -11,6 +11,15 @@ module {
 
   public type Table<S, M, O> = T.Table<S, M, O>;
 
+  /// How long a `#code` table waits for its second player without its
+  /// creator being present: an invite outlives a switch to a messenger.
+  public let INVITE_WAIT_NS : Int = 1_800_000_000_000;
+
+  /// Added to both clocks of a game at a `#code` table until each seat
+  /// has moved once: the invited friend may sit down while the creator is
+  /// still away.
+  public let INVITE_GRACE_NS : Int = 600_000_000_000;
+
   public func new<S, M, O>(idleTimeoutNs : Int, claimTimeoutNs : Int, visibility : T.TableVisibility, createdBy : T.PlayerId, options : O) : Table<S, M, O> = {
     var idleTimeoutNs = idleTimeoutNs;
     var claimTimeoutNs = claimTimeoutNs;
@@ -31,8 +40,6 @@ module {
 
   public func isExpired<S, M, O>(self : Table<S, M, O>, since : Int, now : Int) : Bool = now - since >= self.idleTimeoutNs;
 
-  public func claimOverdue<S, M, O>(self : Table<S, M, O>, since : Int, now : Int) : Bool = now - since >= self.claimTimeoutNs;
-
   func secsLeftFor(timeoutNs : Int, since : Int, now : Int) : Nat {
     let left = timeoutNs - (now - since);
     if (left <= 0) { 0 } else { left.toNat() / 1_000_000_000 };
@@ -40,7 +47,36 @@ module {
 
   public func secsLeft<S, M, O>(self : Table<S, M, O>, since : Int, now : Int) : Nat = secsLeftFor(self.idleTimeoutNs, since, now);
 
-  public func claimSecsLeft<S, M, O>(self : Table<S, M, O>, since : Int, now : Int) : Nat = secsLeftFor(self.claimTimeoutNs, since, now);
+  /// A `#code` table: what the invite rules (`INVITE_WAIT_NS`,
+  /// `INVITE_GRACE_NS`) apply to.
+  public func isInvite<S, M, O>(self : Table<S, M, O>) : Bool = switch (self.visibility) {
+    case (#code _) true;
+    case (#open) false;
+  };
+
+  func graceNs<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>) : Int {
+    if (self.isInvite() and (g.lastMoveP1.isNull() or g.lastMoveP2.isNull())) INVITE_GRACE_NS else 0;
+  };
+
+  /// The clocks of a running game: the table's timeouts plus any first-move
+  /// grace. Every check on an `#active` phase goes through these.
+  public func gameIdleNs<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>) : Int = self.idleTimeoutNs + graceNs(self, g);
+
+  public func gameClaimNs<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>) : Int = self.claimTimeoutNs + graceNs(self, g);
+
+  public func gameExpired<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>, now : Int) : Bool = now - g.lastActivity >= self.gameIdleNs(g);
+
+  public func gameSecsLeft<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>, now : Int) : Nat = secsLeftFor(self.gameIdleNs(g), g.lastActivity, now);
+
+  public func gameClaimOverdue<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>, now : Int) : Bool = now - g.lastActivity >= self.gameClaimNs(g);
+
+  public func gameClaimSecsLeft<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>, now : Int) : Nat = secsLeftFor(self.gameClaimNs(g), g.lastActivity, now);
+
+  /// Whether a staging is kept for its occupant: within the idle timeout,
+  /// while they are present, or at a `#code` table within `INVITE_WAIT_NS`.
+  func stagingKept<S, M, O>(self : Table<S, M, O>, st : T.Staging, now : Int, isPresent : T.PlayerId -> Bool) : Bool {
+    not self.isExpired(st.since, now) or isPresent(st.session) or (self.isInvite() and now - st.since < INVITE_WAIT_NS);
+  };
 
   /// Whose turn it is on a `#turnBased` table: the rules' own `toMove`.
   /// `null` in `#simultaneous`, where both seats act every step.
@@ -48,10 +84,6 @@ module {
     case (#turnBased turnSpec) ?turnSpec.toMove(game);
     case (#simultaneous _) null;
   };
-
-  public func idleTimeoutSecs<S, M, O>(self : Table<S, M, O>) : Nat = self.idleTimeoutNs.toNat() / 1_000_000_000;
-
-  public func claimTimeoutSecs<S, M, O>(self : Table<S, M, O>) : Nat = self.claimTimeoutNs.toNat() / 1_000_000_000;
 
   /// A session that already acked THIS debrief is no longer a participant
   /// (rule 12, "leave means left"), even while the phase lingers for the
@@ -196,12 +228,12 @@ module {
       case (#active g) {
         if (getSessionSeat(g, session).isSome()) {
           #err(#wrongPhase("you are already in the running game"));
-        } else if (self.isExpired(g.lastActivity, now)) {
+        } else if (self.gameExpired(g, now)) {
           self.noteEnded(now, g.p1, g.p2, []);
           self.stage(now, session, seat, null);
           #ok(#staged(seat));
         } else {
-          #err(#notIdle { secondsLeft = self.secsLeft(g.lastActivity, now) });
+          #err(#notIdle { secondsLeft = self.gameSecsLeft(g, now) });
         };
       };
 
@@ -409,8 +441,8 @@ module {
             };
           };
         };
-        if (not self.claimOverdue(g.lastActivity, now)) {
-          return #err(#notOverdue { secondsLeft = self.claimSecsLeft(g.lastActivity, now) });
+        if (not self.gameClaimOverdue(g, now)) {
+          return #err(#notOverdue { secondsLeft = self.gameClaimSecsLeft(g, now) });
         };
         self.enterDebrief(now, g.p1, g.p2, #claimed(mySeat), g.step, g.game);
         #ok(());
@@ -503,12 +535,12 @@ module {
       case (#active g) {
         if (getSessionSeat(g, session).isSome()) {
           self.leave(now, session, gen);
-        } else if (self.isExpired(g.lastActivity, now)) {
+        } else if (self.gameExpired(g, now)) {
           self.noteEnded(now, g.p1, g.p2, []);
           self.phase := #empty;
           #ok(());
         } else {
-          #err(#notIdle { secondsLeft = self.secsLeft(g.lastActivity, now) });
+          #err(#notIdle { secondsLeft = self.gameSecsLeft(g, now) });
         };
       };
 
@@ -533,12 +565,12 @@ module {
     switch (self.phase) {
       case (#empty) {};
       case (#staging st) {
-        if (self.isExpired(st.since, now) and not isPresent(st.session)) {
+        if (not self.stagingKept(st, now, isPresent)) {
           self.phase := #empty;
         };
       };
       case (#active g) {
-        if (self.isExpired(g.lastActivity, now)) {
+        if (self.gameExpired(g, now)) {
           self.noteEnded(now, g.p1, g.p2, []);
           self.phase := #empty;
         };
@@ -627,19 +659,19 @@ module {
               youSubmitted;
               oppSubmitted;
               gen = self.gen;
-              secondsUntilIdleReset = self.secsLeft(g.lastActivity, now);
-              idleTimeoutSecs = self.idleTimeoutSecs();
-              claimWinAvailable = youSubmitted and not oppSubmitted and self.claimOverdue(g.lastActivity, now);
-              secondsUntilClaimable = self.claimSecsLeft(g.lastActivity, now);
-              claimTimeoutSecs = self.claimTimeoutSecs();
+              secondsUntilIdleReset = self.gameSecsLeft(g, now);
+              idleTimeoutSecs = self.gameIdleNs(g).toNat() / 1_000_000_000;
+              claimWinAvailable = youSubmitted and not oppSubmitted and self.gameClaimOverdue(g, now);
+              secondsUntilClaimable = self.gameClaimSecsLeft(g, now);
+              claimTimeoutSecs = self.gameClaimNs(g).toNat() / 1_000_000_000;
             };
           };
           case null {
-            if (self.unackedEnded(session)) { #endedByOther } else if (self.isExpired(g.lastActivity, now)) {
+            if (self.unackedEnded(session)) { #endedByOther } else if (self.gameExpired(g, now)) {
               #lobby { p1Open = true; p2Open = true; resetAvailable = true };
             } else {
               #busy {
-                secondsUntilTakeover = self.secsLeft(g.lastActivity, now);
+                secondsUntilTakeover = self.gameSecsLeft(g, now);
               };
             };
           };

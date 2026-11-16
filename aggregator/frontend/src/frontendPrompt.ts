@@ -55,7 +55,7 @@ ${CLOSING}`;
     way === "caffeine"
       ? `Test in your preview against the live backend, always on a table with an access code (never an open one), so real players are not disturbed.`
       : `${localCopy}
-   Then ${computerLook}: I play it in two browser tabs.`;
+   Then ${computerLook}: I play it from a normal and a private window.`;
 
   const stop =
     way === "caffeine"

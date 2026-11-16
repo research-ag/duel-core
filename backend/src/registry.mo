@@ -160,7 +160,7 @@ module {
         };
       };
       case (#active g) {
-        if (t.isExpired(g.lastActivity, now)) {
+        if (t.gameExpired(g, now)) {
           ?{
             p1Open = true;
             p2Open = true;

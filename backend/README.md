@@ -13,9 +13,15 @@ diagrams; this page is the API.
   a bot, which only joins when invited, at `MAX_TABLES_PER_CANISTER_PLAYER`
   (25) per complexity.
 - **Tables**: anyone opens a table, `#open` or protected by an access
-  code shared out of band. Both kinds are browsable (a protected one is
-  flagged, and shows who already holds a seat); any number run at once,
-  routed by one `Registry`.
+  code shared out of band (in practice an invite link). Both kinds are
+  browsable (a protected one is flagged, and shows who already holds a
+  seat); any number run at once, routed by one `Registry`.
+- **Invites**: a `#code` table is an invite to one friend, who may
+  arrive while its creator is in another app. It waits
+  `Table.INVITE_WAIT_NS` (30 min) for them without its creator being
+  present, and until each seat has moved once, its game's claim and
+  idle clocks run `Table.INVITE_GRACE_NS` (10 min) longer. Both are
+  constants, so neither changes a stable type.
 - **Seating**: two players take seats `#p1`/`#p2`; a third is turned
   away while a match is in progress.
 - **Rounds**: a `#simultaneous` game resolves once both seats have
@@ -36,7 +42,8 @@ diagrams; this page is the API.
 - **Idle takeover**: after `idleTimeoutNs`, third parties may reset a
   dead game or start over an expired debrief. A table waiting for an
   opponent is never taken over: the sweep clears it once it is past
-  `idleTimeoutNs` and its creator stopped sending `duel_keep_alive`.
+  `idleTimeoutNs` and its creator stopped sending `duel_keep_alive`
+  (a `#code` table once it is also past `INVITE_WAIT_NS`).
   Abandoned tables are garbage-collected, including pruning
   `#endedByOther` notices nobody will ever ack.
 - **Views**: one truthful per-caller `View` of a table, including the
@@ -312,7 +319,8 @@ present and does nothing else; a client sends it every
 `KEEP_ALIVE_SECS` (20) while waiting at a table for an opponent. The
 mixin's timer runs `Duel.sweep` every `SWEEP_SECS` (30): it clears
 expired tables (a waiting one survives while its creator is present —
-heard from within `PRESENCE_TTL_NS`, 60 s), bumps the revs of what it
+heard from within `PRESENCE_TTL_NS`, 60 s — and a waiting `#code` table
+for `INVITE_WAIT_NS` in any case), bumps the revs of what it
 changed, prunes presence, and settles canister players everywhere.
 Silence never ends a game in progress; `claimWin` and idle takeover do.
 
@@ -781,7 +789,10 @@ seat NOT on turn may `claimWin`; the seat on turn gets `#wrongPhase`.
 **Claiming an overdue win.** After `claimTimeoutNs` (independent of and
 normally well below `idleTimeoutNs`), the waiting player may end the
 match with `End.#claimed seat`; `resolve` is not run and the state stays
-as it was. Too early is `Err.#notOverdue { secondsLeft }`.
+as it was. Too early is `Err.#notOverdue { secondsLeft }`. At a `#code`
+table both clocks get `INVITE_GRACE_NS` more until each seat has moved
+once (`Table.gameClaimNs`/`gameIdleNs`, which the `#inGame` view's
+countdowns and `claimTimeoutSecs`/`idleTimeoutSecs` report).
 
 **Design guarantees** (each maps to a bug class in ad-hoc backends; all
 hold at both the `Table` and `Registry` layer):
