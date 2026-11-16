@@ -64,6 +64,12 @@ export const Copy = () => (
   </svg>
 );
 
+export const External = () => (
+  <svg {...base}>
+    <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  </svg>
+);
+
 export const Check = () => (
   <svg {...base}>
     <path d="m5 12 5 5L20 7" />

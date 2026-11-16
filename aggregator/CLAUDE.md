@@ -73,8 +73,9 @@ wraps `AuthClient` (login required for writes; browsing is anonymous).
   principal shortened beside it.
 - `Modal.tsx` is the one dialog shell (blurred backdrop, Escape/backdrop
   close, scroll lock). `CodeBlock.tsx` is shared by the guides and the
-  info dialog (`wrap` for prose; `CopyId`, a principal with a copy
-  button, in the info dialog's Developer row and the profile popover).
+  info dialog (`wrap` for prose; `open`, an **Open in Claude Code**
+  link beside Copy; `CopyId`, a principal with a copy button, in the
+  info dialog's Developer row and the profile popover).
   `Icons.tsx` holds the inline SVG icons and the brand mark.
 
 **The guides.** `Wizard.tsx` is the two-pane stepper every guide is
@@ -107,6 +108,12 @@ built on (`initialStep`, and `reachable` locking later steps).
     page tops up a balance), `DeploySessionNote` (what needs a deploy
     session, and checking its request code) and `IcpIdentitySteps` (an
     icp identity and cycles).
+  - `OpenNote`, under each hosty.live prompt.
+- `ENV_SETUP_PROMPT` and the three hosty.live prompts open in a new
+  cloud session through `claudeCodeLink` (`claude.ai/code/new?q=`, the
+  prompts with `environment=hosty.live`): the prompt in the message box,
+  not sent, in a browser or in the Claude app on a phone (which takes no
+  environment). The own and caffeine.ai ways have no link.
 - The texts are in `cloudSession.ts`: `loadSkill`, the one paragraph
   every hosty.live prompt carries (load the skill from `SKILL_URL` with
   the connector's `hosty_get_skill`, or one of its references for the

@@ -7,7 +7,7 @@
 import { useRef, useState } from "react";
 import type { RefObject } from "react";
 
-import { Check, Copy } from "./Icons";
+import { Check, Copy, External } from "./Icons";
 
 type CopyState = "idle" | "done" | "failed";
 
@@ -41,16 +41,33 @@ const LABEL: Record<CopyState, string> = {
 };
 
 /// `wrap` is for prose (a prompt): long lines fold instead of scrolling.
-export function CodeBlock({ code, wrap }: { code: string; wrap?: boolean }) {
+/// `open` is a `claudeCodeLink` for the prompt, beside Copy.
+export function CodeBlock({
+  code,
+  wrap,
+  open,
+}: {
+  code: string;
+  wrap?: boolean;
+  open?: string;
+}) {
   const pre = useRef<HTMLPreElement>(null);
   const [state, copy] = useCopy(code, pre);
 
   return (
-    <div className={`code-block${wrap ? " wrap" : ""}`}>
-      <button type="button" className={`copy ${state}`} onClick={copy}>
-        {state === "done" ? <Check /> : <Copy />}
-        {LABEL[state]}
-      </button>
+    <div className={`code-block${wrap ? " wrap" : ""}${open ? " opens" : ""}`}>
+      <div className="code-actions">
+        {open && (
+          <a className="open" href={open} target="_blank" rel="noreferrer">
+            <External />
+            Open in Claude Code
+          </a>
+        )}
+        <button type="button" className={`copy ${state}`} onClick={copy}>
+          {state === "done" ? <Check /> : <Copy />}
+          {LABEL[state]}
+        </button>
+      </div>
       <pre ref={pre}>{code}</pre>
     </div>
   );

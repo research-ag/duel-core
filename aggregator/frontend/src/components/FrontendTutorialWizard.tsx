@@ -10,6 +10,7 @@
 
 import { useState } from "react";
 
+import { claudeCodeLink, ENV_NAME } from "../cloudSession";
 import type { Way } from "../cloudSession";
 import { frontendPrompt } from "../frontendPrompt";
 import type { AggregatorActor, GameView, Target } from "../types";
@@ -18,6 +19,7 @@ import {
   HostyCycles,
   HostySetup,
   IcpIdentitySteps,
+  OpenNote,
   OwnSetup,
 } from "./CloudSessionSetup";
 import { CodeBlock } from "./CodeBlock";
@@ -180,18 +182,24 @@ function SetupStep({ way }: { way: Way }) {
 }
 
 function PromptStep({ target, way }: { target: Target; way: Way }) {
+  const prompt = frontendPrompt(target, way);
   return (
     <>
       <p>
-        This prompt is filled in for <strong>{target.game.title}</strong>. Copy
+        This prompt is filled in for <strong>{target.game.title}</strong>. Use
         it as it is.
       </p>
-      <CodeBlock code={frontendPrompt(target, way)} wrap />
+      <CodeBlock
+        code={prompt}
+        wrap
+        open={way === "hosty" ? claudeCodeLink(prompt, ENV_NAME) : undefined}
+      />
       <p className="hint">
         You don't need to understand it. It points the AI at the game's rules
         and at the framework's playbook for exactly this task: how to talk to
         the game, how to test, and what not to touch.
       </p>
+      {way === "hosty" && <OpenNote />}
     </>
   );
 }
