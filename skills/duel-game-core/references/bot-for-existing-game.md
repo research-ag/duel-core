@@ -330,10 +330,14 @@ unasked:
      a staging copy") does;
    - the bot beside it:
      `hosty_create_canister { network: "cloud", kind: "backend", alias: "<game name> bot" }`,
-     `icp build bot`, `hosty_prepare_wasm_upload`;
-   - `register` on the copy through `hosty_call_canister` with
-     `update: true` and no session (the call signs as hosty's builder, the
-     copy's controller; `going-live.md`, section 3);
+     `icp build bot`, `hosty_prepare_wasm_upload`, its `curl` command
+     run from the project root, and `hosty_wait_for_deployment` until
+     `finished: true` (`going-live.md`, section 3, "The backend (and a
+     bot)");
+   - `register` through `hosty_call_canister` on the bot, argument
+     `(principal "<copy-id>", "<Bot Name>")`, with `update: true` and no
+     session (the call signs as hosty's builder, the bot's controller;
+     `going-live.md`, section 3);
    - a page: any duel-game-core frontend built with its backend
      constant at the copy, or one uploaded into a cloud engine page
      with `PUBLIC_CANISTER_ID:backend` set to the copy.

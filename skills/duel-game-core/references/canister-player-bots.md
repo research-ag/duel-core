@@ -113,20 +113,28 @@ stable.
 
 - **Per match**: `(req.tableId, req.gen)`; `req.step == 0` is a cruder
   signal for "fresh match".
-- **Per decision**: `(req.tableId, req.gen, req.step)`, the key a retry
-  repeats (next section).
+- **Per decision**: `(req.tableId, req.gen, req.seat, req.step)`, the
+  key a retry repeats (next section). The seat belongs in it: one bot
+  canister can hold both seats of a table under two complexities.
 - **Per opponent**: `req.opponent` (for a bot, one id per complexity;
   its principal to pool them).
 
 ## The retry pitfall: upsert, never append
 
 A retried action calls `make_move` a second time with the same
-`tableId`/`gen`/`step` and `retryReason` set. Appending your own move
-logs it twice, and counting `opponentLastMove` again counts it twice.
-There is no "accepted" callback either (even a legal reply may not land
-if the table moved on). Treat `(tableId, gen, step)` as one decision
-point: overwrite by that key, and learn from the opponent only on a
-fresh ask.
+`tableId`/`gen`/`seat`/`step` and `retryReason` set. Appending your own
+move logs it twice. There is no "accepted" callback either (even a
+legal reply may not land if the table moved on). Treat that key as one
+decision point and overwrite by it.
+
+`opponentLastMove` repeats without a retry too: a re-ask at the same
+step, and every further action of the bot's own turn in `#turnBased`
+(a turn of several actions, a repeat turn), carry the opponent move
+the bot has already seen. Learn from it only when the opponent has
+acted since the last ask: keep the step of that ask per
+`(tableId, gen, seat)`. In `#simultaneous` every new step holds an
+opponent move; in `#turnBased` the step after the last ask was the
+bot's own action, so only a later one does.
 
 ## A worked sketch
 
@@ -153,8 +161,29 @@ actor {
   let opponentModels : Map.Map<Text, OpponentModel> = Map.empty();
   let myMoves : Map.Map<Text, Rules.Action> = Map.empty();
 
+  let lastAsked : Map.Map<Text, Nat> = Map.empty(); // step of the last ask, per seatKey
+
+  func seatKey(req : TP.MoveRequest<Rules.View, Rules.Action>) : Text {
+    req.tableId.toText() # "/" # req.gen.toText() # "/" # debug_show (req.seat);
+  };
+
   func decisionKey(req : TP.MoveRequest<Rules.View, Rules.Action>) : Text {
-    req.tableId.toText() # "/" # req.gen.toText() # "/" # req.step.toText();
+    seatKey(req) # "/" # req.step.toText();
+  };
+
+  // True when the opponent acted since this seat's last ask; records this ask.
+  func opponentMovedSince(req : TP.MoveRequest<Rules.View, Rules.Action>) : Bool {
+    let moved = switch (lastAsked.get(seatKey(req))) {
+      case null true;
+      case (?prev) {
+        switch (req.mode) {
+          case (#simultaneous) req.step > prev;
+          case (#turnBased) req.step > prev + 1;
+        };
+      };
+    };
+    lastAsked.add(seatKey(req), req.step);
+    moved;
   };
 
   func opponentKey(req : TP.MoveRequest<Rules.View, Rules.Action>) : Text {
@@ -198,7 +227,7 @@ actor {
   };
 
   public func make_move(req : TP.MoveRequest<Rules.View, Rules.Action>) : async Rules.Action {
-    if (req.retryReason == null) learnFrom(req); // a retry saw this move already
+    if (opponentMovedSince(req)) learnFrom(req); // a retry or a re-ask saw this move already
     let m = modelFor(opponentKey(req));
     let chosen : Rules.Action = if (m.rockCount > m.paperCount) #paper else #rock; // your strategy over `m`
     myMoves.add(decisionKey(req), chosen); // a retry overwrites, never appends

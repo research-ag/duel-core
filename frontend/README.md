@@ -1,19 +1,20 @@
 # @research-ag/duel-game-core
 
 Rules-agnostic browser client for any canister built on the
-[`duel-game-core`](https://github.com/research-ag/duel-core/blob/main/backend/README.md) Motoko engine, in three layers a
-game takes as much or as little of as it wants:
+[`duel-game-core`](https://github.com/research-ag/duel-core/blob/main/backend/README.md)
+Motoko engine, in three layers a game takes as much or as little of as
+it wants:
 
-- **`client.js`, the headless client.** `createDuelClient({ transport, session })`
-  owns the transport, the current `Status`, the one call in flight, error
-  lifetime, the session-identity lock, and the stale-view resync, and
-  publishes an immutable state snapshot to subscribers. No DOM, no HTML.
-  A game with its own UI (any framework, any look) binds this and nothing
-  else.
+- **`client.js`, the headless client.**
+  `createDuelClient({ transport, session })` owns the transport, the current `Status`, the one call in
+  flight, error lifetime, the session-identity lock, and the stale-view
+  resync, and publishes an immutable state snapshot to subscribers. No
+  DOM, no HTML. A game with its own UI (any framework, any look) binds
+  this and nothing else.
 - **`render.js`, the default UI components.** Pure `view -> HTML` functions
-  for every screen that is the same for every game — the multi-table
+  for every screen that is the same for every game (the multi-table
   lobby, staging, rematch offer, busy countdown, debrief chrome, the
-  `#endedByOther` notice — each exported on its own, plus the leaderboard,
+  `#endedByOther` notice), each exported on its own, plus the leaderboard,
   bot list, and seat picker a game mounts itself (`bots.js` mounts all
   three as overlays).
 - **`app.js`, the default shell.** `start({ plugin, transport, session })` wires
@@ -27,9 +28,9 @@ In every layer a game supplies the same small **GamePlugin**: three
 Candid types, seat labels, and how to draw the board and action buttons.
 
 TypeScript, published pre-compiled: `npm run build` produces `dist/`,
-which every import (`@research-ag/duel-game-core/app.js`, ...) resolves to. Consumers
-need no build step. Dependency-free except for five documented files:
-`transport.js` (`@icp-sdk/core/candid`), `identity.js`
+which every import (`@research-ag/duel-game-core/app.js`, ...) resolves
+to. Consumers need no build step. Dependency-free except for five
+documented files: `transport.js` (`@icp-sdk/core/candid`), `identity.js`
 (`@icp-sdk/auth`, `@icp-sdk/core/identity`), `anon-identity.js`
 (`@icp-sdk/core/identity` only), and `bots.js` and `module-store.js`
 (`@icp-sdk/core/agent`, `@icp-sdk/core/principal`).
@@ -115,8 +116,8 @@ const plugin = {
 
 Only `renderBoard`/`renderActions` return game markup. Everything else
 (step counter, "opponent is deciding"/"locked in" or "Your turn"/
-"Opponent's turn" for a `turnBased` table — `InGameView.toMove` says
-whose, `step` counts applied actions —, verdict banner,
+"Opponent's turn" for a `turnBased` table, where `InGameView.toMove`
+says whose and `step` counts applied actions, verdict banner,
 rematch/leave/forfeit buttons, claim-win controls) is the default chrome
 driven by `InGameView`, replaceable per screen (below) or wholesale
 ("The headless client").
@@ -150,8 +151,8 @@ Two things a player must always see, whatever the UI:
 ## Wiring it up
 
 You build the `actor` (this package imports no agent and no CDN), a
-`session` (required), and a `transport` over the same identity (required, no
-polling mode):
+`session`, and a `transport` over the same identity; `start()` requires
+both:
 
 ```js
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
@@ -192,15 +193,15 @@ Element ids `start()` uses (all overridable, `start({ ..., sidElId })`):
 />
 ```
 
-- `sid` — the session id (per tab; a second tab is a second player).
-- `new-sid` — discards the persisted anonymous keypair and reloads.
+- `sid`: the session id (per tab; a second tab is a second player).
+- `new-sid`: discards the persisted anonymous keypair and reloads.
   Hidden for a logged-in session or one without `regenerate`; disabled
   while the sid holds a seat, since swapping identity would abandon it.
-- `duel-auth-btn` — login/logout, wired only when `session` provides
+- `duel-auth-btn`: login/logout, wired only when `session` provides
   both.
-- `screen` — where `renderStatus` output goes; clicks are delegated from
+- `screen`: where `renderStatus` output goes; clicks are delegated from
   here so re-rendering never leaks listeners.
-- `error` — transient rejections, auto-hidden after 5s (`errorTtlMs`).
+- `error`: transient rejections, auto-hidden after 5s (`errorTtlMs`).
   "Reconnecting…" while a lost connection is redone (the screen stays
   live; clicks queue behind the reopen). A closed transport is terminal:
   the banner stays with a "Reload to reconnect" button and every button
@@ -253,8 +254,8 @@ keeping the final round's two picks on it.
 
 ## The headless client
 
-For a UI that is not "our screens plus CSS" — a framework app, a canvas
-game with its own lobby, a different interaction model — skip `app.js`
+For a UI that is not "our screens plus CSS" (a framework app, a canvas
+game with its own lobby, a different interaction model), skip `app.js`
 and bind `client.js` yourself:
 
 ```js
@@ -277,7 +278,7 @@ client.subscribe((state, prev) => {
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `connection`     | `"connecting"` / `"open"` / `"reconnecting"` (lost, being redone; calls queue) / `"closed"` (terminal: reload)                                             |
 | `status`         | the last `Status` received (the first may be `transport.queryStatus`'s, still `"connecting"`), `null` before one; structurally equal views never re-notify |
-| `statusAt`       | `Date.now()` when `status` last changed — every `secondsUntilX` is only as fresh as that; `localSecondsLeft(secs, statusAt)` counts down from it           |
+| `statusAt`       | `Date.now()` when `status` last changed; every `secondsUntilX` is only as fresh as that; `localSecondsLeft(secs, statusAt)` counts down from it            |
 | `pending`        | `{ key, req }` while one call is out (`create:p1`, `jointable:3:p2`, `act:{"pass":null}`, `rematch`, `leave`, `reset`, `claim-win`, `ack`); at most one    |
 | `error`          | a transient message (cleared after `errorTtlMs`), or the permanent "Connection closed."                                                                    |
 | `authPending`    | a login/logout/regenerate is under way                                                                                                                     |
@@ -316,6 +317,7 @@ pre-move position. Anything derived from consecutive views (a move log,
 an opponent-move replay) should read the same local status: it then sees
 your move and the opponent's as two steps even when the server delivers
 both in one view.
+
 `render.js`'s text helpers (`debriefVerdict`, `opponentStatusText`, the
 warning thresholds and texts) are pure too and free to reuse or ignore.
 
@@ -329,21 +331,15 @@ same client.
 
 ## Transport
 
-**Naming.** The link is `transport` everywhere: `start({ plugin,
-transport, session })`, `createDuelClient({ transport, session })`, and
-the `Transport` / `TransportRequest` / `TransportPayload` types. (These
-replaced `ws`, `DuelWs`, `WsRequest` and `WsPayload` from the WebSocket
-era; the old names are gone, so a game written against them must be
-renamed.)
-
 `connectTransport()` builds a `DuelTransport` (`transport.js`) that
-speaks `mo:duel-game-core/transport`'s methods; [`DESIGN.md`](https://github.com/research-ag/duel-core/blob/main/DESIGN.md)
+speaks `mo:duel-game-core/transport`'s methods;
+[`DESIGN.md`](https://github.com/research-ag/duel-core/blob/main/DESIGN.md)
 has the flows as diagrams. The caller's principal is the player; the
 `sid` the client passes around is only this tab's label for it.
 
 **Following one source.** Every read is a query. The transport follows
-the lobby (`duel_lobby(rev)`) or one table (`duel_table(id, rev)`) —
-the newest of the caller's own tables (`yours`) when there is one — and
+the lobby (`duel_lobby(rev)`) or one table (`duel_table(id, rev)`),
+the newest of the caller's own tables (`yours`) when there is one, and
 composes what it sees into the `Status` a client renders:
 `{ browsing: { tables } }` or `{ atTable: { id, view } }`. Each source
 answers `unchanged` while the `rev` asked with is current, so polling an
@@ -358,7 +354,7 @@ the latest snapshot and may skip intermediate ones.
 **Requests.** A move is one `duel_submit` update whose reply is the
 table's fresh view. Every other mutation (`createTable`, `joinTable`,
 `rematch`, `leave`, `reset`, `claimWin`, `ackEnded`) is an update
-replying with an `Ack` — the table and its `rev` after the call; the
+replying with an `Ack`, the table and its `rev` after the call; the
 transport follows that table and polls until its view has caught up
 (a replica answering the query may lag the update briefly). Table
 requests go to the table the transport follows when they are made, and a
@@ -388,7 +384,7 @@ two queries without touching the link. `createDuelClient` uses it, so
 the first screen lands in one or two query round trips; whatever the
 transport then delivers supersedes it.
 
-**The actor must sign as the player's identity** — the one that
+**The actor must sign as the player's identity**: the one that
 produced `session.sid`. The canister refuses the anonymous principal,
 so never build the agent without an identity. `resolveIdentity()`/
 `resolveAnonymousIdentity()` return a matched `{ identity, principal,
@@ -408,7 +404,7 @@ in a row, or an update call that kept failing, presume the link lost:
 `onconnecting` fires and the next tick resyncs, backing off up to 5 s.
 `onopen` fires again on every confirmed relink (`client.js` asks for a
 fresh `#status` then, coalesced with the transport's own). Coming back
-— the tab visible again, `online`, `pageshow` — ticks at once.
+(the tab visible again, `online`, `pageshow`) ticks at once.
 `onerror` fires only on a second consecutive failure, since a lone blip
 self-heals within a tick.
 
@@ -442,10 +438,11 @@ of opening a second one. `transport.send(msg)` is fire-and-forget;
   local Internet Identity.
 - Returns `login()`/`logout()` (each reloads the page) and `regenerate()`
   (anonymous only; discards the keypair and reloads). Identity changes
-  always take effect by reload — nothing rebuilds actor/transport in place.
+  always take effect by reload; nothing rebuilds actor/transport in
+  place.
 
-Both kinds sit at the same tables; the engine only compares session ids
-for equality, and the transport binds every legal sid to a principal.
+Both kinds sit at the same tables: the canister sees only the caller's
+principal, whichever way it signed in.
 
 ## Bots and the leaderboard
 
@@ -525,9 +522,10 @@ href="https://games.ic0.info/" target="_blank" rel="noopener">More games
   `renderLeaderboard(entries, plugin, { yourSid, botNames })`; a bot
   row's Challenge closes it and calls `onChallenge`. Leave `onChallenge`
   out (and `list_bots` off `actor`) for a game without bots.
-- Every element id is overridable (`ids: { panel, body, back, addPanel,
-addTrigger }` and `ids: { toggle, panel, body, back }`); only each
-  panel and body are required.
+- Every element id is overridable
+  (`ids: { panel, body, back, addPanel, addTrigger }` and
+  `ids: { toggle, panel, body, back }`); only each panel and body are
+  required.
 
 **Rematch against a bot.** The human's Rematch stages the same table
 with the seat reserved for the bot's `cp:` player, and nothing asks a
@@ -560,11 +558,11 @@ env var.
 
 ## Optional: `ic-env.js`
 
-`deriveHost()` picks the agent host for the current location
-(localhost, the parent domain on icp0.io/ic0.app, the page's own origin
-on icp.net, `icp-api.io` as a last resort). `start()` never calls it. For the `ic_env` cookie the frontend canister
-sets (canister ids, root key), use `safeGetCanisterEnv()` from
-`@icp-sdk/core/agent/canister-env`.
+`deriveHost()` picks the agent host for the current location (localhost,
+the parent domain on icp0.io/ic0.app, the page's own origin on icp.net,
+`icp-api.io` as a last resort). `start()` never calls it. For the
+`ic_env` cookie the frontend canister sets (canister ids, root key), use
+`safeGetCanisterEnv()` from `@icp-sdk/core/agent/canister-env`.
 
 ## Fetching a game's module
 
@@ -620,8 +618,9 @@ module hash and keep the module when it matches.
 | `ic-env.js`        | `deriveHost()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `bots.js`          | `mountBotChallenge(opts)` -> `BotChallenge`, `mountLeaderboard(opts)`, `createBotInviter(opts)` -> `BotInviter`, `botPlayer(agent, backendId)`, `botRefOf`, `stagingOf`, `botErrText`; depends on `@icp-sdk/core/agent`, `@icp-sdk/core/principal`                                                                                                                                                                                                                                                                                                                                                                                  |
 | `module-store.js`  | `fetchGameModule(canisterId, { agent?, readModuleHash?, download? })` -> `{ hash, bytes, gzipped }`, `readModuleHash`, `moduleMeta`, `requestVerification`, `rawWasm`, `sha256Hex`, `isGzip`, `fetchDownload`, `MODULE_STORE`; depends on `@icp-sdk/core/agent`                                                                                                                                                                                                                                                                                                                                                                     |
-| `transport.js`     | `connectTransport({ actor, gameIdlTypes, intervalMs?, keepAliveMs?, pollTimeoutMs? })`, `DuelTransport` — lobby/table queries, serialized requests, keep-alive, relink policy                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `transport.js`     | `connectTransport({ actor, gameIdlTypes, intervalMs?, keepAliveMs?, pollTimeoutMs? })`, `DuelTransport`: lobby/table queries, serialized requests, keep-alive, relink policy                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `style.css`        | generic layout primitives                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
-See [`backend/README.md`](https://github.com/research-ag/duel-core/blob/main/backend/README.md) for the `Spec`
-contract.
+See
+[`backend/README.md`](https://github.com/research-ag/duel-core/blob/main/backend/README.md)
+for the `Spec` contract.

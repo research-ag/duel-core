@@ -1,57 +1,57 @@
-# checkers — reference #turnBased game built on duel-game-core
+# checkers: reference #turnBased game built on duel-game-core
 
 Standard English draughts, proving the engine's `#turnBased` mode end
 to end. Not part of either package.
 
-- **`src/CheckersRules.mo`** — pure rules; `spec` is `#turnBased {
-checkOptions; init; toMove; move; view }` (`State = { board; toMove }`,
-  Black/`#p1` first, `resolve` flips `toMove`; `move` = `validate` then
-  `resolve`; `View = State`, `Options = {}`). `legalActions(s, seat)`
-  enumerates every legal `Action`
-  (only maximal `#jump` chains when a capture is mandatory) and is what
-  `BotLogic.mo` consumes. The doc header lists the deliberate
+- **`src/CheckersRules.mo`**: pure rules; `spec` is
+  `#turnBased { checkOptions; init; toMove; move; view }`
+  (`State = { board; toMove }`, Black/`#p1` first, `resolve` flips
+  `toMove`; `move` = `validate` then `resolve`; `View = State`,
+  `Options = {}`). `legalActions(s, seat)` enumerates every legal
+  `Action` (only maximal `#jump` chains when a capture is mandatory) and
+  is what `BotLogic.mo` consumes. The doc header lists the deliberate
   simplifications against tournament draughts.
-- **`src/Host.mo`** — the reference host with everything: stable
-  `duel = Transport.new()` (90s/60s), `bots = CanisterPlayers.newStore()`
-  and `leaderboard = Leaderboard.new(50, 1200)`; one `transient let env
-: Transport.Env<…> = { spec = Rules.spec; bots = ?{ store = bots; call
-= BotIface.callBot }; scoring = ?{ board = leaderboard; rating = #elo {
-k = 32 } } }`; `include TransportActorMixin<system>(duel.lobby(env))`,
-  the host's own `duel_create_table`/`duel_lobby`/`duel_submit`/
-  `duel_table`, metrics, `include
-CanisterPlayersActorMixin(duel.canisterPlayers(env), bots.directory, ?leaderboard)`
+- **`src/Host.mo`**: the reference host with everything: stable
+  `duel = Transport.new()` (90s/60s),
+  `bots = CanisterPlayers.newStore()` and
+  `leaderboard = Leaderboard.new(50, 1200)`; one
+  `transient let env : Transport.Env<…> = { spec = Rules.spec; bots = ?{ store = bots; call = BotIface.callBot }; scoring = ?{ board = leaderboard; rating = #elo { k = 32 } } }`;
+  `include TransportActorMixin<system>(duel.lobby(env))`, the host's own
+  `duel_create_table`/`duel_lobby`/`duel_submit`/`duel_table`, metrics,
+  `include CanisterPlayersActorMixin(duel.canisterPlayers(env), bots.directory, ?leaderboard)`
   and `LeaderboardActorMixin`. A bot is rated per complexity (its player
   id). See `../../DESIGN.md` and `../../backend/README.md`.
-- **`src/BotIface.mo`** — the `CanisterPlayer` interface (`make_move`
+- **`src/BotIface.mo`**: the `CanisterPlayer` interface (`make_move`
   over `MoveRequest<View, Action>`) and `callBot`, which recovers the
   bot principal via `principalOfCanisterSession` and `await`s
   `make_move` in a `try`/`catch`.
-- **`bot/BotLogic.mo`** — `chooseMove` picks `legalActions(...)[step %
-n]`; no lookahead. Separate from `Bot.mo` so `Bot.test.mo` calls it
-  directly.
-- **`bot/Bot.mo`** — the bot canister: `make_move` as a `query`,
-  `play(host, tableId, seat, code, complexity)` (Flow 1 self-join via
+- **`bot/BotLogic.mo`**: `chooseMove` picks
+  `legalActions(...)[step % n]`; no lookahead. Separate from `Bot.mo` so
+  `Bot.test.mo` calls it directly.
+- **`bot/Bot.mo`**: the bot canister: `make_move` as a `query`,
+  `play(host, tableId, seat, code, complexity)` (self-join via
   `join_table_as_canister`), `register(host, name)`/`unregister(host)`
   (registers `[]`, listed as "Default"). Register once by hand:
   `icp canister call bot register '(principal "<backend-canister-id>", "CheckersBot")'`.
-- **`test/*.test.mo`** — `RulesUnit` (synthetic boards: forward-only men,
+- **`test/*.test.mo`**: `RulesUnit` (synthetic boards: forward-only men,
   kings, mandatory capture, maximal chains, promotion, win by elimination
   and stalemate); `Lifecycle` (join, opening moves, then seed
   `Table.phase` to one capture from the end); `Bot` (`chooseMove` stays
   within `legalActions`, then two canister-seated bots play several real
   plies through `canister_players`).
-- **`icp.yaml`** — `backend`, `bot`, and `frontend/dist`.
-- **`frontend/`** — `checkers-plugin.js` renders the 8x8 board
+- **`icp.yaml`**: `backend`, `bot`, and `frontend/dist`.
+- **`frontend/`**: `checkers-plugin.js` renders the 8x8 board
   click-to-select: while `yourTurn`, movable pieces highlight, clicking
-  one shows destinations, and the finishing click is a real `<button
-data-act>` while intermediate clicks are local `<div data-sq>` state
-  handled by the plugin's own listener; a multi-jump chain is built one
-  click at a time; the board is flipped for Red. The opponent's last move
-  (origin `.cb-last-from`, landing `.cb-last-to`, captured pieces as
-  faded ghosts `.cb-last-captured`) is found by diffing consecutive
-  boards, since `State` has no move history. `applyLocal` mirrors
-  `resolve` (captures, crowning) so your own move shows while it is in
-  flight. `renderActions` returns `""`. `app.js` wires identity, `connectTransport`, `start()`, and
+  one shows destinations, and the finishing click is a real
+  `<button data-act>` while intermediate clicks are local
+  `<div data-sq>` state handled by the plugin's own listener; a
+  multi-jump chain is built one click at a time; the board is flipped
+  for Red. The opponent's last move (origin `.cb-last-from`, landing
+  `.cb-last-to`, captured pieces as faded ghosts `.cb-last-captured`) is
+  found by diffing consecutive boards, since `State` has no move
+  history. `applyLocal` mirrors `resolve` (captures, crowning) so your
+  own move shows while it is in flight. `renderActions` returns `""`.
+  `app.js` wires identity, `connectTransport`, `start()`, and
   `bots.js`'s `mountBotChallenge`/`mountLeaderboard` over the 🏆 and 🤖
   overlays in `index.html` (the same `app.js` in every default-UI
   example; see `frontend/README.md`, "Bots and the leaderboard").
@@ -66,15 +66,15 @@ moc 2.0.0. Same dependency notes as `examples/007/CLAUDE.md`; see
 ```bash
 cd examples/checkers
 mops install
-moc --check $(mops sources) src/CheckersRules.mo
-moc --check $(mops sources) src/Host.mo
+"$(mops toolchain bin moc)" --check $(mops sources) src/CheckersRules.mo
+"$(mops toolchain bin moc)" --check $(mops sources) src/Host.mo
 mops test                  # all three; `mops test Bot` for the bot
 
 (cd ../../frontend && npm run build)
 cd frontend && npm install && npm run build && node --check dist/app.js && cd ..
 
 icp deploy
-icp deploy --network ic
+icp deploy -e ic           # mainnet; spends cycles
 ```
 
 Then play both seats in two tabs: turn alternation, mandatory capture, a
@@ -88,7 +88,7 @@ Everything in `../../CLAUDE.md`, plus:
 2. **The generic screens are never vendored here.**
 3. **`checkers-plugin.js`'s `stepTargets`/`jumpTargets` and
    `CheckersRules.mo`'s move generation are independent implementations
-   of the same rules** — Motoko is authoritative, JS is cosmetic. Keep
+   of the same rules**: Motoko is authoritative, JS is cosmetic. Keep
    both in sync.
 
 ## Game-rule notes (src/CheckersRules.mo)
