@@ -240,10 +240,10 @@ function BuildStep({ way }: { way: Way }) {
         </p>
       )}
       <p>
-        Open the page in two browsers, or a normal and a private window, and play
-        a game against yourself: start a table in one, join it from the other.
-        Ask for changes until it is what you had in mind. Nothing has to be paid
-        for up to here
+        Open the page in two browsers, or a normal and a private window, and
+        play a game against yourself: start a table in one, join it from the
+        other. Ask for changes until it is what you had in mind. Nothing has to
+        be paid for up to here
         {way === "caffeine" ? " beyond your plan" : ""}.
       </p>
       {way !== "own" && (
