@@ -268,13 +268,16 @@ export function linkUrl(link: DuelLink): string {
   return location.origin + location.pathname + location.search + linkFragment(link);
 }
 
-/// Hands `url` to the device's share sheet, or copies it where there is
-/// none. `"cancelled"`: the player closed the share sheet.
-export async function shareLink(url: string, text: string): Promise<"shared" | "cancelled" | "copied" | "failed"> {
+/// Hands `url` to a touch device's share sheet, and copies it anywhere
+/// else (a desktop's share sheet hides the copy). The sheet gets the URL
+/// alone: its "Copy" would otherwise paste extra text into the address
+/// bar, into the code. `"cancelled"`: the player closed the share sheet.
+export async function shareLink(url: string): Promise<"shared" | "cancelled" | "copied" | "failed"> {
   const nav = globalThis.navigator as Navigator | undefined;
-  if (typeof nav?.share === "function") {
+  const touch = globalThis.matchMedia?.("(pointer: coarse)").matches === true;
+  if (touch && typeof nav?.share === "function") {
     try {
-      await nav.share({ text, url });
+      await nav.share({ url });
       return "shared";
     } catch (e) {
       if ((e as Error)?.name === "AbortError") return "cancelled";
@@ -292,7 +295,7 @@ export async function shareLink(url: string, text: string): Promise<"shared" | "
 /// was copied. When nothing worked, the address goes to `client`'s error
 /// banner, or the button says so without one.
 export async function shareFromButton(button: HTMLElement, url: string, client?: Pick<DuelClient, "showError">): Promise<void> {
-  const result = await shareLink(url, document.title);
+  const result = await shareLink(url);
   if (result === "failed" && client) return client.showError(`Copy this link: ${url}`);
   if (result !== "copied" && result !== "failed") return;
   const label = button.textContent;

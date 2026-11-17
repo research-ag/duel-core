@@ -365,7 +365,8 @@ caller's own `#code` table while it waits), `randomCode()`,
 challenge? })`, which waits for the first status and then joins (trying
 the other seat on `#seatTaken`) or creates (and calls `challenge` for a
 bot). From `app.js`, for the DOM: `watchLinks(accept, follow)`,
-`takeLink(accept?)`, `linkUrl(link)`, `shareLink(url, text)` and
+`takeLink(accept?)`, `linkUrl(link)`, `shareLink(url)` (the share
+sheet on a touch device, the clipboard elsewhere) and
 `shareFromButton(button, url, client?)` ("Link copied" on the button);
 from `bots.js`, `shareBotLink(clickTarget, client?)`. The page's
 `Permissions-Policy` must allow `web-share` and `clipboard-write` for

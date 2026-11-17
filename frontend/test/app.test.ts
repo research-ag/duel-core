@@ -1356,6 +1356,10 @@ function withNavigator(nav: unknown): void {
   Object.defineProperty(globalThis, "navigator", { value: nav, configurable: true, writable: true });
 }
 
+function withPointer(pointer: "coarse" | "fine"): void {
+  (globalThis as { matchMedia?: unknown }).matchMedia = (q: string) => ({ matches: q === `(pointer: ${pointer})` });
+}
+
 const flushAll = (): Promise<void> => new Promise((r) => setImmediate(r));
 
 test("start(): a seat link in the fragment takes the table's free seat with its code, and the fragment is cleared", async () => {
@@ -1385,7 +1389,7 @@ test("start(): a link naming a bot is left in the fragment for mountBotChallenge
   delete (globalThis as { history?: unknown }).history;
 });
 
-test("the invite button shares the table's link through the share sheet, or copies it where there is none", async () => {
+test("the invite button shares the table's link through a touch device's share sheet, and copies it elsewhere", async () => {
   const { start } = await import("../src/app.js");
   const { els, transport } = setup();
   withPage("");
@@ -1399,16 +1403,22 @@ test("the invite button shares the table's link through the share sheet, or copi
     assert.ok(shareBtn, "an invite table's waiting screen offers the share button");
 
     const shared: unknown[] = [];
-    withNavigator({ share: async (d: unknown) => void shared.push(d) });
+    const copied: string[] = [];
+    withNavigator({
+      share: async (d: unknown) => void shared.push(d),
+      clipboard: { writeText: async (t: string) => void copied.push(t) },
+    });
+    withPointer("coarse");
     click(els.screen, shareBtn);
     await flushAll();
-    assert.deepEqual(shared, [{ text: undefined, url: "https://game.test/#t=4&c=k" }]);
+    assert.deepEqual(shared, [{ url: "https://game.test/#t=4&c=k" }], "the URL alone: a sheet's Copy must not add the title");
+    assert.deepEqual(copied, []);
 
-    const copied: string[] = [];
-    withNavigator({ clipboard: { writeText: async (t: string) => void copied.push(t) } });
+    withPointer("fine");
     shareBtn.textContent = "Share invite link";
     click(els.screen, shareBtn);
     await flushAll();
+    assert.equal(shared.length, 1, "a desktop copies, even where it has a share sheet");
     assert.deepEqual(copied, ["https://game.test/#t=4&c=k"]);
     assert.equal(shareBtn.textContent, "Link copied");
     assert.equal(transport.requests.length, 0, "sharing is no engine call");
@@ -1416,5 +1426,6 @@ test("the invite button shares the table's link through the share sheet, or copi
     if (saved) Object.defineProperty(globalThis, "navigator", saved);
     else delete (globalThis as { navigator?: unknown }).navigator;
     delete (globalThis as { history?: unknown }).history;
+    delete (globalThis as { matchMedia?: unknown }).matchMedia;
   }
 });
