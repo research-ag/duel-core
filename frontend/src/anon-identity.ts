@@ -39,10 +39,14 @@ function load(store: Store | null): Ed25519KeyIdentity | null {
   }
 }
 
-function save(store: Store | null, identity: Ed25519KeyIdentity): void {
+function save(store: Store | null, identity: Ed25519KeyIdentity): boolean {
   try {
-    store?.setItem(ANON_IDENTITY_STORAGE_KEY, JSON.stringify(identity.toJSON()));
-  } catch {}
+    if (store === null) return false;
+    store.setItem(ANON_IDENTITY_STORAGE_KEY, JSON.stringify(identity.toJSON()));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /// This tab's own keypair first, else the browser's, else a new browser one.
@@ -73,8 +77,12 @@ export function resolveAnonymousIdentity(): ResolvedAnonymousIdentity {
 }
 
 /// Gives this tab a fresh keypair of its own; other tabs keep theirs. The
-/// caller still reloads for it to take effect.
+/// caller still reloads for it to take effect. Throws where the browser
+/// keeps no session storage for the page: a reload would bring the old
+/// player back.
 export function regenerateAnonymousIdentity(): ResolvedAnonymousIdentity {
-  save(storeOf("sessionStorage"), Ed25519KeyIdentity.generate());
+  if (!save(storeOf("sessionStorage"), Ed25519KeyIdentity.generate())) {
+    throw new Error("this browser keeps no data for this page, so this tab cannot have a player of its own");
+  }
   return resolveAnonymousIdentity();
 }

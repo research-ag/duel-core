@@ -42,6 +42,7 @@ function fakeClient(initial: Status | null = null) {
   const created: Array<{ seat: string; options: unknown }> = [];
   let createOutcome: CallOutcome = { ok: true, view: staging(9n) };
   const client = {
+    sid: "an:me",
     getState: () => state,
     subscribe(fn: (s: ClientState, p: ClientState) => void) {
       listeners.add(fn);
@@ -76,6 +77,7 @@ function fakePlay(reply: () => Promise<{ ok: unknown } | { err: never }> = async
 }
 
 const bot: BotRef = { principal: "aaaaa-aa", name: "Fox", complexity: "Hard" };
+const LAST_BOT_KEY = "duel-last-bot:an:me";
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 test("createBotInviter: fills this session's own waiting table without creating one", async () => {
@@ -122,7 +124,7 @@ test("createBotInviter: a rematch staged for the bot re-invites it once per gen,
   const p = fakePlay();
   const inv = createBotInviter({ client: c.client, play: p.play, storage });
   await inv.challenge(bot);
-  assert.ok(storage.getItem("duel-last-bot"));
+  assert.ok(storage.getItem(LAST_BOT_KEY));
   c.push(inGame());
   c.push(staging(7n, { reserved: true, gen: 1n }));
   await tick();
@@ -131,7 +133,7 @@ test("createBotInviter: a rematch staged for the bot re-invites it once per gen,
   assert.equal(p.calls.length, 2);
   assert.deepEqual(p.calls[1].bot, bot);
   c.push(browsing);
-  assert.equal(storage.getItem("duel-last-bot"), null);
+  assert.equal(storage.getItem(LAST_BOT_KEY), null);
   c.push(staging(7n, { reserved: true, gen: 2n }));
   await tick();
   assert.equal(p.calls.length, 2);
@@ -141,7 +143,7 @@ test("createBotInviter: a rematch staged for the bot re-invites it once per gen,
 test("createBotInviter: the remembered bot survives a reload in the same tab", async () => {
   const { createBotInviter } = await import("../src/bots.js");
   const storage = new FakeStorage();
-  storage.setItem("duel-last-bot", JSON.stringify({ ...bot, tableId: "7" }));
+  storage.setItem(LAST_BOT_KEY, JSON.stringify({ ...bot, tableId: "7" }));
   const c = fakeClient(null);
   const p = fakePlay();
   createBotInviter({ client: c.client, play: p.play, storage });

@@ -75,12 +75,23 @@ test("regenerateAnonymousIdentity: gives this tab a keypair of its own and leave
 test("resolveAnonymousIdentity: a tab's own keypair (a pre-existing sessionStorage one included) wins over the browser's", () => {
   const { tab } = setup();
   const browser = resolveAnonymousIdentity();
+  const browserKey = (globalThis as unknown as { localStorage: FakeStorage }).localStorage.getItem("anon-identity")!;
   const own = regenerateAnonymousIdentity();
   const stored = tab.getItem("anon-identity")!;
-  const { tab: reloaded } = setup();
+  const { local, tab: reloaded } = setup();
+  local.setItem("anon-identity", browserKey);
   reloaded.setItem("anon-identity", stored);
-  assert.equal(resolveAnonymousIdentity().sid, own.sid);
+  assert.equal(resolveAnonymousIdentity().sid, own.sid, "with valid keys in both stores, the tab's wins");
   assert.notEqual(own.sid, browser.sid);
+});
+
+test("regenerateAnonymousIdentity: without session storage it throws instead of a silent reload", () => {
+  const { local } = setup();
+  delete (globalThis as { sessionStorage?: unknown }).sessionStorage;
+  const before = resolveAnonymousIdentity();
+  assert.throws(() => regenerateAnonymousIdentity(), /cannot have a player of its own/);
+  assert.equal(resolveAnonymousIdentity().sid, before.sid);
+  assert.ok(local.getItem("anon-identity"));
 });
 
 test("resolveAnonymousIdentity: blocked storage still yields a working identity", () => {

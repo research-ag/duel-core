@@ -113,7 +113,7 @@ export interface BotInviterOptions {
   /// plugin's first `optionChoices()` entry).
   options?: unknown;
   /// Where the last seated bot is remembered across a reload; default
-  /// `localStorage` (per browser, like an anonymous identity).
+  /// `localStorage`, under `storageKey` plus `:` and the player's sid.
   storage?: Pick<Storage, "getItem" | "setItem" | "removeItem"> | null;
   storageKey?: string;
 }
@@ -128,8 +128,9 @@ export function createBotInviter({
   play,
   options = {},
   storage = defaultStorage(),
-  storageKey = "duel-last-bot",
+  storageKey: baseKey = "duel-last-bot",
 }: BotInviterOptions): BotInviter {
+  const storageKey = `${baseKey}:${client.sid}`;
   let state: BotInviterState = { staging: stagingOf(client.getState().status), inviting: null, error: null };
   const listeners = new Set<(s: BotInviterState) => void>();
   let lastBot = loadLastBot();

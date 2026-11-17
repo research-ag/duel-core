@@ -576,7 +576,7 @@ href="https://games.ic0.info/" target="_blank" rel="noopener">More games
 **Rematch against a bot.** The human's Rematch stages the same table
 with the seat reserved for the bot's `cp:` player, and nothing asks a
 bot to accept. The inviter remembers the last bot it seated and its
-table (`localStorage`, `storageKey` `"duel-last-bot"`) and re-issues
+table (`localStorage`, per player: `storageKey` `"duel-last-bot"` plus `:<sid>`) and re-issues
 the same `play` once per `stagingYou` with `reservedForPartner` on that
 table (per `gen`); the memory clears the moment the status is anywhere
 but that table.

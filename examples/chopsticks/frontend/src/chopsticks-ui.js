@@ -298,7 +298,10 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
   // already-open modal — which would replay its CSS open animation.
   let lastOverlayHtml = null;
   let history = { key: null, game: null, turn: null, moves: [] };
-  let lastBot = storageGet(LAST_BOT_KEY);
+  // Per identity, like the record below: another tab's player must not
+  // clear it.
+  const lastBotKey = `${LAST_BOT_KEY}:${client.sid}`;
+  let lastBot = storageGet(lastBotKey);
   if (lastBot) lastBot = { ...lastBot, tableId: BigInt(lastBot.tableId) };
   // Per identity, in this browser. `last` is the ending counted most
   // recently, so a reload onto the same debrief does not count it twice.
@@ -307,7 +310,7 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
 
   function setLastBot(bot) {
     lastBot = bot;
-    storageSet(LAST_BOT_KEY, bot ? { ...bot, tableId: bot.tableId.toString() } : null);
+    storageSet(lastBotKey, bot ? { ...bot, tableId: bot.tableId.toString() } : null);
   }
 
   function opponentOf(tableId, oppSeat) {
@@ -958,11 +961,11 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     redraw(client.getState());
   }
 
-  async function startBotGame(bot, variant) {
+  async function startBotGame(bot, variant, seat = "p1") {
     pendingBotInvite = { bot, stage: "creating" };
     createdVariant = { tableId: null, variant };
     redraw(client.getState());
-    const res = await client.createTable("p1", { open: null }, { [variant]: null });
+    const res = await client.createTable(seat, { open: null }, { [variant]: null });
     const staging = res.ok ? stagingOf(res.view) : null;
     if (staging === null) {
       pendingBotInvite = null;
@@ -1306,16 +1309,15 @@ export function mountChopsticksUi({ client, plugin, services, els }) {
     maybeReinvite(state);
   }
 
-  // A link in the address: a friend's table, or a new one with a bot
-  // (always as Player 1, like "Play vs AI").
+  // A link in the address: a friend's table, or a new one with a bot.
   services.watchLinks(
     (link) =>
       void followLink(client, link, {
         options: (key) => optionsForKey(plugin, key),
-        challenge: async (bot, _seat, options) => {
+        challenge: async (bot, seat, options) => {
           const listed = await services.listBots().catch(() => []);
           const name = listed.find((b) => b.principal.toString() === bot.principal)?.name ?? bot.principal;
-          await startBotGame({ principalText: bot.principal, name, complexity: bot.complexity }, Object.keys(options)[0]);
+          await startBotGame({ principalText: bot.principal, name, complexity: bot.complexity }, Object.keys(options)[0], seat);
           return true;
         },
       }),
