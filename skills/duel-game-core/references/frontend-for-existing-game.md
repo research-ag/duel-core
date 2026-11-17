@@ -290,13 +290,12 @@ cd frontend && node play-test.mjs && cd ..
 
 `play-test.mjs` (`SKILL.md` Step 7) plays a whole game per
 `optionChoices()` entry through your plugin's own buttons, rematches,
-leaves and acks; it is your own check, before any human looks. Then
-look at the page yourself with Playwright, as `SKILL.md` Step 7
-describes. On the user's computer, `icp deploy` also printed the
-frontend's local URL:
-the user plays there from a normal and a private window (a browser's
-tabs share one player). The local copy starts empty:
-no bots are registered and the leaderboard is blank, so a bot list or a
+leaves and acks; it is your own check, before any human looks. Then look
+at the page yourself with Playwright, as `SKILL.md` Step 7 describes. On
+the user's computer, `icp deploy` also printed the frontend's local URL:
+the user plays there from two browsers, or a normal and a private window
+(a browser's tabs share one player). The local copy starts empty: no
+bots are registered and the leaderboard is blank, so a bot list or a
 rankings panel can only be checked for its empty state.
 
 ```bash
@@ -320,10 +319,10 @@ protected:
    the backend from its cookie, exactly as the live page will.
 4. Give the user `frontendUrl`, saying that it plays the real game:
    create every table with an access code ("Invite a friend" in the
-   default lobby), never an open one, and
-   leave when done, so real players are not drawn in. A normal and a
-   private window (or a computer and a phone) play both seats; the
-   protected table's invite link takes the second one straight to it.
+   default lobby), never an open one, and leave when done, so real
+   players are not drawn in. Two browsers (or a normal and a private
+   window, or a computer and a phone) play both seats; the protected
+   table's invite link takes the second one straight to it.
 
 Each change is another build and upload into `PREVIEW`, at no cost.
 

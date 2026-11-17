@@ -198,7 +198,7 @@ Element ids `start()` uses (all overridable, `start({ ..., sidElId })`):
   plays as the same player).
 - `new-sid`: gives this tab an anonymous player of its own (the
   browser's stays for every other tab) and reloads: a second player for
-  testing, as is a private window. Hidden for a logged-in session or one
+  testing, as are another browser and a private window. Hidden for a logged-in session or one
   without `regenerate`; disabled while the sid holds a seat.
 - `duel-auth-btn`: login/logout, wired only when `session` provides
   both.

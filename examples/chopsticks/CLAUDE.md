@@ -101,9 +101,9 @@ Same as `examples/tic-tac-toe` (moc 2.0.0; `mops test`; build
 `../../frontend` first, then `npm install && npm run build` in
 `frontend/`; `icp deploy`; then `icp canister call bot register ...`).
 `build.js` also copies `src/assets/` (the fonts) into `dist/`. Play a
-bot from "Play vs AI", and both seats of a friend table from a normal
-and a private window (the invite link from one, opened in the other),
-trying both variants.
+bot from "Play vs AI", and both seats of a friend table from two
+browsers, or a normal and a private window (the invite link from one,
+opened in the other), trying both variants.
 
 ## Architecture rules
 

@@ -508,13 +508,13 @@ of its own: for a CSP or `Cache-Control`, put a `_headers` file in
 keeps `web-share=(self)` and `clipboard-write=(self)`: the invite's
 share button needs both.
 
-Then look at the game the way a player does: both seats from a normal
-and a private window (a browser's tabs share one player), an invite
-table created in one and its link opened in the other, a round played,
-and the debrief and rematch. Check that your move appears the moment
-you click, that the opponent's move is marked when it lands, and that
-the debrief still shows the final move. `play-test.mjs` proves the
-moves; this proves what a player sees.
+Then look at the game the way a player does: both seats from two
+browsers, or a normal and a private window (a browser's tabs share one
+player), an invite table created in one and its link opened in the
+other, a round played, and the debrief and rematch. Check that your move
+appears the moment you click, that the opponent's move is marked when it
+lands, and that the debrief still shows the final move. `play-test.mjs`
+proves the moves; this proves what a player sees.
 
 Do it yourself first, with Playwright on the local URL `icp deploy`
 printed: two browser contexts (two players with their own keys), a

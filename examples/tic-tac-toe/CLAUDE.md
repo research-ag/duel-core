@@ -34,8 +34,8 @@ reference for a bot with two complexities. Not part of either package.
 ## Toolchain / Build & test
 
 Same as `examples/checkers` (moc 2.0.0; `mops test`; build
-`../../frontend` first; `npm install && npm run build`
-in `frontend/`; `icp deploy`). Play both seats from a normal and a
+`../../frontend` first; `npm install && npm run build` in `frontend/`;
+`icp deploy`). Play both seats from two browsers, or a normal and a
 private window.
 
 ## Architecture rules

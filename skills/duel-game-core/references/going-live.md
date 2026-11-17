@@ -324,9 +324,10 @@ included (hosty.live applies it as icp-cli does).
    again if it is not. On `SUCCESS` the answer carries `frontendUrl`;
    on `FAILED`, `statusReason` and `logsTail` say why (a malformed
    `_headers` names its line).
-5. Check the cookie, then give the user `frontendUrl`: they play a
-   round from a normal and a private window (or a computer and a phone) against the
-   installed backend. Gateways cache for up to a minute after a deploy.
+5. Check the cookie, then give the user `frontendUrl`: they play a round
+   from two browsers (or a normal and a private window, or a computer
+   and a phone) against the installed backend. Gateways cache for up to
+   a minute after a deploy.
 
    ```bash
    curl -sI https://<frontend-id>.icp0.io/ | grep -o 'ID%3Abackend%3D[a-z0-9%D-]*cai'
