@@ -39,7 +39,7 @@ Work in this order.
 
 4. Test it before I look at it: mops test, a local network with icp deploy, and node play-test.mjs in frontend/, until every game reaches its ending.
 
-5. Then give me the local address icp deploy printed: I play it in two browser tabs, one per seat. Every later change: test again and redeploy locally. If I ask for a bot or a leaderboard, the skill covers both.
+5. Then give me the local address icp deploy printed: I play it from two browsers, or a normal and a private window, one per seat. Every later change: test again and redeploy locally. If I ask for a bot or a leaderboard, the skill covers both.
 
 6. When I say the game goes live, walk me through going-live.md, section 4: I create my icp identity and buy the cycles (about 5T for a backend and its page, 7T with a bot). Then deploy each canister by name, never a bare icp deploy -e ic: icp deploy backend -e ic (its sync step publishes the module to hosty.live's module store, no account needed), icp deploy frontend -e ic, then the new frontend id into index.html's tags and the page deployed again, and any bot as the skill says. Play-test it (node play-test.mjs <backend-id> --ic in frontend/) and give me the page's address and every canister id. Every later upgrade of the backend first passes node check-upgrade.mjs <backend-id> in frontend/. The game stays unlisted until I register it on the Duel dashboard.
 

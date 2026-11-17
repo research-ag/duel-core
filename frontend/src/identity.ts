@@ -35,7 +35,8 @@ export interface ResolvedIdentity {
   login(opts?: { maxTimeToLive?: bigint; maxTimeToIdle?: bigint }): Promise<void>;
   /// Signs out, then reloads.
   logout(opts?: { returnTo?: string }): Promise<void>;
-  /// Discards the anonymous keypair, then reloads. No-op when logged in.
+  /// Gives this tab a new anonymous player, then reloads. No-op when
+  /// logged in.
   regenerate(): Promise<void>;
 }
 

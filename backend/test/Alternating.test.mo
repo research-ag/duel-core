@@ -158,4 +158,39 @@ switch (t.status(spec, T0, "b")) {
   case (_) Runtime.trap("the rematch should start from the same variant");
 };
 Debug.print("6. variant flows into init, rematch included OK");
+
+// ── 7. an invite (#code) table: each seat's first move gets INVITE_GRACE_NS
+//      on both clocks; afterwards the table's own timeouts apply ──────────
+let GRACE = Table.INVITE_GRACE_NS;
+t := Table.new<Rules.State, Rules.Action, Rules.Options>(TIMEOUT, CLAIM_TIMEOUT, #code "k", "a", "");
+ignore ok(t.join(spec, rng, T0, "a", #p1), "a stages an invite table");
+ignore ok(t.join(spec, rng, T0, "b", #p2), "b takes the invite while a is away");
+switch (t.status(spec, T0, "b")) {
+  case (#inGame v) {
+    assert v.claimTimeoutSecs == 20 + 600;
+    assert v.idleTimeoutSecs == 60 + 600;
+  };
+  case (_) Runtime.trap("b should be in the invite game");
+};
+switch (t.claimWin(spec, CLAIMABLE, "b", genOf(t, CLAIMABLE, "b"))) {
+  case (#err(#notOverdue _)) {};
+  case (_) Runtime.trap("a's first move gets the grace: no claim at the plain window");
+};
+t.sweep(T0 + TIMEOUT + 1, func(_) = false);
+ignore genOf(t, T0 + TIMEOUT + 1, "a"); // still in the game: the idle clock has the grace too
+let back = T0 + GRACE; // a comes back within the grace
+ignore ok(t.submit(spec, rng, back, "a", genOf(t, back, "a"), turnOf(t, back, "a"), #inc), "a's first move");
+switch (t.claimWin(spec, back + CLAIM_TIMEOUT + 1_000_000_000, "a", genOf(t, back, "a"))) {
+  case (#err(#notOverdue _)) {};
+  case (_) Runtime.trap("b has not moved yet either: the grace still applies");
+};
+ignore ok(t.submit(spec, rng, back, "b", genOf(t, back, "b"), turnOf(t, back, "b"), #inc), "b's first move");
+switch (t.status(spec, back, "b")) {
+  case (#inGame v) assert v.claimTimeoutSecs == 20;
+  case (_) Runtime.trap("both have moved: the plain claim window is back");
+};
+ok(t.claimWin(spec, back + CLAIM_TIMEOUT, "b", genOf(t, back, "b")), "b claims once a stalls past the plain window");
+let openGame = gameOf(T0);
+ok(openGame.claimWin(spec, CLAIMABLE, "b", genOf(openGame, CLAIMABLE, "b")), "an open table keeps the plain claim window");
+Debug.print("7. invite table: first-move grace on both clocks OK");
 Debug.print("ALL ALTERNATING ENGINE CHECKS PASSED");

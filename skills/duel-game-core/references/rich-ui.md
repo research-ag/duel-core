@@ -106,7 +106,8 @@ Two worked examples in the framework repo:
   every screen, the header, the alert bar, two native `<dialog>`s and
   clock patching, over `client.js` and `esc` alone, with its own
   stylesheet. Its `app.js` seats bots through `bots.js`'s headless
-  `createBotInviter`.
+  `createBotInviter` and follows and shares links (`watchLinks`,
+  `followLink`, `shareFromButton`; the package README, "Links").
 - `examples/chopsticks/frontend/src/chopsticks-ui.js`, the one to read
   when porting an existing app's design (there, a React/Tailwind app)
   onto the engine. It has a bot flow that turns `list_bots()`

@@ -1,13 +1,14 @@
 // Bootstrap for the 007 duel client: build the actor and push transport,
 // create duel-game-core's headless client, and mount 007's own UI over
-// it (mission-ui.js). Nothing from `@research-ag/duel-game-core/app.js` runs here.
-// Bundled by esbuild (../build.js).
+// it (mission-ui.js). Of `@research-ag/duel-game-core/app.js` only the link
+// helpers run here, never `start()`. Bundled by esbuild (../build.js).
 
 import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 import { makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
-import { createDuelClient } from "@research-ag/duel-game-core/client.js";
-import { botPlayer, botRefOf, createBotInviter } from "@research-ag/duel-game-core/bots.js";
+import { linkUrl, shareFromButton, watchLinks } from "@research-ag/duel-game-core/app.js";
+import { LEAVE_FIRST_MESSAGE, createDuelClient, followLink, isSeated } from "@research-ag/duel-game-core/client.js";
+import { botPlayer, botRefOf, createBotInviter, shareBotLink } from "@research-ag/duel-game-core/bots.js";
 import { connectTransport } from "@research-ag/duel-game-core/transport.js";
 import { resolveIdentity } from "@research-ag/duel-game-core/identity.js";
 import { deriveHost } from "@research-ag/duel-game-core/ic-env.js";
@@ -67,6 +68,7 @@ const ui = mountMissionUi({
     codeDialog: $("enter-code"),
   },
   onAddBot: () => void openBots(),
+  onShare: (button, link) => void shareFromButton(button, linkUrl(link), client),
 });
 
 // Seats a bot through its own `play` and re-invites it on a rematch; the
@@ -81,6 +83,23 @@ inviter.subscribe(({ staging, inviting, error }) => {
   if (error !== null && error !== shownError) client.showError(error);
   shownError = error;
 });
+
+// A link in the address: a contact's coded file, or a new one (with a bot).
+watchLinks(
+  () => true,
+  (link) =>
+    void followLink(client, link, {
+      challenge: async (bot, seat) => {
+        const listed = await actor.list_bots().catch(() => []);
+        const name = listed.find((b) => b.principal.toString() === bot.principal)?.name ?? bot.principal;
+        if (isSeated(client.getState().status)) {
+          client.showError(LEAVE_FIRST_MESSAGE);
+          return false;
+        }
+        return inviter.challenge({ ...bot, name }, seat);
+      },
+    }),
+);
 
 const botsPanel = $("bots-panel");
 const botsBody = $("bots-body");
@@ -99,6 +118,7 @@ async function openBots() {
 }
 
 function onChallengeClick(ev) {
+  if (shareBotLink(ev.target, client)) return;
   const bot = botRefOf(ev.target);
   if (!bot) return;
   botsPanel.hidden = true;

@@ -5,7 +5,7 @@
 // draws them itself over `client.ts`. `inGame`/`debrief` defer the board
 // and action markup to a `GamePlugin` (see types.ts).
 
-import { claimRoleOf, errText, oppSeatOf, tag, val } from "./client.js";
+import { INVITE_WAIT_MINUTES, claimRoleOf, errText, oppSeatOf, tag, val } from "./client.js";
 import type {
   BrowsingStatus,
   AwaitingRematchView,
@@ -177,8 +177,7 @@ export function renderBrowsing(v: { tables: TableSummary[] }, plugin: GamePlugin
       <div class="option-group">
         <span class="option-group-label">Visibility</span>
         <label><input type="radio" name="table-visibility" value="open" checked /> Open — anyone can join</label>
-        <label><input type="radio" name="table-visibility" value="code" /> Protected — share a code with a friend</label>
-        <input type="text" id="create-code" class="table-code-input" placeholder="access code" hidden />
+        <label><input type="radio" name="table-visibility" value="code" /> Invite a friend — a private table you share by link</label>
       </div>
       <div class="seats">
         ${seatBtn("p1")}
@@ -215,11 +214,12 @@ export function renderStagingYou(v: StagingYouView, plugin: GamePlugin): string 
         ? `<p class="muted">The other seat is held for your last opponent for
              a while — after that anyone may take it.</p>`
         : code !== null
-          ? `<p class="muted"><strong>Protected</strong> — share this table's
-               number above and the code <code class="table-code">${esc(code)}</code>
-               with a friend. Nobody else can join.</p>`
-          : `<p class="muted">Open this page in another tab to take the other
-               seat.</p>`
+          ? `<p>Send a friend this table's link. It waits ${INVITE_WAIT_MINUTES}
+               minutes for them, even while you switch to another app.</p>
+             <p><button data-share-invite class="primary">Share invite link</button></p>
+             <p class="muted">Or give them this table's number above and the code
+               <code class="table-code">${esc(code)}</code>. Nobody else can join.</p>`
+          : `<p class="muted">Anyone in the lobby can take the other seat.</p>`
     }
     <p><button data-leave class="ghost">Leave</button></p>`;
 }
@@ -458,8 +458,8 @@ export function renderStatus<S>(status: Status<S>, plugin: GamePlugin<S>, screen
 /// `renderStatus`; a game mounts it itself. `opts.yourSid` badges the
 /// caller's row; a canister player's row shows 🤖, `"<name or principal>
 /// (<complexity>)"` (name from `opts.botNames`, keyed by principal text),
-/// the raw key in `title`, and a Challenge button carrying that row's
-/// complexity. See ../README.md, "Leaderboard".
+/// the raw key in `title`, and Share and Challenge buttons carrying that
+/// row's complexity. See ../README.md, "Leaderboard".
 export function renderLeaderboard(
   entries: LeaderboardEntry[],
   plugin: GamePlugin,
@@ -481,7 +481,8 @@ export function renderLeaderboard(
       const displayName = bot !== null ? botDisplayName(botName, bot.complexity) : e.player;
       const challengeBtn =
         bot !== null
-          ? `<button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(bot.principal)}" data-bot-name="${esc(botName)}" data-bot-complexity="${esc(bot.complexity)}">Challenge</button>`
+          ? `<button type="button" class="leaderboard-challenge" data-share-bot="${esc(bot.principal)}" data-bot-complexity="${esc(bot.complexity)}" title="A link to a game against this bot">Share</button>
+      <button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(bot.principal)}" data-bot-name="${esc(botName)}" data-bot-complexity="${esc(bot.complexity)}">Challenge</button>`
           : "";
       return `
     <div class="leaderboard-row${isYou ? " you" : ""}">
@@ -498,7 +499,8 @@ export function renderLeaderboard(
 
 /// Renders `list_bots()`: one row per bot AND complexity, in declared
 /// order, each with the same Challenge attributes `renderLeaderboard`'s
-/// bot rows carry, so a game wires one click handler for both.
+/// bot rows carry, so a game wires one click handler for both, and a
+/// Share button (`data-share-bot`, `data-bot-complexity`).
 export function renderBotList(bots: BotInfo[], plugin: GamePlugin): string {
   if (bots.length === 0) {
     return `<p class="muted">No bots have registered with this game yet.</p>`;
@@ -514,6 +516,7 @@ export function renderBotList(bots: BotInfo[], plugin: GamePlugin): string {
     <div class="leaderboard-row">
       <span class="leaderboard-player" title="${esc(principalText)}">🤖 ${esc(botDisplayName(b.name, c.complexity))}</span>
       ${eloText}
+      <button type="button" class="leaderboard-challenge" data-share-bot="${esc(principalText)}" data-bot-complexity="${esc(c.complexity)}" title="A link to a game against this bot">Share</button>
       <button type="button" class="leaderboard-challenge" data-challenge-bot="${esc(principalText)}" data-bot-name="${esc(b.name)}" data-bot-complexity="${esc(c.complexity)}">Challenge</button>
     </div>`;
       });

@@ -50,8 +50,9 @@ either package.
 - **`frontend/`**: the game's own UI, a plain-JS/CSS port of the
   Chopsticks web app's design (dark arcade look,
   Fraunces/GeneralSans/JetBrainsMono in `src/assets/fonts/`), over
-  `@research-ag/duel-game-core/client.js` alone: nothing from
-  `@research-ag/duel-game-core/app.js` or its stylesheet runs here.
+  `@research-ag/duel-game-core/client.js` alone: of
+  `@research-ag/duel-game-core/app.js` only the link helpers run here
+  (through `app.js`'s `services`), never `start()` or its stylesheet.
   - `chopsticks-plugin.js` is the `GamePlugin` (Candid types,
     `optionChoices()` Classic first, `formatOptions()`,
     `renderBoard`/`renderActions`, `applyLocal` mirroring `resolve`)
@@ -66,7 +67,8 @@ either package.
       else 🤖) → rules picker → create as Player 1 and call the bot's
       `play`; "Play vs a Friend" → rules picker with seat and open/code
       options; the open tables list;
-    - staging (with "Add a Bot");
+    - staging (with "Add a Bot", and "Share invite link" at a code
+      table);
     - the board: record strip, rules and opponent badges, status badge,
       move banner, hands, split button with the exact "why not" texts,
       forfeit, idle/claim clocks;
@@ -89,7 +91,9 @@ either package.
     backend keeps ELO only).
   - `app.js` builds the actor, `connectTransport()`, the client, and a
     `services` object (`get_leaderboard`, `list_bots`, the bot's
-    `play`) the UI reads through.
+    `play`, and `app.js`'s link helpers: `share`, `watchLinks`) the UI
+    reads through. The UI follows the page's link with `followLink`: a
+    friend's table, or a bot game started like "Play vs AI".
 
 ## Toolchain / Build & test
 
@@ -97,8 +101,9 @@ Same as `examples/tic-tac-toe` (moc 2.0.0; `mops test`; build
 `../../frontend` first, then `npm install && npm run build` in
 `frontend/`; `icp deploy`; then `icp canister call bot register ...`).
 `build.js` also copies `src/assets/` (the fonts) into `dist/`. Play a
-bot from "Play vs AI", and both seats of a friend table in two tabs,
-trying both variants.
+bot from "Play vs AI", and both seats of a friend table from two
+browsers, or a normal and a private window (the invite link from one,
+opened in the other), trying both variants.
 
 ## Architecture rules
 

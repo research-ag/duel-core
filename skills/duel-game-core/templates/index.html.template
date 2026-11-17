@@ -24,7 +24,7 @@
         -->
         <span class="label">Session</span>
         <code id="sid">…</code>
-        <button id="new-sid" title="Play as a different session">new</button>
+        <button id="new-sid" title="Play as a different player in this tab">new</button>
       </div>
     </header>
 
@@ -62,9 +62,9 @@
 
     <footer>
       <p class="muted">
-        Your session id is per browser tab — open a second tab to play the
-        other seat. An idle game can be taken over after
-        __IDLE_TIMEOUT_SECONDS__&nbsp;seconds.
+        Your session id is kept in this browser — play the other seat
+        yourself from another browser or a private window. An idle game can be taken over
+        after __IDLE_TIMEOUT_SECONDS__&nbsp;seconds, or 10&nbsp;minutes later at an invite table before both players have moved.
       </p>
     </footer>
 

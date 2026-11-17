@@ -244,7 +244,9 @@ From `templates/Host.mo.template`, write `src/Host.mo`. Fill in only
 - `__IDLE_TIMEOUT_NS__` (`90_000_000_000` = 90 s): how long an
   abandoned game sits before a third party may take it over, and how
   long a table waiting for an opponent survives once its creator's tab
-  is gone.
+  is gone. An access-code table is an invite and waits 30 minutes
+  instead; its first moves also get 10 more minutes on both clocks.
+  Both are the engine's, not yours to set.
 - `__CLAIM_TIMEOUT_NS__` (`60_000_000_000` = 60 s): how long your
   submitted move may wait on a silent opponent before you may claim the
   win.
@@ -424,7 +426,10 @@ players find every listed game.
 canister sets, resolves a non-spoofable anonymous identity, builds the
 actor, connects the transport, and calls `start({ plugin, transport,
 session })`. esbuild inlines every dependency, so there is no CDN and no
-import map.
+import map. `start()` also follows the page's links: a friend's invite
+(`#t=<table>&c=<code>`, shared from a protected table's waiting screen)
+and a link to a new table or a game against a bot (`frontend/README.md`,
+"Links"). One anonymous player per browser serves every tab.
 
 - With bot support or a leaderboard, uncomment the lines marked BOTS or
   LEADERBOARD in both `app.js` and `index.html`. `bots.js`'s
@@ -499,14 +504,17 @@ The local frontend deploys through the `@dfinity/static-site` recipe,
 whose `build` step runs `npm run build`. The canister sends no headers
 of its own: for a CSP or `Cache-Control`, put a `_headers` file in
 `frontend/src/` and copy it into `dist/` from `build.js`
-(`examples/tic-tac-toe/frontend/src/_headers`).
+(`examples/tic-tac-toe/frontend/src/_headers`). Its `Permissions-Policy`
+keeps `web-share=(self)` and `clipboard-write=(self)`: the invite's
+share button needs both.
 
-Then look at the game the way a player does: both seats in two browser
-tabs, a table created in one and joined from the other, a round played,
-and the debrief and rematch. Check that your move appears the moment
-you click, that the opponent's move is marked when it lands, and that
-the debrief still shows the final move. `play-test.mjs` proves the
-moves; this proves what a player sees.
+Then look at the game the way a player does: both seats from two
+browsers, or a normal and a private window (a browser's tabs share one
+player), an invite table created in one and its link opened in the
+other, a round played, and the debrief and rematch. Check that your move
+appears the moment you click, that the opponent's move is marked when it
+lands, and that the debrief still shows the final move. `play-test.mjs`
+proves the moves; this proves what a player sees.
 
 Do it yourself first, with Playwright on the local URL `icp deploy`
 printed: two browser contexts (two players with their own keys), a

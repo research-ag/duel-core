@@ -309,35 +309,30 @@ test("the create-table form's live input survives an unrelated push mid-fill (re
 
   transport.onmessage!({ data: { view: browsing() } });
 
-  // The player picks Protected and types a code — none of it submitted
-  // yet. Mutual radio exclusivity is the browser's own job, not modeled
-  // by this fake, so flip both sides by hand the way a real click would.
+  // The player picks "Invite a friend" — not submitted yet. Mutual radio
+  // exclusivity is the browser's own job, not modeled by this fake, so
+  // flip both sides by hand the way a real click would.
   const radios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
   radios.find((r) => r.value === "open")!.checked = false;
   radios.find((r) => r.value === "code")!.checked = true;
-  (els.screen.children.find((c) => c.id === "create-code") as { value: string }).value = "TOP-SECRET";
 
   // An unrelated push lands before the click — e.g. another player
   // opening or leaving a table — while the form is still mid-fill.
   transport.onmessage!({ data: { view: browsing([{ id: 9n, p1Open: true, p2Open: true, p1Session: [], p2Session: [], protected: false, waitingSecs: 3n, options: {} }]) } });
 
   const freshRadios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
-  assert.equal(freshRadios.find((r) => r.value === "code")!.checked, true, "Protected must still be selected after the redraw");
+  assert.equal(freshRadios.find((r) => r.value === "code")!.checked, true, "the invite choice must still be selected after the redraw");
   assert.equal(freshRadios.find((r) => r.value === "open")!.checked, false);
-  const freshCode = els.screen.children.find((c) => c.id === "create-code")!;
-  assert.equal(freshCode.value, "TOP-SECRET", "the typed access code must survive the redraw");
-  assert.equal(freshCode.hidden, false, "the code box must stay visible, matching the restored choice");
 
-  // The click now submitted really does carry Protected + the typed
-  // code, not the defaults renderBrowsing() baked into the fresh markup.
+  // The click now submitted really does open an invite table, not the
+  // default renderBrowsing() baked into the fresh markup.
   const seatBtn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
   click(els.screen, seatBtn!);
-  assert.deepEqual(transport.requests[0]!.req, {
-    createTable: { seat: { p1: null }, visibility: { code: "TOP-SECRET" }, options: {} },
-  });
+  const req = transport.requests[0]!.req as { createTable: { visibility: { code?: string } } };
+  assert.ok("code" in req.createTable.visibility, "an invite table is a #code table");
 });
 
-test("clicking 'create table' with Protected chosen but no code entered shows a friendly error and never dispatches (regression: an empty access code makes an unjoinable table)", async () => {
+test("'Invite a friend' opens a #code table with a fresh code, never an empty one (regression: an empty access code makes an unjoinable table)", async () => {
   const { start } = await import("../src/app.js");
   const { els, transport } = setup();
   start({ plugin, transport, session: defaultSession });
@@ -347,15 +342,13 @@ test("clicking 'create table' with Protected chosen but no code entered shows a 
   const radios = els.screen.children.filter((c) => c.tagName === "input" && c.name === "table-visibility");
   radios.find((r) => r.value === "open")!.checked = false;
   radios.find((r) => r.value === "code")!.checked = true;
-  // create-code is left blank — the exact bug repro.
 
   const seatBtn = els.screen.querySelectorAll("button").find((b) => b.dataset.createTable === "p1");
   click(els.screen, seatBtn!);
 
-  assert.equal(transport.requests.length, 0, "an empty access code must never even be sent to the engine");
-  assert.equal(els.error.textContent, "Enter an access code, or choose Open.");
-  assert.equal(els.error.hidden, false);
-  assert.equal(seatBtn!.disabled, false, "the button must not be left stuck spinning/disabled");
+  const req = transport.requests[0]!.req as { createTable: { seat: unknown; visibility: { code: string } } };
+  assert.deepEqual(req.createTable.seat, { p1: null });
+  assert.match(req.createTable.visibility.code, /^[a-z2-9]{8}$/);
 });
 
 test("clicking an open seat on a protected table row prompts for the access code before joining", async () => {
@@ -1345,4 +1338,83 @@ test("start() returns the headless client driving the screen, usable alongside i
   await p;
   assert.equal(els["new-sid"].disabled, false);
   assert.match(els.screen.innerHTML, /Duel lobby/);
+});
+
+// ── Links ───────────────────────────────────────────────────────────────
+
+function withPage(hash: string): { replaced: string[] } {
+  const replaced: string[] = [];
+  (globalThis as unknown as { location: unknown }).location = { hash, search: "", pathname: "/", origin: "https://game.test" };
+  (globalThis as unknown as { history: unknown }).history = {
+    state: null,
+    replaceState: (_s: unknown, _t: string, url: string) => replaced.push(url),
+  };
+  return { replaced };
+}
+
+function withNavigator(nav: unknown): void {
+  Object.defineProperty(globalThis, "navigator", { value: nav, configurable: true, writable: true });
+}
+
+const flushAll = (): Promise<void> => new Promise((r) => setImmediate(r));
+
+test("start(): a seat link in the fragment takes the table's free seat with its code, and the fragment is cleared", async () => {
+  const { start } = await import("../src/app.js");
+  const { transport } = setup();
+  const { replaced } = withPage("#t=9&c=k");
+  start({ plugin, transport, session: defaultSession });
+  assert.deepEqual(replaced, ["/"], "a reload must not follow the link again");
+  transport.onmessage!({
+    data: { view: browsing([{ id: 9n, p1Open: false, p2Open: true, p1Session: ["carol"], p2Session: [], protected: true, waitingSecs: 3n, options: {} }]) },
+  });
+  await flushAll();
+  const join = transport.requests.find((r) => "joinTable" in r.req);
+  assert.deepEqual(join?.req, { joinTable: { id: 9n, seat: { p2: null }, code: ["k"] } });
+  delete (globalThis as { history?: unknown }).history;
+});
+
+test("start(): a link naming a bot is left in the fragment for mountBotChallenge", async () => {
+  const { start } = await import("../src/app.js");
+  const { transport } = setup();
+  const { replaced } = withPage("#new&b=aaaaa-aa%3AHard");
+  start({ plugin, transport, session: defaultSession });
+  transport.onmessage!({ data: { view: browsing() } });
+  await flushAll();
+  assert.deepEqual(replaced, []);
+  assert.equal(transport.requests.filter((r) => "createTable" in r.req).length, 0);
+  delete (globalThis as { history?: unknown }).history;
+});
+
+test("the invite button shares the table's link through the share sheet, or copies it where there is none", async () => {
+  const { start } = await import("../src/app.js");
+  const { els, transport } = setup();
+  withPage("");
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  try {
+    start({ plugin, transport, session: defaultSession });
+    transport.onmessage!({
+      data: { view: atTable({ stagingYou: { seat: { p1: null }, reservedForPartner: false, gen: 1n, visibility: { code: "k" } } }, 4n) },
+    });
+    const shareBtn = els.screen.querySelectorAll("button").find((b) => "shareInvite" in b.dataset)!;
+    assert.ok(shareBtn, "an invite table's waiting screen offers the share button");
+
+    const shared: unknown[] = [];
+    withNavigator({ share: async (d: unknown) => void shared.push(d) });
+    click(els.screen, shareBtn);
+    await flushAll();
+    assert.deepEqual(shared, [{ text: undefined, url: "https://game.test/#t=4&c=k" }]);
+
+    const copied: string[] = [];
+    withNavigator({ clipboard: { writeText: async (t: string) => void copied.push(t) } });
+    shareBtn.textContent = "Share invite link";
+    click(els.screen, shareBtn);
+    await flushAll();
+    assert.deepEqual(copied, ["https://game.test/#t=4&c=k"]);
+    assert.equal(shareBtn.textContent, "Link copied");
+    assert.equal(transport.requests.length, 0, "sharing is no engine call");
+  } finally {
+    if (saved) Object.defineProperty(globalThis, "navigator", saved);
+    else delete (globalThis as { navigator?: unknown }).navigator;
+    delete (globalThis as { history?: unknown }).history;
+  }
 });

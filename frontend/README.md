@@ -173,7 +173,8 @@ const transport = connectTransport({ actor, gameIdlTypes: plugin.idlTypes });
 const client = start({ plugin, transport, session });
 ```
 
-`start()` returns the `DuelClient` it drives the screen with, so game code
+`start()` also follows the page's link (see "Links" below). It returns
+the `DuelClient` it drives the screen with, so game code
 outside the shell (a bot-challenge dialog, a stats panel) reads
 `client.getState()`, subscribes, and calls `client.createTable(...)` and
 friends instead of hand-building `transport.request` calls; the shell's spinner
@@ -193,10 +194,12 @@ Element ids `start()` uses (all overridable, `start({ ..., sidElId })`):
 />
 ```
 
-- `sid`: the session id (per tab; a second tab is a second player).
-- `new-sid`: discards the persisted anonymous keypair and reloads.
-  Hidden for a logged-in session or one without `regenerate`; disabled
-  while the sid holds a seat, since swapping identity would abandon it.
+- `sid`: the session id (one per browser, so a link opened in a new tab
+  plays as the same player).
+- `new-sid`: gives this tab an anonymous player of its own (the
+  browser's stays for every other tab) and reloads: a second player for
+  testing, as are another browser and a private window. Hidden for a logged-in session or one
+  without `regenerate`; disabled while the sid holds a seat.
 - `duel-auth-btn`: login/logout, wired only when `session` provides
   both.
 - `screen`: where `renderStatus` output goes; clicks are delegated from
@@ -238,14 +241,15 @@ each with the same signature as the `render*` function it replaces. A
 custom screen keeps the shell's click handling, spinner, and countdowns
 by using the same hooks the defaults do:
 
-| Hook                                                                                                                                         | Dispatches                      |
-| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `data-create-table="p1"` + the `table-visibility` radios, `#create-code`, `table-variant` radios (one per `optionChoices()` entry, by `key`) | `createTable`                   |
-| `data-join-table-id="3" data-join-table="p2"` (+ bare `data-protected` to prompt for a code)                                                 | `joinTable`                     |
-| `data-act='<json>'` (via `actionAttr`)                                                                                                       | `submit`                        |
-| `data-rematch`, `data-leave`, `data-reset`, `data-claim-win`, `data-ack`                                                                     | the matching call               |
-| `data-confirm="Sure?"` on any of the above                                                                                                   | asks first                      |
-| `id="duel-idle-warning"`, `id="duel-claim-warning"`, `id="duel-claim-button"`, `data-wait-base="12"`                                         | patched by the local countdowns |
+| Hook                                                                                                                                                                                                                            | Dispatches                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `data-create-table="p1"` + the `table-visibility` radios (`code`: an invite table, its code from `#create-code` if present and filled, else `randomCode()`), `table-variant` radios (one per `optionChoices()` entry, by `key`) | `createTable`                   |
+| `data-join-table-id="3" data-join-table="p2"` (+ bare `data-protected` to prompt for a code)                                                                                                                                    | `joinTable`                     |
+| `data-act='<json>'` (via `actionAttr`)                                                                                                                                                                                          | `submit`                        |
+| `data-rematch`, `data-leave`, `data-reset`, `data-claim-win`, `data-ack`                                                                                                                                                        | the matching call               |
+| `data-confirm="Sure?"` on any of the above                                                                                                                                                                                      | asks first                      |
+| `data-share-invite` on the waiting screen of an invite table                                                                                                                                                                    | `shareFromButton` (no call)     |
+| `id="duel-idle-warning"`, `id="duel-claim-warning"`, `id="duel-claim-button"`, `data-wait-base="12"`                                                                                                                            | patched by the local countdowns |
 
 `confirm` (`(msg) => Promise<boolean>`) and `promptCode` (`() =>
 Promise<string>`, resolving `null` to cancel) replace the two overlays the
@@ -323,11 +327,49 @@ warning thresholds and texts) are pure too and free to reuse or ignore.
 
 `examples/007` is the worked example: every screen, the header, the
 alert bar, two native `<dialog>`s, and its own stylesheet, over nothing
-but `client.js`, the plugin, and `renderLeaderboard`. `examples/chopsticks`
+but `client.js`, the plugin, `renderLeaderboard`, and `app.js`'s link
+helpers. `examples/chopsticks`
 is the second: an existing app's design (opponent and rules pickers,
 modal dialogs, an opponent-move replay driven by diffing consecutive
 `view.game`s, a move-history sidebar, all over `withLocalMove`) over the
 same client.
+
+## Links
+
+A page link carries a request in its fragment, which never reaches a
+server, so an access code in it stays between the two players:
+
+- `#t=<table>&c=<code>` takes the free seat at that table (the code only
+  for a `#code` table). The waiting screen of a `#code` table shares it:
+  "Share invite link" hands it to the device's share sheet (WhatsApp,
+  Signal, Telegram, ...) or copies it where there is none. A `#code`
+  table is the engine's invite: it waits 30 minutes for the friend while
+  its creator is in another app (`INVITE_WAIT_MINUTES`), and each seat's
+  first move gets 10 more minutes before the other can claim.
+- `#new` opens an open table, with `o=<key>` an `optionChoices()` entry
+  (default the first), `s=p2` the second seat (default `p1`), and
+  `b=<principal>:<complexity>` a bot to invite to it. A bot row's Share
+  (`renderBotList`, `renderLeaderboard`) hands out `#new&b=…`.
+
+`start()` follows a link without a bot, `mountBotChallenge` one with,
+on load and whenever the fragment changes (`watchLinks`), and clears the
+fragment so a reload does not follow it again. Seated in a running game,
+the player is asked to finish it first, and a `#new` link asks them to
+leave any table they sit at; a table that is gone, full or
+not open to the code says so ("This invite has expired.", `linkErrText`).
+
+A UI of its own uses the same pieces. Pure, from `client.js`:
+`parseLink(fragment)`, `linkFragment(link)`, `inviteLinkOf(status)` (the
+caller's own `#code` table while it waits), `randomCode()`,
+`optionsForKey(plugin, key)`, and `followLink(client, link, { options?,
+challenge? })`, which waits for the first status and then joins (trying
+the other seat on `#seatTaken`) or creates (and calls `challenge` for a
+bot). From `app.js`, for the DOM: `watchLinks(accept, follow)`,
+`takeLink(accept?)`, `linkUrl(link)`, `shareLink(url, text)` and
+`shareFromButton(button, url, client?)` ("Link copied" on the button);
+from `bots.js`, `shareBotLink(clickTarget, client?)`. The page's
+`Permissions-Policy` must allow `web-share` and `clipboard-write` for
+`self`. See `examples/007` and `examples/chopsticks`.
 
 ## Transport
 
@@ -429,15 +471,17 @@ of opening a second one. `transport.send(msg)` is fire-and-forget;
 - Uses an active Internet Identity login if present:
   `sid = "ii:" + principal`.
 - Otherwise falls back to `anon-identity.js`'s
-  `resolveAnonymousIdentity()`: a keypair generated once and persisted in
-  `sessionStorage` (survives a reload of this tab; a second tab is a
-  second player), `sid = "an:" + principal`. Import only
+  `resolveAnonymousIdentity()`: a keypair generated once per browser and
+  persisted in `localStorage`, so every tab (and a link opened in a new
+  one) plays as the same player, unless this tab has a keypair of its
+  own in `sessionStorage`; `sid = "an:" + principal`. Without storage
+  the keypair lasts until the page closes. Import only
   `anon-identity.js` for a login-free game without `@icp-sdk/auth`.
 - Takes an optional `identityProvider: { authorizeUrl, canisterId }`
   (both or neither; omitted means mainnet Internet Identity), e.g. for a
   local Internet Identity.
 - Returns `login()`/`logout()` (each reloads the page) and `regenerate()`
-  (anonymous only; discards the keypair and reloads). Identity changes
+  (anonymous only; gives this tab a keypair of its own and reloads). Identity changes
   always take effect by reload; nothing rebuilds actor/transport in
   place.
 
@@ -514,13 +558,16 @@ href="https://games.ic0.info/" target="_blank" rel="noopener">More games
   (`renderSeatChoice`), then creates an open table through
   `client.createTable` with the plugin's first `optionChoices()` entry
   (`options` overrides it); at any other table it asks the player to
-  leave it first. The panel shows "Inviting <bot>…" and the
+  leave it first. A bot row's Share hands out a link to a game with
+  that bot, and a page link naming a bot is followed here (see
+  "Links"). The panel shows "Inviting <bot>…" and the
   bot's error, if any, worded as the bot's (`botErrText`: a bot at its
   own table cap is "already playing N games"). `bots.open()` shows the
   list from any other control (a header 🤖 button).
 - `mountLeaderboard` fetches on every open and renders
   `renderLeaderboard(entries, plugin, { yourSid, botNames })`; a bot
-  row's Challenge closes it and calls `onChallenge`. Leave `onChallenge`
+  row's Challenge closes it and calls `onChallenge`, its Share hands out
+  a link to a game with that bot. Leave `onChallenge`
   out (and `list_bots` off `actor`) for a game without bots.
 - Every element id is overridable
   (`ids: { panel, body, back, addPanel, addTrigger }` and
@@ -530,14 +577,14 @@ href="https://games.ic0.info/" target="_blank" rel="noopener">More games
 **Rematch against a bot.** The human's Rematch stages the same table
 with the seat reserved for the bot's `cp:` player, and nothing asks a
 bot to accept. The inviter remembers the last bot it seated and its
-table (`sessionStorage`, `storageKey` `"duel-last-bot"`) and re-issues
+table (`localStorage`, per player: `storageKey` `"duel-last-bot"` plus `:<sid>`) and re-issues
 the same `play` once per `stagingYou` with `reservedForPartner` on that
 table (per `gen`); the memory clears the moment the status is anywhere
 but that table.
 
 **A UI of its own.** `createBotInviter({ client, play, options?,
 storage?, storageKey? })` is the same logic without DOM: `challenge(bot,
-seat?)` (resolves `true` once the bot joined), and a subscribable
+seat?, options?)` (resolves `true` once the bot joined), and a subscribable
 `{ staging, inviting, error }`. `botRefOf(clickTarget)` reads the
 `data-challenge-bot`/`data-bot-name`/`data-bot-complexity` attributes
 `renderBotList` and `renderLeaderboard` put on their Challenge buttons,

@@ -7,8 +7,19 @@
 // or skips this file entirely and binds `createDuelClient` to its own UI.
 // See ../README.md, "Wiring it up".
 
-import { createDuelClient, claimRoleOf, viewOf, withLocalMove } from "./client.js";
-import type { ClientState, DuelClient, SessionIdentity } from "./client.js";
+import {
+  createDuelClient,
+  claimRoleOf,
+  followLink,
+  inviteLinkOf,
+  linkFragment,
+  optionsForKey,
+  parseLink,
+  randomCode,
+  viewOf,
+  withLocalMove,
+} from "./client.js";
+import type { ClientState, DuelClient, DuelLink, SessionIdentity } from "./client.js";
 import {
   renderStatus,
   resolveScreens,
@@ -231,6 +242,67 @@ function makeCodePrompt(): PromptCode {
   };
 }
 
+/// The link in this page's fragment, if `accept` takes it; the fragment
+/// is then cleared, so a reload does not follow it again.
+export function takeLink(accept: (link: DuelLink) => boolean = () => true): DuelLink | null {
+  const link = parseLink(globalThis.location?.hash ?? "");
+  if (link === null || !accept(link)) return null;
+  history.replaceState(history.state, "", location.pathname + location.search);
+  return link;
+}
+
+/// Calls `follow` with this page's link when `accept` takes it: now, and
+/// whenever the fragment changes later (a link opened in a tab that
+/// already shows the game, which does not load the page again).
+export function watchLinks(accept: (link: DuelLink) => boolean, follow: (link: DuelLink) => void): void {
+  const check = (): void => {
+    const link = takeLink(accept);
+    if (link !== null) follow(link);
+  };
+  check();
+  globalThis.addEventListener?.("hashchange", check);
+}
+
+/// This page's address with `link` in its fragment.
+export function linkUrl(link: DuelLink): string {
+  return location.origin + location.pathname + location.search + linkFragment(link);
+}
+
+/// Hands `url` to the device's share sheet, or copies it where there is
+/// none. `"cancelled"`: the player closed the share sheet.
+export async function shareLink(url: string, text: string): Promise<"shared" | "cancelled" | "copied" | "failed"> {
+  const nav = globalThis.navigator as Navigator | undefined;
+  if (typeof nav?.share === "function") {
+    try {
+      await nav.share({ text, url });
+      return "shared";
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") return "cancelled";
+    }
+  }
+  try {
+    await nav!.clipboard.writeText(url);
+    return "copied";
+  } catch {
+    return "failed";
+  }
+}
+
+/// Shares `url` from `button`: "Link copied" on it for a moment when it
+/// was copied. When nothing worked, the address goes to `client`'s error
+/// banner, or the button says so without one.
+export async function shareFromButton(button: HTMLElement, url: string, client?: Pick<DuelClient, "showError">): Promise<void> {
+  const result = await shareLink(url, document.title);
+  if (result === "failed" && client) return client.showError(`Copy this link: ${url}`);
+  if (result !== "copied" && result !== "failed") return;
+  const label = button.textContent;
+  button.textContent = result === "copied" ? "Link copied" : "Could not share";
+  const timer = setTimeout(() => {
+    button.textContent = label;
+  }, 2000);
+  (timer as unknown as { unref?: () => void }).unref?.();
+}
+
 export interface StartOptions<S = unknown> {
   plugin: GamePlugin<S>;
   transport: Transport<S>;
@@ -411,13 +483,14 @@ export function start<S>({
     }
   });
 
+  // An invite table gets a fresh code unless a screen asks for one.
   const readCreateVisibility = (): Visibility => {
     const codeChosen = (
       screenEl.querySelector('input[name="table-visibility"][value="code"]') as HTMLInputElement | null
     )?.checked;
     if (!codeChosen) return { open: null };
-    const codeEl = $("create-code") as HTMLInputElement | null;
-    return { code: codeEl?.value ?? "" };
+    const typed = ($("create-code") as HTMLInputElement | null)?.value.trim() ?? "";
+    return { code: typed || randomCode() };
   };
 
   // The typed options of the checked choice; `{}` for a game with no
@@ -434,18 +507,16 @@ export function start<S>({
     const target = ev.target as HTMLElement;
     const b = target.closest("button") as HTMLButtonElement | null;
     if (!b || b.disabled) return;
+    if ("shareInvite" in b.dataset) {
+      const link = inviteLinkOf(client.getState().status);
+      if (link !== null) void shareFromButton(b, linkUrl(link), client);
+      return;
+    }
     if (client.getState().pending !== null) return;
     const dispatch = (code: string | null = null): void => {
       let p: Promise<unknown> | null = null;
       if (b.dataset.createTable) {
-        // An empty code would be unreachable by construction; catch it
-        // here with a message that names the problem.
-        const visibility = readCreateVisibility();
-        if ("code" in visibility && visibility.code.length === 0) {
-          client.showError("Enter an access code, or choose Open.");
-          return;
-        }
-        p = client.createTable(b.dataset.createTable as SeatTag, visibility, readCreateOptions());
+        p = client.createTable(b.dataset.createTable as SeatTag, readCreateVisibility(), readCreateOptions());
       } else if (b.dataset.joinTable && b.dataset.joinTableId) {
         p = client.joinTable(BigInt(b.dataset.joinTableId), b.dataset.joinTable as SeatTag, code);
       } else if (b.dataset.act) p = client.submit(JSON.parse(b.dataset.act));
@@ -515,7 +586,7 @@ export function start<S>({
 
   // The create-table form is live user input a redraw would reset to its
   // defaults: an unrelated push mid-fill must not silently revert
-  // "Protected" to "Open" or an options pick. Captured before the redraw,
+  // "Invite a friend" to "Open" or an options pick. Captured before the redraw,
   // restored after.
   interface CreateFormState {
     visibility: string; // "open" | "code"
@@ -568,6 +639,12 @@ export function start<S>({
   };
 
   screenEl.innerHTML = sc.connecting();
+
+  // A link naming a bot is `mountBotChallenge`'s to follow.
+  watchLinks(
+    (l) => l.kind === "join" || l.bot === null,
+    (l) => void followLink(client, l, { options: (key) => optionsForKey(plugin, key) }),
+  );
 
   // What is on screen: the real status, or it with the pending move
   // already applied (`plugin.applyLocal`).
