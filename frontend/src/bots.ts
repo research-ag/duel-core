@@ -6,7 +6,7 @@ import type { HttpAgent } from "@icp-sdk/core/agent";
 import { Principal } from "@icp-sdk/core/principal";
 
 import { linkUrl, shareFromButton, watchLinks } from "./app.js";
-import { atTableOf, errText, followLink, optionsForKey, tag, viewOf } from "./client.js";
+import { LEAVE_FIRST_MESSAGE, atTableOf, errText, followLink, isSeated, optionsForKey, tag, viewOf } from "./client.js";
 import type { DuelClient } from "./client.js";
 import { buildBotPlayIdlFactory } from "./idl.js";
 import { botDisplayName, esc, renderBotList, renderLeaderboard, renderSeatChoice } from "./render.js";
@@ -347,6 +347,12 @@ export function mountBotChallenge(opts: BotChallengeOptions): BotChallenge {
         challenge: async (bot, seat, options) => {
           const listed = await actor.list_bots().catch(() => [] as BotInfo[]);
           const name = listed.find((b) => b.principal.toString() === bot.principal)?.name ?? bot.principal;
+          // The player may have sat down meanwhile: `challenge` would fill
+          // that table instead.
+          if (isSeated(opts.client.getState().status)) {
+            opts.client.showError(LEAVE_FIRST_MESSAGE);
+            return false;
+          }
           return inviter.challenge({ ...bot, name }, seat, options);
         },
       }),

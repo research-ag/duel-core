@@ -7,7 +7,7 @@ import { Actor, HttpAgent } from "@icp-sdk/core/agent";
 import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 import { makeIdlFactory } from "@research-ag/duel-game-core/idl.js";
 import { linkUrl, shareFromButton, watchLinks } from "@research-ag/duel-game-core/app.js";
-import { createDuelClient, followLink } from "@research-ag/duel-game-core/client.js";
+import { LEAVE_FIRST_MESSAGE, createDuelClient, followLink, isSeated } from "@research-ag/duel-game-core/client.js";
 import { botPlayer, botRefOf, createBotInviter, shareBotLink } from "@research-ag/duel-game-core/bots.js";
 import { connectTransport } from "@research-ag/duel-game-core/transport.js";
 import { resolveIdentity } from "@research-ag/duel-game-core/identity.js";
@@ -92,6 +92,10 @@ watchLinks(
       challenge: async (bot, seat) => {
         const listed = await actor.list_bots().catch(() => []);
         const name = listed.find((b) => b.principal.toString() === bot.principal)?.name ?? bot.principal;
+        if (isSeated(client.getState().status)) {
+          client.showError(LEAVE_FIRST_MESSAGE);
+          return false;
+        }
         return inviter.challenge({ ...bot, name }, seat);
       },
     }),

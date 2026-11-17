@@ -237,6 +237,10 @@ export function linkErrText(e: EngineErr): string {
   return errText(e);
 }
 
+/// Why `followLink` refuses a `#new` link: the player sits at a table.
+/// A `challenge` that awaits anything checks `isSeated` again and says it.
+export const LEAVE_FIRST_MESSAGE = "Leave your table before a link opens a new one.";
+
 export interface FollowLinkOptions {
   /// `optionsForKey` over the game's plugin; default: `{}` for any link.
   options?: (key: string | null) => unknown;
@@ -270,7 +274,7 @@ export async function followLink<S>(client: DuelClient<S>, link: DuelLink, opts:
   // A bot challenge would otherwise fill the waiting table, ignoring the
   // link's seat and rules.
   if (link.kind === "new" && isSeated(status)) {
-    client.showError("Leave your table before a link opens a new one.");
+    client.showError(LEAVE_FIRST_MESSAGE);
     return;
   }
   if (link.kind === "join") {

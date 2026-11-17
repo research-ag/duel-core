@@ -40,6 +40,7 @@ function fakeClient(initial: Status | null = null) {
   let state = { status: initial } as ClientState;
   const listeners = new Set<(s: ClientState, p: ClientState) => void>();
   const created: Array<{ seat: string; options: unknown }> = [];
+  const errors: string[] = [];
   let createOutcome: CallOutcome = { ok: true, view: staging(9n) };
   const client = {
     sid: "an:me",
@@ -47,6 +48,9 @@ function fakeClient(initial: Status | null = null) {
     subscribe(fn: (s: ClientState, p: ClientState) => void) {
       listeners.add(fn);
       return () => listeners.delete(fn);
+    },
+    showError(message: string) {
+      errors.push(message);
     },
     async createTable(seat: string, _vis: unknown, options: unknown) {
       created.push({ seat, options });
@@ -56,6 +60,7 @@ function fakeClient(initial: Status | null = null) {
   return {
     client,
     created,
+    errors,
     push(status: Status | null) {
       const prev = state;
       state = { ...state, status };
@@ -293,5 +298,31 @@ test("mountBotChallenge: a bot row's Share hands out a link to a new table with 
   } finally {
     if (saved) Object.defineProperty(globalThis, "navigator", saved);
     delete (globalThis as { location?: unknown }).location;
+  }
+});
+
+test("mountBotChallenge: a bot link does not fill a table the player opened while the bot list loaded", async () => {
+  const { mountBotChallenge } = await import("../src/bots.js");
+  dom();
+  (globalThis as unknown as { location: unknown }).location = { hash: "#new&s=p2&b=aaaaa-aa%3AHard", search: "", pathname: "/" };
+  (globalThis as unknown as { history: unknown }).history = { state: null, replaceState: () => {} };
+  try {
+    const c = fakeClient(browsing);
+    const p = fakePlay();
+    const slowActor = {
+      list_bots: async () => {
+        c.push(staging(5n));
+        return [{ principal: { toString: () => "aaaaa-aa" }, name: "Fox", complexities: [] }];
+      },
+    } as never;
+    mountBotChallenge({ client: c.client, actor: slowActor, plugin, play: p.play, storage: new FakeStorage() });
+    await tick();
+    await tick();
+    assert.equal(p.calls.length, 0, "the bot must not join the table the player just opened");
+    assert.equal(c.created.length, 0);
+    assert.match(c.errors[0] ?? "", /Leave your table/);
+  } finally {
+    delete (globalThis as { location?: unknown }).location;
+    delete (globalThis as { history?: unknown }).history;
   }
 });
