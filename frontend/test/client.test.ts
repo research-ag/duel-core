@@ -663,11 +663,23 @@ test("followLink: a new-table link opens an open table with the link's options; 
   assert.equal(transport.requests.length, 0);
   assert.match(client.getState().error ?? "", /rules this game does not offer/);
 
+  transport.onmessage!({ data: { view: staging() } });
+  const asked0: unknown[] = [];
+  await followLink(
+    client,
+    { kind: "new", option: "well", seat: "p2", bot: { principal: "aaaaa-aa", complexity: "Hard" } },
+    { options, challenge: async (...args) => (asked0.push(args), true) },
+  );
+  assert.deepEqual(asked0, [], "a waiting table must not take the link's bot with the wrong seat and rules");
+  assert.match(client.getState().error ?? "", /Leave your table/);
+  transport.onmessage!({ data: { view: browsing() } });
+
   const done = followLink(client, { kind: "new", option: "well", seat: "p2", bot: null }, { options });
   await flush();
   assert.deepEqual(transport.requests[0]!.req, { createTable: { seat: { p2: null }, visibility: { open: null }, options: { v: "well" } } });
   transport.requests[0]!.resolve({ view: staging() });
   await done;
+  transport.onmessage!({ data: { view: browsing() } });
 
   const asked: unknown[] = [];
   await followLink(

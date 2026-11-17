@@ -267,6 +267,12 @@ export async function followLink<S>(client: DuelClient<S>, link: DuelLink, opts:
     client.showError("Finish your game before you follow a link.");
     return;
   }
+  // A bot challenge would otherwise fill the waiting table, ignoring the
+  // link's seat and rules.
+  if (link.kind === "new" && isSeated(status)) {
+    client.showError("Leave your table before a link opens a new one.");
+    return;
+  }
   if (link.kind === "join") {
     const listed = "browsing" in status ? status.browsing.tables.find((t) => t.id === link.tableId) : undefined;
     const first: SeatTag = listed?.p1Open && !listed.p2Open ? "p1" : "p2";

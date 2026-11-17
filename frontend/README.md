@@ -354,7 +354,8 @@ server, so an access code in it stays between the two players:
 `start()` follows a link without a bot, `mountBotChallenge` one with,
 on load and whenever the fragment changes (`watchLinks`), and clears the
 fragment so a reload does not follow it again. Seated in a running game,
-the player is asked to finish it first; a table that is gone, full or
+the player is asked to finish it first, and a `#new` link asks them to
+leave any table they sit at; a table that is gone, full or
 not open to the code says so ("This invite has expired.", `linkErrText`).
 
 A UI of its own uses the same pieces. Pure, from `client.js`:
