@@ -114,6 +114,14 @@ export const Bot = () => (
   </svg>
 );
 
+export const Wallet = () => (
+  <svg {...base}>
+    <path d="M4 7a2 2 0 0 1 2-2h12v4" />
+    <path d="M4 7v10a2 2 0 0 0 2 2h14V9H6a2 2 0 0 1-2-2z" />
+    <circle cx="16" cy="14" r="1" />
+  </svg>
+);
+
 export const Plus = () => (
   <svg {...base}>
     <path d="M12 5v14M5 12h14" />

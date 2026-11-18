@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AuthClient } from "@icp-sdk/auth/client";
+import type { Identity } from "@icp-sdk/core/agent";
 import type { Principal } from "@icp-sdk/core/principal";
 
 import { createActor } from "../api";
@@ -17,6 +18,8 @@ export interface Auth {
   loading: boolean;
   isLoggedIn: boolean;
   principal?: Principal;
+  /// The login's identity, for calls to other canisters (wallet.ts).
+  identity?: Identity;
   actor?: AggregatorActor;
   login(): Promise<void>;
   logout(): Promise<void>;
@@ -26,6 +29,7 @@ export function useAuth(): Auth {
   const [loading, setLoading] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [principal, setPrincipal] = useState<Principal | undefined>(undefined);
+  const [identity, setIdentity] = useState<Identity | undefined>(undefined);
   const [actor, setActor] = useState<AggregatorActor | undefined>(undefined);
   const [authClient, setAuthClient] = useState<AuthClient | undefined>(undefined);
 
@@ -41,6 +45,7 @@ export function useAuth(): Auth {
       setAuthClient(client);
       setIsLoggedIn(loggedIn);
       setPrincipal(identity?.getPrincipal());
+      setIdentity(identity);
       setActor(builtActor);
       setLoading(false);
     })();
@@ -61,5 +66,5 @@ export function useAuth(): Auth {
     location.reload();
   }, [authClient]);
 
-  return { loading, isLoggedIn, principal, actor, login, logout };
+  return { loading, isLoggedIn, principal, identity, actor, login, logout };
 }

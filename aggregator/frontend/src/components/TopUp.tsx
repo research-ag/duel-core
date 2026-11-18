@@ -1,6 +1,7 @@
-// The top-up view of the info modal: an amount, a prefilled CyclePay
-// checkout for anyone, the other routes for the game's developer, and
-// a watch on `/metrics` afterwards so the arrival shows here.
+// The top-up view of the info modal: the logged-in visitor's cycle
+// wallet, an amount into a prefilled CyclePay checkout for anyone, the
+// other routes for the game's developer, and a watch on `/metrics`
+// afterwards so the arrival shows here.
 
 import { useEffect, useState } from "react";
 
@@ -8,15 +9,20 @@ import {
   CYCLEPAY_MAX_USD,
   CYCLEPAY_MIN_USD,
   CYCLEPAY_NO_SIGN_IN_USD,
+  STATUS_WORD,
   cycleExpressUrl,
   cyclePayUrl,
+  cyclesOf,
   formatTC,
   hostyCanisterUrl,
   refreshCycles,
+  statusOf,
   tcForUsd,
 } from "../cycles";
-import type { Cycles } from "../cycles";
+import type { Reading } from "../cycles";
+import { useWallet } from "../wallet";
 import { CodeBlock } from "./CodeBlock";
+import { WalletSend } from "./Wallet";
 
 const PRESETS = [1, 2, 5, 10, 25];
 const WATCH_EVERY_MS = 5_000;
@@ -24,19 +30,26 @@ const WATCH_FOR_MS = 120_000;
 
 export function TopUp({
   backend,
-  cycles,
+  reading,
   isOwner,
 }: {
   backend: string;
-  cycles: Cycles;
+  reading: Reading;
   isOwner: boolean;
 }) {
+  const wallet = useWallet();
+  const cycles = cyclesOf(reading);
+  const status = statusOf(reading);
   const [usd, setUsd] = useState(2);
   const [custom, setCustom] = useState("");
   /// The balance before the payment: the one on screen when the payment
-  /// page opened, or the fresh read started at that moment. Never a
-  /// balance read later, which could already include the payment.
-  const [since, setSince] = useState<bigint | undefined>(undefined);
+  /// started, or the fresh read started at that moment. Never a balance
+  /// read later, which could already include the payment. `"frozen"`
+  /// when the backend refused that read: any readable balance after it
+  /// is the arrival.
+  const [since, setSince] = useState<bigint | "frozen" | undefined>(
+    undefined
+  );
   const [watching, setWatching] = useState(false);
   const [gaveUp, setGaveUp] = useState(false);
   /// No balance could be read before the payment, so its arrival cannot
@@ -54,17 +67,22 @@ export function TopUp({
     const tick = async () => {
       const now = await refreshCycles(backend);
       if (cancelled) return;
+      const nowCycles = cyclesOf(now);
       if (since === undefined) {
-        // The read started as the payment page opened: the baseline, or
+        // The read started as the payment began: the baseline, or
         // nothing to compare against.
-        if (now != null) setSince(now);
+        if (nowCycles !== undefined) setSince(nowCycles);
+        else if (now === "frozen") setSince("frozen");
         else {
           setWatching(false);
           setUnconfirmable(true);
         }
         return;
       }
-      if (now != null && now > since) {
+      if (
+        nowCycles !== undefined &&
+        (since === "frozen" || nowCycles > since)
+      ) {
         setWatching(false);
         return;
       }
@@ -86,15 +104,19 @@ export function TopUp({
   }, [watching, since, backend]);
 
   function startWatching() {
-    setSince(cycles ?? undefined);
+    setSince(cycles ?? (reading === "frozen" ? "frozen" : undefined));
     setGaveUp(false);
     setUnconfirmable(false);
     setWatching(true);
   }
 
   const received =
-    since !== undefined && cycles != null && cycles > since
-      ? cycles - since
+    since !== undefined && cycles !== undefined
+      ? since === "frozen"
+        ? cycles
+        : cycles > since
+          ? cycles - since
+          : undefined
       : undefined;
 
   return (
@@ -110,11 +132,22 @@ export function TopUp({
         <dd className="mono">{backend}</dd>
         <dt>Balance</dt>
         <dd>
-          {cycles === undefined && <span className="faint">Reading…</span>}
-          {cycles === null && <span className="faint">Not readable</span>}
-          {cycles != null && formatTC(cycles)}
+          {reading === undefined && <span className="faint">Reading…</span>}
+          {reading === null && <span className="faint">Not readable</span>}
+          {cycles !== undefined && formatTC(cycles)}
+          {status !== undefined && status !== "healthy" && (
+            <span className={`status ${status}`}>
+              {cycles !== undefined && " · "}
+              {STATUS_WORD[status]}
+            </span>
+          )}
           {received !== undefined && (
-            <span className="received"> +{formatTC(received)} received</span>
+            <span className="received">
+              {" "}
+              {since === "frozen"
+                ? "· cycles arrived, no longer frozen"
+                : `+${formatTC(received)} received`}
+            </span>
           )}
           {watching && received === undefined && (
             <span className="faint"> · waiting for cycles to arrive…</span>
@@ -141,6 +174,13 @@ export function TopUp({
           )}
         </dd>
       </dl>
+
+      {wallet && (
+        <>
+          <h3 className="info-heading">From your wallet</h3>
+          <WalletSend to={backend} onSent={startWatching} />
+        </>
+      )}
 
       <h3 className="info-heading">Pay by card</h3>
       <div className="amounts" role="group" aria-label="Amount">
