@@ -58,12 +58,13 @@ actor {
     };
   };
 
-  // The function values the framework calls: the rules, the bot call,
-  // the rating. Rebuilt on every upgrade.
+  // The function values the framework calls (the rules, the bot call, the
+  // rating) and the sweep timer. Rebuilt on every upgrade.
   transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
     spec = Rules.spec;
     bots = ?{ store = bots; call = BotIface.callBot };
     scoring = ?{ board = leaderboard; rating = #best bestLap };
+    sweeper = Transport.sweeper();
   };
 
   include TransportActorMixin<system>(duel.lobby(env));

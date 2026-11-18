@@ -1,18 +1,21 @@
 // Checks for `transport.mo`: a `Duel` driven by two principals — revs and
 // `#unchanged`, the lobby's `yours`, the table cap, the anonymous caller,
-// a waiting table kept open by `keepAlive` through a `sweep`, and a
-// debrief scored once.
+// a waiting table kept open by `keepAlive` through a `sweep`, a debrief
+// scored once, and the sweep timer running only while there is something
+// to sweep.
 import Debug "mo:core/Debug";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
 import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
+import Text "mo:core/Text";
 import Time "mo:core/Time";
 
 import Rules "FakeGame";
 import Leaderboard "../src/leaderboard";
 import Registry "../src/registry";
 import TP "../src/lib";
+import Table "../src/table";
 import Transport "../src/transport";
 
 let PA = Principal.fromText("kcyov-mibae-aqcai-baeaq-cai");
@@ -24,10 +27,18 @@ func check(cond : Bool, msg : Text) {
 };
 
 type D = Transport.Duel<Rules.State, Rules.Action, Rules.Options>;
+// The interpreter has no timers: a stand-in that arms none (section 7 counts).
+func fakeSweeper() : Transport.Sweeper = {
+  var timer = null;
+  every = func<system>(_ : Nat, _ : () -> async ()) : Nat = 1;
+  cancel = func(_ : Nat) {};
+};
+
 let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
   spec = Rules.spec();
   bots = null;
   scoring = null;
+  sweeper = fakeSweeper();
 };
 
 func fresh() : D {
@@ -43,6 +54,7 @@ func create<system>(duel : D, caller : Principal.Principal, options : Rules.Opti
 func join<system>(duel : D, caller : Principal.Principal, id : TP.TableId) : async* Transport.Ack {
   await* duel.joinTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, id, #p2, null);
 };
+func keepAlive<system>(duel : D, caller : Principal.Principal) : TP.Res<()> = duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller);
 func tableOf(duel : D, caller : Principal.Principal, id : TP.TableId, rev : Nat) : Transport.TableResult<Rules.View> = duel.table(env, caller, id, rev);
 
 func acked(a : Transport.Ack, msg : Text) : { tableId : TP.TableId; rev : Nat } = switch (a) {
@@ -117,7 +129,7 @@ do {
     case (#err(#unauthorized)) {};
     case (other) Runtime.trap("4c: the anonymous caller must be refused, got " # debug_show other);
   };
-  check(duel.keepAlive(Principal.anonymous()) == #err(#unauthorized), "4d: ...for keepAlive too");
+  check(keepAlive<system>(duel, Principal.anonymous()) == #err(#unauthorized), "4d: ...for keepAlive too");
   switch (await* create<system>(fresh(), PB, "bad")) {
     case (#err(#badOptions _)) {};
     case (other) Runtime.trap("4e: options the game rejects must not open a table, got " # debug_show other);
@@ -130,7 +142,7 @@ do {
   let duel = fresh();
   let { tableId; rev } = acked(await* create<system>(duel, PA, ""), "5: PA creates");
   let t0 = Time.now();
-  check(duel.keepAlive(PA) == #ok, "5: keepAlive");
+  check(keepAlive<system>(duel, PA) == #ok, "5: keepAlive");
   // Past the 1 s idle timeout, still inside the presence TTL.
   await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, t0 + 5 * SEC);
   check(tableOf(duel, PA, tableId, rev) == #unchanged, "5a: a kept-alive waiting table survives the sweep");
@@ -168,6 +180,55 @@ do {
   await* Transport.afterMutation<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(duel, scored, now, tableId, true);
   check(Leaderboard.scoreOf(board, PB.toText()) == afterEnd, "6b: the ack must not score the debrief again");
   Debug.print("6. a debrief is scored once OK");
+};
+
+// ── 7. the sweep timer runs only while there is something to sweep ────────
+do {
+  let duel = fresh();
+  var armed = 0;
+  var interval = 0;
+  var job : ?(() -> async ()) = null;
+  var cancelled : ?Nat = null;
+  let timed : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+    env with sweeper = {
+      var timer = null;
+      every = func<system>(secs : Nat, j : () -> async ()) : Nat {
+        armed += 1;
+        interval := secs;
+        job := ?j;
+        armed;
+      };
+      cancel = func(id : Nat) { cancelled := ?id };
+    }
+  };
+  Transport.wake<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(duel, timed);
+  check(armed == 0, "7a: nothing to sweep starts no timer");
+  ignore acked(await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA, #p1, #code("c"), ""), "7: PA opens an invite table");
+  check(armed == 1 and timed.sweeper.timer == ?1, "7b: the first table starts the timer");
+  check(interval == Transport.SWEEP_SECS, "7b: ...every SWEEP_SECS");
+  check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA) == #ok, "7: keepAlive");
+  check(armed == 1, "7c: a running timer is not started again");
+  let t0 = Time.now();
+  await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, t0 + 5 * SEC);
+  check(cancelled == null and timed.sweeper.timer == ?1, "7d: a waiting table keeps the timer running");
+  // The creator went silent; an invite table waits `INVITE_WAIT_NS` anyway.
+  await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, t0 + Transport.PRESENCE_TTL_NS + 5 * SEC);
+  check(duel.registry.tables.size() == 1 and duel.presence.size() == 0, "7: the invite table outlives its creator's presence");
+  check(cancelled == null and timed.sweeper.timer == ?1, "7e: a table alone keeps the timer running");
+  await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, t0 + Table.INVITE_WAIT_NS + 5 * SEC);
+  check(duel.registry.tables.size() == 0 and duel.presence.size() == 0, "7: the table and presence are gone");
+  check(cancelled == ?1 and timed.sweeper.timer == null, "7f: the sweep cancels the timer it started once nothing is left");
+  check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PB) == #ok, "7: keepAlive with no table");
+  check(armed == 2 and timed.sweeper.timer == ?2, "7g: presence alone starts it again, to expire it");
+  // The timer's own job sweeps at the canister's clock: PB's presence,
+  // dated past the TTL, expires through it and the timer stops.
+  duel.presence.add(PB.toText(), Time.now() - Transport.PRESENCE_TTL_NS - SEC);
+  switch (job) {
+    case (?j) await j();
+    case null Runtime.trap("7h: no job registered");
+  };
+  check(duel.presence.size() == 0 and cancelled == ?2 and timed.sweeper.timer == null, "7h: the registered job sweeps and stops the timer");
+  Debug.print("7. the sweep timer starts and stops OK");
 };
 
 Debug.print("ALL TRANSPORT CHECKS PASSED");

@@ -164,9 +164,10 @@ actor {
     spec = Rules.spec;
     bots = null;
     scoring = null;
+    sweeper = Transport.sweeper();
   };
 
-  // Every method that names none of the game's types, and the sweep timer.
+  // Every method that names none of the game's types.
   include TransportActorMixin<system>(duel.lobby(env));
 
   // The four methods whose Candid types name the game's own types.
@@ -263,8 +264,10 @@ presence, the `rng`) and is stable. Behaviour is module functions
 written `duel.f(env, …)`, where `Transport.Env<S, M, V, O>` carries the
 function values that cannot be stable: the `Spec`, optionally
 `?{ store; call }` for canister players and `?{ board; rating }` for a
-leaderboard. The host builds the `env` once in a `transient let`, so it
-is rebuilt on every upgrade; nothing in `Duel` ever holds a function.
+leaderboard, plus the sweep timer (`Transport.sweeper()`), which an
+upgrade cancels anyway. The host builds the `env` once in a
+`transient let`, so it is rebuilt on every upgrade; nothing in `Duel`
+ever holds a function.
 
 **Methods.** A player is the caller (`Transport.playerOf(caller)`;
 the anonymous principal is `#unauthorized`).
@@ -316,13 +319,19 @@ game that wants to show counts in its own state.
 
 **Presence and the sweep.** `duel_keep_alive()` records the caller as
 present and does nothing else; a client sends it every
-`KEEP_ALIVE_SECS` (20) while waiting at a table for an opponent. The
-mixin's timer runs `Duel.sweep` every `SWEEP_SECS` (30): it clears
+`KEEP_ALIVE_SECS` (20) while waiting at a table for an opponent. A
+timer runs `Duel.sweep` every `SWEEP_SECS` (30): it clears
 expired tables (a waiting one survives while its creator is present —
 heard from within `PRESENCE_TTL_NS`, 60 s — and a waiting `#code` table
 for `INVITE_WAIT_NS` in any case), bumps the revs of what it
 changed, prunes presence, and settles canister players everywhere.
 Silence never ends a game in progress; `claimWin` and idle takeover do.
+The timer runs only while there is a table or a presence entry:
+`Transport.wake` starts it, and the sweep that leaves neither cancels
+it. Every update that records presence calls `wake` (each mutation,
+rejected or not, and `duel_keep_alive`; an anonymous caller's records
+nothing), and so does the mixin at install and upgrade; the queries
+never do. An idle canister schedules no sweeps.
 
 **Replay safety.** `duel_submit`/`duel_leave`/`duel_reset`/
 `duel_claim_win` carry the `gen` (and `submit` the `step`) the client
@@ -403,6 +412,7 @@ actor {
     spec = Rules.spec;
     bots = ?{ store = bots; call = BotIface.callBot };
     scoring = null;
+    sweeper = Transport.sweeper();
   };
 
   include TransportActorMixin<system>(duel.lobby(env));
@@ -457,8 +467,11 @@ auto-acks; a human-vs-bot rematch is the human's frontend re-issuing
 **Eager dual-seat assignment.** `Registry.createTableReserving` seats
 both the creator and a named `reservedFor` player atomically, so the
 table lands directly in `#active`. No transport method reaches it; an
-orchestrator seating two bots would call it from Motoko. It rejects a
-self-reservation and a reservee already at the table cap.
+orchestrator seating two bots would call it from Motoko, then
+`duel.wake<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env)`
+(from an update, or a helper that declares and forwards `<system>`) so
+the sweep timer runs for the new table. It rejects a self-reservation
+and a reservee already at the table cap.
 
 **Writing the bot.** `MoveRequest<V, M>` carries the bot's own view
 (`game`) with `seat`/`mode`/`step`/`gen`/`complexity`, and
@@ -534,6 +547,7 @@ transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.O
   spec = Rules.spec;
   bots = null;
   scoring = ?{ board = leaderboard; rating = #elo { k = 32 } };
+  sweeper = Transport.sweeper();
 };
 include LeaderboardActorMixin(leaderboard, 25); // get_leaderboard(), top 25
 

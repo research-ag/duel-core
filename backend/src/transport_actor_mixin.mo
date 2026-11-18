@@ -1,13 +1,11 @@
 /// The non-generic half of `./transport`: every method whose signature
-/// names none of the game's types, and the sweep timer. Each table
+/// names none of the game's types, and the sweep timer's start at
+/// install and upgrade when there is something to sweep. Each table
 /// request replies with an `Ack` (the table and its `rev` after the
 /// call); the client fetches the view with `duel_table`. The host
 /// declares `duel_create_table`, `duel_lobby`, `duel_submit` and
 /// `duel_table` itself — see `./transport`'s header. `lobby` is
 /// `duel.lobby(env)`.
-import Time "mo:core/Time";
-import Timer "mo:core/Timer";
-
 import Transport "./transport";
 import T "./types";
 
@@ -40,15 +38,9 @@ mixin <system>(lobby : Transport.Lobby) {
   /// Sent every `Transport.KEEP_ALIVE_SECS` while the caller waits at a
   /// table for an opponent; keeps that table open. Changes nothing else.
   public shared ({ caller }) func duel_keep_alive() : async T.Res<()> {
-    lobby.keepAlive(caller);
+    lobby.keepAlive<system>(caller);
   };
 
-  func startSweeping<system>() {
-    ignore Timer.recurringTimer<system>(
-      #seconds(Transport.SWEEP_SECS),
-      func() : async () { await* lobby.sweep<system>(Time.now()) },
-    );
-  };
-  startSweeping<system>();
+  lobby.wake<system>();
 
 };

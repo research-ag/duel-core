@@ -101,7 +101,8 @@ deploying, also read every piece of code that runs on the upgrade and
 check what it does to stable data: the actor body's top-level
 statements and those of the mixins it includes (they run again on
 every upgrade; in the template they only re-apply the timeouts, attach
-the metrics and start the sweep timer), any migration function, and any
+the metrics and start the sweep timer when a table or a presence entry
+is left), any migration function, and any
 `system func preupgrade`/`postupgrade`. The BOTS and LEADERBOARD lines
 add none that touches stable data.
 

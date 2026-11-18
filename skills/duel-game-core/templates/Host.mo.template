@@ -37,14 +37,16 @@ actor {
   // let leaderboard = Leaderboard.new(50, 1200); // LEADERBOARD: keep 50, start at 1200 — stable
 
   // The function values the framework calls — the game's rules, and how
-  // to ask a seated bot and score a finished game. Rebuilt on every upgrade.
+  // to ask a seated bot and score a finished game — and the sweep timer.
+  // Rebuilt on every upgrade.
   transient let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
     spec = Rules.spec;
     bots = null; // BOTS: ?{ store = bots; call = BotIface.callBot }
     scoring = null; // LEADERBOARD: ?{ board = leaderboard; rating = #elo { k = 32 } }
+    sweeper = Transport.sweeper();
   };
 
-  // Every method that names none of the game's types, and the sweep timer.
+  // Every method that names none of the game's types.
   include TransportActorMixin<system>(duel.lobby(env));
 
   // The four methods whose Candid types name the game's own types.

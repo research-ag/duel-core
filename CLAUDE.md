@@ -51,7 +51,8 @@ behaviour).
       Behaviour: module functions called `duel.f(env, …)`, where
       `Transport.Env<S, M, V, O>` (a `transient let` in the host)
       carries the only function values (the `Spec`, the game's
-      `callBot`, a `#elo`/`#best` rating).
+      `callBot`, a `#elo`/`#best` rating) and the sweep timer
+      (`sweeper = Transport.sweeper()`).
     - Reading is by query only: `duel_lobby(rev)` (open tables +
       `yours`) and `duel_table(tableId, rev)` (the caller's
       `TableView<V>`, built through the game's `view`). Each answers
@@ -66,8 +67,13 @@ behaviour).
       `KEEP_ALIVE_SECS` 20; `sweep` every `SWEEP_SECS` 30;
       `PRESENCE_TTL_NS` 60 s; a `#code` table also waits out
       `INVITE_WAIT_NS`); silence never ends a game.
+    - The sweep timer runs only while a table or a presence entry
+      exists: `Transport.wake` (after every update that records
+      presence, rejected mutations included, and from the mixin at
+      install/upgrade; never from a query) starts it, the sweep that
+      leaves neither cancels it. An idle canister schedules no sweeps.
     - `transport_actor_mixin.mo` supplies every method naming none of
-      the game's types and the sweep timer
+      the game's types
       (`include TransportActorMixin<system>(duel.lobby(env))`). A mixin
       cannot take type parameters, so the host declares
       `duel_create_table`/`duel_lobby`/`duel_submit`/`duel_table` itself
@@ -171,7 +177,8 @@ behaviour).
   `createTableReserving`, the table cap); `Alternating` covers
   `#turnBased` mode (and an invite table's first-move grace);
   `Transport` drives a real `Duel` (revs,
-  `#unchanged`, `yours`, the cap, keep-alive through a sweep);
+  `#unchanged`, `yours`, the cap, keep-alive through a sweep, the
+  sweep timer starting and stopping);
   `CanisterPlayers` covers `canister_players.mo` with a hand-built
   context whose fan-out settles and whose timers are only recorded (the
   interpreter has none);
@@ -290,7 +297,8 @@ deploys all of them to the IC.
    in plain records declared as actor fields (`Transport.Duel`,
    `CanisterPlayers.Store`, `Leaderboard.Board`, promtracker's
    `Tracker`). Function values (the `Spec`, `callBot`, a `#best`
-   rating) live in the `transient let env : Transport.Env<…>`, rebuilt
+   rating) and the sweep timer's id live in the
+   `transient let env : Transport.Env<…>`, rebuilt
    on every upgrade and passed to every `duel.f(env, …)` call; engine
    entry points take `spec` as a parameter. No class anywhere in the
    engine.

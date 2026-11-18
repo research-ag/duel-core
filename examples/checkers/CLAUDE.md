@@ -15,7 +15,7 @@ to end. Not part of either package.
   `duel = Transport.new()` (90s/60s),
   `bots = CanisterPlayers.newStore()` and
   `leaderboard = Leaderboard.new(50, 1200)`; one
-  `transient let env : Transport.Env<…> = { spec = Rules.spec; bots = ?{ store = bots; call = BotIface.callBot }; scoring = ?{ board = leaderboard; rating = #elo { k = 32 } } }`;
+  `transient let env : Transport.Env<…> = { spec = Rules.spec; bots = ?{ store = bots; call = BotIface.callBot }; scoring = ?{ board = leaderboard; rating = #elo { k = 32 } }; sweeper = Transport.sweeper() }`;
   `include TransportActorMixin<system>(duel.lobby(env))`, the host's own
   `duel_create_table`/`duel_lobby`/`duel_submit`/`duel_table`, metrics,
   `include CanisterPlayersActorMixin(duel.canisterPlayers(env), bots.directory, ?leaderboard)`
