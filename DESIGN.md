@@ -381,7 +381,9 @@ either starts it, the sweep that finds neither stops it, and the mixin
 starts it again at an upgrade when there is something left. An idle
 game canister schedules no sweeps. A timer that has stopped sweeping
 for three intervals, as one lost while the canister was out of cycles,
-is replaced by the next request.
+is replaced by the next update from a player (`duel_keep_alive` or a
+table request); the queries `duel_lobby` and `duel_table` never
+restart it.
 
 ```mermaid
 sequenceDiagram
