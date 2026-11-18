@@ -110,6 +110,13 @@ export function TopUp({
     setWatching(true);
   }
 
+  /// The ledger's answer already confirms a send from the wallet; the
+  /// watch adds the amount when a balance from before the send exists.
+  function sentFromWallet() {
+    if (cycles !== undefined || reading === "frozen") startWatching();
+    else void refreshCycles(backend);
+  }
+
   const received =
     since !== undefined && cycles !== undefined
       ? since === "frozen"
@@ -178,7 +185,7 @@ export function TopUp({
       {wallet && (
         <>
           <h3 className="info-heading">From your wallet</h3>
-          <WalletSend to={backend} onSent={startWatching} />
+          <WalletSend to={backend} onSent={sentFromWallet} />
         </>
       )}
 

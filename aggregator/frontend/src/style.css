@@ -1820,9 +1820,16 @@ input[type="range"] {
   }
 
   .nav .sep,
-  .wallet-chip svg,
-  .profile-chip span:not(.avatar) {
+  .wallet-chip svg {
     display: none;
+  }
+
+  /* Out of sight, still the button's accessible name. */
+  .profile-chip span:not(.avatar) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    clip-path: inset(50%);
   }
 
   .profile-chip {

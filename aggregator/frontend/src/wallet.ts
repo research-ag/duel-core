@@ -12,7 +12,7 @@ import { safeGetCanisterEnv } from "@icp-sdk/core/agent/canister-env";
 import type { IDL } from "@icp-sdk/core/candid";
 import type { Principal } from "@icp-sdk/core/principal";
 
-import { formatTC } from "./cycles";
+import { exactTC, formatTC } from "./cycles";
 import { deriveHost } from "./ic-env";
 
 export const CYCLES_LEDGER = "um5iw-rqaaa-aaaaq-qaaba-cai";
@@ -104,6 +104,12 @@ export interface Wallet {
 
 let ledger: Ledger | undefined;
 let wallet: Wallet | undefined;
+/// Numbers the balance reads; only the latest one publishes.
+let latestRead = 0;
+/// A withdrawal whose call threw, so it may or may not have happened.
+/// The next send repeats its exact arguments, which the ledger either
+/// executes or answers with `Duplicate`.
+let unanswered: { to: Principal; amount: bigint; createdAt: bigint } | undefined;
 const listeners = new Set<() => void>();
 
 function set(next: Wallet) {
@@ -126,32 +132,44 @@ export async function connectWallet(identity: Identity): Promise<void> {
   await refreshWallet();
 }
 
-/// Re-reads the balance; a failed read keeps a known one.
+/// Re-reads the balance; a failed read keeps a known one, and a read
+/// overtaken by a later one publishes nothing.
 export async function refreshWallet(): Promise<void> {
   if (!ledger || !wallet) return;
+  const read = ++latestRead;
   const { principal } = wallet;
-  let balance: bigint | null;
-  try {
-    balance = await ledger.icrc1_balance_of({ owner: principal, subaccount: [] });
-  } catch {
-    balance = wallet.balance ?? null;
-  }
-  set({ principal, balance });
+  const balance = await ledger
+    .icrc1_balance_of({ owner: principal, subaccount: [] })
+    .catch(() => undefined);
+  if (read !== latestRead || !wallet) return;
+  set({ principal, balance: balance ?? wallet.balance ?? null });
 }
 
 /// Sends `amount` cycles to canister `to`; the wallet pays `amount` plus
 /// `LEDGER_FEE`. Resolves with the ledger's block index; rejects with a
 /// message for the page. `created_at_time` lets the ledger refuse the
-/// same withdrawal twice.
+/// same withdrawal twice, so an unanswered one is repeated as it was
+/// before any other is sent.
 export async function sendCycles(to: Principal, amount: bigint): Promise<bigint> {
   if (!ledger) throw new Error("Log in to use your wallet.");
+  if (
+    unanswered &&
+    (unanswered.to.toText() !== to.toText() || unanswered.amount !== amount)
+  )
+    throw new Error(
+      `Your send of ${exactTC(unanswered.amount)} to ${unanswered.to.toText()} got no answer and may have gone through. Send that again first: the ledger will not take it twice.`
+    );
+  const createdAt = unanswered?.createdAt ?? BigInt(Date.now()) * 1_000_000n;
   try {
-    const res = await ledger.withdraw({
-      to,
-      from_subaccount: [],
-      created_at_time: [BigInt(Date.now()) * 1_000_000n],
-      amount,
-    });
+    const res = await ledger
+      .withdraw({ to, from_subaccount: [], created_at_time: [createdAt], amount })
+      .catch(() => {
+        unanswered = { to, amount, createdAt };
+        throw new Error(
+          "The cycles ledger did not answer, so this may have gone through. Send the same amount again: the ledger will not take it twice."
+        );
+      });
+    unanswered = undefined;
     if ("Ok" in res) return res.Ok;
     if ("Duplicate" in res.Err) return res.Err.Duplicate.duplicate_of;
     throw new Error(withdrawMessage(res.Err, to));

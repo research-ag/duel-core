@@ -300,10 +300,10 @@ function OwnerStrip({
   }
   const known = [...byBackend.values()];
   if (known.length === 0) return null;
-  const total = known.reduce(
-    (sum, x) => sum + (x.reading === "frozen" ? 0n : x.reading.cycles),
-    0n
+  const balances = known.flatMap((x) =>
+    x.reading === "frozen" ? [] : [x.reading.cycles]
   );
+  const total = balances.reduce((a, b) => a + b, 0n);
   const count = (status: Status) => known.filter((x) => x.status === status).length;
   const down = count("frozen") + count("down");
   const low = count("low");
@@ -316,7 +316,11 @@ function OwnerStrip({
   return (
     <p className="owner-strip">
       <strong>Your games:</strong> {known.length} backend
-      {known.length === 1 ? "" : "s"}, {formatTC(total)} in total
+      {known.length === 1 ? "" : "s"}
+      {balances.length === known.length
+        ? `, ${formatTC(total)} in total`
+        : balances.length > 0 &&
+          `, ${formatTC(total)} in the ${balances.length} not frozen`}
       {down > 0 && (
         <>
           , <span className="down">{down} out of cycles</span>
