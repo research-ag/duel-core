@@ -68,9 +68,10 @@ behaviour).
       `PRESENCE_TTL_NS` 60 s; a `#code` table also waits out
       `INVITE_WAIT_NS`); silence never ends a game.
     - The sweep timer runs only while a table or a presence entry
-      exists: `Transport.wake` (after every request, and from the
-      mixin at install/upgrade) starts it, the sweep that leaves
-      neither cancels it. An idle canister executes nothing.
+      exists: `Transport.wake` (after every update that records
+      presence, rejected mutations included, and from the mixin at
+      install/upgrade; never from a query) starts it, the sweep that
+      leaves neither cancels it. An idle canister schedules no sweeps.
     - `transport_actor_mixin.mo` supplies every method naming none of
       the game's types
       (`include TransportActorMixin<system>(duel.lobby(env))`). A mixin

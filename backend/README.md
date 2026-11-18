@@ -327,9 +327,11 @@ for `INVITE_WAIT_NS` in any case), bumps the revs of what it
 changed, prunes presence, and settles canister players everywhere.
 Silence never ends a game in progress; `claimWin` and idle takeover do.
 The timer runs only while there is a table or a presence entry:
-`Transport.wake`, called after every request and by the mixin at
-install and upgrade, starts it, and the sweep that leaves neither
-cancels it. An idle canister runs no timer and pays only for storage.
+`Transport.wake` starts it, and the sweep that leaves neither cancels
+it. Every update that records presence calls `wake` (each mutation,
+rejected or not, and `duel_keep_alive`; an anonymous caller's records
+nothing), and so does the mixin at install and upgrade; the queries
+never do. An idle canister schedules no sweeps.
 
 **Replay safety.** `duel_submit`/`duel_leave`/`duel_reset`/
 `duel_claim_win` carry the `gen` (and `submit` the `step`) the client
@@ -465,8 +467,9 @@ auto-acks; a human-vs-bot rematch is the human's frontend re-issuing
 **Eager dual-seat assignment.** `Registry.createTableReserving` seats
 both the creator and a named `reservedFor` player atomically, so the
 table lands directly in `#active`. No transport method reaches it; an
-orchestrator seating two bots would call it from Motoko. It rejects a
-self-reservation and a reservee already at the table cap.
+orchestrator seating two bots would call it from Motoko, then
+`Transport.wake(duel, env)` so the sweep timer runs for the new table.
+It rejects a self-reservation and a reservee already at the table cap.
 
 **Writing the bot.** `MoveRequest<V, M>` carries the bot's own view
 (`game`) with `seat`/`mode`/`step`/`gen`/`complexity`, and

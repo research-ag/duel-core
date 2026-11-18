@@ -409,8 +409,11 @@ module {
   func idle<S, M, O>(self : Duel<S, M, O>) : Bool = self.registry.tables.size() == 0 and self.presence.size() == 0;
 
   /// Starts the sweep timer when there is something to sweep (a table, or
-  /// presence to expire) and it is not running. Called after every
-  /// request, and by `./transport_actor_mixin` at install and upgrade.
+  /// presence to expire) and it is not running. Called by every update
+  /// that records presence (each mutation, rejected or not, and
+  /// `keepAlive`; not an anonymous caller's), and by
+  /// `./transport_actor_mixin` at install and upgrade. Queries never call
+  /// it.
   public func wake<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>) {
     if (env.sweeper.timer != null or idle(self)) return;
     env.sweeper.timer := ?env.sweeper.every<system>(

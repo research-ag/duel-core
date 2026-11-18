@@ -184,29 +184,32 @@ do {
 do {
   let duel = fresh();
   var armed = 0;
-  var cancelled = 0;
+  var interval = 0;
+  var cancelled : ?Nat = null;
   let timed : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
     env with sweeper = {
       var timer = null;
-      every = func<system>(_ : Nat, _ : () -> async ()) : Nat {
+      every = func<system>(secs : Nat, _ : () -> async ()) : Nat {
         armed += 1;
+        interval := secs;
         armed;
       };
-      cancel = func(_ : Nat) { cancelled += 1 };
+      cancel = func(id : Nat) { cancelled := ?id };
     }
   };
   Transport.wake<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(duel, timed);
   check(armed == 0, "7a: nothing to sweep starts no timer");
   ignore acked(await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA, #p1, #open, ""), "7: PA creates");
   check(armed == 1 and timed.sweeper.timer == ?1, "7b: the first table starts the timer");
+  check(interval == Transport.SWEEP_SECS, "7b: ...every SWEEP_SECS");
   check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA) == #ok, "7: keepAlive");
   check(armed == 1, "7c: a running timer is not started again");
   let t0 = Time.now();
   await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, t0 + 5 * SEC);
-  check(cancelled == 0 and timed.sweeper.timer == ?1, "7d: a waiting table keeps the timer running");
+  check(cancelled == null and timed.sweeper.timer == ?1, "7d: a waiting table keeps the timer running");
   await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, t0 + Transport.PRESENCE_TTL_NS + 5 * SEC);
   check(duel.registry.tables.size() == 0 and duel.presence.size() == 0, "7: the table and presence are gone");
-  check(cancelled == 1 and timed.sweeper.timer == null, "7e: the sweep stops the timer once nothing is left");
+  check(cancelled == ?1 and timed.sweeper.timer == null, "7e: the sweep cancels the timer it started once nothing is left");
   check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PB) == #ok, "7: keepAlive with no table");
   check(armed == 2 and timed.sweeper.timer == ?2, "7f: presence alone starts it again, to expire it");
   Debug.print("7. the sweep timer starts and stops OK");
