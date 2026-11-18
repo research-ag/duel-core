@@ -103,16 +103,19 @@ module {
 
   public type Scoring<S> = { board : Leaderboard.Board; rating : Rating<S> };
 
-  /// The sweep timer: its id while it runs. `sweeper()` arms and
-  /// cancels it with `mo:core/Timer`; a test passes its own functions.
+  /// The sweep timer: its id while it runs, and when it started or last
+  /// swept. `sweeper()` arms and cancels it with `mo:core/Timer`; a test
+  /// passes its own functions.
   public type Sweeper = {
     var timer : ?Timer.TimerId;
+    var lastRun : Int;
     every : <system>(Nat, () -> async ()) -> Timer.TimerId;
     cancel : Timer.TimerId -> ();
   };
 
   public func sweeper() : Sweeper = {
     var timer = null;
+    var lastRun = 0;
     every = func<system>(secs : Nat, job : () -> async ()) : Timer.TimerId = Timer.recurringTimer<system>(#seconds secs, job);
     cancel = Timer.cancelTimer;
   };
@@ -167,6 +170,11 @@ module {
   /// How often `sweep` runs. A waiting table whose creator went silent
   /// is gone within the idle timeout plus about one interval.
   public let SWEEP_SECS : Nat = 30;
+
+  /// How long the sweep timer may go without sweeping (three intervals)
+  /// before `wake` replaces it, as lost (a canister out of cycles can
+  /// lose it).
+  public let SWEEP_STALLED_NS : Int = 90_000_000_000;
 
   public func isPresent<S, M, O>(self : Duel<S, M, O>, player : TP.PlayerId, now : Int) : Bool {
     switch (self.presence.get(player)) {
@@ -409,13 +417,22 @@ module {
   func idle<S, M, O>(self : Duel<S, M, O>) : Bool = self.registry.tables.size() == 0 and self.presence.size() == 0;
 
   /// Starts the sweep timer when there is something to sweep (a table, or
-  /// presence to expire) and it is not running. Called by every update
-  /// that records presence (each mutation, rejected or not, and
-  /// `keepAlive`; not an anonymous caller's), and by
-  /// `./transport_actor_mixin` at install and upgrade. Queries never call
-  /// it.
+  /// presence to expire) and it is not running, or has not swept for
+  /// `SWEEP_STALLED_NS`. Called by every update that records presence
+  /// (each mutation, rejected or not, and `keepAlive`; not an anonymous
+  /// caller's), and by `./transport_actor_mixin` at install and upgrade.
+  /// Queries never call it.
   public func wake<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>) {
-    if (env.sweeper.timer != null or idle(self)) return;
+    if (idle(self)) return;
+    let now = Time.now();
+    switch (env.sweeper.timer) {
+      case (?id) {
+        if (now - env.sweeper.lastRun < SWEEP_STALLED_NS) return;
+        env.sweeper.cancel(id);
+      };
+      case null {};
+    };
+    env.sweeper.lastRun := now;
     env.sweeper.timer := ?env.sweeper.every<system>(
       SWEEP_SECS,
       func() : async () {
@@ -430,6 +447,7 @@ module {
   /// canister players everywhere (the slow fallback). Stops the sweep
   /// timer once nothing is left.
   public func sweep<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, now : Int) : async* () {
+    env.sweeper.lastRun := now;
     func shape(t : TP.Table<S, M, O>) : (Nat, Nat) {
       let tag = switch (t.phase) {
         case (#empty) 0;

@@ -72,6 +72,8 @@ behaviour).
       presence, rejected mutations included, and from the mixin at
       install/upgrade; never from a query) starts it, the sweep that
       leaves neither cancels it. An idle canister schedules no sweeps.
+      `wake` also replaces a timer that has not swept for
+      `SWEEP_STALLED_NS` (90 s; lost while out of cycles).
     - `transport_actor_mixin.mo` supplies every method naming none of
       the game's types
       (`include TransportActorMixin<system>(duel.lobby(env))`). A mixin
@@ -178,7 +180,7 @@ behaviour).
   `#turnBased` mode (and an invite table's first-move grace);
   `Transport` drives a real `Duel` (revs,
   `#unchanged`, `yours`, the cap, keep-alive through a sweep, the
-  sweep timer starting and stopping);
+  sweep timer starting, stopping, and replaced when stalled);
   `CanisterPlayers` covers `canister_players.mo` with a hand-built
   context whose fan-out settles and whose timers are only recorded (the
   interpreter has none);
@@ -297,7 +299,7 @@ deploys all of them to the IC.
    in plain records declared as actor fields (`Transport.Duel`,
    `CanisterPlayers.Store`, `Leaderboard.Board`, promtracker's
    `Tracker`). Function values (the `Spec`, `callBot`, a `#best`
-   rating) and the sweep timer's id live in the
+   rating) and the sweep timer's state live in the
    `transient let env : Transport.Env<…>`, rebuilt
    on every upgrade and passed to every `duel.f(env, …)` call; engine
    entry points take `spec` as a parameter. No class anywhere in the

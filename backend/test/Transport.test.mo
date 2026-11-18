@@ -2,7 +2,7 @@
 // `#unchanged`, the lobby's `yours`, the table cap, the anonymous caller,
 // a waiting table kept open by `keepAlive` through a `sweep`, a debrief
 // scored once, and the sweep timer running only while there is something
-// to sweep.
+// to sweep, replaced once it stops sweeping.
 import Debug "mo:core/Debug";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
@@ -30,6 +30,7 @@ type D = Transport.Duel<Rules.State, Rules.Action, Rules.Options>;
 // The interpreter has no timers: a stand-in that arms none (section 7 counts).
 func fakeSweeper() : Transport.Sweeper = {
   var timer = null;
+  var lastRun = 0;
   every = func<system>(_ : Nat, _ : () -> async ()) : Nat = 1;
   cancel = func(_ : Nat) {};
 };
@@ -182,7 +183,8 @@ do {
   Debug.print("6. a debrief is scored once OK");
 };
 
-// ── 7. the sweep timer runs only while there is something to sweep ────────
+// ── 7. the sweep timer runs only while there is something to sweep, ───────
+//       and is replaced once it stops sweeping
 do {
   let duel = fresh();
   var armed = 0;
@@ -192,6 +194,7 @@ do {
   let timed : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
     env with sweeper = {
       var timer = null;
+      var lastRun = 0;
       every = func<system>(secs : Nat, j : () -> async ()) : Nat {
         armed += 1;
         interval := secs;
@@ -228,7 +231,24 @@ do {
     case null Runtime.trap("7h: no job registered");
   };
   check(duel.presence.size() == 0 and cancelled == ?2 and timed.sweeper.timer == null, "7h: the registered job sweeps and stops the timer");
-  Debug.print("7. the sweep timer starts and stops OK");
+  // A timer that stops firing (lost while the canister was out of cycles)
+  // still holds its id; the next request replaces it.
+  check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA) == #ok, "7: keepAlive");
+  check(armed == 3 and timed.sweeper.timer == ?3, "7: PA's presence starts timer 3");
+  timed.sweeper.lastRun := Time.now() - Transport.SWEEP_STALLED_NS + 10 * SEC;
+  check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA) == #ok, "7: keepAlive");
+  check(armed == 3 and cancelled == ?2, "7i: a timer that swept within SWEEP_STALLED_NS is kept");
+  timed.sweeper.lastRun := Time.now() - Transport.SWEEP_STALLED_NS - SEC;
+  check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA) == #ok, "7: keepAlive");
+  check(armed == 4 and cancelled == ?3 and timed.sweeper.timer == ?4, "7j: a timer that stopped sweeping is replaced");
+  timed.sweeper.lastRun := Time.now() - Transport.SWEEP_STALLED_NS - SEC;
+  switch (job) {
+    case (?j) await j();
+    case null Runtime.trap("7k: no job registered");
+  };
+  check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA) == #ok, "7: keepAlive");
+  check(armed == 4 and timed.sweeper.timer == ?4, "7k: each sweep counts as the timer running");
+  Debug.print("7. the sweep timer starts, stops and is replaced when stalled OK");
 };
 
 Debug.print("ALL TRANSPORT CHECKS PASSED");

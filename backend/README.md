@@ -331,7 +331,9 @@ The timer runs only while there is a table or a presence entry:
 it. Every update that records presence calls `wake` (each mutation,
 rejected or not, and `duel_keep_alive`; an anonymous caller's records
 nothing), and so does the mixin at install and upgrade; the queries
-never do. An idle canister schedules no sweeps.
+never do. An idle canister schedules no sweeps. A timer that has not
+swept for `SWEEP_STALLED_NS` (90 s), as when the canister ran out of
+cycles, is replaced by the next `wake`.
 
 **Replay safety.** `duel_submit`/`duel_leave`/`duel_reset`/
 `duel_claim_win` carry the `gen` (and `submit` the `step`) the client
