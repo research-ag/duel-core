@@ -8,6 +8,7 @@ import Map "mo:core/Map";
 import Nat "mo:core/Nat";
 import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
+import Text "mo:core/Text";
 import Time "mo:core/Time";
 
 import Rules "FakeGame";
@@ -186,13 +187,15 @@ do {
   let duel = fresh();
   var armed = 0;
   var interval = 0;
+  var job : ?(() -> async ()) = null;
   var cancelled : ?Nat = null;
   let timed : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
     env with sweeper = {
       var timer = null;
-      every = func<system>(secs : Nat, _ : () -> async ()) : Nat {
+      every = func<system>(secs : Nat, j : () -> async ()) : Nat {
         armed += 1;
         interval := secs;
+        job := ?j;
         armed;
       };
       cancel = func(id : Nat) { cancelled := ?id };
@@ -217,6 +220,14 @@ do {
   check(cancelled == ?1 and timed.sweeper.timer == null, "7f: the sweep cancels the timer it started once nothing is left");
   check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PB) == #ok, "7: keepAlive with no table");
   check(armed == 2 and timed.sweeper.timer == ?2, "7g: presence alone starts it again, to expire it");
+  // The timer's own job sweeps at the canister's clock: PB's presence,
+  // dated past the TTL, expires through it and the timer stops.
+  duel.presence.add(PB.toText(), Time.now() - Transport.PRESENCE_TTL_NS - SEC);
+  switch (job) {
+    case (?j) await j();
+    case null Runtime.trap("7h: no job registered");
+  };
+  check(duel.presence.size() == 0 and cancelled == ?2 and timed.sweeper.timer == null, "7h: the registered job sweeps and stops the timer");
   Debug.print("7. the sweep timer starts and stops OK");
 };
 
