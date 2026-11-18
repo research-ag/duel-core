@@ -14,6 +14,7 @@ import Rules "FakeGame";
 import Leaderboard "../src/leaderboard";
 import Registry "../src/registry";
 import TP "../src/lib";
+import Table "../src/table";
 import Transport "../src/transport";
 
 let PA = Principal.fromText("kcyov-mibae-aqcai-baeaq-cai");
@@ -199,7 +200,7 @@ do {
   };
   Transport.wake<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(duel, timed);
   check(armed == 0, "7a: nothing to sweep starts no timer");
-  ignore acked(await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA, #p1, #open, ""), "7: PA creates");
+  ignore acked(await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA, #p1, #code("c"), ""), "7: PA opens an invite table");
   check(armed == 1 and timed.sweeper.timer == ?1, "7b: the first table starts the timer");
   check(interval == Transport.SWEEP_SECS, "7b: ...every SWEEP_SECS");
   check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA) == #ok, "7: keepAlive");
@@ -207,11 +208,15 @@ do {
   let t0 = Time.now();
   await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, t0 + 5 * SEC);
   check(cancelled == null and timed.sweeper.timer == ?1, "7d: a waiting table keeps the timer running");
+  // The creator went silent; an invite table waits `INVITE_WAIT_NS` anyway.
   await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, t0 + Transport.PRESENCE_TTL_NS + 5 * SEC);
+  check(duel.registry.tables.size() == 1 and duel.presence.size() == 0, "7: the invite table outlives its creator's presence");
+  check(cancelled == null and timed.sweeper.timer == ?1, "7e: a table alone keeps the timer running");
+  await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, t0 + Table.INVITE_WAIT_NS + 5 * SEC);
   check(duel.registry.tables.size() == 0 and duel.presence.size() == 0, "7: the table and presence are gone");
-  check(cancelled == ?1 and timed.sweeper.timer == null, "7e: the sweep cancels the timer it started once nothing is left");
+  check(cancelled == ?1 and timed.sweeper.timer == null, "7f: the sweep cancels the timer it started once nothing is left");
   check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PB) == #ok, "7: keepAlive with no table");
-  check(armed == 2 and timed.sweeper.timer == ?2, "7f: presence alone starts it again, to expire it");
+  check(armed == 2 and timed.sweeper.timer == ?2, "7g: presence alone starts it again, to expire it");
   Debug.print("7. the sweep timer starts and stops OK");
 };
 

@@ -468,8 +468,10 @@ auto-acks; a human-vs-bot rematch is the human's frontend re-issuing
 both the creator and a named `reservedFor` player atomically, so the
 table lands directly in `#active`. No transport method reaches it; an
 orchestrator seating two bots would call it from Motoko, then
-`Transport.wake(duel, env)` so the sweep timer runs for the new table.
-It rejects a self-reservation and a reservee already at the table cap.
+`duel.wake<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env)`
+(from an update, or a helper that declares and forwards `<system>`) so
+the sweep timer runs for the new table. It rejects a self-reservation
+and a reservee already at the table cap.
 
 **Writing the bot.** `MoveRequest<V, M>` carries the bot's own view
 (`game`) with `seat`/`mode`/`step`/`gen`/`complexity`, and
