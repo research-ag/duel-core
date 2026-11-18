@@ -106,10 +106,22 @@ let ledger: Ledger | undefined;
 let wallet: Wallet | undefined;
 /// Numbers the balance reads; only the latest one publishes.
 let latestRead = 0;
+/// Set while a withdrawal waits for the ledger; sends run one at a time.
+let sending = false;
 /// A withdrawal whose call threw, so it may or may not have happened.
-/// The next send repeats its exact arguments, which the ledger either
-/// executes or answers with `Duplicate`.
+/// Its resend repeats the exact arguments, which the ledger either
+/// executes or answers with `Duplicate`; no other send goes out before.
 let unanswered: { to: Principal; amount: bigint; createdAt: bigint } | undefined;
+
+/// Whether sending `amount` to `to` resends the unanswered withdrawal,
+/// which skips the balance check: the wallet may already have paid it.
+export function isResend(to: Principal, amount: bigint): boolean {
+  return (
+    unanswered !== undefined &&
+    unanswered.to.toText() === to.toText() &&
+    unanswered.amount === amount
+  );
+}
 const listeners = new Set<() => void>();
 
 function set(next: Wallet) {
@@ -119,6 +131,8 @@ function set(next: Wallet) {
 
 /// Opens the wallet of a resolved login and reads its balance.
 export async function connectWallet(identity: Identity): Promise<void> {
+  if (wallet?.principal.toText() !== identity.getPrincipal().toText())
+    unanswered = undefined;
   const agent = await HttpAgent.create({
     host: deriveHost(),
     identity,
@@ -152,28 +166,44 @@ export async function refreshWallet(): Promise<void> {
 /// before any other is sent.
 export async function sendCycles(to: Principal, amount: bigint): Promise<bigint> {
   if (!ledger) throw new Error("Log in to use your wallet.");
-  if (
-    unanswered &&
-    (unanswered.to.toText() !== to.toText() || unanswered.amount !== amount)
-  )
+  if (sending)
+    throw new Error("Another send is still waiting for the ledger's answer.");
+  if (unanswered && !isResend(to, amount))
     throw new Error(
       `Your send of ${exactTC(unanswered.amount)} to ${unanswered.to.toText()} got no answer and may have gone through. Send that again first: the ledger will not take it twice.`
     );
-  const createdAt = unanswered?.createdAt ?? BigInt(Date.now()) * 1_000_000n;
+  const tx = unanswered ?? {
+    to,
+    amount,
+    createdAt: BigInt(Date.now()) * 1_000_000n,
+  };
+  const resend = tx === unanswered;
+  sending = true;
   try {
     const res = await ledger
-      .withdraw({ to, from_subaccount: [], created_at_time: [createdAt], amount })
+      .withdraw({ to, from_subaccount: [], created_at_time: [tx.createdAt], amount })
       .catch(() => {
-        unanswered = { to, amount, createdAt };
+        unanswered = tx;
         throw new Error(
           "The cycles ledger did not answer, so this may have gone through. Send the same amount again: the ledger will not take it twice."
         );
       });
-    unanswered = undefined;
+    // Any other answer settles a resend: the ledger looks for the
+    // duplicate before it checks the balance, and what it refuses
+    // earlier it refused the first time too.
+    const open =
+      "Err" in res &&
+      ("TooOld" in res.Err || "TemporarilyUnavailable" in res.Err);
+    if (!open && unanswered === tx) unanswered = undefined;
     if ("Ok" in res) return res.Ok;
     if ("Duplicate" in res.Err) return res.Err.Duplicate.duplicate_of;
+    if (resend && "TooOld" in res.Err)
+      throw new Error(
+        "Your earlier send is over a day old, so the ledger can no longer tell whether it went through. Check your wallet's balance; reload this page to send anything else."
+      );
     throw new Error(withdrawMessage(res.Err, to));
   } finally {
+    sending = false;
     void refreshWallet();
   }
 }

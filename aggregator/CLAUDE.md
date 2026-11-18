@@ -210,8 +210,9 @@ balance with a **Top up** page.
   (`icp cycles transfer`). The page calls the ledger with the login's
   own identity: `icrc1_balance_of`, and `withdraw` (`sendCycles`), which
   deposits into any canister for `LEDGER_FEE` (0.0001 TC), with
-  `created_at_time` so the ledger refuses a repeat: a send whose call
-  threw is resent unchanged before any other. `Wallet.tsx` holds
+  `created_at_time` so the ledger refuses a repeat. Sends go one at a
+  time; one whose call threw is resent unchanged (`isResend`, past the
+  balance check) before any other. `Wallet.tsx` holds
   `WalletChip`, `WalletModal` (the balance, the developer's own
   backends and frontends as one-click targets or any canister id, the
   principal and the funding command) and `WalletSend`, the amount and

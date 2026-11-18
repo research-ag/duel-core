@@ -14,7 +14,13 @@ import {
   useCycleStore,
 } from "../cycles";
 import type { GameView } from "../types";
-import { LEDGER_FEE, refreshWallet, sendCycles, useWallet } from "../wallet";
+import {
+  LEDGER_FEE,
+  isResend,
+  refreshWallet,
+  sendCycles,
+  useWallet,
+} from "../wallet";
 import { CodeBlock, CopyId } from "./CodeBlock";
 import { CyclesBadge } from "./CyclesBadge";
 import { Wallet as WalletIcon } from "./Icons";
@@ -62,6 +68,7 @@ export function WalletSend({
   const amount = parseTC(custom === "" ? preset : custom);
   const target = principalOf(to);
   const short =
+    !(target && amount !== undefined && isResend(target, amount)) &&
     wallet.balance != null &&
     amount !== undefined &&
     wallet.balance < amount + LEDGER_FEE;
