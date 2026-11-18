@@ -1,7 +1,8 @@
 // Checks for `transport.mo`: a `Duel` driven by two principals — revs and
 // `#unchanged`, the lobby's `yours`, the table cap, the anonymous caller,
-// a waiting table kept open by `keepAlive` through a `sweep`, and a
-// debrief scored once.
+// a waiting table kept open by `keepAlive` through a `sweep`, a debrief
+// scored once, and the sweep timer running only while there is something
+// to sweep.
 import Debug "mo:core/Debug";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
@@ -24,10 +25,18 @@ func check(cond : Bool, msg : Text) {
 };
 
 type D = Transport.Duel<Rules.State, Rules.Action, Rules.Options>;
+// The interpreter has no timers: a stand-in that arms none (section 7 counts).
+func fakeSweeper() : Transport.Sweeper = {
+  var timer = null;
+  every = func<system>(_ : Nat, _ : () -> async ()) : Nat = 1;
+  cancel = func(_ : Nat) {};
+};
+
 let env : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
   spec = Rules.spec();
   bots = null;
   scoring = null;
+  sweeper = fakeSweeper();
 };
 
 func fresh() : D {
@@ -43,6 +52,7 @@ func create<system>(duel : D, caller : Principal.Principal, options : Rules.Opti
 func join<system>(duel : D, caller : Principal.Principal, id : TP.TableId) : async* Transport.Ack {
   await* duel.joinTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller, id, #p2, null);
 };
+func keepAlive<system>(duel : D, caller : Principal.Principal) : TP.Res<()> = duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, caller);
 func tableOf(duel : D, caller : Principal.Principal, id : TP.TableId, rev : Nat) : Transport.TableResult<Rules.View> = duel.table(env, caller, id, rev);
 
 func acked(a : Transport.Ack, msg : Text) : { tableId : TP.TableId; rev : Nat } = switch (a) {
@@ -117,7 +127,7 @@ do {
     case (#err(#unauthorized)) {};
     case (other) Runtime.trap("4c: the anonymous caller must be refused, got " # debug_show other);
   };
-  check(duel.keepAlive(Principal.anonymous()) == #err(#unauthorized), "4d: ...for keepAlive too");
+  check(keepAlive<system>(duel, Principal.anonymous()) == #err(#unauthorized), "4d: ...for keepAlive too");
   switch (await* create<system>(fresh(), PB, "bad")) {
     case (#err(#badOptions _)) {};
     case (other) Runtime.trap("4e: options the game rejects must not open a table, got " # debug_show other);
@@ -130,7 +140,7 @@ do {
   let duel = fresh();
   let { tableId; rev } = acked(await* create<system>(duel, PA, ""), "5: PA creates");
   let t0 = Time.now();
-  check(duel.keepAlive(PA) == #ok, "5: keepAlive");
+  check(keepAlive<system>(duel, PA) == #ok, "5: keepAlive");
   // Past the 1 s idle timeout, still inside the presence TTL.
   await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(env, t0 + 5 * SEC);
   check(tableOf(duel, PA, tableId, rev) == #unchanged, "5a: a kept-alive waiting table survives the sweep");
@@ -168,6 +178,38 @@ do {
   await* Transport.afterMutation<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(duel, scored, now, tableId, true);
   check(Leaderboard.scoreOf(board, PB.toText()) == afterEnd, "6b: the ack must not score the debrief again");
   Debug.print("6. a debrief is scored once OK");
+};
+
+// ── 7. the sweep timer runs only while there is something to sweep ────────
+do {
+  let duel = fresh();
+  var armed = 0;
+  var cancelled = 0;
+  let timed : Transport.Env<Rules.State, Rules.Action, Rules.View, Rules.Options> = {
+    env with sweeper = {
+      var timer = null;
+      every = func<system>(_ : Nat, _ : () -> async ()) : Nat {
+        armed += 1;
+        armed;
+      };
+      cancel = func(_ : Nat) { cancelled += 1 };
+    }
+  };
+  Transport.wake<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(duel, timed);
+  check(armed == 0, "7a: nothing to sweep starts no timer");
+  ignore acked(await* duel.createTable<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA, #p1, #open, ""), "7: PA creates");
+  check(armed == 1 and timed.sweeper.timer == ?1, "7b: the first table starts the timer");
+  check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PA) == #ok, "7: keepAlive");
+  check(armed == 1, "7c: a running timer is not started again");
+  let t0 = Time.now();
+  await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, t0 + 5 * SEC);
+  check(cancelled == 0 and timed.sweeper.timer == ?1, "7d: a waiting table keeps the timer running");
+  await* duel.sweep<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, t0 + Transport.PRESENCE_TTL_NS + 5 * SEC);
+  check(duel.registry.tables.size() == 0 and duel.presence.size() == 0, "7: the table and presence are gone");
+  check(cancelled == 1 and timed.sweeper.timer == null, "7e: the sweep stops the timer once nothing is left");
+  check(duel.keepAlive<system, Rules.State, Rules.Action, Rules.View, Rules.Options>(timed, PB) == #ok, "7: keepAlive with no table");
+  check(armed == 2 and timed.sweeper.timer == ?2, "7f: presence alone starts it again, to expire it");
+  Debug.print("7. the sweep timer starts and stops OK");
 };
 
 Debug.print("ALL TRANSPORT CHECKS PASSED");

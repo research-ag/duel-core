@@ -21,6 +21,7 @@
 ///       spec = Rules.spec;
 ///       bots = null;
 ///       scoring = null;
+///       sweeper = Transport.sweeper();
 ///     };
 ///     // include TransportActorMixin<system>(duel.lobby(env)) + the four
 ///     // host-declared pass-throughs — see `./transport`

@@ -185,7 +185,7 @@ flowchart TB
     lb["leaderboard = Leaderboard.new(keep, default)"]
   end
   subgraph transient["transient let — rebuilt on every upgrade"]
-    envr["env = { spec = Rules.spec;<br/>bots = ?{ store = bots; call = BotIface.callBot };<br/>scoring = ?{ board = leaderboard; rating } }"]
+    envr["env = { spec = Rules.spec;<br/>bots = ?{ store = bots; call = BotIface.callBot };<br/>scoring = ?{ board = leaderboard; rating };<br/>sweeper = Transport.sweeper() }"]
   end
   bots --> envr
   lb --> envr
@@ -374,6 +374,12 @@ the lobby forever after the tab closes. While the shown view is
 Every 30 s (`SWEEP_SECS`) the sweep clears a waiting table that is past
 the idle timeout and whose creator has not been heard from for 60 s
 (`PRESENCE_TTL_NS`), along with expired games and debriefs.
+
+The sweep timer runs only while there is something to sweep: a table,
+or a presence entry still to expire. The first request that leaves
+either starts it, the sweep that finds neither stops it, and the mixin
+starts it again at an upgrade when there is something left. An idle
+game canister executes nothing and pays only for its memory.
 
 ```mermaid
 sequenceDiagram
