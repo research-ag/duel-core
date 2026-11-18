@@ -379,7 +379,9 @@ The sweep timer runs only while there is something to sweep: a table,
 or a presence entry still to expire. The first request that leaves
 either starts it, the sweep that finds neither stops it, and the mixin
 starts it again at an upgrade when there is something left. An idle
-game canister schedules no sweeps.
+game canister schedules no sweeps. A timer that has stopped sweeping
+for three intervals, as one lost while the canister was out of cycles,
+is replaced by the next request.
 
 ```mermaid
 sequenceDiagram
