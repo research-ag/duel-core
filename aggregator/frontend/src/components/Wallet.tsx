@@ -232,6 +232,7 @@ export function WalletModal({
       ).filter(shown),
     ],
   ];
+  const matches = sections.reduce((n, [, groups]) => n + groups.length, 0);
 
   return (
     <Modal onClose={onClose} className="info-modal wallet-modal">
@@ -269,8 +270,14 @@ export function WalletModal({
               aria-label="Search games by name or canister id"
             />
           </label>
+          <p className="sr-only" role="status">
+            {searching &&
+              (matches === 0
+                ? "No game matches."
+                : `${matches} ${matches === 1 ? "game matches" : "games match"}.`)}
+          </p>
           <div className="target-list">
-            {sections.every(([, groups]) => groups.length === 0) && (
+            {matches === 0 && (
               <p className="faint target-none">No game matches.</p>
             )}
             {sections.map(

@@ -2029,6 +2029,15 @@ input[type="range"] {
   margin: 0.9rem 0;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .wallet-add summary {
   display: flex;
   align-items: center;

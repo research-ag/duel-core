@@ -131,6 +131,10 @@ same `hosty_prepare_wasm_upload` as the first install, with
 then upload the frontend, as `going-live.md` describes. A new bot
 canister is created as `going-live.md`, section 3, describes and
 registered as SKILL.md Step 4 does. Any change to a live bot also
-checks that it serves `GET /metrics` (`bot-for-existing-game.md`,
-section 4) and adds those lines when it does not; they hold no stable
-data, so the upgrade needs no migration.
+checks that its `GET /metrics` reports `cycles_balance`
+(`curl -sf https://<bot-id>.raw.icp0.io/metrics | grep '^cycles_balance'`).
+When it does not, add promtracker's system metrics: the lines of
+`bot-for-existing-game.md`, section 4, or, for a bot that already
+serves its own `/metrics`, `renderer.addValue(PT.allSystemMetrics)` on
+that renderer, keeping its metrics. They hold no stable data, so the
+upgrade needs no migration.
