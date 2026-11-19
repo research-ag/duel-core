@@ -196,7 +196,13 @@ export async function sendCycles(to: Principal, amount: bigint): Promise<bigint>
       ("TooOld" in res.Err || "TemporarilyUnavailable" in res.Err);
     if (!open && unanswered === tx) unanswered = undefined;
     if ("Ok" in res) return res.Ok;
-    if ("Duplicate" in res.Err) return res.Err.Duplicate.duplicate_of;
+    // A failed delivery is refunded in a block of its own and leaves
+    // the duplicate entry in place, so `Duplicate` only says the first
+    // call was taken.
+    if ("Duplicate" in res.Err)
+      throw new Error(
+        `The ledger had already taken this send (block ${res.Err.Duplicate.duplicate_of}): the cycles reached ${to.toText()}, or, if that delivery failed, came back to your wallet less 0.0002 TC in fees. The two balances tell which.`
+      );
     if (resend && "TooOld" in res.Err)
       throw new Error(
         "Your earlier send is over a day old, so the ledger can no longer tell whether it went through. Check your wallet's balance; reload this page to send anything else."
