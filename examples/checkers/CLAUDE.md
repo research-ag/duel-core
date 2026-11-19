@@ -31,7 +31,8 @@ to end. Not part of either package.
 - **`bot/Bot.mo`**: the bot canister: `make_move` as a `query`,
   `play(host, tableId, seat, code, complexity)` (self-join via
   `join_table_as_canister`), `register(host, name)`/`unregister(host)`
-  (registers `[]`, listed as "Default"). Register once by hand:
+  (registers `[]`, listed as "Default"), and `/metrics` (promtracker's
+  system metrics, for the dashboard's balance). Register once by hand:
   `icp canister call bot register '(principal "<backend-canister-id>", "CheckersBot")'`.
 - **`test/*.test.mo`**: `RulesUnit` (synthetic boards: forward-only men,
   kings, mandatory capture, maximal chains, promotion, win by elimination

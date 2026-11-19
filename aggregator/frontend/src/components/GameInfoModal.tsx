@@ -7,8 +7,14 @@
 import { useEffect, useState } from "react";
 
 import { backendOf, rawUrl, semanticsOf, serves } from "../canisterHttp";
-import type { Cycles } from "../cycles";
-import { BAND_WORD, bandOf, trackGame, useCycleStore } from "../cycles";
+import type { Reading } from "../cycles";
+import {
+  STATUS_WORD,
+  statusNote,
+  statusOf,
+  trackGame,
+  useCycleStore,
+} from "../cycles";
 import { grafanaUrlOf } from "../grafana";
 import { useSupport } from "../hooks/useSupport";
 import type { Purpose } from "../support";
@@ -25,25 +31,27 @@ import { TopUp } from "./TopUp";
 type Lookup<T> = T | null | undefined;
 
 /// Which page of the modal is open.
-type Page = "frontend" | "backend" | "topup";
+export type Page = "frontend" | "backend" | "topup";
 
 export function GameInfoModal({
   game,
   games,
   isOwner,
+  initialPage = "frontend",
   onClose,
   onGuide,
 }: {
   game: GameView;
   games: GameView[];
   isOwner: boolean;
+  initialPage?: Page;
   onClose: () => void;
   onGuide: (purpose: Purpose, target: Target) => void;
 }) {
   const [backend, setBackend] = useState<Lookup<string>>(undefined);
-  const [page, setPage] = useState<Page>("frontend");
+  const [page, setPage] = useState<Page>(initialPage);
   const store = useCycleStore();
-  const cycles = backend ? store.cycles.get(backend) : undefined;
+  const reading = backend ? store.readings.get(backend) : undefined;
 
   useEffect(() => trackGame(game), [game]);
 
@@ -68,12 +76,12 @@ export function GameInfoModal({
           >
             ← {game.title}
           </button>
-          <TopUp backend={backend} cycles={cycles} isOwner={isOwner} />
+          <TopUp backend={backend} reading={reading} isOwner={isOwner} />
         </>
       ) : page === "backend" && backend ? (
         <BackendInfo
           backend={backend}
-          cycles={cycles}
+          reading={reading}
           game={game}
           games={games}
           onBack={() => setPage("frontend")}
@@ -83,7 +91,7 @@ export function GameInfoModal({
         <FrontendInfo
           game={game}
           backend={backend}
-          cycles={cycles}
+          reading={reading}
           onBackend={() => setPage("backend")}
           onTopUp={() => setPage("topup")}
           onGuide={onGuide}
@@ -96,14 +104,14 @@ export function GameInfoModal({
 function FrontendInfo({
   game,
   backend,
-  cycles,
+  reading,
   onBackend,
   onTopUp,
   onGuide,
 }: {
   game: GameView;
   backend: Lookup<string>;
-  cycles: Cycles;
+  reading: Reading;
   onBackend: () => void;
   onTopUp: () => void;
   onGuide: (purpose: Purpose, target: Target) => void;
@@ -157,7 +165,7 @@ function FrontendInfo({
           <>
             <dt>Cycles</dt>
             <dd>
-              <CyclesRow cycles={cycles} onTopUp={onTopUp} />
+              <CyclesRow reading={reading} onTopUp={onTopUp} />
             </dd>
           </>
         )}
@@ -193,45 +201,52 @@ function FrontendInfo({
   );
 }
 
-/// The backend's balance with its band and the way to the top-up page.
+/// The backend's balance with its status, what that means for moves,
+/// and the way to the top-up page.
 function CyclesRow({
-  cycles,
+  reading,
   onTopUp,
 }: {
-  cycles: Cycles;
+  reading: Reading;
   onTopUp: () => void;
 }) {
+  const status = statusOf(reading);
   return (
-    <span className="cycles-row">
-      {cycles === undefined && <span className="faint">Reading…</span>}
-      {cycles === null && (
-        <span className="faint">
-          Not readable: no cycles_balance in /metrics.
-        </span>
-      )}
-      {cycles != null && (
-        <>
-          <CyclesBadge cycles={cycles} />
-          <span className="faint">{BAND_WORD[bandOf(cycles)]}</span>
-        </>
-      )}
-      <button type="button" className="info-link" onClick={onTopUp}>
-        Top up <ArrowRight />
-      </button>
-    </span>
+    <>
+      <span className="cycles-row">
+        {reading === undefined && <span className="faint">Reading…</span>}
+        {reading === null && (
+          <span className="faint">
+            Not readable: no cycles_balance in /metrics.
+          </span>
+        )}
+        {reading != null && status !== undefined && (
+          <>
+            <CyclesBadge reading={reading} />
+            {reading !== "frozen" && (
+              <span className={`status ${status}`}>{STATUS_WORD[status]}</span>
+            )}
+          </>
+        )}
+        <button type="button" className="info-link" onClick={onTopUp}>
+          Top up <ArrowRight />
+        </button>
+      </span>
+      {reading != null && <span className="cycles-note">{statusNote(reading)}</span>}
+    </>
   );
 }
 
 function BackendInfo({
   backend,
-  cycles,
+  reading,
   game,
   games,
   onBack,
   onTopUp,
 }: {
   backend: string;
-  cycles: Cycles;
+  reading: Reading;
   game: GameView;
   games: GameView[];
   onBack: () => void;
@@ -276,7 +291,7 @@ function BackendInfo({
       <dl className="info-rows">
         <dt>Cycles</dt>
         <dd>
-          <CyclesRow cycles={cycles} onTopUp={onTopUp} />
+          <CyclesRow reading={reading} onTopUp={onTopUp} />
         </dd>
         <dt>Metrics</dt>
         <dd>

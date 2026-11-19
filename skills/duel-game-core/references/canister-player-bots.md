@@ -146,10 +146,15 @@ import Text "mo:core/Text";
 
 import TP "mo:duel-game-core";
 import CanisterPlayers "mo:duel-game-core/canister_players";
+import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
+import PT "mo:promtracker";
 
 import Rules "../src/RockPaperScissorsRules";
 
 actor {
+  // GET /metrics, as every bot (`bot-for-existing-game.md`, section 4).
+  transient let renderer = PT.Renderer();
+  renderer.addValue(PT.allSystemMetrics);
 
   type OpponentModel = {
     var movesSeen : Nat;
@@ -233,6 +238,8 @@ actor {
     myMoves.add(decisionKey(req), chosen); // a retry overwrites, never appends
     chosen;
   };
+
+  include HttpActorMixin([("/metrics", renderer.renderExposition)]);
 
 };
 

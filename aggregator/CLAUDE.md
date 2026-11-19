@@ -53,7 +53,8 @@ React + TypeScript, esbuild.
 `Main.mo` (verify against `moc --idl` when the service changes).
 `api.ts` builds the actor (`ic-env.ts` is a local copy of
 `@research-ag/duel-game-core/ic-env.ts`'s logic). `hooks/useAuth.ts`
-wraps `AuthClient` (login required for writes; browsing is anonymous).
+wraps `AuthClient` (login required for writes; browsing is anonymous)
+and hands the login's identity to `wallet.ts`.
 `hooks/useBanner.ts` fetches `getBanner` into a cached object URL
 (`invalidateBanner` after a banner edit).
 
@@ -61,7 +62,8 @@ wraps `AuthClient` (login required for writes; browsing is anonymous).
 
 - `Header.tsx`: the sticky topbar. The logged-in developer's chip is
   `DisplayNameEditor.tsx`, a popover with the principal, to rename or
-  log out, with a principal-derived `avatarStyle`.
+  log out, with a principal-derived `avatarStyle`; beside it, the cycle
+  wallet's balance (`WalletChip`).
 - `Hero.tsx`: the headline over a slow crossfade of the registered
   banners, paused under `prefers-reduced-motion`.
 - `GameGrid.tsx`: search with a `/` shortcut, developer chips, skeleton
@@ -73,7 +75,8 @@ wraps `AuthClient` (login required for writes; browsing is anonymous).
   principal shortened beside it.
 - `Modal.tsx` is the one dialog shell (blurred backdrop, Escape/backdrop
   close, scroll lock). `CodeBlock.tsx` is shared by the guides and the
-  info dialog (`wrap` for prose; `open`, an **Open in Claude Code**
+  info dialog (`wrap` for prose and for the wallet's and top-up page's
+  commands, folded under Copy; `open`, an **Open in Claude Code**
   link beside Copy; `CopyId`, a principal with a copy button, in the
   info dialog's Developer row and the profile popover).
   `Icons.tsx` holds the inline SVG icons and the brand mark.
@@ -167,27 +170,63 @@ text, every listed frontend playing the same backend, and its cycle
 balance with a **Top up** page.
 
 - `cycles.ts` is the balance side: one page-wide store
-  (`useSyncExternalStore`) of frontend → backend and backend →
-  `cycles_balance`, read from the backend's `/metrics` through
-  `canisterHttp.ts`'s `fetchText`. It reads once per page load
-  (`trackGame`, started by `GameGrid.tsx` for every listing; a failed
-  call is retried twice, then reads as `null` like a missing gauge) and
-  again on demand (`refreshCycles`, which keeps a known balance over a
-  failed read). It holds the bands (`HEALTHY_TC` 0.5, `LOW_TC` 0.2)
-  behind `CyclesBadge.tsx` (the dot on every card and in the modal; a
-  `critical` card gets a red edge), the `Low on cycles` chip and the
-  logged-in developer's `OwnerStrip` in `GameGrid.tsx`, and the top-up
-  links.
-- `TopUp.tsx` is the modal's third page: a whole-dollar amount (1 to
-  100; under 5 CyclePay asks the payer to sign in) into a prefilled
-  CyclePay checkout (`cyclepay.org/c/<backend>/<usd>`, anyone can pay),
-  Cycle Express (`cycle.express/?to=<backend>`) and, for the game's
+  (`useSyncExternalStore`) of frontend → backend and backend → a
+  `Reading` (`cycles_balance` and `rts_memory_size`, read from the
+  backend's `/metrics` through `canisterHttp.ts`'s `fetchText`). It
+  reads once per page load (`trackGame`, started by `GameGrid.tsx` for
+  every listing; a failed call is retried twice, then reads as `null`
+  like a missing gauge) and again on demand (`refreshCycles`, which
+  keeps a known reading over a failed read). A read the IC refuses with
+  IC0207 (`outOfCycles`) reads as `"frozen"`: under its freezing
+  reserve a canister refuses even queries.
+  - `statusOf` turns a reading into `healthy`/`low`/`down`/`frozen`.
+    Between the freezing reserve and the reserve plus what one message
+    prepays, reads work and every update (a move) is refused, which
+    nothing outside a canister's controllers can see. `stopPointOf`
+    estimates that point from memory alone, from 007's numbers and the
+    default 30-day reserve (`RESERVE_PER_GIB` + `PREPAID`, about 0.40
+    TC at 256 MiB): under it `down` ("Likely down"), within
+    `LOW_MARGIN` above it `low`. Reading it costs the backend nothing.
+  - `CyclesBadge.tsx` shows it on every card, in the modal and in the
+    footer (its hover text names it a backend's; `of="Bot"` in the
+    wallet); a `down` or `frozen` card gets a red edge, a greyed banner
+    and `DownLabel`. `GameGrid.tsx`'s `DownStrip` lists those games
+    above the grid for every visitor, each opening its top-up page;
+    the `Low on cycles` chip filters on anything not healthy, and the
+    logged-in developer's `OwnerStrip` counts their own.
+- `TopUp.tsx` is the modal's third page (`GameInfoModal`'s
+  `initialPage` opens it directly): for a logged-in visitor, the cycle
+  wallet's `WalletSend`; a whole-dollar amount (1 to 100; under 5
+  CyclePay asks the payer to sign in) into a prefilled CyclePay
+  checkout (`cyclepay.org/c/<backend>/<usd>`, anyone can pay), Cycle
+  Express (`cycle.express/?to=<backend>`) and, for the game's
   developer, the canister's hosty.live page and the icp-cli command.
   After any of them it re-reads `/metrics` every 5 s for two minutes and
-  shows what arrived. The dashboard never holds a hosty.live token and
-  never takes a payment itself; the TC-per-dollar figure is an estimate
-  at a fixed XDR rate. A frontend canister's balance is not shown: an
+  shows what arrived (for a frozen backend, its first readable
+  balance). The dashboard never holds a hosty.live token and never
+  takes a payment itself; the TC-per-dollar figure is an estimate at a
+  fixed XDR rate. A frontend canister's balance is not shown: an
   asset canister serves no `/metrics`.
+- `wallet.ts` is the logged-in principal's cycle wallet: its account on
+  the cycles ledger (`um5iw-…`, ICRC-1, TCYCLES), funded from outside
+  (`icp cycles transfer`). The page calls the ledger with the login's
+  own identity: `icrc1_balance_of`, and `withdraw` (`sendCycles`), which
+  deposits into any canister for `LEDGER_FEE` (0.0001 TC), with
+  `created_at_time` so the ledger refuses a repeat. Sends go one at a
+  time; one whose call threw is resent unchanged (`isResend`, past the
+  balance check) before any other. A `Duplicate` answer resolves as
+  `taken`, not `sent` (a refunded delivery leaves the duplicate entry),
+  and `TopUp.tsx` watches the balance to tell. `Wallet.tsx` holds
+  `WalletChip`, `WalletModal` (the balance; one-click targets per game,
+  "My games" then "Other games" in one list that takes the height left
+  in a dialog sized to the screen, searchable by a game's name or any
+  of its canister ids: backend, frontends, and the bots its `list_bots`
+  names (`support.ts`'s `botsOf`, the call the guides' check shares),
+  asked with each bot's `/metrics` balance once the game's group
+  scrolls into view, or for every game while a search runs; or any
+  canister id; the principal and the funding command, collapsed) and `WalletSend`, the amount and
+  Send button both the dialog and `TopUp.tsx` use. The principal is
+  the login's on this origin of the dashboard.
 - `grafana.ts` asks the promtracker dashboard registry
   (`iu7kc-saaaa-aaaao-bbama-cai`, the openapi-scraper project) with
   `getDashboard`; with none yet, and only for a backend serving

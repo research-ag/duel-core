@@ -130,4 +130,32 @@ same `hosty_prepare_wasm_upload` as the first install, with
 `snapshotBeforeUpgrade: true`; icp-cli: `icp deploy backend -e ic`),
 then upload the frontend, as `going-live.md` describes. A new bot
 canister is created as `going-live.md`, section 3, describes and
-registered as SKILL.md Step 4 does.
+registered as SKILL.md Step 4 does. Any change to a live bot also
+checks that its `GET /metrics` reports `cycles_balance`
+(`curl -sf https://<bot-id>.raw.icp0.io/metrics | grep '^cycles_balance'`).
+When it does not, add promtracker's system metrics and keep whatever
+it already reports:
+
+- no `/metrics` at all: the lines of `bot-for-existing-game.md`,
+  section 4;
+- `/metrics` from a promtracker `Renderer`: `renderer.addValue(...)` on
+  that renderer;
+- `/metrics` written by its own handler: a second renderer holding them,
+  appended to the handler's text (`systemMetrics`, since `system` is a
+  keyword):
+
+  ```motoko
+  transient let systemMetrics = PT.Renderer();
+  systemMetrics.addValue(PT.allSystemMetrics);
+  // in the /metrics branch of http_request; "\n" ends its last line,
+  // and the format skips blank lines:
+  let body = ownMetricsText # "\n" # systemMetrics.renderExposition();
+
+  ```
+
+The value added is `PT.allSystemMetrics` when the bot reports none of
+its samples yet (`cycles_balance`, `canister_version`, `rts_*`), and
+otherwise `PT.cyclesBalanceMetric` alone, so no sample appears twice.
+None of these holds stable data, so the upgrade needs no migration.
+Upgrade the bot in place (`bot-for-existing-game.md`, step 6, "Every
+later version"), then run the `curl` check again against the live bot.

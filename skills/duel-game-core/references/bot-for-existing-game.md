@@ -134,11 +134,16 @@ treating unknown values as the default.
 import Principal "mo:core/Principal";
 
 import TP "mo:duel-game-core";
+import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
+import PT "mo:promtracker";
 
 import BotLogic "BotLogic";
 import Game "GameTypes";
 
 actor {
+  // GET /metrics: promtracker's system metrics (balance, memory).
+  transient let renderer = PT.Renderer();
+  renderer.addValue(PT.allSystemMetrics);
 
   type Host = actor {
     join_table_as_canister : (TP.TableId, TP.Seat, ?Text, Text) -> async TP.Res<TP.JoinOk>;
@@ -168,12 +173,16 @@ actor {
     BotLogic.chooseMove(req);
   };
 
+  include HttpActorMixin([("/metrics", renderer.renderExposition)]);
+
 };
 
 ```
 
 `play`'s signature is fixed: frontends call it to seat the bot at a
-table they opened.
+table they opened. Every bot serves `GET /metrics`: promtracker's
+system metrics, among them `cycles_balance`, which the Duel dashboard
+reads to show the bot's balance beside its game, at no cost to the bot.
 
 ## 5. Test
 
@@ -431,7 +440,10 @@ anonymously:
 
 ```bash
 icp canister call <backend-id> list_bots '()' -n ic --query --identity anonymous
+curl -sf https://<bot-id>.raw.icp0.io/metrics | grep '^cycles_balance'
 ```
+
+The second line checks the bot's own `/metrics` answers.
 
 Write the bot's canister id into `README.md`, with how to build, test
 and update it: a cloud session keeps nothing, and the next one finds

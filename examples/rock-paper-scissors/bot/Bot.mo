@@ -2,11 +2,16 @@ import Principal "mo:core/Principal";
 import Time "mo:core/Time";
 
 import TP "mo:duel-game-core";
+import HttpActorMixin "mo:duel-game-core/http_actor_mixin";
+import PT "mo:promtracker";
 
 import BotLogic "BotLogic";
 import Rules "../src/RockPaperScissorsRules";
 
 actor {
+  // GET /metrics: promtracker's system metrics (balance, memory).
+  transient let renderer = PT.Renderer();
+  renderer.addValue(PT.allSystemMetrics);
 
   type Host = actor {
     join_table_as_canister : (TP.TableId, TP.Seat, ?Text, Text) -> async TP.Res<TP.JoinOk>;
@@ -35,5 +40,7 @@ actor {
   public query func make_move(req : TP.MoveRequest<Rules.View, Rules.Action>) : async Rules.Action {
     BotLogic.chooseMove(req, Time.now());
   };
+
+  include HttpActorMixin([("/metrics", renderer.renderExposition)]);
 
 };

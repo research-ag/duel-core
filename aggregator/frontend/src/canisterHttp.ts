@@ -7,6 +7,7 @@
 
 import {
   Actor,
+  AgentError,
   Certificate,
   getSubnetIdFromCertificate,
   HttpAgent,
@@ -128,6 +129,14 @@ export async function fetchText(
   return res.status_code === 200
     ? new TextDecoder().decode(res.body)
     : undefined;
+}
+
+/// Whether a call failed because the canister is out of cycles (IC0207):
+/// under its freezing reserve the IC refuses even its queries.
+export function outOfCycles(err: unknown): boolean {
+  if (!(err instanceof AgentError)) return false;
+  const code = err.cause.code;
+  return "rejectErrorCode" in code && code.rejectErrorCode === "IC0207";
 }
 
 /// `fetchText` with a failed call reading as `undefined` too.

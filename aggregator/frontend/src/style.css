@@ -363,6 +363,33 @@ code {
   border-color: var(--gold-line);
 }
 
+.wallet-chip {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-2);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  padding: 0.38rem 0.85rem;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wallet-chip svg {
+  width: 1rem;
+  height: 1rem;
+  color: var(--gold-2);
+}
+
+.wallet-chip:hover {
+  border-color: var(--gold-line);
+}
+
 .profile-chip span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -984,37 +1011,86 @@ select:disabled {
 }
 
 .cycles.low i,
-.dot.low,
-.owner-strip .low {
+.dot.low {
   background: var(--gold);
 }
 
-.cycles.critical i,
-.dot.critical,
-.owner-strip .critical {
+.cycles.down i,
+.cycles.frozen i {
   background: var(--red);
 }
 
+.cycles.down,
+.cycles.frozen,
+.card.down .cycles {
+  color: var(--red);
+}
+
 .owner-strip .low,
-.owner-strip .critical {
-  background: none;
+.owner-strip .down,
+.status {
   font-weight: 600;
 }
 
-.owner-strip .low {
+.owner-strip .low,
+.status.low {
   color: var(--gold-2);
 }
 
-.owner-strip .critical {
+.owner-strip .down,
+.status.down,
+.status.frozen {
   color: var(--red);
 }
 
-.card.critical {
-  border-color: rgba(255, 111, 97, 0.45);
+.card.down {
+  border-color: rgba(255, 111, 97, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 111, 97, 0.25);
 }
 
-.card.critical .cycles {
+.card.down .card-media .img {
+  filter: grayscale(0.7) brightness(0.65);
+}
+
+.card-alert {
+  position: absolute;
+  bottom: 0.85rem;
+  left: 0.95rem;
+  z-index: 2;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--red);
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  box-shadow: 0 6px 20px -6px rgba(255, 111, 97, 0.8);
+}
+
+.down-strip {
+  margin: -0.5rem 0 1.5rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid rgba(255, 111, 97, 0.45);
+  border-radius: var(--radius-s);
+  background: var(--red-soft);
+  font-size: 0.86rem;
+  color: var(--ink-2);
+}
+
+.down-strip strong {
   color: var(--red);
+}
+
+.down-strip .info-link {
+  font-size: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 111, 97, 0.6);
+}
+
+.down-strip + .owner-strip {
+  margin-top: 0;
 }
 
 .owner-strip {
@@ -1573,13 +1649,13 @@ input[type="range"] {
   padding-right: 4rem;
 }
 
-.code-block.wrap {
+.code-block.folds {
   padding-top: 2.6rem;
   max-height: 22rem;
   overflow-y: auto;
 }
 
-.code-block.wrap pre {
+.code-block.folds pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   padding-right: 0;
@@ -1733,6 +1809,33 @@ input[type="range"] {
     display: none;
   }
 
+  .topbar .wrap,
+  .nav {
+    flex-wrap: wrap;
+    row-gap: 0.4rem;
+  }
+
+  .topbar .wrap {
+    padding-block: 0.5rem;
+  }
+
+  .nav .sep,
+  .wallet-chip svg {
+    display: none;
+  }
+
+  /* Out of sight, still the button's accessible name. */
+  .profile-chip span:not(.avatar) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    clip-path: inset(50%);
+  }
+
+  .profile-chip {
+    padding-right: 0.3rem;
+  }
+
   .hero {
     min-height: 70vh;
   }
@@ -1849,6 +1952,136 @@ input[type="range"] {
   margin-left: 0;
   font-size: 0.9rem;
   color: var(--ink);
+}
+
+.cycles-row .cycles.down,
+.cycles-row .cycles.frozen {
+  color: var(--red);
+}
+
+.cycles-note {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--faint);
+}
+
+.sent,
+.taken {
+  color: var(--green);
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+}
+
+.taken {
+  color: var(--gold-2);
+}
+
+/* The wallet dialog fits the screen: its target list takes the height
+   left over, down to a few rows, and the dialog scrolls past that. */
+.wallet-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 2 * max(3vh, 1rem));
+  max-height: calc(100dvh - 2 * max(3vh, 1rem));
+  overflow-y: auto;
+}
+
+.wallet-modal > * {
+  flex-shrink: 0;
+}
+
+.target-search {
+  margin-bottom: 0.6rem;
+}
+
+.target-list {
+  flex: 1 1 auto;
+  min-height: 10rem;
+  overflow-y: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0 0.9rem 0.2rem;
+  margin-bottom: 0.9rem;
+}
+
+.target-section {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-2);
+  margin: 0;
+  padding: 0.75rem 0 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-2);
+}
+
+.target-group {
+  margin-bottom: 0.7rem;
+}
+
+.target-none {
+  margin: 0.9rem 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.wallet-add summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.wallet-add summary::-webkit-details-marker {
+  display: none;
+}
+
+.wallet-add summary::before {
+  content: "";
+  width: 0.38rem;
+  height: 0.38rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.2s var(--ease);
+}
+
+.wallet-add[open] summary::before {
+  transform: rotate(45deg);
+}
+
+.wallet-add summary:hover {
+  color: var(--ink);
+}
+
+.target-game {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 0.35rem;
+}
+
+.chip .cycles {
+  margin-left: 0;
+}
+
+.chip svg {
+  width: 0.95rem;
+  height: 0.95rem;
 }
 
 .received {

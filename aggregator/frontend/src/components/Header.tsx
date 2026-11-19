@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { Auth } from "../hooks/useAuth";
 import { useProfile } from "../hooks/useProfile";
 import { DisplayNameEditor } from "./DisplayNameEditor";
+import { WalletChip } from "./Wallet";
 import { Bot, BrandMark, Brush, Hammer, Key, Plus } from "./Icons";
 
 export function Header({
@@ -11,12 +12,14 @@ export function Header({
   onTutorial,
   onBotTutorial,
   onFrontendTutorial,
+  onWallet,
 }: {
   auth: Auth;
   onRegister: () => void;
   onTutorial: () => void;
   onBotTutorial: () => void;
   onFrontendTutorial: () => void;
+  onWallet: () => void;
 }) {
   const profile = useProfile(auth.actor, auth.principal);
   const [scrolled, setScrolled] = useState(false);
@@ -72,6 +75,7 @@ export function Header({
           <span className="sep" />
           {auth.loading ? null : auth.isLoggedIn ? (
             <>
+              <WalletChip onOpen={onWallet} />
               <DisplayNameEditor
                 principal={auth.principal}
                 displayName={profile.displayName}

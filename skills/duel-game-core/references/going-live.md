@@ -423,12 +423,15 @@ check-upgrade.mjs <backend-id>)` checks the new module's stable types
 and Candid against the live one, and you review the code that runs on
 the upgrade (`changing-a-live-game.md`, section 4).
 
-A canister's balance shows in `icp canister status <name> -e ic`, and
-a backend's on its card on the Duel dashboard (section 5), read from
-its `/metrics`. To top one up: the dashboard's **Top up** (a card
-payment through CyclePay to the canister, by anyone), cycle.express
-with the canister id as the recipient, or `icp canister top-up <name>
--e ic --amount 1t` from the identity's balance.
+A canister's balance shows in `icp canister status <name> -e ic`, a
+backend's on its card on the Duel dashboard (section 5) and a bot's in
+the dashboard's cycle wallet, each read from its `/metrics`. A backend
+is topped up from its card's **Top up** (a card payment through
+CyclePay to the canister, by anyone). Any canister, a bot included,
+takes cycles from the dashboard's cycle wallet (the cycles a login
+holds on the cycles ledger, sent to the canister), from cycle.express
+with the canister id as the recipient, or from `icp canister top-up
+<name> -e ic --amount 1t` out of the identity's balance.
 
 A setup-3 canister moves to hosty.live later without a reinstall: add
 the user's hosty.live principal (`hosty_whoami`, or **Settings**) as a

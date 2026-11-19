@@ -1,11 +1,11 @@
 import { Fragment, useState } from "react";
 import type { Principal } from "@icp-sdk/core/principal";
 
-import { bandOf, cyclesOfGame, useCycleStore } from "../cycles";
+import { readingOfGame, statusOf, useCycleStore } from "../cycles";
 import { useBanner } from "../hooks/useBanner";
 import type { AggregatorActor, Err, GameView } from "../types";
 import { errMessage, gameUrl, optToMaybe } from "../types";
-import { CyclesBadge } from "./CyclesBadge";
+import { CyclesBadge, DownLabel } from "./CyclesBadge";
 import { avatarStyle } from "./DisplayNameEditor";
 import { ArrowRight, Info, Pencil, Trash } from "./Icons";
 import { Modal } from "./Modal";
@@ -28,8 +28,9 @@ export function GameCard({
   onInfo: () => void;
 }) {
   const banner = useBanner(actor, game.frontendCanisterId);
-  const cycles = cyclesOfGame(useCycleStore(), game);
-  const critical = cycles != null && bandOf(cycles) === "critical";
+  const reading = readingOfGame(useCycleStore(), game);
+  const status = statusOf(reading);
+  const down = status === "down" || status === "frozen";
   const developerName = optToMaybe(game.developerDisplayName);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -58,7 +59,7 @@ export function GameCard({
   return (
     <Fragment>
       <article
-        className={`card${critical ? " critical" : ""}`}
+        className={`card${down ? " down" : ""}`}
         style={{ "--i": index, ...bannerVar } as React.CSSProperties}
       >
         <span className="card-glow" aria-hidden="true" />
@@ -73,6 +74,7 @@ export function GameCard({
             <span className="card-index">
               {String(index + 1).padStart(2, "0")}
             </span>
+            <DownLabel reading={reading} />
             <span className="card-play">
               Play <ArrowRight />
             </span>
@@ -97,7 +99,7 @@ export function GameCard({
                   {shortPrincipal(game.developer)}
                 </span>
               )}
-              <CyclesBadge cycles={cycles} />
+              <CyclesBadge reading={reading} />
             </span>
             <span className="card-desc">{game.description}</span>
           </span>
@@ -147,8 +149,8 @@ export function GameCard({
           <p className="modal-intro">
             This permanently removes the listing from this registry. The game's
             own canisters are untouched.
-            {critical &&
-              " Its backend is almost out of cycles; while listed, anyone can top it up."}
+            {down &&
+              " Its backend is likely out of cycles; while listed, anyone can top it up."}
           </p>
           {error && <p className="error">{error}</p>}
           <div className="modal-actions">

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Principal } from "@icp-sdk/core/principal";
 
-import type { CycleStore } from "../cycles";
+import type { Balance, CycleStore, Status } from "../cycles";
 import {
-  bandOf,
-  cyclesOfGame,
+  cyclesOf,
   formatTC,
+  readingOfGame,
+  statusOf,
   trackGame,
   useCycleStore,
 } from "../cycles";
@@ -22,6 +23,7 @@ export function GameGrid({
   onEdit,
   onDeleted,
   onInfo,
+  onTopUp,
 }: {
   games: GameView[];
   loading: boolean;
@@ -32,6 +34,7 @@ export function GameGrid({
   onEdit: (game: GameView) => void;
   onDeleted: () => void;
   onInfo: (game: GameView) => void;
+  onTopUp: (game: GameView) => void;
 }) {
   const [search, setSearch] = useState("");
   const [developer, setDeveloper] = useState<string>("all");
@@ -45,6 +48,10 @@ export function GameGrid({
 
   const lowCount = useMemo(
     () => games.filter((g) => isLow(store, g)).length,
+    [games, store]
+  );
+  const down = useMemo(
+    () => games.filter((g) => isDown(store, g)),
     [games, store]
   );
 
@@ -155,8 +162,12 @@ export function GameGrid({
         </div>
       </div>
 
+      {down.length > 0 && (
+        <DownStrip games={down} store={store} onTopUp={onTopUp} />
+      )}
+
       {own.length > 0 && (
-        <OwnerStrip games={own} store={store} onInfo={onInfo} />
+        <OwnerStrip games={own} store={store} onTopUp={onTopUp} />
       )}
 
       {loading ? (
@@ -206,9 +217,59 @@ export function GameGrid({
 }
 
 function isLow(store: CycleStore, game: GameView): boolean {
-  const c = cyclesOfGame(store, game);
-  return c != null && bandOf(c) !== "healthy";
+  const status = statusOf(readingOfGame(store, game));
+  return status !== undefined && status !== "healthy";
 }
+
+function isDown(store: CycleStore, game: GameView): boolean {
+  const status = statusOf(readingOfGame(store, game));
+  return status === "down" || status === "frozen";
+}
+
+/// The listings whose backend takes no moves, for every visitor: anyone
+/// can top one up.
+function DownStrip({
+  games,
+  store,
+  onTopUp,
+}: {
+  games: GameView[];
+  store: CycleStore;
+  onTopUp: (game: GameView) => void;
+}) {
+  return (
+    <p className="down-strip" role="status">
+      <strong>
+        {games.length === 1 ? "1 game is" : `${games.length} games are`} out
+        of cycles:
+      </strong>{" "}
+      {games.map((g, i) => {
+        const cycles = cyclesOf(readingOfGame(store, g));
+        return (
+          <span key={g.frontendCanisterId.toText()}>
+            {i > 0 && " · "}
+            <button
+              type="button"
+              className="info-link"
+              onClick={() => onTopUp(g)}
+            >
+              {g.title}:{" "}
+              {cycles === undefined
+                ? "frozen"
+                : `likely down at ${formatTC(cycles)}`}
+            </button>
+          </span>
+        );
+      })}
+      .{" "}
+      {games.length === 1
+        ? "Its moves are refused until someone tops it up."
+        : "Their moves are refused until someone tops them up."}
+    </p>
+  );
+}
+
+const WORST_FIRST: Status[] = ["frozen", "down", "low", "healthy"];
 
 /// The logged-in developer's backends (two listings on one backend
 /// count once): how many have a readable balance, their total, and the
@@ -216,46 +277,72 @@ function isLow(store: CycleStore, game: GameView): boolean {
 function OwnerStrip({
   games,
   store,
-  onInfo,
+  onTopUp,
 }: {
   games: GameView[];
   store: CycleStore;
-  onInfo: (game: GameView) => void;
+  onTopUp: (game: GameView) => void;
 }) {
-  const byBackend = new Map<string, { game: GameView; cycles: bigint }>();
+  const byBackend = new Map<
+    string,
+    { game: GameView; reading: Balance | "frozen"; status: Status }
+  >();
   let unreadable = 0;
   for (const game of games) {
     const backend = store.backends.get(game.frontendCanisterId.toText());
-    const cycles = cyclesOfGame(store, game);
-    if (!backend || cycles == null) {
+    const reading = readingOfGame(store, game);
+    const status = statusOf(reading);
+    if (!backend || reading == null || status === undefined) {
       unreadable++;
       continue;
     }
-    if (!byBackend.has(backend)) byBackend.set(backend, { game, cycles });
+    if (!byBackend.has(backend)) byBackend.set(backend, { game, reading, status });
   }
-  const readable = [...byBackend.values()];
-  if (readable.length === 0) return null;
-  const total = readable.reduce((sum, x) => sum + x.cycles, 0n);
-  const low = readable.filter((x) => bandOf(x.cycles) !== "healthy");
-  const lowest = readable.reduce((a, b) => (b.cycles < a.cycles ? b : a));
+  const known = [...byBackend.values()];
+  if (known.length === 0) return null;
+  const balances = known.flatMap((x) =>
+    x.reading === "frozen" ? [] : [x.reading.cycles]
+  );
+  const total = balances.reduce((a, b) => a + b, 0n);
+  const count = (status: Status) => known.filter((x) => x.status === status).length;
+  const down = count("frozen") + count("down");
+  const low = count("low");
+  const worst = known.reduce((a, b) => {
+    const order = WORST_FIRST.indexOf(a.status) - WORST_FIRST.indexOf(b.status);
+    if (order !== 0) return order < 0 ? a : b;
+    if (a.reading === "frozen" || b.reading === "frozen") return a;
+    return b.reading.cycles < a.reading.cycles ? b : a;
+  });
   return (
     <p className="owner-strip">
-      <strong>Your games:</strong> {readable.length} backend
-      {readable.length === 1 ? "" : "s"} with a readable balance,{" "}
-      {formatTC(total)} in total
-      {low.length > 0 ? (
+      <strong>Your games:</strong> {known.length} backend
+      {known.length === 1 ? "" : "s"}
+      {balances.length === known.length
+        ? `, ${formatTC(total)} in total`
+        : balances.length > 0 &&
+          `, ${formatTC(total)} in the ${balances.length} not frozen`}
+      {down > 0 && (
         <>
-          ,{" "}
-          <span className={bandOf(lowest.cycles)}>
-            {low.length} running low
-          </span>
+          , <span className="down">{down} out of cycles</span>
+        </>
+      )}
+      {low > 0 && (
+        <>
+          , <span className="low">{low} running low</span>
+        </>
+      )}
+      {worst.status !== "healthy" ? (
+        <>
           {" · "}
           <button
             type="button"
             className="info-link"
-            onClick={() => onInfo(lowest.game)}
+            onClick={() => onTopUp(worst.game)}
           >
-            {lowest.game.title}: {formatTC(lowest.cycles)}
+            {worst.game.title}:{" "}
+            {worst.reading === "frozen"
+              ? "frozen"
+              : formatTC(worst.reading.cycles)}
           </button>
         </>
       ) : unreadable > 0 ? (
@@ -264,7 +351,7 @@ function OwnerStrip({
         ", all healthy"
       )}
       {unreadable > 0 &&
-        ` (${unreadable} listing${unreadable === 1 ? "" : "s"} without one)`}
+        ` (${unreadable} listing${unreadable === 1 ? "" : "s"} without a balance)`}
       .
     </p>
   );

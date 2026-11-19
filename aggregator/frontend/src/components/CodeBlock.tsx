@@ -55,7 +55,7 @@ export function CodeBlock({
   const [state, copy] = useCopy(code, pre);
 
   return (
-    <div className={`code-block${wrap ? " wrap" : ""}${open ? " opens" : ""}`}>
+    <div className={`code-block${wrap ? " folds" : ""}${open ? " opens" : ""}`}>
       <div className="code-actions">
         {open && (
           <a className="open" href={open} target="_blank" rel="noreferrer">

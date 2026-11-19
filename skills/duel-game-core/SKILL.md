@@ -106,8 +106,8 @@ core = "2.6.2"
 promtracker = "1.0.1"
 ```
 
-`promtracker` is always needed, since the Host template serves metrics
-at `GET /metrics`. With `mops add duel-game-core` working, also run
+`promtracker` is always needed, since the Host template and every bot
+serve metrics at `GET /metrics`. With `mops add duel-game-core` working, also run
 `mops add promtracker`.
 
 Frontend: `cd frontend && npm install @research-ag/duel-game-core --save-exact`.
@@ -284,8 +284,9 @@ other `*_as_canister` methods, `register_bot`, `unregister_bot` and
 human at 3. The page's half is Step 6.
 
 If you write the bot too, it is a canister of its own, `bot`:
-`bot/Bot.mo` (its `play`, `register`, `unregister` and `make_move`, as
-in `references/bot-for-existing-game.md`, section 4) and
+`bot/Bot.mo` (its `play`, `register`, `unregister` and `make_move`,
+and promtracker's system metrics at `GET /metrics`, as in
+`references/bot-for-existing-game.md`, section 4) and
 `bot/BotLogic.mo` (the strategy). Add it to `icp.yaml` (the backend's
 Motoko recipe, without its sync step) and to `mops.toml`'s
 `[canisters]` (`bot = "bot/Bot.mo"`), as `examples/checkers/` does; the

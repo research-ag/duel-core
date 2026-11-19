@@ -4,6 +4,7 @@ import { backendCanisterId } from "./api";
 import { BotTutorialWizard } from "./components/BotTutorialWizard";
 import { FrontendTutorialWizard } from "./components/FrontendTutorialWizard";
 import { GameInfoModal } from "./components/GameInfoModal";
+import type { Page } from "./components/GameInfoModal";
 import { GameFormModal } from "./components/GameFormModal";
 import { GameGrid } from "./components/GameGrid";
 import { CyclesBadge } from "./components/CyclesBadge";
@@ -13,11 +14,13 @@ import { BrandMark } from "./components/Icons";
 import { Modal } from "./components/Modal";
 import { TopUp } from "./components/TopUp";
 import { TutorialWizard } from "./components/TutorialWizard";
+import { WalletModal } from "./components/Wallet";
 import { trackBackend, useCycleStore } from "./cycles";
 import { useAuth } from "./hooks/useAuth";
 import { useGames } from "./hooks/useGames";
 import type { GameView, Target } from "./types";
 import { optToMaybe } from "./types";
+import { connectWallet } from "./wallet";
 
 /// Which modal (if any) is open: "register" for a fresh game, or an
 /// existing `GameView` to edit — `undefined` means closed.
@@ -34,8 +37,11 @@ export function App() {
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [frontendGuide, setFrontendGuide] = useState<Guide>(undefined);
   const [botGuide, setBotGuide] = useState<Guide>(undefined);
-  const [infoFor, setInfoFor] = useState<GameView | undefined>(undefined);
+  const [infoFor, setInfoFor] = useState<
+    { game: GameView; page: Page } | undefined
+  >(undefined);
   const [selfTopUp, setSelfTopUp] = useState(false);
+  const [walletOpen, setWalletOpen] = useState(false);
   const self = useMemo(() => {
     try {
       return backendCanisterId();
@@ -43,11 +49,15 @@ export function App() {
       return undefined;
     }
   }, []);
-  const selfCycles = useCycleStore().cycles.get(self ?? "");
+  const selfReading = useCycleStore().readings.get(self ?? "");
 
   useEffect(() => {
     if (self) trackBackend(self);
   }, [self]);
+
+  useEffect(() => {
+    if (auth.isLoggedIn && auth.identity) void connectWallet(auth.identity);
+  }, [auth.isLoggedIn, auth.identity]);
 
   const developers = useMemo(() => {
     const byId = new Map<string, string>();
@@ -66,6 +76,7 @@ export function App() {
         onTutorial={() => setTutorialOpen(true)}
         onBotTutorial={() => setBotGuide("pick")}
         onFrontendTutorial={() => setFrontendGuide("pick")}
+        onWallet={() => setWalletOpen(true)}
       />
       <Hero
         games={games}
@@ -81,7 +92,8 @@ export function App() {
         developers={developers}
         onEdit={(game) => setModal(game)}
         onDeleted={reload}
-        onInfo={(game) => setInfoFor(game)}
+        onInfo={(game) => setInfoFor({ game, page: "frontend" })}
+        onTopUp={(game) => setInfoFor({ game, page: "topup" })}
       />
       <footer className="footer">
         <div className="wrap">
@@ -113,14 +125,14 @@ export function App() {
             >
               Internet Computer
             </a>
-            {self && selfCycles != null && (
+            {self && selfReading != null && (
               <button
                 type="button"
                 className="footer-cycles"
                 onClick={() => setSelfTopUp(true)}
                 title="This dashboard's own backend canister"
               >
-                This dashboard <CyclesBadge cycles={selfCycles} />
+                This dashboard <CyclesBadge reading={selfReading} />
               </button>
             )}
           </nav>
@@ -128,8 +140,11 @@ export function App() {
       </footer>
       {selfTopUp && self && (
         <Modal onClose={() => setSelfTopUp(false)} className="info-modal">
-          <TopUp backend={self} cycles={selfCycles} isOwner={false} />
+          <TopUp backend={self} reading={selfReading} isOwner={false} />
         </Modal>
+      )}
+      {walletOpen && (
+        <WalletModal games={games} onClose={() => setWalletOpen(false)} />
       )}
       {modal !== undefined && auth.actor && (
         <GameFormModal
@@ -174,12 +189,13 @@ export function App() {
       )}
       {infoFor !== undefined && (
         <GameInfoModal
-          game={infoFor}
+          game={infoFor.game}
           games={games}
           isOwner={
             auth.principal !== undefined &&
-            infoFor.developer.toText() === auth.principal.toText()
+            infoFor.game.developer.toText() === auth.principal.toText()
           }
+          initialPage={infoFor.page}
           onClose={() => setInfoFor(undefined)}
           onGuide={(purpose, target) => {
             setInfoFor(undefined);
