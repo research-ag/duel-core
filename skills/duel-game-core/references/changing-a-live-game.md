@@ -139,7 +139,9 @@ it already reports:
 - no `/metrics` at all: the lines of `bot-for-existing-game.md`,
   section 4;
 - `/metrics` from a promtracker `Renderer`:
-  `renderer.addValue(PT.allSystemMetrics)` on that renderer;
+  `renderer.addValue(PT.allSystemMetrics)` on that renderer, or
+  `PT.cyclesBalanceMetric` when it already holds `PT.allRtsMetrics`,
+  whose samples the system bundle would repeat;
 - `/metrics` written by its own handler: a second renderer holding only
   the system metrics, appended to the handler's text (`systemMetrics`,
   since `system` is a keyword):
@@ -147,9 +149,12 @@ it already reports:
   ```motoko
   transient let systemMetrics = PT.Renderer();
   systemMetrics.addValue(PT.allSystemMetrics);
-  // in the /metrics branch of http_request:
-  let body = ownMetricsText # systemMetrics.renderExposition();
+  // in the /metrics branch of http_request; "\n" ends its last line,
+  // and the format skips blank lines:
+  let body = ownMetricsText # "\n" # systemMetrics.renderExposition();
 
   ```
 
 None of these holds stable data, so the upgrade needs no migration.
+Upgrade the bot in place (`bot-for-existing-game.md`, step 6, "Every
+later version"), then run the `curl` check again against the live bot.
