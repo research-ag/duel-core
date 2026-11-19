@@ -77,7 +77,7 @@ export function statusNote(reading: Balance | "frozen"): string {
       ? ""
       : ` for its ${Number(reading.memory / (1n << 20n))} MiB of memory`;
   return reading.cycles < stop
-    ? `Moves are likely refused: under the ${formatTC(stop)} a backend needs${mib} (an estimate).`
+    ? `Moves are likely refused: under the ${formatTC(stop)} it needs${mib} (an estimate).`
     : `Moves stop at about ${formatTC(stop)}${mib} (an estimate).`;
 }
 
@@ -224,8 +224,8 @@ export function trackGame(game: GameView): void {
   });
 }
 
-/// Starts the balance read for a backend known by id (the dashboard's
-/// own), once per page load.
+/// Starts the balance read for a canister known by id (the dashboard's
+/// own backend, a bot), once per page load.
 export function trackBackend(backend: string): void {
   if (readings.has(backend)) return;
   readings.set(backend, undefined);

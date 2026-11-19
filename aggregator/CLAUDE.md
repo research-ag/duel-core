@@ -75,7 +75,8 @@ and hands the login's identity to `wallet.ts`.
   principal shortened beside it.
 - `Modal.tsx` is the one dialog shell (blurred backdrop, Escape/backdrop
   close, scroll lock). `CodeBlock.tsx` is shared by the guides and the
-  info dialog (`wrap` for prose; `open`, an **Open in Claude Code**
+  info dialog (`wrap` for prose and for the wallet's and top-up page's
+  commands, folded under Copy; `open`, an **Open in Claude Code**
   link beside Copy; `CopyId`, a principal with a copy button, in the
   info dialog's Developer row and the profile popover).
   `Icons.tsx` holds the inline SVG icons and the brand mark.
@@ -187,7 +188,8 @@ balance with a **Top up** page.
     TC at 256 MiB): under it `down` ("Likely down"), within
     `LOW_MARGIN` above it `low`. Reading it costs the backend nothing.
   - `CyclesBadge.tsx` shows it on every card, in the modal and in the
-    footer; a `down` or `frozen` card gets a red edge, a greyed banner
+    footer (its hover text names it a backend's; `of="Bot"` in the
+    wallet); a `down` or `frozen` card gets a red edge, a greyed banner
     and `DownLabel`. `GameGrid.tsx`'s `DownStrip` lists those games
     above the grid for every visitor, each opening its top-up page;
     the `Low on cycles` chip filters on anything not healthy, and the
@@ -215,9 +217,14 @@ balance with a **Top up** page.
   balance check) before any other. A `Duplicate` answer resolves as
   `taken`, not `sent` (a refunded delivery leaves the duplicate entry),
   and `TopUp.tsx` watches the balance to tell. `Wallet.tsx` holds
-  `WalletChip`, `WalletModal` (the balance, the developer's own
-  backends and frontends as one-click targets or any canister id, the
-  principal and the funding command) and `WalletSend`, the amount and
+  `WalletChip`, `WalletModal` (the balance; one-click targets per game,
+  "My games" then "Other games" in one list that takes the height left
+  in a dialog sized to the screen, searchable by a game's name or any
+  of its canister ids: backend, frontends, and the bots its `list_bots`
+  names (`support.ts`'s `botsOf`, the call the guides' check shares),
+  asked with each bot's `/metrics` balance once the game's group
+  scrolls into view, or for every game while a search runs; or any
+  canister id; the principal and the funding command, collapsed) and `WalletSend`, the amount and
   Send button both the dialog and `TopUp.tsx` use. The principal is
   the login's on this origin of the dashboard.
 - `grafana.ts` asks the promtracker dashboard registry

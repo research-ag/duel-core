@@ -1,9 +1,10 @@
 // The logged-in principal's cycle wallet (wallet.ts): its balance as a
-// topbar chip, a dialog to send cycles to any canister (the developer's
-// own backends and frontends one click away) and to add cycles from
+// topbar chip, a dialog to send cycles to any canister (the canisters
+// of the developer's own games one click away) and to add cycles from
 // outside, and the send form the top-up page shares.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Principal } from "@icp-sdk/core/principal";
 
 import {
@@ -11,8 +12,12 @@ import {
   formatTC,
   parseTC,
   refreshCycles,
+  trackBackend,
   useCycleStore,
 } from "../cycles";
+import type { CycleStore } from "../cycles";
+import { botsOf } from "../support";
+import type { Bot } from "../support";
 import type { GameView } from "../types";
 import {
   LEDGER_FEE,
@@ -23,7 +28,7 @@ import {
 } from "../wallet";
 import { CodeBlock, CopyId } from "./CodeBlock";
 import { CyclesBadge } from "./CyclesBadge";
-import { Wallet as WalletIcon } from "./Icons";
+import { Bot as BotIcon, Search, Wallet as WalletIcon } from "./Icons";
 import { Modal } from "./Modal";
 
 export function WalletChip({ onOpen }: { onOpen: () => void }) {
@@ -156,8 +161,11 @@ export function WalletSend({
   );
 }
 
-/// The wallet dialog. `games` are the logged-in developer's listings,
-/// offered as targets.
+/// The wallet dialog. `games` are every listing, offered as targets by
+/// game in one list, the logged-in developer's first, searchable by a
+/// game's name or any of its canisters' ids. A game's bots are asked
+/// once its group scrolls into view, and every game's while a search
+/// runs, since it may name a bot.
 export function WalletModal({
   games,
   onClose,
@@ -168,26 +176,65 @@ export function WalletModal({
   const wallet = useWallet();
   const store = useCycleStore();
   const [to, setTo] = useState("");
+  const [query, setQuery] = useState("");
+  const [bots, setBots] = useState<ReadonlyMap<string, Bot[]>>(new Map());
+  const asked = useRef(new Set<string>());
+  const q = query.trim().toLowerCase();
+  const searching = q !== "";
+  const backends = [
+    ...new Set(
+      games.flatMap(
+        (g) => store.backends.get(g.frontendCanisterId.toText()) ?? []
+      )
+    ),
+  ].join(" ");
 
   useEffect(() => {
     void refreshWallet();
   }, []);
 
+  const askBots = useCallback((backend: string) => {
+    if (asked.current.has(backend)) return;
+    asked.current.add(backend);
+    void botsOf(backend).then((list) => {
+      if (!list?.length) return;
+      for (const b of list) trackBackend(b.principal);
+      setBots((m) => new Map(m).set(backend, list));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (searching)
+      for (const b of backends.split(" ").filter(Boolean)) askBots(b);
+  }, [searching, backends, askBots]);
+
   if (!wallet) return null;
   const principal = wallet.principal.toText();
-  const targets = new Map<string, { label: string; backend: boolean }>();
-  for (const g of games) {
-    const backend = store.backends.get(g.frontendCanisterId.toText());
-    if (backend && !targets.has(backend))
-      targets.set(backend, { label: `${g.title} backend`, backend: true });
-    targets.set(g.frontendCanisterId.toText(), {
-      label: `${g.title} frontend`,
-      backend: false,
-    });
-  }
+  const botsOfGroup = (g: Group) =>
+    g.backend ? (bots.get(g.backend) ?? []) : [];
+  const shown = (g: Group) =>
+    !searching ||
+    g.games.some(
+      (x) =>
+        x.title.toLowerCase().includes(q) ||
+        x.frontendCanisterId.toText().includes(q)
+    ) ||
+    (g.backend?.includes(q) ?? false) ||
+    botsOfGroup(g).some((b) => b.principal.includes(q));
+  const mine = (g: GameView) => g.developer.toText() === principal;
+  const sections: [string, Group[]][] = [
+    ["My games", byBackend(games.filter(mine), store).filter(shown)],
+    [
+      "Other games",
+      byBackend(
+        games.filter((g) => !mine(g)),
+        store
+      ).filter(shown),
+    ],
+  ];
 
   return (
-    <Modal onClose={onClose} className="info-modal">
+    <Modal onClose={onClose} className="info-modal wallet-modal">
       <div className="modal-kicker">Cycle wallet</div>
       <h2 className="modal-title">
         {wallet.balance === undefined
@@ -209,20 +256,44 @@ export function WalletModal({
       </p>
 
       <h3 className="info-heading">Top up a canister</h3>
-      {targets.size > 0 && (
-        <div className="chips targets" role="group" aria-label="Your canisters">
-          {[...targets].map(([id, t]) => (
-            <button
-              key={id}
-              type="button"
-              className={`chip${to === id ? " on" : ""}`}
-              onClick={() => setTo(id)}
-            >
-              {t.label}
-              {t.backend && <CyclesBadge reading={store.readings.get(id)} />}
-            </button>
-          ))}
-        </div>
+      {games.length > 0 && (
+        <>
+          <label className="search target-search">
+            <Search />
+            <input
+              type="text"
+              value={query}
+              placeholder="Game name or canister id"
+              spellCheck={false}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search games by name or canister id"
+            />
+          </label>
+          <div className="target-list">
+            {sections.every(([, groups]) => groups.length === 0) && (
+              <p className="faint target-none">No game matches.</p>
+            )}
+            {sections.map(
+              ([title, groups]) =>
+                groups.length > 0 && (
+                  <section key={title} aria-label={title}>
+                    <h4 className="target-section">{title}</h4>
+                    {groups.map((g) => (
+                      <TargetGroup
+                        key={g.key}
+                        group={g}
+                        bots={botsOfGroup(g)}
+                        store={store}
+                        to={to}
+                        onPick={setTo}
+                        onSeen={askBots}
+                      />
+                    ))}
+                  </section>
+                )
+            )}
+          </div>
+        </>
       )}
       <div className="field">
         <input
@@ -241,20 +312,119 @@ export function WalletModal({
         }}
       />
 
-      <h3 className="info-heading">Add cycles</h3>
-      <p className="faint">
-        Send cycles on the cycles ledger (TCYCLES) to your principal: with
-        icp-cli as below, or from any wallet that holds them. This principal
-        belongs to your login on this address of the dashboard.
-      </p>
-      <dl className="info-rows">
-        <dt>Principal</dt>
-        <dd>
-          <CopyId id={principal} />
-        </dd>
-      </dl>
-      <CodeBlock code={`icp cycles transfer 1t ${principal} -e ic`} />
+      <details className="wallet-add">
+        <summary className="info-heading">Add cycles</summary>
+        <p className="faint">
+          Send cycles on the cycles ledger (TCYCLES) to your principal: with
+          icp-cli as below, or from any wallet that holds them. This principal
+          belongs to your login on this address of the dashboard.
+        </p>
+        <dl className="info-rows">
+          <dt>Principal</dt>
+          <dd>
+            <CopyId id={principal} />
+          </dd>
+        </dl>
+        <CodeBlock code={`icp cycles transfer 1t ${principal} -e ic`} wrap />
+      </details>
     </Modal>
+  );
+}
+
+interface Group {
+  key: string;
+  backend: string | undefined;
+  games: GameView[];
+}
+
+/// Listings sharing a backend, in listing order; one whose backend is
+/// unknown (still looked up, or not published) stands alone.
+function byBackend(games: GameView[], store: CycleStore): Group[] {
+  const groups = new Map<string, Group>();
+  for (const g of games) {
+    const frontend = g.frontendCanisterId.toText();
+    const backend = store.backends.get(frontend) ?? undefined;
+    const key = backend ?? frontend;
+    const group = groups.get(key);
+    if (group) group.games.push(g);
+    else groups.set(key, { key, backend, games: [g] });
+  }
+  return [...groups.values()];
+}
+
+/// One game's canisters: its backend, its listings' frontends, and its
+/// bots; `onSeen` asks for those once the group scrolls into view.
+function TargetGroup({
+  group: { backend, games },
+  bots,
+  store,
+  to,
+  onPick,
+  onSeen,
+}: {
+  group: Group;
+  bots: Bot[];
+  store: CycleStore;
+  to: string;
+  onPick: (id: string) => void;
+  onSeen: (backend: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!backend || !el) return;
+    const seen = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      seen.disconnect();
+      onSeen(backend);
+    });
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, [backend, onSeen]);
+
+  const title = [...new Set(games.map((g) => g.title))].join(" · ");
+  const target = (id: string, content: ReactNode) => (
+    <button
+      key={id}
+      type="button"
+      className={`chip${to === id ? " on" : ""}`}
+      onClick={() => onPick(id)}
+    >
+      {content}
+    </button>
+  );
+
+  return (
+    <div ref={ref} className="target-group" role="group" aria-label={title}>
+      <div className="target-game">{title}</div>
+      <div className="chips">
+        {backend &&
+          target(
+            backend,
+            <>
+              Backend
+              <CyclesBadge reading={store.readings.get(backend)} />
+            </>
+          )}
+        {games.map((g) =>
+          target(
+            g.frontendCanisterId.toText(),
+            games.length > 1 ? `${g.title} frontend` : "Frontend"
+          )
+        )}
+        {bots.map((b) =>
+          target(
+            b.principal,
+            <>
+              <BotIcon />
+              {b.name}
+              <CyclesBadge reading={store.readings.get(b.principal)} of="Bot" />
+            </>
+          )
+        )}
+      </div>
+    </div>
   );
 }
 

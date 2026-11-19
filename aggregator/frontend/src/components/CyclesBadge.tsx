@@ -1,17 +1,24 @@
-// The balance in TC behind a coloured dot, on a card and in the info
-// modal; "Frozen" for a backend that refuses even the read. Nothing
-// while the lookup runs or when the backend serves no `cycles_balance`.
+// A canister's balance in TC behind a coloured dot, on a card, in the
+// info modal and the wallet; "Frozen" for one that refuses even the
+// read. Nothing while the lookup runs or when the canister serves no
+// `cycles_balance`. `of` names the canister in the hover text.
 
 import type { Reading } from "../cycles";
 import { STATUS_WORD, formatTC, statusNote, statusOf } from "../cycles";
 
-export function CyclesBadge({ reading }: { reading: Reading }) {
+export function CyclesBadge({
+  reading,
+  of = "Backend",
+}: {
+  reading: Reading;
+  of?: string;
+}) {
   const status = statusOf(reading);
   if (reading == null || status === undefined) return null;
   return (
     <span
       className={`cycles ${status}`}
-      title={`${STATUS_WORD[status]}. ${statusNote(reading)}`}
+      title={`${of} balance, ${STATUS_WORD[status].toLowerCase()}. ${statusNote(reading)}`}
     >
       <i aria-hidden="true" />
       {reading === "frozen" ? STATUS_WORD.frozen : formatTC(reading.cycles)}

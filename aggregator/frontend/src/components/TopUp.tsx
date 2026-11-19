@@ -287,6 +287,7 @@ export function TopUp({
           </p>
           <CodeBlock
             code={`icp canister top-up ${backend} -e ic --amount 1t`}
+            wrap
           />
         </>
       )}

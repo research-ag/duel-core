@@ -423,9 +423,9 @@ check-upgrade.mjs <backend-id>)` checks the new module's stable types
 and Candid against the live one, and you review the code that runs on
 the upgrade (`changing-a-live-game.md`, section 4).
 
-A canister's balance shows in `icp canister status <name> -e ic`, and
-a backend's on its card on the Duel dashboard (section 5), read from
-its `/metrics`. To top one up: the dashboard's **Top up** (a card
+A canister's balance shows in `icp canister status <name> -e ic`, a
+backend's on its card on the Duel dashboard (section 5) and a bot's in
+the dashboard's cycle wallet, each read from its `/metrics`. To top one up: the dashboard's **Top up** (a card
 payment through CyclePay to the canister, by anyone), cycle.express
 with the canister id as the recipient, or `icp canister top-up <name>
 -e ic --amount 1t` from the identity's balance.

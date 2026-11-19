@@ -59,14 +59,6 @@ export function App() {
     if (auth.isLoggedIn && auth.identity) void connectWallet(auth.identity);
   }, [auth.isLoggedIn, auth.identity]);
 
-  const ownGames = useMemo(
-    () =>
-      auth.principal
-        ? games.filter((g) => g.developer.toText() === auth.principal!.toText())
-        : [],
-    [games, auth.principal]
-  );
-
   const developers = useMemo(() => {
     const byId = new Map<string, string>();
     for (const g of games) {
@@ -152,7 +144,7 @@ export function App() {
         </Modal>
       )}
       {walletOpen && (
-        <WalletModal games={ownGames} onClose={() => setWalletOpen(false)} />
+        <WalletModal games={games} onClose={() => setWalletOpen(false)} />
       )}
       {modal !== undefined && auth.actor && (
         <GameFormModal

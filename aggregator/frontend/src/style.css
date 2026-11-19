@@ -1649,13 +1649,13 @@ input[type="range"] {
   padding-right: 4rem;
 }
 
-.code-block.wrap {
+.code-block.folds {
   padding-top: 2.6rem;
   max-height: 22rem;
   overflow-y: auto;
 }
 
-.code-block.wrap pre {
+.code-block.folds pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   padding-right: 0;
@@ -1978,13 +1978,101 @@ input[type="range"] {
   color: var(--gold-2);
 }
 
-.targets {
-  flex-wrap: wrap;
+/* The wallet dialog fits the screen: its target list takes the height
+   left over, down to a few rows, and the dialog scrolls past that. */
+.wallet-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 2 * max(3vh, 1rem));
+  max-height: calc(100dvh - 2 * max(3vh, 1rem));
+  overflow-y: auto;
+}
+
+.wallet-modal > * {
+  flex-shrink: 0;
+}
+
+.target-search {
   margin-bottom: 0.6rem;
+}
+
+.target-list {
+  flex: 1 1 auto;
+  min-height: 10rem;
+  overflow-y: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0 0.9rem 0.2rem;
+  margin-bottom: 0.9rem;
+}
+
+.target-section {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-2);
+  margin: 0;
+  padding: 0.75rem 0 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-2);
+}
+
+.target-group {
+  margin-bottom: 0.7rem;
+}
+
+.target-none {
+  margin: 0.9rem 0;
+}
+
+.wallet-add summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.wallet-add summary::-webkit-details-marker {
+  display: none;
+}
+
+.wallet-add summary::before {
+  content: "";
+  width: 0.38rem;
+  height: 0.38rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.2s var(--ease);
+}
+
+.wallet-add[open] summary::before {
+  transform: rotate(45deg);
+}
+
+.wallet-add summary:hover {
+  color: var(--ink);
+}
+
+.target-game {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 0.35rem;
 }
 
 .chip .cycles {
   margin-left: 0;
+}
+
+.chip svg {
+  width: 0.95rem;
+  height: 0.95rem;
 }
 
 .received {

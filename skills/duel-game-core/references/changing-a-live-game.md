@@ -130,4 +130,7 @@ same `hosty_prepare_wasm_upload` as the first install, with
 `snapshotBeforeUpgrade: true`; icp-cli: `icp deploy backend -e ic`),
 then upload the frontend, as `going-live.md` describes. A new bot
 canister is created as `going-live.md`, section 3, describes and
-registered as SKILL.md Step 4 does.
+registered as SKILL.md Step 4 does. Any change to a live bot also
+checks that it serves `GET /metrics` (`bot-for-existing-game.md`,
+section 4) and adds those lines when it does not; they hold no stable
+data, so the upgrade needs no migration.
