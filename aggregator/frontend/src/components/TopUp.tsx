@@ -110,11 +110,15 @@ export function TopUp({
     setWatching(true);
   }
 
-  /// The ledger's answer already confirms a send from the wallet; the
-  /// watch adds the amount when a balance from before the send exists.
-  function sentFromWallet() {
+  /// A delivered send needs no watch to be confirmed; one the ledger had
+  /// taken in an unanswered call does. Either way the watch needs a
+  /// balance from before the send.
+  function sentFromWallet(delivered: boolean) {
     if (cycles !== undefined || reading === "frozen") startWatching();
-    else void refreshCycles(backend);
+    else {
+      void refreshCycles(backend);
+      if (!delivered) setUnconfirmable(true);
+    }
   }
 
   const received =

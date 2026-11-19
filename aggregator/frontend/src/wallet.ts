@@ -159,12 +159,21 @@ export async function refreshWallet(): Promise<void> {
   set({ principal, balance: balance ?? wallet.balance ?? null });
 }
 
+/// `sent`: delivered by this call. `taken`: the ledger answered
+/// `Duplicate`, having taken the send in an unanswered call; a failed
+/// delivery is refunded in a block of its own and leaves the duplicate
+/// entry in place, so only the canister's balance tells whether the
+/// cycles arrived. Each carries the ledger's block index.
+export type SendResult = { sent: bigint } | { taken: bigint };
+
 /// Sends `amount` cycles to canister `to`; the wallet pays `amount` plus
-/// `LEDGER_FEE`. Resolves with the ledger's block index; rejects with a
-/// message for the page. `created_at_time` lets the ledger refuse the
-/// same withdrawal twice, so an unanswered one is repeated as it was
-/// before any other is sent.
-export async function sendCycles(to: Principal, amount: bigint): Promise<bigint> {
+/// `LEDGER_FEE`. Rejects with a message for the page. `created_at_time`
+/// lets the ledger refuse the same withdrawal twice, so an unanswered
+/// one is repeated as it was before any other is sent.
+export async function sendCycles(
+  to: Principal,
+  amount: bigint
+): Promise<SendResult> {
   if (!ledger) throw new Error("Log in to use your wallet.");
   if (sending)
     throw new Error("Another send is still waiting for the ledger's answer.");
@@ -195,14 +204,9 @@ export async function sendCycles(to: Principal, amount: bigint): Promise<bigint>
       "Err" in res &&
       ("TooOld" in res.Err || "TemporarilyUnavailable" in res.Err);
     if (!open && unanswered === tx) unanswered = undefined;
-    if ("Ok" in res) return res.Ok;
-    // A failed delivery is refunded in a block of its own and leaves
-    // the duplicate entry in place, so `Duplicate` only says the first
-    // call was taken.
+    if ("Ok" in res) return { sent: res.Ok };
     if ("Duplicate" in res.Err)
-      throw new Error(
-        `The ledger had already taken this send (block ${res.Err.Duplicate.duplicate_of}): the cycles reached ${to.toText()}, or, if that delivery failed, came back to your wallet less 0.0002 TC in fees. The two balances tell which.`
-      );
+      return { taken: res.Err.Duplicate.duplicate_of };
     if (resend && "TooOld" in res.Err)
       throw new Error(
         "Your earlier send is over a day old, so the ledger can no longer tell whether it went through. Check your wallet's balance; reload this page to send anything else."

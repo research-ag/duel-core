@@ -46,20 +46,21 @@ export function WalletChip({ onOpen }: { onOpen: () => void }) {
 const PRESETS = ["0.5", "1", "2"];
 
 /// An amount in TC and a Send button for one canister, with the
-/// ledger's answer underneath; `onSent` runs once the cycles are there.
+/// ledger's answer underneath; `onSent` runs once the ledger has taken
+/// the send, `delivered` unless it answered `Duplicate` (`SendResult`).
 export function WalletSend({
   to,
   onSent,
 }: {
   to: string;
-  onSent?: () => void;
+  onSent?: (delivered: boolean) => void;
 }) {
   const wallet = useWallet();
   const [preset, setPreset] = useState("1");
   const [custom, setCustom] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<
-    { sent: string } | { error: string } | undefined
+    { sent: string } | { taken: string } | { error: string } | undefined
   >(undefined);
 
   useEffect(() => setResult(undefined), [to]);
@@ -80,11 +81,15 @@ export function WalletSend({
     setSending(true);
     setResult(undefined);
     try {
-      const block = await sendCycles(target!, amount!);
-      setResult({
-        sent: `Sent ${exactTC(amount!)} to ${to} (ledger block ${block}).`,
-      });
-      onSent?.();
+      const res = await sendCycles(target!, amount!);
+      setResult(
+        "sent" in res
+          ? { sent: `Sent ${exactTC(amount!)} to ${to} (ledger block ${res.sent}).` }
+          : {
+              taken: `The ledger had already taken this send (block ${res.taken}) in the call that got no answer. If that delivery failed, the cycles came back to your wallet less 0.0002 TC in fees; ${to}'s balance shows whether they arrived.`,
+            }
+      );
+      onSent?.("sent" in res);
     } catch (err) {
       setResult({ error: firstLine(err) });
     } finally {
@@ -145,6 +150,7 @@ export function WalletSend({
         </button>
       </div>
       {result && "sent" in result && <p className="sent">{result.sent}</p>}
+      {result && "taken" in result && <p className="taken">{result.taken}</p>}
       {result && "error" in result && <p className="error">{result.error}</p>}
     </>
   );

@@ -212,7 +212,9 @@ balance with a **Top up** page.
   deposits into any canister for `LEDGER_FEE` (0.0001 TC), with
   `created_at_time` so the ledger refuses a repeat. Sends go one at a
   time; one whose call threw is resent unchanged (`isResend`, past the
-  balance check) before any other. `Wallet.tsx` holds
+  balance check) before any other. A `Duplicate` answer resolves as
+  `taken`, not `sent` (a refunded delivery leaves the duplicate entry),
+  and `TopUp.tsx` watches the balance to tell. `Wallet.tsx` holds
   `WalletChip`, `WalletModal` (the balance, the developer's own
   backends and frontends as one-click targets or any canister id, the
   principal and the funding command) and `WalletSend`, the amount and

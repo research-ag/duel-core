@@ -1966,11 +1966,16 @@ input[type="range"] {
   color: var(--faint);
 }
 
-.sent {
+.sent,
+.taken {
   color: var(--green);
   font-size: 0.85rem;
   margin: 0.5rem 0;
   overflow-wrap: anywhere;
+}
+
+.taken {
+  color: var(--gold-2);
 }
 
 .targets {
