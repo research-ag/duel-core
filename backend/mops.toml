@@ -1,7 +1,7 @@
 [package]
 name = "duel-game-core"
 version = "0.1.0"
-description = "Rules-agnostic 2-player session engine for Internet Computer games: tables, lobby, rematch, bots, leaderboard"
+description = "Turn-based games in a canister. A rules-agnostic framework for the tables, turns, lobby, bots, leaderboard."
 repository = "https://github.com/research-ag/duel-core"
 license = "Apache-2.0"
 files = [ "src/**/*.mo" ]
