@@ -874,9 +874,9 @@ MR Research AG, 2026
 
 ## Authors
 
-Main author: TimoHanke
+Main author: AndyGura
 
-Contributors: AndyGura
+Contributors: TimoHanke
 
 ## License
 
