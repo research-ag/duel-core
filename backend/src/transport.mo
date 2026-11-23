@@ -338,7 +338,7 @@ module {
     ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.leave(now, p, id, gen), id)));
   };
 
-  /// Clears table `id` once it is idle.
+  /// Resets table `id`; see `Registry.reset` for who may and how.
   public func reset<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, gen : Nat) : async* Ack {
     ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.reset(now, p, id, gen), id)));
   };
@@ -348,8 +348,7 @@ module {
     ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.claimWin(env.spec, now, p, id, gen), id)));
   };
 
-  /// The caller acknowledges their debrief or `#endedByOther` notice on
-  /// table `id`.
+  /// The caller acknowledges their `#endedByOther` notice on table `id`.
   public func ackEnded<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId) : async* Ack {
     ack(
       self,

@@ -37,8 +37,8 @@ mixin (endpoint : ?CanisterPlayers.Endpoint, directory : CanisterPlayers.BotDire
     await* cp.leave<system>(caller, tableId, gen);
   };
 
-  /// The calling canister acknowledges its debrief or `#endedByOther`
-  /// notice on `tableId`.
+  /// The calling canister acknowledges its `#endedByOther` notice on
+  /// `tableId`.
   public shared ({ caller }) func ack_ended_as_canister(tableId : T.TableId) : async () {
     await* cp.ackEnded<system>(caller, tableId);
   };
@@ -49,7 +49,7 @@ mixin (endpoint : ?CanisterPlayers.Endpoint, directory : CanisterPlayers.BotDire
     await* cp.claimWin<system>(caller, tableId, gen);
   };
 
-  /// The calling canister resets an idle `tableId`; see `Registry.reset`.
+  /// The calling canister resets `tableId`; see `Registry.reset`.
   public shared ({ caller }) func reset_as_canister(tableId : T.TableId, gen : Nat) : async T.Res<()> {
     await* cp.reset<system>(caller, tableId, gen);
   };

@@ -474,7 +474,8 @@ module {
   };
 
   /// `session` leaves table `id`: a live game ends `#aborted` for both;
-  /// a staging or acked debrief frees the table.
+  /// the staging's owner frees the table, while the player it is reserved
+  /// for only declines; a debrief frees it once both players have left.
   public func leave<S, M, O>(self : Registry<S, M, O>, now : Int, session : T.PlayerId, id : T.TableId, gen : Nat) : T.Res<()> = withTable<S, M, O, ()>(
     self,
     id,
@@ -496,7 +497,9 @@ module {
     },
   );
 
-  /// Clears an idle table; see `Table.reset` for who may.
+  /// A player seated in a game or debrief resets by `leave` (a live game
+  /// ends `#aborted` for both); the staging's owner empties it; anyone
+  /// else clears only a game or debrief past its idle timeout.
   public func reset<S, M, O>(self : Registry<S, M, O>, now : Int, session : T.PlayerId, id : T.TableId, gen : Nat) : T.Res<()> = withTable<S, M, O, ()>(
     self,
     id,

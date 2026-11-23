@@ -28,7 +28,7 @@ mixin <system>(lobby : Transport.Lobby) {
     await* lobby.leave<system>(caller, tableId, gen);
   };
 
-  /// Clears `tableId` once it is idle.
+  /// Resets `tableId`; see `Registry.reset` for who may and how.
   public shared ({ caller }) func duel_reset(tableId : T.TableId, gen : Nat) : async Transport.Ack {
     await* lobby.reset<system>(caller, tableId, gen);
   };
@@ -38,7 +38,7 @@ mixin <system>(lobby : Transport.Lobby) {
     await* lobby.claimWin<system>(caller, tableId, gen);
   };
 
-  /// The caller acknowledges their debrief or `#endedByOther` notice.
+  /// The caller acknowledges their `#endedByOther` notice.
   public shared ({ caller }) func duel_ack_ended(tableId : T.TableId) : async Transport.Ack {
     await* lobby.ackEnded<system>(caller, tableId);
   };

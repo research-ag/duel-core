@@ -169,7 +169,8 @@ module {
     #claimed : Seat; // this seat claimed the win after `claimTimeoutNs`
   };
 
-  /// A finished game, kept until both players acknowledge it.
+  /// A finished game, kept until both players leave it or its idle
+  /// timeout passes.
   public type Debrief<S> = {
     p1 : PlayerId;
     p2 : PlayerId;
