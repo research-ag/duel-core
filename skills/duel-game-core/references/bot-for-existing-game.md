@@ -220,7 +220,7 @@ actor Sparring {
   type Reply = Transport.Reply<Game.View>;
   type Host = actor {
     duel_create_table : (TP.Seat, TP.TableVisibility, Game.Options) -> async Transport.Ack;
-    duel_ack_ended : (TP.TableId) -> async Transport.Ack;
+    duel_leave : (TP.TableId, Nat) -> async Transport.Ack;
     duel_submit : (TP.TableId, Nat, Nat, Game.Action) -> async Reply;
     duel_table : query (TP.TableId, Nat) -> async Transport.TableResult<Game.View>;
   };
@@ -272,8 +272,12 @@ actor Sparring {
     };
   };
 
-  public func ack_ended(host : Principal.Principal) : async Transport.Ack {
-    await hostOf(host).duel_ack_ended(tableId);
+  // Leaves the finished game, freeing the table.
+  public func leave(host : Principal.Principal) : async Transport.Ack {
+    switch (await view(host)) {
+      case (#view { view = #debrief d }) await hostOf(host).duel_leave(tableId, d.gen);
+      case _ #err(#wrongPhase("no debrief to leave"));
+    };
   };
 
 };
@@ -301,9 +305,9 @@ A `step` that returns the same `inGame` view with `youSubmitted = true`
 means the bot did not reply: its move was rejected twice (compare with
 `RULES`) or did not decode (compare `GameTypes.mo` with `backend.did`).
 A sparring call whose types do not match `backend.did` is rejected by
-Candid decoding. Once the game is over, a bot acks its own debrief
-right away; `ack_ended` (or a `duel_leave`) clears sparring's before
-the next `open_table`.
+Candid decoding. Once the game is over, `leave` takes sparring out of
+its debrief before the next `open_table`, and the bot then leaves its
+own.
 
 Play at least one game per complexity, with the bot in each seat
 (`open_table`'s seat is sparring's; give `play` the other one), and

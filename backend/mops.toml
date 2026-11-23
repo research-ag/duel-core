@@ -1,20 +1,26 @@
 [package]
 name = "duel-game-core"
 version = "0.1.0"
-description = "Generic 2-player global-board session engine"
+description = "Turn-based games in a canister. A rules-agnostic framework for the tables, turns, lobby, bots, leaderboard."
+repository = "https://github.com/research-ag/duel-core"
+keywords = [ "game", "player", "two", "turn", "lobby", "leaderboard", "elo", "bot" ]
+license = "Apache-2.0"
 files = [ "src/**/*.mo" ]
 
 [dependencies]
-core = "2.6.2"
-promtracker = "1.0.1"
+core = "2.7.0"
+promtracker = "1.0.2"
 prng = "0.2.0"
+
+[requirements]
+moc = "2.0.0"
 
 [optimize]
 
 [toolchain]
-moc = "2.0.0"
+moc = "2.2.4"
 pocket-ic = "15.0.0"
-wasm-opt = "132"
+wasm-opt = "133"
 
 [dev-dependencies]
-bench-helper = "0.0.3"
+bench-helper = "0.0.4"

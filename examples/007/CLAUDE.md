@@ -80,7 +80,7 @@ A deployable `#simultaneous` example on `../../backend` and
 
 ## Toolchain
 
-moc 2.0.0 (`mops.toml`). Dependencies: `duel-game-core` (path to
+moc 2.2.4 (`mops.toml`). Dependencies: `duel-game-core` (path to
 `../../backend`), `core`; `promtracker` arrives transitively. Never
 import `mo:base`. The frontend depends on `@research-ag/duel-game-core`
 (`file:../../../frontend`, copied via `install-links`) and

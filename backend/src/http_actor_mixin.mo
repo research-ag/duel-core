@@ -5,6 +5,7 @@ import Http "./http";
 
 mixin (routes : [Http.Route]) {
 
+  /// Answers `GET` on a route's path with its text; see `Http.respond`.
   public query func http_request(req : Http.Request) : async Http.Response {
     Http.respond(routes, req);
   };

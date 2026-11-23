@@ -42,12 +42,14 @@ import T "./types";
 
 module {
 
+  /// The prefix of every canister player's id (`cp:`).
   public let CP_ID_PREFIX : Text = Registry.CP_ID_PREFIX;
 
   /// What a bot with no declared complexities is listed under, and what
   /// an empty `complexity` argument normalizes to.
   public let DEFAULT_COMPLEXITY : Text = "Default";
 
+  /// `complexity`, or `DEFAULT_COMPLEXITY` when it is empty.
   public func normalizeComplexity(complexity : Text) : Text = if (complexity == "") DEFAULT_COMPLEXITY else complexity;
 
   /// A bot's player id. `complexity` may itself contain `:` (it is the
@@ -68,10 +70,13 @@ module {
     };
   };
 
+  /// The bot canister behind a `cp:` player id; traps on any other id.
   public func principalOfCanisterSession(session : T.PlayerId) : Principal.Principal = Principal.fromText(parseSession(session).0);
 
+  /// The complexity a `cp:` player id was seated at; traps on any other id.
   public func complexityOfCanisterSession(session : T.PlayerId) : Text = parseSession(session).1;
 
+  /// Whether `session` is a canister player's id.
   public func isCanisterSession(session : T.PlayerId) : Bool = session.startsWith(#text CP_ID_PREFIX);
 
   /// A bot's leaderboard key: its player id, so each complexity is rated
@@ -95,16 +100,21 @@ module {
     elo : ?Int;
   };
 
+  /// A registered bot as `rankedBots` lists it, each complexity with its
+  /// rating.
   public type BotEntry = {
     principal : Principal.Principal;
     name : Text;
     complexities : [BotComplexityEntry];
   };
 
+  /// Every registered bot, keyed by its principal. A plain record, so a
+  /// host's field is stable.
   public type BotDirectory = {
     var bots : Map.Map<Principal.Principal, BotInfo>;
   };
 
+  /// An empty bot directory.
   public func newBotDirectory() : BotDirectory = { var bots = Map.empty() };
 
   /// Idempotent upsert by `caller`. Keeps declared order, normalizes `""`,
@@ -119,10 +129,12 @@ module {
     d.bots.add(caller, { principal = caller; name; complexities = seen.toArray(); registeredAt = now });
   };
 
+  /// Removes the caller's entry; a no-op if it has none.
   public func unregisterBot(d : BotDirectory, caller : Principal.Principal) {
     d.bots.remove(caller);
   };
 
+  /// Every registered bot, in principal order.
   public func listBots(d : BotDirectory) : [BotInfo] {
     d.bots.toArray().map<(Principal.Principal, BotInfo), BotInfo>(func((_, v)) = v);
   };
@@ -175,6 +187,7 @@ module {
     replying : Map.Map<T.TableId, Nat>;
   };
 
+  /// An empty store: no bots registered, nothing in flight.
   public func newStore() : Store = {
     directory = newBotDirectory();
     inFlight = Map.empty<Text, ()>();

@@ -1,6 +1,5 @@
 import Array "mo:core/Array";
 import Int "mo:core/Int";
-import Map "mo:core/Map";
 import Nat "mo:core/Nat";
 import Option "mo:core/Option";
 import Text "mo:core/Text";
@@ -9,6 +8,7 @@ import T "./types";
 
 module {
 
+  /// `Table` from `./types`.
   public type Table<S, M, O> = T.Table<S, M, O>;
 
   /// How long a `#code` table waits for its second player without its
@@ -20,6 +20,7 @@ module {
   /// still away.
   public let INVITE_GRACE_NS : Int = 600_000_000_000;
 
+  /// An `#empty` table with the given timeouts, access and options.
   public func new<S, M, O>(idleTimeoutNs : Int, claimTimeoutNs : Int, visibility : T.TableVisibility, createdBy : T.PlayerId, options : O) : Table<S, M, O> = {
     var idleTimeoutNs = idleTimeoutNs;
     var claimTimeoutNs = claimTimeoutNs;
@@ -33,11 +34,14 @@ module {
     var rev = 0;
   };
 
+  /// Replaces the table's idle and claim timeouts.
   public func setTimeouts<S, M, O>(self : Table<S, M, O>, idleTimeoutNs : Int, claimTimeoutNs : Int) {
     self.idleTimeoutNs := idleTimeoutNs;
     self.claimTimeoutNs := claimTimeoutNs;
   };
 
+  /// Whether a phase that started at `since` has outlived the idle
+  /// timeout.
   public func isExpired<S, M, O>(self : Table<S, M, O>, since : Int, now : Int) : Bool = now - since >= self.idleTimeoutNs;
 
   func secsLeftFor(timeoutNs : Int, since : Int, now : Int) : Nat {
@@ -45,6 +49,8 @@ module {
     if (left <= 0) { 0 } else { left.toNat() / 1_000_000_000 };
   };
 
+  /// Whole seconds until a phase that started at `since` outlives the idle
+  /// timeout; 0 once it has.
   public func secsLeft<S, M, O>(self : Table<S, M, O>, since : Int, now : Int) : Nat = secsLeftFor(self.idleTimeoutNs, since, now);
 
   /// A `#code` table: what the invite rules (`INVITE_WAIT_NS`,
@@ -62,14 +68,20 @@ module {
   /// grace. Every check on an `#active` phase goes through these.
   public func gameIdleNs<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>) : Int = self.idleTimeoutNs + graceNs(self, g);
 
+  /// The claim timeout of a running game, grace included.
   public func gameClaimNs<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>) : Int = self.claimTimeoutNs + graceNs(self, g);
 
+  /// Whether a running game has been idle past `gameIdleNs`.
   public func gameExpired<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>, now : Int) : Bool = now - g.lastActivity >= self.gameIdleNs(g);
 
+  /// Whole seconds until a running game is idle past `gameIdleNs`.
   public func gameSecsLeft<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>, now : Int) : Nat = secsLeftFor(self.gameIdleNs(g), g.lastActivity, now);
 
+  /// Whether the waiting seat of a running game may claim the win.
   public func gameClaimOverdue<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>, now : Int) : Bool = now - g.lastActivity >= self.gameClaimNs(g);
 
+  /// Whole seconds until the waiting seat of a running game may claim the
+  /// win.
   public func gameClaimSecsLeft<S, M, O>(self : Table<S, M, O>, g : T.Active<S, M>, now : Int) : Nat = secsLeftFor(self.gameClaimNs(g), g.lastActivity, now);
 
   /// Whether a staging is kept for its occupant: within the idle timeout,
@@ -108,6 +120,7 @@ module {
     self.lastEnded := self.lastEnded.concat([{ p1; p2; acked; since = now }]);
   };
 
+  /// Whether `session` is owed an `#endedByOther` notice it has not acked.
   public func unackedEnded<S, M, O>(self : Table<S, M, O>, session : T.PlayerId) : Bool {
     for (e in self.lastEnded.values()) {
       if ((e.p1 == session or e.p2 == session) and not member(e.acked, session)) {
@@ -135,10 +148,13 @@ module {
     self.lastEnded := self.lastEnded.filter(func(e) = now - e.since < self.idleTimeoutNs * 10);
   };
 
+  /// `#stale` unless `gen` is the table's current match generation.
   public func checkGen<S, M, O>(self : Table<S, M, O>, gen : Nat) : ?T.Err = if (gen == self.gen) {
     null;
   } else { ?#stale };
 
+  /// Seats `session` alone at `seat`, waiting for an opponent (held for
+  /// `reservedFor` on a rematch), and starts a new match generation.
   public func stage<S, M, O>(self : Table<S, M, O>, now : Int, session : T.PlayerId, seat : T.Seat, reservedFor : ?T.PlayerId) {
     self.gen += 1;
     self.phase := #staging { seat; session; reservedFor; since = now };
@@ -162,6 +178,8 @@ module {
     case (#turnBased turnSpec) turnSpec.view(game, seat, over);
   };
 
+  /// Starts a game between the staged player and `joiner` from the rules'
+  /// `init`.
   public func startGame<S, M, V, O>(self : Table<S, M, O>, spec : T.Spec<S, M, V, O>, rng : T.Rng, now : Int, st : T.Staging, joiner : T.PlayerId) {
     let (p1, p2) = switch (st.seat) {
       case (#p1) (st.session, joiner);
@@ -182,6 +200,7 @@ module {
     };
   };
 
+  /// Ends the game with `end` and shows both players the debrief.
   public func enterDebrief<S, M, O>(self : Table<S, M, O>, now : Int, p1 : T.PlayerId, p2 : T.PlayerId, end : T.End, steps : Nat, finalGame : S) {
     self.debriefAcked := [];
     self.phase := #debrief { p1; p2; end; steps; finalGame; since = now };

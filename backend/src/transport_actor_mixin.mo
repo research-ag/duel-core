@@ -11,26 +11,34 @@ import T "./types";
 
 mixin <system>(lobby : Transport.Lobby) {
 
+  /// Seats the caller at `seat` on `tableId`; a `#code` table needs its
+  /// code.
   public shared ({ caller }) func duel_join_table(tableId : T.TableId, seat : T.Seat, code : ?Text) : async Transport.Ack {
     await* lobby.joinTable<system>(caller, tableId, seat, code);
   };
 
+  /// Offers or accepts a rematch from the caller's debrief.
   public shared ({ caller }) func duel_rematch(tableId : T.TableId) : async Transport.Ack {
     await* lobby.rematch<system>(caller, tableId);
   };
 
+  /// The caller leaves `tableId`; leaving a live game ends it `#aborted`
+  /// for both.
   public shared ({ caller }) func duel_leave(tableId : T.TableId, gen : Nat) : async Transport.Ack {
     await* lobby.leave<system>(caller, tableId, gen);
   };
 
+  /// Resets `tableId`; see `Registry.reset` for who may and how.
   public shared ({ caller }) func duel_reset(tableId : T.TableId, gen : Nat) : async Transport.Ack {
     await* lobby.reset<system>(caller, tableId, gen);
   };
 
+  /// The waiting caller claims the win once the opponent is overdue.
   public shared ({ caller }) func duel_claim_win(tableId : T.TableId, gen : Nat) : async Transport.Ack {
     await* lobby.claimWin<system>(caller, tableId, gen);
   };
 
+  /// The caller acknowledges their `#endedByOther` notice.
   public shared ({ caller }) func duel_ack_ended(tableId : T.TableId) : async Transport.Ack {
     await* lobby.ackEnded<system>(caller, tableId);
   };

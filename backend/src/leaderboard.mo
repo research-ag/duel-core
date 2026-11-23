@@ -9,6 +9,7 @@ import Order "mo:core/Order";
 
 module {
 
+  /// One player's score and when it was last written (ns).
   public type Entry = { player : Text; score : Int; updatedAt : Int };
 
   /// `defaultScore` is what `scoreOf` returns for an unknown player.
@@ -18,6 +19,7 @@ module {
     var entries : [Entry];
   };
 
+  /// An empty board that keeps the best `keep` entries.
   public func new(keep : Nat, defaultScore : Int) : Board = {
     keep;
     defaultScore;
@@ -59,6 +61,7 @@ module {
     true;
   };
 
+  /// The best `n` entries, highest first.
   public func top(b : Board, n : Nat) : [Entry] {
     if (n >= b.entries.size()) b.entries else b.entries.sliceToArray(0, n);
   };
@@ -71,6 +74,7 @@ module {
     };
   };
 
+  /// The player's score, or the board's `defaultScore` if they have none.
   public func scoreOf(b : Board, player : Text) : Int {
     switch (get(b, player)) {
       case (?e) e.score;

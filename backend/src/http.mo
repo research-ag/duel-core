@@ -4,6 +4,7 @@ import Text "mo:core/Text";
 
 module {
 
+  /// The IC HTTP gateway's request.
   public type Request = {
     method : Text;
     url : Text;
@@ -11,6 +12,7 @@ module {
     body : Blob;
   };
 
+  /// The IC HTTP gateway's response.
   public type Response = {
     status_code : Nat16;
     headers : [(Text, Text)];
@@ -20,8 +22,10 @@ module {
   /// A path and the text `GET <path>` answers with.
   public type Route = (Text, () -> Text);
 
+  /// The path every host serves its rules text at.
   public let SEMANTICS_PATH : Text = "/semantics";
 
+  /// A UTF-8 plain-text response with the given status.
   public func plain(status_code : Nat16, text : Text) : Response = {
     status_code;
     headers = [("content-type", "text/plain; charset=utf-8")];

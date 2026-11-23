@@ -59,7 +59,7 @@ to end. Not part of either package.
 
 ## Toolchain
 
-moc 2.0.0. Same dependency notes as `examples/007/CLAUDE.md`; see
+moc 2.2.4. Same dependency notes as `examples/007/CLAUDE.md`; see
 `../../CLAUDE.md` for the frontend refresh procedure.
 
 ## Build & test
