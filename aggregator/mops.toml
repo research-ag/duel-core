@@ -4,11 +4,11 @@ version = "0.1.0"
 description = "Game aggregator — Internet Identity login, developer profiles, and a public registry of games built on this repo's tooling."
 
 [dependencies]
-core = "2.6.2"
-promtracker = "1.0.1"
+core = "2.7.0"
+promtracker = "1.0.2"
 
 [canisters]
 backend = "src/Main.mo"
 
 [toolchain]
-moc = "2.0.0"
+moc = "2.2.4"

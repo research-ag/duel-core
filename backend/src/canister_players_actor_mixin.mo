@@ -21,6 +21,8 @@ mixin (endpoint : ?CanisterPlayers.Endpoint, directory : CanisterPlayers.BotDire
     case null Runtime.trap("CanisterPlayersActorMixin needs a Duel built with bots");
   };
 
+  /// Seats the calling canister at `complexity` on table `id`; see
+  /// `Registry.joinTable`.
   public shared ({ caller }) func join_table_as_canister(
     id : T.TableId,
     seat : T.Seat,
@@ -30,18 +32,24 @@ mixin (endpoint : ?CanisterPlayers.Endpoint, directory : CanisterPlayers.BotDire
     await* cp.joinTable<system>(caller, id, seat, code, complexity);
   };
 
+  /// The calling canister leaves `tableId`; see `Registry.leave`.
   public shared ({ caller }) func leave_as_canister(tableId : T.TableId, gen : Nat) : async T.Res<()> {
     await* cp.leave<system>(caller, tableId, gen);
   };
 
+  /// The calling canister acknowledges its debrief or `#endedByOther`
+  /// notice on `tableId`.
   public shared ({ caller }) func ack_ended_as_canister(tableId : T.TableId) : async () {
     await* cp.ackEnded<system>(caller, tableId);
   };
 
+  /// The calling canister claims the win on `tableId` once its opponent is
+  /// overdue; see `Registry.claimWin`.
   public shared ({ caller }) func claim_win_as_canister(tableId : T.TableId, gen : Nat) : async T.Res<()> {
     await* cp.claimWin<system>(caller, tableId, gen);
   };
 
+  /// The calling canister resets an idle `tableId`; see `Registry.reset`.
   public shared ({ caller }) func reset_as_canister(tableId : T.TableId, gen : Nat) : async T.Res<()> {
     await* cp.reset<system>(caller, tableId, gen);
   };
@@ -52,6 +60,7 @@ mixin (endpoint : ?CanisterPlayers.Endpoint, directory : CanisterPlayers.BotDire
     CanisterPlayers.registerBot(directory, caller, name, complexities, Time.now());
   };
 
+  /// Removes the calling canister from the bot directory.
   public shared ({ caller }) func unregister_bot() : async () {
     CanisterPlayers.unregisterBot(directory, caller);
   };

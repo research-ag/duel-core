@@ -44,41 +44,57 @@
 /// invite: it waits `Table.INVITE_WAIT_NS` for the friend, and its first
 /// moves get `Table.INVITE_GRACE_NS` on both clocks.
 
-import Array "mo:core/Array";
-import Int "mo:core/Int";
-import Map "mo:core/Map";
-import Nat "mo:core/Nat";
-import Option "mo:core/Option";
-import Text "mo:core/Text";
-
-import Table "./table";
 import T "./types";
 
 module {
 
+  /// `TableId` from `./types`.
   public type TableId = T.TableId;
+  /// `TableVisibility` from `./types`.
   public type TableVisibility = T.TableVisibility;
+  /// `PlayerId` from `./types`.
   public type PlayerId = T.PlayerId;
+  /// `Seat` from `./types`.
   public type Seat = T.Seat;
+  /// `Verdict` from `./types`.
   public type Verdict = T.Verdict;
+  /// `Mode` from `./types`.
   public type Mode = T.Mode;
+  /// `Rng` from `./types`.
   public type Rng = T.Rng;
+  /// `Registry` from `./types`.
   public type Registry<S, M, O> = T.Registry<S, M, O>;
+  /// `TableSummary` from `./types`.
   public type TableSummary<O> = T.TableSummary<O>;
+  /// `MoveRequest` from `./types`.
   public type MoveRequest<V, M> = T.MoveRequest<V, M>;
+  /// `Spec` from `./types`.
   public type Spec<S, M, V, O> = T.Spec<S, M, V, O>;
+  /// `Staging` from `./types`.
   public type Staging = T.Staging;
+  /// `Active` from `./types`.
   public type Active<S, M> = T.Active<S, M>;
+  /// `End` from `./types`.
   public type End = T.End;
+  /// `Debrief` from `./types`.
   public type Debrief<S> = T.Debrief<S>;
+  /// `Phase` from `./types`.
   public type Phase<S, M> = T.Phase<S, M>;
+  /// `Ended` from `./types`.
   public type Ended = T.Ended;
+  /// `Table` from `./types`.
   public type Table<S, M, O> = T.Table<S, M, O>;
+  /// `Err` from `./types`.
   public type Err = T.Err;
+  /// `Res` from `./types`.
   public type Res<T> = T.Res<T>;
+  /// `JoinOk` from `./types`.
   public type JoinOk = T.JoinOk;
+  /// `SubmitOk` from `./types`.
   public type SubmitOk = T.SubmitOk;
+  /// `RematchOk` from `./types`.
   public type RematchOk = T.RematchOk;
+  /// `TableView` from `./types`.
   public type TableView<V> = T.TableView<V>;
 
 };

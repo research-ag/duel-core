@@ -228,9 +228,12 @@ game on the engine. See `aggregator/CLAUDE.md`.
 
 ## Toolchain
 
-- moc **2.0.0** (pinned in `backend/mops.toml`, `aggregator/mops.toml`,
-  every example and the skill's `mops.toml.template`) type-checks and
-  tests everything in this repo, `mixin` declarations included.
+- moc **2.2.4** (`[toolchain]` in `backend/mops.toml`,
+  `aggregator/mops.toml`, every example and the skill's
+  `mops.toml.template`) type-checks and tests everything in this repo,
+  `mixin` declarations included. The package itself needs moc 2.0.0 or
+  later (`[requirements]` in `backend/mops.toml`): no import that only
+  feeds dot notation may be dropped while 2.0.0 still needs it.
 - Engine code is `mo:core` only, never `mo:base`. `types.mo`/
   `registry.mo` import `promtracker` (opt-in wiring, always-compiled
   dependency) and `rng.mo` imports `prng`; nothing else has a

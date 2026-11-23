@@ -141,7 +141,7 @@ declaration (see "Timeouts and upgrades").
 mops add duel-game-core
 ```
 
-(Unpublished: use a local path dependency until it ships to mops.one.)
+Requires moc 2.0.0 or later.
 
 A complete minimal host (the skill's `templates/Host.mo.template` adds
 metrics and the optional BOTS and LEADERBOARD lines):
@@ -852,6 +852,21 @@ hold at both the `Table` and `Registry` layer):
   rating).
 - `test/FakeGame.mo`/`FakeTurnGame.mo` are throwaway specs for the
   suites and benchmarks, not games.
+
+## Development
+
+```bash
+mops install
+mops test     # every suite in test/
+mops bench    # engine overhead
+```
+
+Format before committing (CI checks it):
+
+```bash
+npm install --no-save prettier prettier-plugin-motoko
+npx prettier --plugin prettier-plugin-motoko --write '**/*.{mo,json,md}'
+```
 
 ## Copyright
 

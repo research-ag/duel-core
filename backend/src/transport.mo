@@ -76,6 +76,9 @@ module {
     rng : TP.Rng;
   };
 
+  /// A fresh `Duel`: no tables, the registry's default timeouts, and an
+  /// rng seeded from the clock. Runs on first install only for a stable
+  /// field; see `Registry.setTimeouts`.
   public func new<S, M, O>() : Duel<S, M, O> = {
     registry = Registry.new<S, M, O>();
     var lobbyRev = 0;
@@ -101,6 +104,7 @@ module {
     #best : (TP.Debrief<S>) -> [(TP.Seat, Int)];
   };
 
+  /// The leaderboard every finished game is scored into, and how.
   public type Scoring<S> = { board : Leaderboard.Board; rating : Rating<S> };
 
   /// The sweep timer: its id while it runs, and when it started or last
@@ -113,6 +117,7 @@ module {
     cancel : Timer.TimerId -> ();
   };
 
+  /// A stopped sweep timer on `mo:core/Timer`, for the host's `Env`.
   public func sweeper() : Sweeper = {
     var timer = null;
     var lastRun = 0;
@@ -176,6 +181,7 @@ module {
   /// lose it).
   public let SWEEP_STALLED_NS : Int = 90_000_000_000;
 
+  /// Whether `player` made a request within `PRESENCE_TTL_NS`.
   public func isPresent<S, M, O>(self : Duel<S, M, O>, player : TP.PlayerId, now : Int) : Bool {
     switch (self.presence.get(player)) {
       case (?t) now - t < PRESENCE_TTL_NS;
@@ -315,26 +321,35 @@ module {
     ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = self.registry.createTable(env.spec, self.rng, now, p, seat, visibility, options)));
   };
 
+  /// Seats the caller at `seat` on table `id`; a `#code` table needs its
+  /// code.
   public func joinTable<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, seat : TP.Seat, code : ?Text) : async* Ack {
     ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.joinTable(env.spec, self.rng, now, p, id, seat, code), id)));
   };
 
+  /// Offers or accepts a rematch from the caller's debrief on table `id`.
   public func rematch<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId) : async* Ack {
     ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.rematch(env.spec, self.rng, now, p, id), id)));
   };
 
+  /// The caller leaves table `id`; leaving a live game ends it `#aborted`
+  /// for both.
   public func leave<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, gen : Nat) : async* Ack {
     ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.leave(now, p, id, gen), id)));
   };
 
+  /// Clears table `id` once it is idle.
   public func reset<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, gen : Nat) : async* Ack {
     ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.reset(now, p, id, gen), id)));
   };
 
+  /// The waiting caller claims the win once the opponent is overdue.
   public func claimWin<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId, gen : Nat) : async* Ack {
     ack(self, await* mutate<system, S, M, V, O>(self, env, caller, true, func(now : Int, p : TP.PlayerId) : TP.Res<TP.TableId> = at(self.registry.claimWin(env.spec, now, p, id, gen), id)));
   };
 
+  /// The caller acknowledges their debrief or `#endedByOther` notice on
+  /// table `id`.
   public func ackEnded<system, S, M, V, O>(self : Duel<S, M, O>, env : Env<S, M, V, O>, caller : Principal, id : TP.TableId) : async* Ack {
     ack(
       self,

@@ -20,6 +20,7 @@ import T "./types";
 /// is read off the tables themselves (`tablesOf`), never stored separately.
 module {
 
+  /// `Registry` from `./types`.
   public type Registry<S, M, O> = T.Registry<S, M, O>;
 
   /// Caps how many tables one player holds, so nobody hogs the lobby.
@@ -32,6 +33,8 @@ module {
   /// The player-id prefix of a canister player (`canister_players.mo`).
   public let CP_ID_PREFIX : Text = "cp:";
 
+  /// The table cap that applies to `player`: `MAX_TABLES_PER_CANISTER_PLAYER`
+  /// for a `cp:` player, `MAX_TABLES_PER_PLAYER` otherwise.
   public func maxTablesOf(player : T.PlayerId) : Nat {
     if (player.startsWith(#text CP_ID_PREFIX)) MAX_TABLES_PER_CANISTER_PLAYER else MAX_TABLES_PER_PLAYER;
   };
@@ -61,6 +64,8 @@ module {
     };
   };
 
+  /// Registers the engine's metrics (games started, active games, rounds
+  /// per game, matchmaking wait) with a promtracker `Tracker`; idempotent.
   public func attachMetrics<S, M, O>(self : Registry<S, M, O>, pt : PT.Tracker) {
     if (self.gamesStarted.isNull()) {
       self.gamesStarted := ?pt.newCounter("games_started", []);
@@ -353,6 +358,8 @@ module {
     #ok(id);
   };
 
+  /// Seats `session` at `seat` on table `id`; a `#code` table needs its
+  /// code. See `Table.join` for every case.
   public func joinTable<S, M, V, O>(
     self : Registry<S, M, O>,
     spec : T.Spec<S, M, V, O>,
@@ -393,6 +400,7 @@ module {
     };
   };
 
+  /// Submits `session`'s action on table `id`; see `Table.submit`.
   public func submit<S, M, V, O>(
     self : Registry<S, M, O>,
     spec : T.Spec<S, M, V, O>,
@@ -419,6 +427,8 @@ module {
     },
   );
 
+  /// Offers or accepts a rematch from the debrief on table `id`; see
+  /// `Table.rematch`.
   public func rematch<S, M, V, O>(self : Registry<S, M, O>, spec : T.Spec<S, M, V, O>, rng : T.Rng, now : Int, session : T.PlayerId, id : T.TableId) : T.Res<T.RematchOk> = withTable<S, M, O, T.RematchOk>(
     self,
     id,
@@ -437,6 +447,8 @@ module {
     },
   );
 
+  /// The waiting seat claims the win once its opponent is overdue; see
+  /// `Table.claimWin`.
   public func claimWin<S, M, V, O>(self : Registry<S, M, O>, spec : T.Spec<S, M, V, O>, now : Int, session : T.PlayerId, id : T.TableId, gen : Nat) : T.Res<()> = withTable<S, M, O, ()>(
     self,
     id,
@@ -461,6 +473,8 @@ module {
     case (_) false;
   };
 
+  /// `session` leaves table `id`: a live game ends `#aborted` for both;
+  /// a staging or acked debrief frees the table.
   public func leave<S, M, O>(self : Registry<S, M, O>, now : Int, session : T.PlayerId, id : T.TableId, gen : Nat) : T.Res<()> = withTable<S, M, O, ()>(
     self,
     id,
@@ -482,6 +496,7 @@ module {
     },
   );
 
+  /// Clears an idle table; see `Table.reset` for who may.
   public func reset<S, M, O>(self : Registry<S, M, O>, now : Int, session : T.PlayerId, id : T.TableId, gen : Nat) : T.Res<()> = withTable<S, M, O, ()>(
     self,
     id,

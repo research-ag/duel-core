@@ -5,19 +5,27 @@ import Rng "./rng";
 
 module {
 
+  /// A table's id within its `Registry`, assigned in creation order.
   public type TableId = Nat;
 
+  /// `#open` tables are listed in the lobby; a `#code` table is an invite
+  /// that only a caller presenting the code may join.
   public type TableVisibility = { #open; #code : Text };
 
+  /// A player: the caller's principal as text, or `cp:<principal>:<complexity>`
+  /// for a canister player.
   public type PlayerId = Text;
 
+  /// One of a table's two seats.
   public type Seat = { #p1; #p2 };
 
+  /// The opposing seat.
   public func otherSeat(s : Seat) : Seat = switch (s) {
     case (#p1) #p2;
     case (#p2) #p1;
   };
 
+  /// How a finished game ended, as decided by the rules.
   public type Verdict = { #p1Wins; #p2Wins; #draw };
 
   /// Candid-friendly tag reported on `View.#inGame` (a `Spec` itself,
@@ -28,6 +36,8 @@ module {
   /// `resolve`. See `./rng`.
   public type Rng = Rng.Rng;
 
+  /// Every table of one game canister, with the timeouts new tables start
+  /// from and the optional promtracker metrics. See `./registry`.
   public type Registry<S, M, O> = {
     /// Mutable so a host can re-apply them on every upgrade (a stable
     /// `Registry` skips `Registry.new`); see `Registry.setTimeouts`.
@@ -41,6 +51,7 @@ module {
     var matchmakingWaitSecs : ?PT.Gauge;
   };
 
+  /// One table as the lobby lists it.
   public type TableSummary<O> = {
     id : TableId;
     p1Open : Bool;
@@ -121,6 +132,7 @@ module {
     };
   };
 
+  /// A table with one seated player waiting for an opponent.
   public type Staging = {
     seat : Seat;
     session : PlayerId;
@@ -128,6 +140,8 @@ module {
     since : Int;
   };
 
+  /// A game in progress: both players, the game state and the pending
+  /// moves.
   public type Active<S, M> = {
     p1 : PlayerId;
     p2 : PlayerId;
@@ -148,12 +162,14 @@ module {
     lastStepDurationNs : ?Int;
   };
 
+  /// Why a game ended: a rules verdict, a leave, or a claimed win.
   public type End = {
     #finished : Verdict;
     #aborted : Seat; // this seat left early
     #claimed : Seat; // this seat claimed the win after `claimTimeoutNs`
   };
 
+  /// A finished game, kept until both players acknowledge it.
   public type Debrief<S> = {
     p1 : PlayerId;
     p2 : PlayerId;
@@ -163,6 +179,8 @@ module {
     since : Int;
   };
 
+  /// Where a table is in its life cycle; every non-empty phase carries a
+  /// timestamp so idle eviction works from any of them.
   public type Phase<S, M> = {
     #empty;
     #staging : Staging;
@@ -179,6 +197,8 @@ module {
     since : Int;
   };
 
+  /// One table: its phase, options, access, and the revision clients poll
+  /// by. Stable whenever `S`, `M` and `O` are. See `./table`.
   public type Table<S, M, O> = {
     var idleTimeoutNs : Int;
     var claimTimeoutNs : Int;
@@ -198,6 +218,7 @@ module {
     var rev : Nat;
   };
 
+  /// Every error an engine operation can return.
   public type Err = {
     #seatTaken;
     #notSeated;
@@ -216,19 +237,26 @@ module {
     #badOptions : Text; // `Spec.checkOptions` rejected the table's options
   };
 
+  /// The result of an engine operation.
   public type Res<T> = { #ok : T; #err : Err };
 
+  /// A successful join: seated and waiting (`#staged`), or seated and the
+  /// game started (`#started`).
   public type JoinOk = {
     #staged : Seat;
     #started : Seat;
   };
 
+  /// A successful submit: still waiting for the other seat, the step
+  /// resolved, or the game ended.
   public type SubmitOk = {
     #waiting;
     #stepped : Nat; // the next step number
     #gameEnded : { verdict : Verdict; steps : Nat };
   };
 
+  /// A successful rematch: staged for the partner, or the partner was
+  /// already waiting and the game started.
   public type RematchOk = { #awaitingPartner; #started };
 
   /// Per-caller screen; a host renders these, never re-derives policy.

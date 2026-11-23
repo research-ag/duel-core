@@ -7,6 +7,7 @@ import Int "mo:core/Int";
 
 module {
 
+  /// The result of a game between player `a` and player `b`.
   public type Outcome = { #aWins; #bWins; #draw };
 
   func expected(ratingSelf : Int, ratingOpp : Int) : Float {

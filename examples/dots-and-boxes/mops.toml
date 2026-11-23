@@ -5,7 +5,9 @@ description = "dots-and-boxes — reference #turnBased game with follow-up moves
 
 [dependencies]
 duel-game-core = "../../backend"
-core = "2.6.2"
+# Replace with:
+# duel-game-core = "0.1.0"
+core = "2.7.0"
 promtracker = "1.0.2"
 
 [canisters]
@@ -13,4 +15,4 @@ backend = "src/Host.mo"
 bot = "bot/Bot.mo"
 
 [toolchain]
-moc = "2.0.0"
+moc = "2.2.4"

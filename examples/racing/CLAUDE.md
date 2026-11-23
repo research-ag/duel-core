@@ -52,7 +52,7 @@ either package.
 
 ## Toolchain
 
-moc **2.0.0** (`mops.toml`). Motoko dependencies: `duel-game-core` (path
+moc **2.2.4** (`mops.toml`). Motoko dependencies: `duel-game-core` (path
 to `../../backend`), `core`; `promtracker` transitively. Never import
 `mo:base`. Frontend: `@research-ag/duel-game-core`
 (`file:../../../frontend`) and `@icp-sdk/core` for `duel-app.js`;

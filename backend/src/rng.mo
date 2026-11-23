@@ -14,8 +14,10 @@ import Prng "mo:prng";
 
 module {
 
+  /// The generator's state; a plain record, so a host's field is stable.
   public type Rng = { sfc : Prng.SFC64.SFC64 };
 
+  /// A generator seeded with `seed`; the same seed gives the same sequence.
   public func new(seed : Nat64) : Rng = { sfc = Prng.SFC64.SFC64a(seed) };
 
   /// A uniform `Nat64`.

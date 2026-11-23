@@ -5,6 +5,7 @@ import Leaderboard "./leaderboard";
 
 mixin (leaderboard : Leaderboard.Board, shown : Nat) {
 
+  /// The best `shown` entries, highest first.
   public query func get_leaderboard() : async [Leaderboard.Entry] {
     Leaderboard.top(leaderboard, shown);
   };
