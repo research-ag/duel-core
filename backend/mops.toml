@@ -3,7 +3,7 @@ name = "duel-game-core"
 version = "0.1.0"
 description = "Turn-based games in a canister. A rules-agnostic framework for the tables, turns, lobby, bots, leaderboard."
 repository = "https://github.com/research-ag/duel-core"
-keywords = [ "game", "multiplayer", "two-player", "turn-based", "lobby", "matchmaking", "leaderboard", "elo", "bot" ]
+keywords = [ "game", "player", "two", "turn", "lobby", "leaderboard", "elo", "bot" ]
 license = "Apache-2.0"
 files = [ "src/**/*.mo" ]
 
