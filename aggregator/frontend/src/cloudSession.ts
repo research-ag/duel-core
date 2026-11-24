@@ -11,6 +11,12 @@
 /// their computer.
 export type Way = "caffeine" | "hosty" | "own";
 
+/// caffeine.ai's prices, as the guides quote them.
+export const CAFFEINE_WELCOME = "15 welcome credits ($7.50, valid for 30 days)";
+export const CAFFEINE_GO_LIVE = "4 credits, $2";
+export const CAFFEINE_COST =
+  "A new account comes with $7.50 of credits; going live costs $2.";
+
 export const CONNECTOR_URL = "https://api.hosty.live/mcp";
 export const CONNECTORS_PAGE = "https://claude.ai/customize/connectors";
 export const CLI_CONNECT = `claude mcp add --transport http hosty ${CONNECTOR_URL}`;

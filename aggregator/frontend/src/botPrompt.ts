@@ -37,17 +37,11 @@ ${CLOSING}`;
 
 Work in this order.
 
-1. Learn the game from https://${backend}.raw.icp0.io/semantics — plain text with the rules, who moves when, the variants, and the exact Candid types of View (what a seat sees, headed VIEW, or STATE in older games), Action and Options. This is the whole specification; there is no source code to read. Fetch any other path it mentions.
+1. Learn the game from https://${backend}.raw.icp0.io/semantics: plain text with the rules, who moves when, the variants, and the exact Candid types of View (what a seat sees, headed VIEW, or STATE in older games), Action and Options. This is the whole specification; there is no source code to read. Fetch any other path it mentions.
 
 2. ${caffeineReference(`3, "A bot for a game already deployed"`)}
 
-3. This app is the bot alone. Keep this project's own setup and add mops add duel-game-core and mops add promtracker. The bot's page stays on this project's own frontend packages. Register and Unregister accept one caller, owner, a principal written into the backend code as the reference shows: this project's admin role goes to whoever signs in first, so it does not bind the bot to me.
-
-4. The bot's page shows its name and its canister id; a try-out form that takes the invite link of an access-code table on the game (#t=<table>&c=<code>), the seat the bot takes and the level, and calls the bot's own play with the game's backend ${backend}, that table, seat and code; and for each level a link that starts a game against it on the game's own page, for players once the bot is live: ${url}/#new&b= followed by encodeURIComponent of "<this bot's canister id>:<level>" (Default for a bot without levels). It also has a sign-in with Internet Identity that shows my principal, and the buttons Register, which calls register with the game's backend ${backend} and the bot's name, and Unregister.
-
-5. Then I try the draft at access-code tables only: I open one with "Invite a friend" on the game's page and paste its invite link into your preview's try-out form. Never use the links for that, they open a table anyone can see. Never register the draft. I sign in there and give you the principal it shows: put it into owner.
-
-6. Do not go live until I ask, and not before owner is set. After Go live I sign in on the live bot's page; if it shows another principal, put that one into owner and I go live again. Then I press Register. Caffeine picks the bot canister's subnet, and nothing in this project chooses it: on another subnet than the game, each of the bot's moves takes a few seconds.
+3. Do not go live until I ask.
 
 If the semantics page is missing, stop and tell me instead of guessing.
 

@@ -3,8 +3,8 @@
 // shell), hosty.live (a Claude Code cloud session or an agent on their
 // computer), or everything their own (icp-cli on their computer). The
 // procedure behind it is
-// skills/duel-game-core/references/frontend-for-existing-game.md. Keep
-// the two in step.
+// skills/duel-game-core/references/frontend-for-existing-game.md, and
+// references/caffeine.md for caffeine.ai. Keep them in step.
 
 import { loadSkill, OWN_RULES } from "./cloudSession";
 import type { Way } from "./cloudSession";
@@ -21,7 +21,7 @@ export const CAFFEINE_REF = `${RAW}/skills/duel-game-core/references/caffeine.md
 
 /// How every caffeine.ai prompt hands the work to `CAFFEINE_REF`.
 export function caffeineReference(section: string): string {
-  return `Read ${CAFFEINE_REF}, section ${section}, and follow it: it is the procedure for exactly this task in caffeine.ai, with the code it needs. Read the other files of the same skill it names, at the same address with their own path. If you cannot open these addresses, stop and tell me: do not guess the framework.`;
+  return `Read ${CAFFEINE_REF}, section ${section}, and follow it: it is the procedure for this task in caffeine.ai, with the code it needs. Read the other files of the same skill it names, at the same address with their own path. If you cannot open these addresses, stop and tell me: do not guess the framework.`;
 }
 
 const CLOSING = `Here is the frontend I want:
@@ -48,11 +48,11 @@ ${CLOSING}`;
 
 1. Learn the game from https://${backend}.raw.icp0.io/semantics — plain text with the rules, who moves when, and the exact Candid types of View (what a seat sees, headed VIEW, or STATE in older games), Action and Options. This is the whole specification; Action appears nowhere else. Fetch any other path it mentions.
 
-2. Read how a frontend talks to the backend: ${RAW}/frontend/README.md (the GamePlugin contract, the headless client, the transport) and the step "Write the frontend GamePlugin" in ${RAW}/skills/duel-game-core/SKILL.md. The full procedure for exactly this task is ${ref}/frontend-for-existing-game.md — read it and follow it.${way === "caffeine" ? ` ${caffeineReference(`4, "A frontend for a game already deployed"`)}` : ""}
+2. Read how a frontend talks to the backend: ${RAW}/frontend/README.md (the GamePlugin contract, the headless client, the transport) and the step "Write the frontend GamePlugin" in ${RAW}/skills/duel-game-core/SKILL.md. ${way === "caffeine" ? caffeineReference(`4, "A frontend for a game already deployed"`) : `The full procedure for exactly this task is ${ref}/frontend-for-existing-game.md — read it and follow it.`}
 
-3. Get the client library: the npm package @research-ag/duel-game-core${way === "caffeine" ? ", with @icp-sdk/core at ^6.1.1 in both package.json files" : ""}. Never rewrite the wire protocol yourself.
+3. Get the client library: the npm package @research-ag/duel-game-core. Never rewrite the wire protocol yourself.
 
-4. Wire the backend id into the frontend: ${way === "caffeine" ? `put it into public/duel.json as { "backend": "${backend}" }, which the page reads and the Duel dashboard finds before this app's own /env.json` : `use PUBLIC_CANISTER_ID:backend from the ic_env cookie when present, otherwise a backend id hardcoded in one constant (${backend})`}. When the page talks to a backend on mainnet, the agent host is https://icp0.io whatever the page's own address is.
+4. Wire the backend id into the frontend: ${way === "caffeine" ? `${backend}, where the caffeine.ai reference puts it.` : `use PUBLIC_CANISTER_ID:backend from the ic_env cookie when present, otherwise a backend id hardcoded in one constant (${backend}). When the page talks to a backend on mainnet, the agent host is https://icp0.io whatever the page's own address is.`}
 
 5. Test by playing whole games: both seats, every kind of move, an illegal move (the backend's rejection text must show, not a crash), an ending, a rematch.`;
 

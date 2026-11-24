@@ -23,15 +23,16 @@ signed by the user. There are three setups, best first:
 | Suits            | anyone, from any device; nothing to install                                                    | a user who already runs a coding agent    | a user who already has an identity and cycles, or scripts |
 
 Setups 1 and 2 are the same route, through hosty.live (section 3);
-setup 3 is icp-cli all the way (section 4). A game, bot or frontend
-built in caffeine.ai is none of these: Caffeine builds, hosts and pays
-for it, its Go live puts it online, and its module stays out of the
-module store (`caffeine.md`). Keep every canister of a
+setup 3 is icp-cli all the way (section 4). Keep every canister of a
 project on one route. Either way the backend's module ends up in
 hosty.live's module store, where other people's frontends and bots
 fetch it by the canister's public module hash (backend README,
 "Downloadable wasm"). Setups 1 and 2 need a hosty.live account for
 that (section 1); setup 3 needs none.
+
+A game, bot or frontend built in caffeine.ai is none of the three:
+Caffeine builds, hosts and pays for it, its Go live puts it online, and
+its module stays out of the module store (`caffeine.md`).
 
 hosty.live has two kinds of canister, and the route through it uses
 both in turn:

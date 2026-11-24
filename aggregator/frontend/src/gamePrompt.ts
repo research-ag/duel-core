@@ -30,17 +30,9 @@ ${CLOSING}`;
 function caffeineGamePrompt(): string {
   return `${OPENING}
 
-Work in this order.
+${caffeineReference(`1, "A game"`)} Its section 2 is for every later change.
 
-1. ${caffeineReference(`1, "A game"`)}
-
-2. Keep this project's own setup: its mops.toml, MixinAuthorization, the migration chain and the React frontend. Add the framework to it: mops add duel-game-core and mops add promtracker, and the npm package @research-ag/duel-game-core in the frontend, with @icp-sdk/core at ^6.1.1 in both package.json files.
-
-3. Build the whole game: the rules with their SEMANTICS text (src/backend/lib/Rules.mo), the host (main.mo, mixins/DuelApi.mo and the first migration, as the reference shows them) and the page (a GamePlugin and the reference's wiring). Players need no sign-in. Make the design calls yourself; ask me only where my rules are genuinely ambiguous about the game itself.
-
-4. Then I play it in your preview from two browsers, or a normal and a private window: one opens a table with "Invite a friend", the other joins by its invite link. Every later change keeps the migrations as the reference's section 2 says.
-
-5. Do not go live until I say so. If I ask for bots or a leaderboard, the reference covers both.
+Make the design calls yourself; ask me only where my rules are ambiguous about the game itself. Do not go live until I say so.
 
 ${CLOSING}`;
 }

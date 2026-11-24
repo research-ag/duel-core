@@ -89,10 +89,9 @@ built on (`initialStep`, and `reachable` locking later steps).
   so `HostySetup` reuses it), and shows only that way's steps and
   prompt afterwards (later steps stay locked until one is picked). The
   ways: `"caffeine"` (caffeine.ai alone: its AI builds, its preview
-  tests, its Go live hosts),
-  `"hosty"` (hosty.live, from a Claude Code cloud session or an agent
-  on the computer) and `"own"` (icp-cli on the computer, the user's own
-  key and cycles, no hosty.live).
+  tests, its Go live hosts), `"hosty"` (hosty.live, from a Claude Code
+  cloud session or an agent on the computer) and `"own"` (icp-cli on
+  the computer, the user's own key and cycles, no hosty.live).
 - `CloudSessionSetup.tsx` holds the shared steps:
   - `HostySetup`: the hosty.live connector once (`ConnectorSteps`),
     then one path picked for where the agent runs, each naming the
@@ -127,10 +126,11 @@ built on (`initialStep`, and `reachable` locking later steps).
   prompts, which install the skill with `SKILL_INSTALL`. The caffeine.ai
   prompts send Caffeine's AI to the skill's `references/caffeine.md` by
   its raw GitHub address (`frontendPrompt.ts`'s `caffeineReference`; it
-  has no connector) and stop it when it cannot open it.
-  `CloudSessionSetup.tsx`'s `CaffeineSetup` is that way's set-up step
-  (the Free plan's credits, Go live's 4 credits). Each prompt function
-  takes the way.
+  has no connector) and stop it when it cannot open it; they carry
+  only what that file cannot know (the game's ids, what the user
+  decides). `CloudSessionSetup.tsx`'s `CaffeineSetup` is that way's
+  set-up step; Caffeine's prices are the `CAFFEINE_*` constants. Each
+  prompt function takes the way.
 - `TutorialWizard.tsx` ("Build a new game", all three ways) stands
   alone: how it works, the set-up, `gamePrompt.ts`'s prompt finished
   with the user's rules, trying it, going live and the register flow.
@@ -153,30 +153,34 @@ built on (`initialStep`, and `reachable` locking later steps).
     `frontendPrompt.ts`'s prompt for the way, filled with the game's
     title, URL and backend id. caffeine.ai tests in its preview on the
     live backend's code-protected tables and goes live with its own
-    action; the page registers by its address. hosty.live tests against a local wasm copy with icp-cli and
-    the play-test, then, in a cloud session, puts the page on a free
-    cloud engine canister on the live backend's code-protected tables,
-    and goes live in a canister paid by card. The own way tests on the
+    action; the page registers by its address. hosty.live tests against
+    a local wasm copy with icp-cli and the play-test, then, in a cloud
+    session, puts the page on a free cloud engine canister on the live
+    backend's code-protected tables, and goes live in a canister paid
+    by card. The own way tests on the
     local copy and goes live with `icp deploy frontend`.
   - `BotTutorialWizard.tsx` ("Build a bot", all three ways):
     `botPrompt.ts`'s prompt, then going live through hosty.live (the
     agent creates, installs and registers in one deploy session) or
     with icp-cli, each ending in the bot's own `register` call with the
     backend id filled in (a bot is never listed on this dashboard).
-    Both test against a local copy of the game. In caffeine.ai the bot
-    is an app of its own: its draft page's try-out form seats the draft
-    bot at an access-code table the user opened on the live game (its
-    `#new&b=<bot>:<level>` links, which open a table anyone sees, are
-    for players), and `register` takes only an owner principal written
-    into its code
+    Those two ways test against a local copy of the game. In
+    caffeine.ai the bot is an app of its own, tried as its live
+    canister before it is registered (a draft's games would stay on the
+    game's leaderboard, and a draft signs in under another principal):
+    `register` takes only an owner principal written into its code
     (Caffeine's admin role goes to the first sign-in), which the user
-    reads off the bot's page after signing in.
-- The own and caffeine.ai prompts condense
-  `../skills/duel-game-core/SKILL.md` with `references/going-live.md`
-  (`gamePrompt.ts`), `references/frontend-for-existing-game.md` and
+    reads off the live page; then its try-out form seats it at an
+    access-code table the user opened on the live game (its
+    `#new&b=<bot>:<level>` links, which open a table anyone sees, are
+    for players).
+- The own prompts condense `../skills/duel-game-core/SKILL.md` with
+  `references/going-live.md` (`gamePrompt.ts`),
+  `references/frontend-for-existing-game.md` and
   `bot-for-existing-game.md`, which the hosty.live prompts hand the
-  work to, and the caffeine.ai ones `references/caffeine.md`; change
-  each pair together.
+  work to; the caffeine.ai prompts hand it to `references/caffeine.md`
+  (the frontend one keeps the own way's steps around it). Change each
+  pair together.
 
 **A listing's backend.** `GameInfoModal.tsx` (the card's info button)
 shows a listing's details and, one click further, its backend:

@@ -10,7 +10,12 @@
 
 import { useState } from "react";
 
-import { claudeCodeLink, ENV_NAME } from "../cloudSession";
+import {
+  CAFFEINE_COST,
+  CAFFEINE_GO_LIVE,
+  claudeCodeLink,
+  ENV_NAME,
+} from "../cloudSession";
 import type { Way } from "../cloudSession";
 import { gamePrompt } from "../gamePrompt";
 import {
@@ -106,7 +111,7 @@ function HowItWorksStep({
           {
             way: "caffeine",
             title: "caffeine.ai",
-            note: "A website where you describe an app in a chat. Its AI builds the game, you play it in its preview, and it goes live when you say so. Nothing to install; a new account comes with $7.50 of credits, and going live costs $2.",
+            note: `A website where you describe an app in a chat. Its AI builds the game, you play it in its preview, and it goes live when you say so. Nothing to install. ${CAFFEINE_COST}`,
           },
           {
             way: "hosty",
@@ -209,7 +214,7 @@ function GoLiveStep({ way }: { way: Way }) {
     <>
       {way === "caffeine" ? (
         <p>
-          Click <strong>Go live</strong> in caffeine.ai (4 credits, $2). The game
+          Click <strong>Go live</strong> in caffeine.ai ({CAFFEINE_GO_LIVE}). The game
           gets new, permanent canisters and its address,{" "}
           <code>https://&lt;name&gt;.caffeine.xyz</code>. Later changes are
           built in the same app and go live into the same canisters, keeping

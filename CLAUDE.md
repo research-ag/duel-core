@@ -384,7 +384,10 @@ deploys all of them to the IC.
     copied from the skill's template), which after every
     install/reinstall/upgrade on `ic` uploads the module the canister
     now runs to the store, naming the canister, which needs no token and
-    has it verified against that canister. `snapshot_visibility` is
+    has it verified against that canister. A game built in caffeine.ai
+    is the one exception: Caffeine keeps its module, and third parties
+    build from `/semantics` alone (`references/caffeine.md`).
+    `snapshot_visibility` is
     never set to `public`, because a snapshot is the whole heap, access
     codes and pending moves included. Its host serves `Rules.SEMANTICS`
     at `/semantics`. That text, the `candid:service` metadata and the

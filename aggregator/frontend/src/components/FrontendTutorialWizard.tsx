@@ -10,7 +10,12 @@
 
 import { useState } from "react";
 
-import { claudeCodeLink, ENV_NAME } from "../cloudSession";
+import {
+  CAFFEINE_COST,
+  CAFFEINE_GO_LIVE,
+  claudeCodeLink,
+  ENV_NAME,
+} from "../cloudSession";
 import type { Way } from "../cloudSession";
 import { frontendPrompt } from "../frontendPrompt";
 import type { AggregatorActor, GameView, Target } from "../types";
@@ -148,7 +153,7 @@ function HowItWorksStep({
           {
             way: "caffeine",
             title: "caffeine.ai",
-            note: "A website where you describe an app in a chat. It builds the page, shows it to you, and puts it online when you say so. A new account comes with $7.50 of credits; going live costs $2.",
+            note: `A website where you describe an app in a chat. It builds the page, shows it to you, and puts it online when you say so. ${CAFFEINE_COST}`,
           },
           {
             way: "hosty",
@@ -252,7 +257,7 @@ function GoLiveStep({ way }: { way: Way }) {
   if (way === "caffeine")
     return (
       <p>
-        Click <strong>Go live</strong> (4 credits, $2; if you can't find it, ask
+        Click <strong>Go live</strong> ({CAFFEINE_GO_LIVE}; if you can't find it, ask
         the chat how to put the app online). It puts the page online at a
         permanent address, <code>https://&lt;name&gt;.caffeine.xyz</code>, and
         keeps it running from your credits. Write the address down for the

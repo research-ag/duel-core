@@ -165,14 +165,14 @@ section 1, "Packages"). Never rewrite the wire protocol yourself.
 the `ic_env` cookie when present (the live page once its canister
 carries that environment variable, `going-live.md`; a local copy's
 page, step 5) and fall back to a backend id hardcoded in one constant
-(a page served from `localhost`, a builder's own preview). In
-caffeine.ai the id goes into `/duel.json` instead (`caffeine.md`,
-section 4), where the Duel dashboard finds it too.
+(a page served from `localhost`, a builder's own preview).
 The constant is `BACKEND`, or the staging copy's id while testing
 against one (step 7); step 7's cloud engine preview page carries the
-cookie, as a live page does. Whenever the page talks to a backend on
-mainnet, build the `HttpAgent` with `host: "https://icp0.io"` and no
-`rootKey`:
+cookie, as a live page does. In caffeine.ai the id goes into
+`/duel.json` instead of the cookie or a constant (`caffeine.md`,
+section 4), where the Duel dashboard finds it too. Whenever the page
+talks to a backend on mainnet, build the `HttpAgent` with
+`host: "https://icp0.io"` and no `rootKey`:
 `deriveHost()` assumes the backend sits behind the page's own origin,
 which is false for a page served from `localhost` or a foreign host.
 

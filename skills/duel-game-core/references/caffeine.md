@@ -7,9 +7,6 @@ and keeps the source itself. Caffeine's own skills (`caffeine-app`,
 `writing-motoko`, `migrating-motoko-actors`) still apply; this file
 says what a duel-game-core game, bot or frontend needs on top of them.
 
-Sections: 1 a game, 2 changing it later, 3 a bot for a deployed game,
-4 a frontend for a deployed game, 5 the CLI.
-
 Every other file of this skill is at
 `https://raw.githubusercontent.com/research-ag/duel-core/main/skills/duel-game-core/<path>`,
 `SKILL.md` and `templates/Rules.mo.template` among them.
@@ -24,9 +21,9 @@ What differs from the rest of this skill:
 - **Stable fields get no value where they are declared.** The first
   migration creates them (section 1). Keep Caffeine's
   `MixinAuthorization` (its lint requires it) and `Expose`.
-- **No shell, no local network.** Caffeine builds with the compiler
-  and its stable check, and checks with its lint, `tsc` and Biome. Then
-  the user plays the draft in the preview.
+- **No shell, no local network**, so no `mops test`. Caffeine builds
+  with the compiler and its stable check, and checks with its lint,
+  `tsc` and Biome. Then the user plays the draft in the preview.
 - **Draft and live are different canisters.** A draft comes from a
   shared pool, is reinstalled empty after about two hours idle, and its
   ids change. Go live creates the permanent canisters: those are what
@@ -57,8 +54,7 @@ pnpm add @research-ag/duel-game-core
 Set `@icp-sdk/core` to `^6.1.1` in both `package.json` files (the
 root's `devDependencies`, the frontend's `dependencies`). Caffeine's
 template pins `^5.3.0`, Vite dedupes it, and the package's types come
-from 6: with 5, `tsc` fails though the page runs. Caffeine's providers
-in `main.tsx` still render on 6.
+from 6: with 5, `tsc` fails though the page runs.
 
 ### The rules: `src/backend/lib/Rules.mo`
 
@@ -230,7 +226,8 @@ The game's page does not use Caffeine's generated `backend.ts` or
 `useActor`: the package's transport builds its own actor, signed by
 the player's anonymous key (one per browser, kept in `localStorage`),
 and the backend checks every call against it. The game needs no
-sign-in; Caffeine's providers in `main.tsx` may stay or go.
+sign-in; Caffeine's providers in `main.tsx` may stay (they render on
+`@icp-sdk/core` 6) or go.
 
 `src/frontend/src/plugin.ts`: the `GamePlugin` of `SKILL.md` Step 6
 (`templates/plugin.js.template`), typed as `GamePlugin<View, Options>`
@@ -387,15 +384,13 @@ parameter: name it `_seat`.
 
 ### Trying it
 
-There is no `mops test` or `play-test.mjs` here: Caffeine's build is
-the check, then the user plays the draft in the preview. Ask them to
-open it in two browsers (or a normal and a private window: a browser's
-tabs share one player), create a table with "Invite a friend" in one,
-open its invite link in the other, and play a whole game: every kind
-of move, one illegal move (the backend's reason shows, nothing
-crashes), the ending, a rematch, a leave. Their own move appears the
-moment they click; the opponent's is marked when it lands. Draft
-tables vanish when the draft is reinstalled.
+Ask the user to open the preview in two browsers (or a normal and a
+private window: a browser's tabs share one player), create a table with
+"Invite a friend" in one, open its invite link in the other, and play a
+whole game: every kind of move, one illegal move (the backend's reason
+shows, nothing crashes), the ending, a rematch, a leave. Their own move
+appears the moment they click; the opponent's is marked when it lands.
+Draft tables vanish when the draft is reinstalled.
 
 ### Going live and the dashboard
 
@@ -484,16 +479,24 @@ module {
 
 Every table in progress ends and table numbers start again at 1; bots
 and the leaderboard stay. Update `SEMANTICS` and the plugin in the same
-change: every frontend and bot of the game is built from that text.
+change.
 
 ## 3. A bot for a game already deployed
 
-A second Caffeine app of its own. `bot-for-existing-game.md` holds the
-contract; on Caffeine its local copy of the game is replaced by tries
-against the live game, and its controller check by an owner principal
-written into the code. Caffeine controls the canisters, and its admin
-role goes to whoever signs in first on each new canister, the live one
-included, so neither binds the bot to its owner.
+A second Caffeine app of its own, with `mops add duel-game-core` and
+`mops add promtracker`. `bot-for-existing-game.md` holds the contract,
+and two things differ here:
+
+- There is no copy of the game: Caffeine runs no shell and installs no
+  prebuilt module. Of that file, steps 3 and 4 apply (the types, the
+  bot's methods); its download, project layout and local tests (steps
+  1, 2 and 5) do not. The bot is tried as its live canister, against
+  the live game.
+- `register` and `unregister` accept one caller, an owner principal
+  written into the code, where that file checks for a controller. The
+  canisters' controller is Caffeine, and the app's admin role goes to
+  whoever signs in first on each new canister, the live one included,
+  so neither one identifies the bot's owner.
 
 1. Learn the game from `https://<backend-id>.raw.icp0.io/semantics`
    (`frontend-for-existing-game.md`, step 2). Only a game with bot
@@ -606,30 +609,39 @@ included, so neither binds the bot to its owner.
      (`register(<backend id>, <name>)`) and **Unregister**, which the
      bot accepts from `owner` alone.
 
-**Trying it.** Only at access-code tables, never through the links: on
-the game's own page the user opens a table with "Invite a friend" and
-copies its invite link, then pastes it into the draft's try-out form,
-which seats the draft bot there. Play whole games at every level, the
-bot in either seat, and leave when done. Never register the draft: its
-canister goes back to Caffeine's pool. The user signs in on the draft's
-page and gives you the principal it shows; that goes into `owner`.
+**Going live, then trying it.** The draft's preview shows the page;
+the draft bot never plays the live game. Its canister goes back to
+Caffeine's pool, every game it played would stay on the game's
+leaderboard under its id, and its sign-in shows another principal than
+the live app's: Caffeine writes an app's Internet Identity origin files
+only at Go live. So the bot is tried as its live canister, before it is
+registered:
 
-**Going live.** Only when the user asks, and only with `owner` set:
-Go live, then the user signs in on the live bot's page. When it shows
-another principal than the draft did, put that one into `owner` and go
-live again (an update of a live app costs nothing); until `owner`
-matches, Register and Unregister refuse every caller, so nobody else can
-claim the bot. Then the user presses Register, and the bot appears in
-the game's 🤖 list and on its leaderboard. Caffeine picks the
-canister's subnet; on another subnet than the game, each of the bot's
-moves takes a few seconds (`canister-player-bots.md`, "Where the bot canister lives").
-Later changes are Caffeine builds of the same app; press Register again
-when the name or the levels change.
+1. When the user asks: Go live, with `owner` still `aaaaa-aa`.
+2. The user signs in on the live bot's page and gives you the principal
+   it shows. Put it into `owner` and go live again (going live again
+   costs no credits). Until then Register and Unregister refuse every
+   caller, so nobody else can claim the bot.
+3. Through the try-out form, never the links: on the game's own page
+   the user opens a table with "Invite a friend", copies its invite link
+   and pastes it into the form, which seats the bot there. Play whole
+   games at every level, the bot in either seat, and leave when done.
+   Each fix is another Go live.
+4. The user presses Register, and the bot appears in the game's 🤖 list
+   and on its leaderboard.
+
+Caffeine picks the canister's subnet; on another subnet than the game,
+each of the bot's moves takes a few seconds (`canister-player-bots.md`,
+"Where the bot canister lives"). Later changes are Caffeine builds of
+the same app; press Register again when the name or the levels change.
 
 ## 4. A frontend for a game already deployed
 
 `frontend-for-existing-game.md`'s steps 2, 6 and 7 ("Against the live
-backend") apply, with the backend id the user gives. Caffeine's own
+backend") apply, with step 3's advice for a builder with no shell and
+the backend id the user gives. The packages are section 1's frontend
+half: `pnpm add @research-ag/duel-game-core`, and `@icp-sdk/core` at
+`^6.1.1` in both `package.json` files; no mops package. Caffeine's own
 backend stays as its template made it, unused, and `/env.json` names
 that one. The game's backend goes into `src/frontend/public/duel.json`,
 served as `/duel.json`, where the page reads it and the Duel dashboard
@@ -658,10 +670,8 @@ const actor = Actor.createActor<DuelActor>(makeIdlFactory(plugin.idlTypes), {
 
 Without a shell there is no Candid to tell whether the game has bot
 support or a leaderboard: mount both overlays and let their calls fail
-quietly (`frontend-for-existing-game.md`, step 3). Test in the preview
-against the live game, always on access-code tables. Go live is the user's;
-they list the page on the dashboard by its address, as a game of its
-own.
+quietly. Go live is the user's; they list the page on the dashboard
+by its address, as a game of its own.
 
 ## 5. The CLI
 

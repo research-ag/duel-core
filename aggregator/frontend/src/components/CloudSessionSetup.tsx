@@ -7,6 +7,8 @@
 import { useState } from "react";
 
 import {
+  CAFFEINE_GO_LIVE,
+  CAFFEINE_WELCOME,
   claudeCodeLink,
   CLI_CONNECT,
   CONNECTOR_URL,
@@ -366,10 +368,10 @@ export function CaffeineSetup({ what }: { what: string }) {
         <a href="https://caffeine.ai" target="_blank" rel="noreferrer">
           caffeine.ai
         </a>
-        . A new account starts on the Free plan with 15 welcome credits
-        ($7.50, valid for 30 days). Credits pay for the AI's work, charged by
-        how much it reads and writes, and <strong>Go live</strong> costs 4
-        credits ($2) for each app: {what}.
+        . A new account starts on the Free plan with {CAFFEINE_WELCOME}.
+        Credits pay for the AI's work, charged by how much it reads and writes,
+        and <strong>Go live</strong> costs {CAFFEINE_GO_LIVE}, for each app:{" "}
+        {what}.
       </p>
       <p className="hint">
         For more, buy credits or pick a plan with a monthly allowance from your
