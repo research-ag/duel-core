@@ -15,7 +15,7 @@ const CLOSING = `Here is the bot I want (its name, how it should play, and any d
 `;
 
 export function botPrompt({ game, backend }: Target, way: Way): string {
-  const url = gameUrl(game);
+  const url = gameUrl(game).replace(/\/+$/, "");
   const ref = `${RAW}/skills/duel-game-core/references`;
   const subnetLookup = `curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/${backend} | grep -o '"subnet_id":"[^"]*"'`;
   const register = `icp canister call bot register '(principal "${backend}", "<bot name>")' -e ic`;
