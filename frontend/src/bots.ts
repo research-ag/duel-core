@@ -38,7 +38,7 @@ export type PlayBot = (bot: BotRef, staging: Staging) => Promise<PlayResult>;
 export function botPlayer(agent: HttpAgent, backendId: string): PlayBot {
   const host = Principal.fromText(backendId);
   return (bot, s) => {
-    const actor = Actor.createActor(buildBotPlayIdlFactory as unknown as Parameters<typeof Actor.createActor>[0], {
+    const actor = Actor.createActor(buildBotPlayIdlFactory, {
       agent,
       canisterId: bot.principal,
     });

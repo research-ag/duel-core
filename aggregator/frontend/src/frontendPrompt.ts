@@ -3,8 +3,8 @@
 // shell), hosty.live (a Claude Code cloud session or an agent on their
 // computer), or everything their own (icp-cli on their computer). The
 // procedure behind it is
-// skills/duel-game-core/references/frontend-for-existing-game.md. Keep
-// the two in step.
+// skills/duel-game-core/references/frontend-for-existing-game.md, and
+// references/caffeine.md for caffeine.ai. Keep them in step.
 
 import { loadSkill, OWN_RULES } from "./cloudSession";
 import type { Way } from "./cloudSession";
@@ -14,6 +14,15 @@ import { gameUrl } from "./types";
 export const REPO = "https://github.com/research-ag/duel-core";
 export const RAW =
   "https://raw.githubusercontent.com/research-ag/duel-core/main";
+
+/// The skill's procedure for caffeine.ai, which Caffeine's AI reads over
+/// the web (it has no hosty.live connector).
+export const CAFFEINE_REF = `${RAW}/skills/duel-game-core/references/caffeine.md`;
+
+/// How every caffeine.ai prompt hands the work to `CAFFEINE_REF`.
+export function caffeineReference(section: string): string {
+  return `Read ${CAFFEINE_REF}, section ${section}, and follow it: it is the procedure for this task in caffeine.ai, with the code it needs. Read the other files of the same skill it names, at the same address with their own path. If you cannot open these addresses, stop and tell me: do not guess the framework.`;
+}
 
 const CLOSING = `Here is the frontend I want:
 `;
@@ -39,11 +48,11 @@ ${CLOSING}`;
 
 1. Learn the game from https://${backend}.raw.icp0.io/semantics — plain text with the rules, who moves when, and the exact Candid types of View (what a seat sees, headed VIEW, or STATE in older games), Action and Options. This is the whole specification; Action appears nowhere else. Fetch any other path it mentions.
 
-2. Read how a frontend talks to the backend: ${RAW}/frontend/README.md (the GamePlugin contract, the headless client, the transport) and the step "Write the frontend GamePlugin" in ${RAW}/skills/duel-game-core/SKILL.md. The full procedure for exactly this task is ${ref}/frontend-for-existing-game.md — read it and follow it.
+2. Read how a frontend talks to the backend: ${RAW}/frontend/README.md (the GamePlugin contract, the headless client, the transport) and the step "Write the frontend GamePlugin" in ${RAW}/skills/duel-game-core/SKILL.md. ${way === "caffeine" ? caffeineReference(`4, "A frontend for a game already deployed"`) : `The full procedure for exactly this task is ${ref}/frontend-for-existing-game.md — read it and follow it.`}
 
 3. Get the client library: the npm package @research-ag/duel-game-core. Never rewrite the wire protocol yourself.
 
-4. Wire the backend id into the frontend: use PUBLIC_CANISTER_ID:backend from the ic_env cookie when present, otherwise a backend id hardcoded in one constant (${backend}). When the page talks to a backend on mainnet, the agent host is https://icp0.io whatever the page's own address is.
+4. Wire the backend id into the frontend: ${way === "caffeine" ? `${backend}, where the caffeine.ai reference puts it.` : `use PUBLIC_CANISTER_ID:backend from the ic_env cookie when present, otherwise a backend id hardcoded in one constant (${backend}). When the page talks to a backend on mainnet, the agent host is https://icp0.io whatever the page's own address is.`}
 
 5. Test by playing whole games: both seats, every kind of move, an illegal move (the backend's rejection text must show, not a crash), an ending, a rematch.`;
 
@@ -61,7 +70,7 @@ ${CLOSING}`;
     way === "caffeine"
       ? `6. Stop once the page works and I'm happy with it. Do not put it online until I ask.
 
-7. When I ask, I put it online with your own "Go live" action: tell me how, and then tell me the live page's address and its frontend canister id.`
+7. When I ask, I put it online with your own "Go live" action: tell me how, and then tell me the live page's address.`
       : `6. Stop once the page works and I'm happy with it. Do not put it online until I ask. Write into README.md how to build and deploy the page.
 
 7. Later, when I ask you to put the page online: walk me through ${ref}/going-live.md, section 4. I create my icp identity and buy the cycles (2T for the page's canister, a few dollars). Then icp deploy frontend -e ic, after the reference's icp canister link backend ${backend} -e ic, which gives the page the backend's id (without a local copy, the reference's frontend-only icp.yaml of step 3 gives it instead). Give me the page's address and its canister id.`;

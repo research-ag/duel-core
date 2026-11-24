@@ -384,7 +384,10 @@ deploys all of them to the IC.
     copied from the skill's template), which after every
     install/reinstall/upgrade on `ic` uploads the module the canister
     now runs to the store, naming the canister, which needs no token and
-    has it verified against that canister. `snapshot_visibility` is
+    has it verified against that canister. A game built in caffeine.ai
+    is the one exception: Caffeine keeps its module, and third parties
+    build from `/semantics` alone (`references/caffeine.md`).
+    `snapshot_visibility` is
     never set to `public`, because a snapshot is the whole heap, access
     codes and pending moves included. Its host serves `Rules.SEMANTICS`
     at `/semantics`. That text, the `candid:service` metadata and the
@@ -409,8 +412,9 @@ deploys all of them to the IC.
   by MCP or web UI, or icp-cli and cycles, then the dashboard), a
   headless whole-game check (`play-test.mjs.template`), changing a live
   game (bot support, a leaderboard; the `check-upgrade.mjs.template`
-  stable-compatibility check against the module the canister runs), and
-  a new frontend or a bot for an already-deployed game. The
+  stable-compatibility check against the module the canister runs), a
+  new frontend or a bot for an already-deployed game, and all of it in
+  caffeine.ai (`references/caffeine.md`). The
   Host/app/index templates carry bot support and the leaderboard as
   commented lines marked BOTS/LEADERBOARD. Read it first for any
   game-building task, here or elsewhere.

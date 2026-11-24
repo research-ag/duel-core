@@ -7,6 +7,10 @@ BOTS and LEADERBOARD lines, two lines of frontend); the work is finding
 what is live, reading the ask right, and making sure the upgrade keeps
 the tables.
 
+A game built in caffeine.ai keeps this file's reading of the ask
+(section 1); its source and its upgrades are Caffeine's, and its stable
+fields change through migrations (`caffeine.md`, section 2).
+
 ## 1. Read the ask
 
 The words around bots mean two different pieces of work:

@@ -30,6 +30,10 @@ fetch it by the canister's public module hash (backend README,
 "Downloadable wasm"). Setups 1 and 2 need a hosty.live account for
 that (section 1); setup 3 needs none.
 
+A game, bot or frontend built in caffeine.ai is none of the three:
+Caffeine builds, hosts and pays for it, its Go live puts it online, and
+its module stays out of the module store (`caffeine.md`).
+
 hosty.live has two kinds of canister, and the route through it uses
 both in turn:
 
@@ -444,8 +448,11 @@ controller (`icp canister settings update <id> -n ic --add-controller
 The dashboard at https://games.ic0.info/ is where players find games.
 The user logs in there (Internet Identity) and registers the frontend
 by its canister id, with a title, a description and a banner, and, if
-hosty.live serves it under a custom domain, that domain. The dashboard
-reads the backend from the page's `ic_env` cookie, checks its
+hosty.live serves it under a custom domain, that domain. A caffeine.ai
+page registers by its address (`https://<name>.caffeine.xyz`), which
+the dashboard turns into the canister id. The dashboard reads the
+backend from the page's `ic_env` cookie (a caffeine.ai page: its
+`/duel.json`, else its `/env.json`), checks its
 `/semantics`, and offers "Make your own frontend" and "Build a bot" for
 it to everyone else. Until then a game is online but unlisted: only
 people who have its address find it.

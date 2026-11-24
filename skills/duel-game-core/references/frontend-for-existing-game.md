@@ -31,7 +31,8 @@ rest:
 - **A browser-based builder** (caffeine.ai), which runs no shell and
   needs no hosty.live: skip the steps that say so; the semantics text
   is sufficient to build from, and the builder's own "go live" action
-  puts the page online (step 8).
+  puts the page online (step 8). In caffeine.ai, `caffeine.md`, section
+  4, has the project's wiring.
 
 ## 1. Resolve the backend id
 
@@ -157,18 +158,21 @@ is no `mops.toml`).
 
 In a builder with its own project layout (caffeine.ai: React, Vite),
 keep its layout and add the `@research-ag/duel-game-core` npm package
-to it. Never rewrite the wire protocol yourself.
+to it (in caffeine.ai with `@icp-sdk/core` at `^6.1.1`, `caffeine.md`,
+section 1, "Packages"). Never rewrite the wire protocol yourself.
 
 **Backend id in the frontend.** Read `PUBLIC_CANISTER_ID:backend` from
 the `ic_env` cookie when present (the live page once its canister
 carries that environment variable, `going-live.md`; a local copy's
 page, step 5) and fall back to a backend id hardcoded in one constant
-(a page served from `localhost`, a builder's own preview, caffeine.ai).
+(a page served from `localhost`, a builder's own preview).
 The constant is `BACKEND`, or the staging copy's id while testing
 against one (step 7); step 7's cloud engine preview page carries the
-cookie, as a live page does. Whenever the page talks to a backend on
-mainnet, build the `HttpAgent` with `host: "https://icp0.io"` and no
-`rootKey`:
+cookie, as a live page does. In caffeine.ai the id goes into
+`/duel.json` instead of the cookie or a constant (`caffeine.md`,
+section 4), where the Duel dashboard finds it too. Whenever the page
+talks to a backend on mainnet, build the `HttpAgent` with
+`host: "https://icp0.io"` and no `rootKey`:
 `deriveHost()` assumes the backend sits behind the page's own origin,
 which is false for a page served from `localhost` or a foreign host.
 
@@ -394,8 +398,9 @@ Without a way to deploy for the user, tell them the steps from the
 
 In a builder with its own "go live" action (caffeine.ai), tell the
 user to trigger it instead, and how to read the live page's address
-and its frontend canister id afterwards.
+afterwards: the dashboard registers a caffeine.ai page by that address.
 
-The user then registers the new frontend's canister id on the Duel
-dashboard as its own entry (`going-live.md`, section 5), with their
-own title, description and banner.
+The user then registers the new frontend on the Duel dashboard as its
+own entry (`going-live.md`, section 5), by its canister id or, for a
+caffeine.ai page, its address, with their own title, description and
+banner.

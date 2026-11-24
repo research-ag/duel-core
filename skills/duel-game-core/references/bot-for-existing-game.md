@@ -20,9 +20,10 @@ Everything you need comes from the backend canister id:
 This needs `icp-cli` and `mops`: in a Claude Code cloud session's VM
 (`cloud-session.md` is its setup) or on the user's computer.
 A bot cannot be tested against the live game without first being
-deployed, so there is no route through a builder without a shell. All
-testing is local (step 5), which a cloud session does as well as a
-computer.
+deployed, so all testing is local (step 5), which a cloud session does
+as well as a computer. A builder without a shell has no route here.
+In caffeine.ai, which deploys every draft, follow `caffeine.md`,
+section 3: it tries the draft bot on the live game.
 
 ## 1. Resolve, read, download
 

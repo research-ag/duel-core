@@ -148,7 +148,8 @@ function FrontendInfo({
           )}
           {backend === null && (
             <span className="faint">
-              Not published: this frontend sets no backend in its ic_env cookie.
+              Not published: this frontend names no backend, neither in its
+              ic_env cookie nor in a duel.json or env.json.
             </span>
           )}
           {backend && (

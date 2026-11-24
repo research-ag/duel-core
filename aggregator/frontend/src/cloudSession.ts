@@ -5,10 +5,17 @@
 // skills/duel-game-core/references/going-live.md, section 1, and
 // cloud-session.md. Keep them in step.
 
-/// The three ways through the guides: caffeine.ai alone; hosty.live,
-/// from a cloud session or an agent on the computer; or everything the
-/// user's own, icp-cli on their computer.
+/// The three ways through the guides: caffeine.ai alone (its AI builds,
+/// its preview tests, its Go live hosts); hosty.live, from a cloud session
+/// or an agent on the computer; or everything the user's own, icp-cli on
+/// their computer.
 export type Way = "caffeine" | "hosty" | "own";
+
+/// caffeine.ai's prices, as the guides quote them.
+export const CAFFEINE_WELCOME = "15 welcome credits ($7.50, valid for 30 days)";
+export const CAFFEINE_GO_LIVE = "4 credits, $2";
+export const CAFFEINE_COST =
+  "A new account comes with $7.50 of credits; going live costs $2.";
 
 export const CONNECTOR_URL = "https://api.hosty.live/mcp";
 export const CONNECTORS_PAGE = "https://claude.ai/customize/connectors";

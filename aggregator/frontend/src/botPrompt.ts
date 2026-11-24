@@ -1,24 +1,21 @@
-// The prompt a developer hands to an AI coding agent to get a bot for a
-// listed game, one per way: through hosty.live (a Claude Code cloud
-// session first) or everything the user's own (icp-cli on their
-// computer). The procedure behind it is
-// skills/duel-game-core/references/bot-for-existing-game.md. Keep the
-// two in step.
+// The prompt a developer hands to an AI builder to get a bot for a
+// listed game, one per way: caffeine.ai, through hosty.live (a Claude
+// Code cloud session first) or everything the user's own (icp-cli on
+// their computer). The procedure behind it is
+// skills/duel-game-core/references/bot-for-existing-game.md, and
+// references/caffeine.md for caffeine.ai. Keep them in step.
 
 import { loadSkill, OWN_RULES, SKILL_INSTALL } from "./cloudSession";
 import type { Way } from "./cloudSession";
-import { RAW, REPO } from "./frontendPrompt";
+import { caffeineReference, RAW, REPO } from "./frontendPrompt";
 import type { Target } from "./types";
 import { gameUrl } from "./types";
 
 const CLOSING = `Here is the bot I want (its name, how it should play, and any difficulty levels):
 `;
 
-export function botPrompt(
-  { game, backend }: Target,
-  way: Exclude<Way, "caffeine">
-): string {
-  const url = gameUrl(game);
+export function botPrompt({ game, backend }: Target, way: Way): string {
+  const url = gameUrl(game).replace(/\/+$/, "");
   const ref = `${RAW}/skills/duel-game-core/references`;
   const subnetLookup = `curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/${backend} | grep -o '"subnet_id":"[^"]*"'`;
   const register = `icp canister call bot register '(principal "${backend}", "<bot name>")' -e ic`;
@@ -32,6 +29,21 @@ The game is "${game.title}", playable at ${url}. Its backend canister is ${backe
     return `${intro}
 
 ${loadSkill("references/bot-for-existing-game.md")} Put nothing online and buy no canister until I ask.
+
+${CLOSING}`;
+
+  if (way === "caffeine")
+    return `${intro}
+
+Work in this order.
+
+1. Learn the game from https://${backend}.raw.icp0.io/semantics: plain text with the rules, who moves when, the variants, and the exact Candid types of View (what a seat sees, headed VIEW, or STATE in older games), Action and Options. This is the whole specification; there is no source code to read. Fetch any other path it mentions.
+
+2. ${caffeineReference(`3, "A bot for a game already deployed"`)}
+
+3. Do not go live until I ask.
+
+If the semantics page is missing, stop and tell me instead of guessing.
 
 ${CLOSING}`;
 

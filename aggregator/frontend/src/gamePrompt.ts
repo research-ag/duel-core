@@ -1,15 +1,16 @@
-// The prompt a developer hands to an AI coding agent to get a whole new
-// game built from their rules, one per way: through hosty.live (a Claude
-// Code cloud session first) or everything the user's own (icp-cli on
-// their computer). The procedure behind it is
-// skills/duel-game-core/SKILL.md and its references/going-live.md. Keep
-// them in step.
+// The prompt a developer hands to an AI builder to get a whole new game
+// built from their rules, one per way: caffeine.ai, through hosty.live
+// (a Claude Code cloud session first) or everything the user's own
+// (icp-cli on their computer). The procedure behind it is
+// skills/duel-game-core/SKILL.md and its references/going-live.md, and
+// references/caffeine.md for caffeine.ai. Keep them in step.
 
 import { loadSkill, OWN_RULES, SKILL_INSTALL } from "./cloudSession";
 import type { Way } from "./cloudSession";
-import { REPO } from "./frontendPrompt";
+import { caffeineReference, REPO } from "./frontendPrompt";
 
-export function gamePrompt(way: Exclude<Way, "caffeine">): string {
+export function gamePrompt(way: Way): string {
+  if (way === "caffeine") return caffeineGamePrompt();
   return way === "own" ? ownGamePrompt() : hostyGamePrompt();
 }
 
@@ -22,6 +23,16 @@ function hostyGamePrompt(): string {
   return `${OPENING}
 
 ${loadSkill()} Put the game live on mainnet only when I say so.
+
+${CLOSING}`;
+}
+
+function caffeineGamePrompt(): string {
+  return `${OPENING}
+
+${caffeineReference(`1, "A game"`)} Its section 2 is for every later change.
+
+Make the design calls yourself; ask me only where my rules are ambiguous about the game itself. Do not go live until I say so.
 
 ${CLOSING}`;
 }

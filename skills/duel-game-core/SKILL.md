@@ -1,6 +1,6 @@
 ---
 name: duel-game-core
-description: Build a complete, deployable 2-player game on duel-game-core from a plain-English rules description, writing the Motoko rules module (Spec<S,M,V,O>), the host actor, the tests and the frontend GamePlugin end to end from this skill's templates, and putting it online through hosty.live or with icp-cli. Use whenever someone hands you the rules of a duel, card, board or arena game (in their own words, a design doc or a rulebook excerpt) and wants it built on duel-game-core, especially in a repo without duel-game-core's own source. Also use to change a live game of one's own (bot support, a leaderboard, a bot), or to build a frontend or a bot for a duel-game-core game already deployed, given only its canister id.
+description: Build a complete, deployable 2-player game on duel-game-core from a plain-English rules description, writing the Motoko rules module (Spec<S,M,V,O>), the host actor, the tests and the frontend GamePlugin end to end from this skill's templates, and putting it online through hosty.live, with icp-cli or from caffeine.ai. Use whenever someone hands you the rules of a duel, card, board or arena game (in their own words, a design doc or a rulebook excerpt) and wants it built on duel-game-core, especially in a repo without duel-game-core's own source. Also use to change a live game of one's own (bot support, a leaderboard, a bot), or to build a frontend or a bot for a duel-game-core game already deployed, given only its canister id.
 ---
 
 # Building a duel-game-core Game From Rules Alone
@@ -43,11 +43,13 @@ A finished game is six pieces of game-specific code:
    fill in names.
 
 Every template lives in `templates/`; read each one right before
-adapting it. `references/` covers nine situations the templates don't.
+adapting it. `references/` covers ten situations the templates don't.
 Read each one only when you get there:
 
 - `cloud-session.md`: a Claude Code cloud session's setup (read it
   first there).
+- `caffeine.md`: a game, a bot or a frontend built in caffeine.ai (read
+  it first there: its layout replaces the templates').
 - `turn-based-games.md`: a game that waits for one seat.
 - `canister-player-bots.md`: writing a bot.
 - `rich-ui.md`: a canvas, 3D or framework UI, or a client to port.
@@ -67,7 +69,9 @@ one with `hosty_get_skill { url, path }` (`path:
 "templates/Host.mo.template"`), or save it with `curl -sSfL -o
 <destination> <download URL>` from the index. Saving needs a network
 that reaches `raw.githubusercontent.com`, which a cloud session's often
-does not. A new session loads the skill again the same way.
+does not. A new session loads the skill again the same way. Over the
+web, each file is at
+`https://raw.githubusercontent.com/research-ag/duel-core/main/skills/duel-game-core/<path>`.
 
 ## Step 1: Get the packages into the project
 
@@ -534,6 +538,10 @@ user the `frontendUrl`. Every later change goes into the same
 canisters.
 
 ## Step 8: Go live
+
+A game built in caffeine.ai goes live with Caffeine's own Go live and
+changes through Caffeine's migrations (`references/caffeine.md`); the
+rest of this step is for hosty.live and icp-cli.
 
 Only when the user asks. Follow `references/going-live.md` step by
 step, and leave the same steps in the project's `README.md`. Keep the

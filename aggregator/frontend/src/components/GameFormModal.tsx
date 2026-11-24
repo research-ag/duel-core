@@ -1,7 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Principal } from "@icp-sdk/core/principal";
 
-import { onCloudEngine, readBackendOf } from "../canisterHttp";
+import {
+  canisterOfCaffeineApp,
+  onCloudEngine,
+  readBackendOf,
+} from "../canisterHttp";
 import { invalidateBanner, useBanner } from "../hooks/useBanner";
 import type {
   AggregatorActor,
@@ -114,30 +118,43 @@ export function GameFormModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(undefined);
-
-    let frontendId: Principal;
-    try {
-      frontendId = Principal.fromText(frontendCanisterId.trim());
-    } catch {
-      setError("Frontend canister id must be a valid principal.");
-      return;
-    }
-
-    let bannerBytes: Uint8Array | undefined;
-    if (bannerFile) {
-      if (requirements && BigInt(bannerFile.size) > requirements.maxBytes) {
-        setError(`Banner must be at most ${requirements.maxBytes} bytes.`);
-        return;
-      }
-      bannerBytes = new Uint8Array(await bannerFile.arrayBuffer());
-    } else if (!isEdit) {
-      setError("A banner image is required.");
-      return;
-    }
-
-    const domain = customDomain.trim();
+    // Saving from the first await on, so the form cannot close while an
+    // address is still being resolved and then register anyway.
     setSaving(true);
     try {
+      const frontendInput = frontendCanisterId.trim();
+      let domain = customDomain.trim();
+      let frontendId: Principal;
+      try {
+        frontendId = Principal.fromText(frontendInput);
+      } catch {
+        const app = frontendInput.startsWith("https://")
+          ? await canisterOfCaffeineApp(frontendInput)
+          : undefined;
+        if (!app) {
+          setError(
+            frontendInput.startsWith("https://")
+              ? "No live caffeine.ai app answers at that address. Use its live address (https://<name>.caffeine.xyz) after Go live, or the canister id."
+              : "Frontend canister id must be a valid principal."
+          );
+          return;
+        }
+        frontendId = Principal.fromText(app);
+        domain ||= new URL(frontendInput).origin;
+      }
+
+      let bannerBytes: Uint8Array | undefined;
+      if (bannerFile) {
+        if (requirements && BigInt(bannerFile.size) > requirements.maxBytes) {
+          setError(`Banner must be at most ${requirements.maxBytes} bytes.`);
+          return;
+        }
+        bannerBytes = new Uint8Array(await bannerFile.arrayBuffer());
+      } else if (!isEdit) {
+        setError("A banner image is required.");
+        return;
+      }
+
       const cloud = await cloudEngineProblem(frontendId.toText());
       if (cloud) {
         setError(cloud);
@@ -272,6 +289,10 @@ export function GameFormModal({
               required
               placeholder="rno2w-sqaaa-aaaaa-aaacq-cai"
             />
+            <span className="hint">
+              Its canister id, or a caffeine.ai app's live address
+              (https://&lt;name&gt;.caffeine.xyz)
+            </span>
           </div>
 
           <div className="field">
