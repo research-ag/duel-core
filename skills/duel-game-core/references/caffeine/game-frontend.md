@@ -2,17 +2,22 @@
 
 The React page over the npm package `@research-ag/duel-game-core`,
 after `references/caffeine/game.md`. It does not use Caffeine's
-generated `backend.ts` or `useActor`: the package's transport builds
-its own actor, signed by the player's anonymous key (one per browser,
-kept in `localStorage`), and the backend checks every call against it.
+generated `backend.ts`, its types (`@/backend`) or `useActor`: the
+package's transport builds its own actor, signed by the player's
+anonymous key (one per browser, kept in `localStorage`), and the
+backend checks every call against it.
 The game needs no sign-in; Caffeine's providers in `main.tsx` may stay
 or go.
 
 `src/frontend/src/plugin.ts`, from `templates/plugin.js.template`,
 typed as `GamePlugin<View, Options>` from
 `@research-ag/duel-game-core/types.js`, with TypeScript mirrors of the
-Candid (`nat` is `bigint`, `opt T` is `[] | [T]`, a variant is
-`{ tag: payload }` with `null` for none, a tuple is an array):
+Candid declared in `plugin.ts` itself (`nat` is `bigint`; `opt T` is
+`[] | [T]`, so the last round is `view.lastRound[0]`; a variant is
+`{ tag: payload }` with `null` for none; a tuple is an array). The
+plugin receives raw Candid values. Caffeine's generated types make an
+`opt` field optional and a variant an enum: `view.lastRound ?? null`
+type-checks with them and crashes on `[]`.
 
 - `idlTypes({ IDL })`: exactly the Candid of `Action`, `View` and
   `Options`, nothing else; `Options` is `IDL.Record({})` for none. One

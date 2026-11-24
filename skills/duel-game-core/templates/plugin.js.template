@@ -18,8 +18,8 @@ function legal(mySide, actionKey) {
 
 export const plugin = {
   idlTypes({ IDL }) {
-    // Candid shape, not JS naming. Nat/Int decode to bigint; a tuple to
-    // an array.
+    // Candid shape, not JS naming. Nat/Int decode to bigint, an opt to
+    // [] or [value], a tuple to an array.
     const Side = IDL.Record({
       // ...your Side fields...
     });
@@ -51,7 +51,8 @@ export const plugin = {
   },
 
   // Called for a live game and for a debrief's final state. Must show
-  // the opponent's last move in both; here, `lastRound`'s two picks.
+  // the opponent's last move in both; here, `lastRound`'s two picks
+  // (`gameState.lastRound[0]`, absent before the first round).
   renderBoard(gameState, mySeat, oppSeat) {
     return `<pre>${esc(JSON.stringify(gameState, (_, v) =>
       typeof v === "bigint" ? v.toString() : v, 2))}</pre>`;

@@ -171,7 +171,13 @@ function TryStep({ way }: { way: Way }) {
       {way === "caffeine" ? (
         <p>
           When it has built the game, caffeine.ai shows it in its preview: a
-          draft, on temporary canisters of its own.
+          draft, on temporary canisters of its own, which{" "}
+          <strong>Open preview</strong> opens in a tab of its own. Its own
+          check plays a single seat, so its last note may say testing could
+          not confirm a step: playing both seats yourself, as below, is the
+          test. If something breaks,
+          paste the error from the browser console into the chat: an exact
+          error is far cheaper for its AI to fix than a description.
         </p>
       ) : way === "hosty" ? (
         <p>
