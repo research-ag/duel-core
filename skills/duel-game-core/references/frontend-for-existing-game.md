@@ -31,8 +31,8 @@ rest:
 - **A browser-based builder** (caffeine.ai), which runs no shell and
   needs no hosty.live: skip the steps that say so; the semantics text
   is sufficient to build from, and the builder's own "go live" action
-  puts the page online (step 8). In caffeine.ai, `caffeine.md`, section
-  4, has the project's wiring.
+  puts the page online (step 8). In caffeine.ai, `caffeine/frontend.md`
+  has the project's wiring.
 
 ## 1. Resolve the backend id
 
@@ -158,8 +158,8 @@ is no `mops.toml`).
 
 In a builder with its own project layout (caffeine.ai: React, Vite),
 keep its layout and add the `@research-ag/duel-game-core` npm package
-to it (in caffeine.ai with `@icp-sdk/core` at `^6.1.1`, `caffeine.md`,
-section 1, "Packages"). Never rewrite the wire protocol yourself.
+to it (in caffeine.ai with `@icp-sdk/core` at `^6.1.1`,
+`caffeine/frontend.md`). Never rewrite the wire protocol yourself.
 
 **Backend id in the frontend.** Read `PUBLIC_CANISTER_ID:backend` from
 the `ic_env` cookie when present (the live page once its canister
@@ -169,8 +169,8 @@ page, step 5) and fall back to a backend id hardcoded in one constant
 The constant is `BACKEND`, or the staging copy's id while testing
 against one (step 7); step 7's cloud engine preview page carries the
 cookie, as a live page does. In caffeine.ai the id goes into
-`/duel.json` instead of the cookie or a constant (`caffeine.md`,
-section 4), where the Duel dashboard finds it too. Whenever the page
+`/duel.json` instead of the cookie or a constant
+(`caffeine/frontend.md`), where the Duel dashboard finds it too. Whenever the page
 talks to a backend on mainnet, build the `HttpAgent` with
 `host: "https://icp0.io"` and no `rootKey`:
 `deriveHost()` assumes the backend sits behind the page's own origin,

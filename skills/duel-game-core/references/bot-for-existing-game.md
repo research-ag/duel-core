@@ -22,8 +22,8 @@ This needs `icp-cli` and `mops`: in a Claude Code cloud session's VM
 A bot cannot be tested against the live game without first being
 deployed, so all testing is local (step 5), which a cloud session does
 as well as a computer. A builder without a shell has no route here.
-In caffeine.ai, which deploys every draft, follow `caffeine.md`,
-section 3: it tries the draft bot on the live game.
+In caffeine.ai, which has no shell, follow `caffeine/bot.md` instead:
+the bot is tried as its live canister, on the live game.
 
 ## 1. Resolve, read, download
 

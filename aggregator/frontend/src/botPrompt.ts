@@ -3,7 +3,7 @@
 // Code cloud session first) or everything the user's own (icp-cli on
 // their computer). The procedure behind it is
 // skills/duel-game-core/references/bot-for-existing-game.md, and
-// references/caffeine.md for caffeine.ai. Keep them in step.
+// references/caffeine/bot.md for caffeine.ai. Keep them in step.
 
 import { loadSkill, OWN_RULES, SKILL_INSTALL } from "./cloudSession";
 import type { Way } from "./cloudSession";
@@ -39,7 +39,7 @@ Work in this order.
 
 1. Learn the game from https://${backend}.raw.icp0.io/semantics: plain text with the rules, who moves when, the variants, and the exact Candid types of View (what a seat sees, headed VIEW, or STATE in older games), Action and Options. This is the whole specification; there is no source code to read. Fetch any other path it mentions.
 
-2. ${caffeineReference(`3, "A bot for a game already deployed"`)}
+2. ${caffeineReference("bot.md")}
 
 3. Do not go live until I ask.
 

@@ -49,7 +49,8 @@ Read each one only when you get there:
 - `cloud-session.md`: a Claude Code cloud session's setup (read it
   first there).
 - `caffeine.md`: a game, a bot or a frontend built in caffeine.ai (read
-  it first there: its layout replaces the templates').
+  it first there: its layout replaces the templates', and it names the
+  files of `caffeine/` for each task).
 - `turn-based-games.md`: a game that waits for one seat.
 - `canister-player-bots.md`: writing a bot.
 - `rich-ui.md`: a canvas, 3D or framework UI, or a client to port.

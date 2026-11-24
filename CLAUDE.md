@@ -438,6 +438,13 @@ update it in the same change, written as if fresh: no "used to",
 editing, re-read the whole affected file and its templates for
 second-order staleness.
 
+Caffeine's AI reads `references/caffeine/` over the web, and its fetch
+returns only about the first 10,000 characters of a file. Every file
+there, and every file of the skill they name (`references/caffeine.md`
+lists them), stays under 8,000 characters (`rich-ui.md`, 8.4 KB, is the
+one exception, still under the limit); check with `wc -c` after
+editing one.
+
 ## Conventions
 
 - Tests are plain interpreter scripts: `ok`/`expectErr` helpers +

@@ -4,7 +4,7 @@
 // computer), or everything their own (icp-cli on their computer). The
 // procedure behind it is
 // skills/duel-game-core/references/frontend-for-existing-game.md, and
-// references/caffeine.md for caffeine.ai. Keep them in step.
+// references/caffeine/frontend.md for caffeine.ai. Keep them in step.
 
 import { loadSkill, OWN_RULES } from "./cloudSession";
 import type { Way } from "./cloudSession";
@@ -15,13 +15,15 @@ export const REPO = "https://github.com/research-ag/duel-core";
 export const RAW =
   "https://raw.githubusercontent.com/research-ag/duel-core/main";
 
-/// The skill's procedure for caffeine.ai, which Caffeine's AI reads over
-/// the web (it has no hosty.live connector).
-export const CAFFEINE_REF = `${RAW}/skills/duel-game-core/references/caffeine.md`;
+/// The skill's procedures for caffeine.ai, which Caffeine's AI reads over
+/// the web (it has no hosty.live connector). Its fetch returns about the
+/// first 10,000 characters of a page, so every file there stays under
+/// 8,000 (references/caffeine.md).
+export const CAFFEINE_DIR = `${RAW}/skills/duel-game-core/references/caffeine`;
 
-/// How every caffeine.ai prompt hands the work to `CAFFEINE_REF`.
-export function caffeineReference(section: string): string {
-  return `Read ${CAFFEINE_REF}, section ${section}, and follow it: it is the procedure for this task in caffeine.ai, with the code it needs. Read the other files of the same skill it names, at the same address with their own path. If you cannot open these addresses, stop and tell me: do not guess the framework.`;
+/// How every caffeine.ai prompt hands the work to a file of `CAFFEINE_DIR`.
+export function caffeineReference(file: string): string {
+  return `Read ${CAFFEINE_DIR}/${file} and follow it: it is the procedure for this task in caffeine.ai, with the code it needs, and it names the few other files of the same skill to read. Each fits in one fetch. If one does not open or comes back cut off, stop and tell me: do not guess the framework.`;
 }
 
 const CLOSING = `Here is the frontend I want:
@@ -48,7 +50,7 @@ ${CLOSING}`;
 
 1. Learn the game from https://${backend}.raw.icp0.io/semantics — plain text with the rules, who moves when, and the exact Candid types of View (what a seat sees, headed VIEW, or STATE in older games), Action and Options. This is the whole specification; Action appears nowhere else. Fetch any other path it mentions.
 
-2. Read how a frontend talks to the backend: ${RAW}/frontend/README.md (the GamePlugin contract, the headless client, the transport) and the step "Write the frontend GamePlugin" in ${RAW}/skills/duel-game-core/SKILL.md. ${way === "caffeine" ? caffeineReference(`4, "A frontend for a game already deployed"`) : `The full procedure for exactly this task is ${ref}/frontend-for-existing-game.md — read it and follow it.`}
+2. ${way === "caffeine" ? caffeineReference("frontend.md") : `Read how a frontend talks to the backend: ${RAW}/frontend/README.md (the GamePlugin contract, the headless client, the transport) and the step "Write the frontend GamePlugin" in ${RAW}/skills/duel-game-core/SKILL.md. The full procedure for exactly this task is ${ref}/frontend-for-existing-game.md — read it and follow it.`}
 
 3. Get the client library: the npm package @research-ag/duel-game-core. Never rewrite the wire protocol yourself.
 

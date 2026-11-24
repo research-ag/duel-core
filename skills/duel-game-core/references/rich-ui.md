@@ -45,17 +45,15 @@ only has to show that field.
 What to bind, and where the default shell's equivalent lives, so nothing
 is forgotten:
 
-| Concern                                                  | Source of truth                                                                           |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| which screen                                             | `state.status`                                                                            |
-| a call in flight (disable, spin)                         | `state.pending` (`key` names the control: `create:p1`, `act:{"pass":null}`, `rematch`, …) |
-| your move, before the reply                              | `withLocalMove(state.status, state.pending, plugin.applyLocal)` (below)                   |
-| errors, reconnects, and the terminal disconnect          | `state.error`, `state.connection` (`"reconnecting"`, `"closed"`)                          |
-| "new sid" / login / logout enabled                       | `!state.identityLocked`; call `client.regenerateSid()`/`login()`/`logout()`               |
-| countdowns between views                                 | `localSecondsLeft(view.secondsUntilX, state.statusAt)` on a local 1 s timer               |
-| who may claim                                            | `claimRoleOf(inGame)`: `"waiting"` may, `"atRisk"` is the mirror                          |
-| submit's `gen`/`step`                                    | stamped by the client; never send them yourself                                           |
-| a stale view (`#wrongPhase` on join, `#stale` on a move) | handled: the client refreshes silently, `reason: "stale"`; any rejection also refreshes   |
+- Which screen: `state.status`.
+- A call in flight (disable, spin): `state.pending` (`key` names the control: `create:p1`, `act:{"pass":null}`, `rematch`, …).
+- Your move, before the reply: `withLocalMove(state.status, state.pending, plugin.applyLocal)` (below).
+- Errors, reconnects, and the terminal disconnect: `state.error`, `state.connection` (`"reconnecting"`, `"closed"`).
+- "new sid" / login / logout enabled: `!state.identityLocked`; call `client.regenerateSid()`/`login()`/`logout()`.
+- Countdowns between views: `localSecondsLeft(view.secondsUntilX, state.statusAt)` on a local 1 s timer.
+- Who may claim: `claimRoleOf(inGame)`, where `"waiting"` may and `"atRisk"` is the mirror.
+- Submit's `gen`/`step`: stamped by the client; never send them yourself.
+- A stale view (`#wrongPhase` on join, `#stale` on a move): the client refreshes silently, `reason: "stale"`; any rejection also refreshes.
 
 ## Your move at once, the opponent's move marked
 

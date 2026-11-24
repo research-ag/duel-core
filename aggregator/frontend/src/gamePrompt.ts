@@ -3,11 +3,11 @@
 // (a Claude Code cloud session first) or everything the user's own
 // (icp-cli on their computer). The procedure behind it is
 // skills/duel-game-core/SKILL.md and its references/going-live.md, and
-// references/caffeine.md for caffeine.ai. Keep them in step.
+// references/caffeine/game.md for caffeine.ai. Keep them in step.
 
 import { loadSkill, OWN_RULES, SKILL_INSTALL } from "./cloudSession";
 import type { Way } from "./cloudSession";
-import { caffeineReference, REPO } from "./frontendPrompt";
+import { CAFFEINE_DIR, caffeineReference, REPO } from "./frontendPrompt";
 
 export function gamePrompt(way: Way): string {
   if (way === "caffeine") return caffeineGamePrompt();
@@ -30,7 +30,7 @@ ${CLOSING}`;
 function caffeineGamePrompt(): string {
   return `${OPENING}
 
-${caffeineReference(`1, "A game"`)} Its section 2 is for every later change.
+${caffeineReference("game.md")} Every later change starts from ${CAFFEINE_DIR}/changes.md.
 
 Make the design calls yourself; ask me only where my rules are ambiguous about the game itself. Do not go live until I say so.
 

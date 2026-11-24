@@ -9,7 +9,7 @@ the tables.
 
 A game built in caffeine.ai keeps this file's reading of the ask
 (section 1); its source and its upgrades are Caffeine's, and its stable
-fields change through migrations (`caffeine.md`, section 2).
+fields change through migrations (`caffeine/changes.md`).
 
 ## 1. Read the ask
 
