@@ -47,7 +47,7 @@ Work in this order.
 
 5. Then I try the draft at access-code tables only: I open one with "Invite a friend" on the game's page and paste its invite link into your preview's try-out form. Never use the links for that, they open a table anyone can see. Never register the draft. I sign in there and give you the principal it shows: put it into owner.
 
-6. Do not go live until I ask, and not before owner is set. After Go live I sign in on the live bot's page; if it shows another principal, put that one into owner and I go live again. Then I press Register.
+6. Do not go live until I ask, and not before owner is set. After Go live I sign in on the live bot's page; if it shows another principal, put that one into owner and I go live again. Then I press Register. Caffeine picks the bot canister's subnet, and nothing in this project chooses it: on another subnet than the game, each of the bot's moves takes a few seconds.
 
 If the semantics page is missing, stop and tell me instead of guessing.
 
