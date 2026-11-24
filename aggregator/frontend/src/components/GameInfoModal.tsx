@@ -149,7 +149,7 @@ function FrontendInfo({
           {backend === null && (
             <span className="faint">
               Not published: this frontend names no backend, neither in its
-              ic_env cookie nor in an env.json.
+              ic_env cookie nor in a duel.json or env.json.
             </span>
           )}
           {backend && (

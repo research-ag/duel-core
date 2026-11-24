@@ -403,8 +403,8 @@ Only when the user asks: Caffeine's **Go live** (4 credits, $2, on
 Caffeine's mainnet cloud). The live app has its own canisters and an
 address `https://<name>.caffeine.xyz`. The user lists it on the Duel
 dashboard (https://games.ic0.info/) with that address: the dashboard
-finds the frontend canister behind it and the backend in its
-`/env.json`.
+finds the frontend canister behind it and, with no `/duel.json` there,
+the backend in its `/env.json`.
 
 ## 2. Changing it later
 
@@ -490,8 +490,10 @@ change: every frontend and bot of the game is built from that text.
 
 A second Caffeine app of its own. `bot-for-existing-game.md` holds the
 contract; on Caffeine its local copy of the game is replaced by tries
-against the live game, and its controller check by Caffeine's admin
-role (Caffeine controls the canisters, the user never does).
+against the live game, and its controller check by an owner principal
+written into the code. Caffeine controls the canisters, and its admin
+role goes to whoever signs in first on each new canister, the live one
+included, so neither binds the bot to its owner.
 
 1. Learn the game from `https://<backend-id>.raw.icp0.io/semantics`
    (`frontend-for-existing-game.md`, step 2). Only a game with bot
@@ -510,13 +512,12 @@ role (Caffeine controls the canisters, the user never does).
    ```motoko
    import Principal "mo:core/Principal";
 
-   import AccessControl "mo:caffeineai-authorization/access-control";
    import TP "mo:duel-game-core";
 
    import BotLogic "../lib/BotLogic";
    import Game "../lib/GameTypes";
 
-   mixin (accessControlState : AccessControl.AccessControlState) {
+   mixin (owner : Principal) {
      type Host = actor {
        join_table_as_canister : (TP.TableId, TP.Seat, ?Text, Text) -> async TP.Res<TP.JoinOk>;
        register_bot : (Text, [Text]) -> async ();
@@ -529,13 +530,13 @@ role (Caffeine controls the canisters, the user never does).
      };
 
      public shared ({ caller }) func register(host : Principal, name : Text) : async () {
-       assert AccessControl.isAdmin(accessControlState, caller);
+       assert caller == owner;
        let h : Host = actor (host.toText());
        await h.register_bot(name, BotLogic.COMPLEXITIES);
      };
 
      public shared ({ caller }) func unregister(host : Principal) : async () {
-       assert AccessControl.isAdmin(accessControlState, caller);
+       assert caller == owner;
        let h : Host = actor (host.toText());
        await h.unregister_bot();
      };
@@ -551,10 +552,12 @@ role (Caffeine controls the canisters, the user never does).
 
 5. `src/backend/main.mo`, which serves promtracker's system metrics at
    `GET /metrics` like every bot (the dashboard reads its balance
-   there); the first migration is Caffeine's own, creating
-   `accessControlState`:
+   there) and names the owner; the first migration is Caffeine's own,
+   creating `accessControlState`:
 
    ```motoko
+   import Principal "mo:core/Principal";
+
    import AccessControl "mo:caffeineai-authorization/access-control";
    import MixinAuthorization "mo:caffeineai-authorization/MixinAuthorization";
    import Expose "mo:caffeineai-oql/Expose";
@@ -568,10 +571,14 @@ role (Caffeine controls the canisters, the user never does).
      include MixinAuthorization(accessControlState, null);
      include Expose({ entities = [] });
 
+     // The owner's principal, as this app's sign-in shows it to them. Until
+     // it is set, aaaaa-aa (the management canister) matches no caller.
+     transient let owner = Principal.fromText("aaaaa-aa");
+
      transient let renderer = PT.Renderer();
      renderer.addValue(PT.allSystemMetrics);
 
-     include BotApi(accessControlState);
+     include BotApi(owner);
      include HttpActorMixin([("/metrics", renderer.renderExposition)]);
    };
 
@@ -582,25 +589,30 @@ role (Caffeine controls the canisters, the user never does).
    duel-game-core package): the bot's name, its canister id
    (`backend_canister_id` from `/env.json`), and per level a link that
    starts a game against it on the game's own page:
-   `<game address>/#new&b=<bot canister id>:<level>` (`Default` for a
-   bot without levels). The link works before the bot is registered.
-   For the user signed in with Internet Identity, two buttons:
-   **Register** (`register(<backend id>, <name>)`) and **Unregister**.
-   Caffeine makes whoever signs in first on a canister its admin, and
-   only the admin may press them.
+   `<game address>/#new&b=` followed by
+   `encodeURIComponent("<bot canister id>:<level>")`, as the client
+   package's `linkFragment` writes it (`Default` for a bot without
+   levels). The link works before the bot is registered. A sign-in with
+   Internet Identity that shows the signed-in principal, and two
+   buttons, **Register** (`register(<backend id>, <name>)`) and
+   **Unregister**, which the bot accepts from `owner` alone.
 
 **Trying it.** On the draft's page the links seat the draft bot at a
 new table on the live game: play whole games at every level, the bot in
 either seat (the link takes `&s=p2` for the player to take the second
 seat), and leave when done. Never register the draft: its canister
-goes back to Caffeine's pool.
+goes back to Caffeine's pool. The user signs in on the draft's page and
+gives you the principal it shows; that goes into `owner`.
 
-**Going live.** Only when the user asks: Go live, then the user signs
-in on the live bot's page before anyone else (the first sign-in is the
-admin) and presses Register. The bot then appears in the game's 🤖 list
-and on its leaderboard. Caffeine picks the canister's subnet; on
-another subnet than the game, each of the bot's moves takes a few
-seconds (`canister-player-bots.md`, "Where the bot canister lives").
+**Going live.** Only when the user asks, and only with `owner` set:
+Go live, then the user signs in on the live bot's page. When it shows
+another principal than the draft did, put that one into `owner` and go
+live again (an update of a live app costs nothing); until `owner`
+matches, Register and Unregister refuse every caller, so nobody else can
+claim the bot. Then the user presses Register, and the bot appears in
+the game's 🤖 list and on its leaderboard. Caffeine picks the
+canister's subnet; on another subnet than the game, each of the bot's
+moves takes a few seconds (`canister-player-bots.md`, "Where the bot canister lives").
 Later changes are Caffeine builds of the same app; press Register again
 when the name or the levels change.
 
@@ -608,22 +620,31 @@ when the name or the levels change.
 
 `frontend-for-existing-game.md`'s steps 2, 6 and 7 ("Against the live
 backend") apply, with the backend id the user gives. Caffeine's own
-backend stays as its template made it, unused. The page is section 1's
-frontend with two changes in `duel.ts`: the backend is the game's, in
-one constant, and the host is `https://icp0.io`:
+backend stays as its template made it, unused, and `/env.json` names
+that one. The game's backend goes into `src/frontend/public/duel.json`,
+served as `/duel.json`, where the page reads it and the Duel dashboard
+finds it before `/env.json`:
+
+```json
+{ "backend": "<backend id>" }
+```
+
+The page is section 1's frontend with two changes in `duel.ts`: the
+backend comes from `/duel.json`, and the host is `https://icp0.io`:
 
 ```ts
-const BACKEND = "<backend id>";
-// ...
+const { backend } = await (await fetch("/duel.json")).json();
 const agent = await HttpAgent.create({
   host: "https://icp0.io",
   identity: session.identity,
 });
 const actor = Actor.createActor<DuelActor>(makeIdlFactory(plugin.idlTypes), {
   agent,
-  canisterId: BACKEND,
+  canisterId: backend,
 });
 ```
+
+`botPlayer(agent, backend)` takes the same id.
 
 Without a shell there is no Candid to tell whether the game has bot
 support or a leaderboard: mount both overlays and let their calls fail

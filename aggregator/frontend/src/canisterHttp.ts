@@ -2,9 +2,9 @@
 // anonymous agent calls their `http_request` as a Candid query, so no
 // CORS and no `Set-Cookie` filtering stand in the way. Used to find the
 // backend a listed frontend plays (its asset canister's `ic_env`
-// cookie, or a caffeine.ai app's `/env.json`, read fresh every page load
-// since a frontend can relink at any time) and to read a duel-game-core
-// backend's `/semantics`.
+// cookie, or a caffeine.ai app's `/duel.json` or `/env.json`, read fresh
+// every page load since a frontend can relink at any time) and to read a
+// duel-game-core backend's `/semantics`.
 
 import {
   Actor,
@@ -85,13 +85,19 @@ async function httpGet(canister: string, path: string): Promise<HttpResponse> {
 }
 
 /// The backend a frontend plays: `PUBLIC_CANISTER_ID:backend` from the
-/// `ic_env` cookie its asset canister sets, else `backend_canister_id`
-/// from its `/env.json` (a caffeine.ai app's), or `undefined` when it
-/// names none (another kind of hosting, or an unreachable canister).
+/// `ic_env` cookie its asset canister sets; else, for a caffeine.ai app,
+/// `backend` from its `/duel.json` (a page for another app's game) or
+/// `backend_canister_id` from its `/env.json` (the app's own backend);
+/// `undefined` when it names none (another kind of hosting, or an
+/// unreachable canister).
 export async function readBackendOf(
   frontend: string
 ): Promise<string | undefined> {
-  return (await cookieBackend(frontend)) ?? (await envJsonBackend(frontend));
+  return (
+    (await cookieBackend(frontend)) ??
+    (await jsonBackend(frontend, "/duel.json", "backend")) ??
+    (await jsonBackend(frontend, "/env.json", "backend_canister_id"))
+  );
 }
 
 async function cookieBackend(frontend: string): Promise<string | undefined> {
@@ -111,11 +117,15 @@ async function cookieBackend(frontend: string): Promise<string | undefined> {
   return undefined;
 }
 
-async function envJsonBackend(frontend: string): Promise<string | undefined> {
-  const text = await fetchText(frontend, "/env.json");
+async function jsonBackend(
+  frontend: string,
+  path: string,
+  field: string
+): Promise<string | undefined> {
+  const text = await fetchText(frontend, path);
   if (text === undefined) return undefined;
   try {
-    const id: unknown = JSON.parse(text).backend_canister_id;
+    const id: unknown = JSON.parse(text)[field];
     return typeof id === "string" ? Principal.fromText(id).toText() : undefined;
   } catch {
     return undefined;

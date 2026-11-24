@@ -165,7 +165,9 @@ section 1, "Packages"). Never rewrite the wire protocol yourself.
 the `ic_env` cookie when present (the live page once its canister
 carries that environment variable, `going-live.md`; a local copy's
 page, step 5) and fall back to a backend id hardcoded in one constant
-(a page served from `localhost`, a builder's own preview, caffeine.ai).
+(a page served from `localhost`, a builder's own preview). In
+caffeine.ai the id goes into `/duel.json` instead (`caffeine.md`,
+section 4), where the Duel dashboard finds it too.
 The constant is `BACKEND`, or the staging copy's id while testing
 against one (step 7); step 7's cloud engine preview page carries the
 cookie, as a live page does. Whenever the page talks to a backend on
@@ -398,6 +400,7 @@ In a builder with its own "go live" action (caffeine.ai), tell the
 user to trigger it instead, and how to read the live page's address
 afterwards: the dashboard registers a caffeine.ai page by that address.
 
-The user then registers the new frontend's canister id on the Duel
-dashboard as its own entry (`going-live.md`, section 5), with their
-own title, description and banner.
+The user then registers the new frontend on the Duel dashboard as its
+own entry (`going-live.md`, section 5), by its canister id or, for a
+caffeine.ai page, its address, with their own title, description and
+banner.

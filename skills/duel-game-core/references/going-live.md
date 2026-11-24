@@ -451,7 +451,7 @@ hosty.live serves it under a custom domain, that domain. A caffeine.ai
 page registers by its address (`https://<name>.caffeine.xyz`), which
 the dashboard turns into the canister id. The dashboard reads the
 backend from the page's `ic_env` cookie (a caffeine.ai page: its
-`/env.json`), checks its
+`/duel.json`, else its `/env.json`), checks its
 `/semantics`, and offers "Make your own frontend" and "Build a bot" for
 it to everyone else. Until then a game is online but unlisted: only
 people who have its address find it.

@@ -539,15 +539,16 @@ canisters.
 
 ## Step 8: Go live
 
+A game built in caffeine.ai goes live with Caffeine's own Go live and
+changes through Caffeine's migrations (`references/caffeine.md`); the
+rest of this step is for hosty.live and icp-cli.
+
 Only when the user asks. Follow `references/going-live.md` step by
 step, and leave the same steps in the project's `README.md`. Keep the
 whole game on one route: through hosty.live (setups 1 and 2; the only
 route from a cloud session, and the right one for a user new to the
 Internet Computer), or with icp-cli (setup 3, on the user's own
 computer only).
-
-A game built in caffeine.ai goes live with Caffeine's own Go live
-(`references/caffeine.md`).
 
 Through hosty.live, the live game is new mainnet canisters, bought
 after the user approves one deploy session. Their ids go into

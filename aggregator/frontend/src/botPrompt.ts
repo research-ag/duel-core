@@ -41,13 +41,13 @@ Work in this order.
 
 2. ${caffeineReference(`3, "A bot for a game already deployed"`)}
 
-3. This app is the bot alone. Keep this project's own setup (with MixinAuthorization, whoever signs in first becomes the admin) and add mops add duel-game-core and mops add promtracker. The bot's page stays on this project's own frontend packages.
+3. This app is the bot alone. Keep this project's own setup and add mops add duel-game-core and mops add promtracker. The bot's page stays on this project's own frontend packages. Register and Unregister accept one caller, owner, a principal written into the backend code as the reference shows: this project's admin role goes to whoever signs in first, so it does not bind the bot to me.
 
-4. The bot's page shows its name, its canister id, and for each level a link that starts a game against it on the game's own page: ${url}/#new&b=<this bot's canister id>:<level> (Default for a bot without levels). For me, signed in with Internet Identity as the admin: Register, which calls register with the game's backend ${backend} and the bot's name, and Unregister.
+4. The bot's page shows its name, its canister id, and for each level a link that starts a game against it on the game's own page: ${url}/#new&b= followed by encodeURIComponent of "<this bot's canister id>:<level>" (Default for a bot without levels). It also has a sign-in with Internet Identity that shows my principal, and the buttons Register, which calls register with the game's backend ${backend} and the bot's name, and Unregister.
 
-5. Then I try it from your preview: its links seat this draft bot at a new table on the real game. Never register the draft.
+5. Then I try it from your preview: its links seat this draft bot at a new table on the real game. Never register the draft. I sign in there and give you the principal it shows: put it into owner.
 
-6. Do not go live until I ask. After Go live I sign in on the live bot's page first, then press Register.
+6. Do not go live until I ask, and not before owner is set. After Go live I sign in on the live bot's page; if it shows another principal, put that one into owner and I go live again. Then I press Register.
 
 If the semantics page is missing, stop and tell me instead of guessing.
 

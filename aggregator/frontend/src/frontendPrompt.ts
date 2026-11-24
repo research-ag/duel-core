@@ -52,7 +52,7 @@ ${CLOSING}`;
 
 3. Get the client library: the npm package @research-ag/duel-game-core${way === "caffeine" ? ", with @icp-sdk/core at ^6.1.1 in both package.json files" : ""}. Never rewrite the wire protocol yourself.
 
-4. Wire the backend id into the frontend: use PUBLIC_CANISTER_ID:backend from the ic_env cookie when present, otherwise a backend id hardcoded in one constant (${backend}). When the page talks to a backend on mainnet, the agent host is https://icp0.io whatever the page's own address is.
+4. Wire the backend id into the frontend: ${way === "caffeine" ? `put it into public/duel.json as { "backend": "${backend}" }, which the page reads and the Duel dashboard finds before this app's own /env.json` : `use PUBLIC_CANISTER_ID:backend from the ic_env cookie when present, otherwise a backend id hardcoded in one constant (${backend})`}. When the page talks to a backend on mainnet, the agent host is https://icp0.io whatever the page's own address is.
 
 5. Test by playing whole games: both seats, every kind of move, an illegal move (the backend's rejection text must show, not a crash), an ending, a rematch.`;
 

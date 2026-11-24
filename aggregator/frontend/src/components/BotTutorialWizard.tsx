@@ -218,6 +218,11 @@ function BuildStep({ way }: { way: Way }) {
           bots, and nothing is spent up to here beyond the credits the AI's work
           uses.
         </p>
+        <p>
+          Sign in on that page with Internet Identity and give the AI the
+          principal it shows: the bot takes registering and unregistering from
+          that principal alone, so nobody else can claim it.
+        </p>
       </>
     );
   return (
@@ -255,10 +260,11 @@ function GoLiveStep({ target, way }: { target: Target; way: Way }) {
         <>
           <p>
             Click <strong>Go live</strong> in caffeine.ai (4 credits, $2). Then
-            open the live bot's page and sign in with Internet Identity right
-            away: whoever signs in first becomes the bot's admin, the one who
-            may register it. Press <strong>Register</strong>: the bot joins the
-            game's list of bots under its name.
+            open the live bot's page and sign in with Internet Identity. If it
+            shows another principal than the preview did, give the AI that one
+            and go live again (an update costs nothing); until then the bot
+            refuses every Register. Press <strong>Register</strong>: the bot
+            joins the game's list of bots under its name.
           </p>
           <p className="hint">
             caffeine.ai picks the canister's subnet. If it is not the game's,

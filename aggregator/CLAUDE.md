@@ -166,8 +166,9 @@ built on (`initialStep`, and `reachable` locking later steps).
     Both test against a local copy of the game. In caffeine.ai the bot
     is an app of its own: its draft page links to the game's page with
     `#new&b=<bot>:<level>`, which seats the draft bot on the live game,
-    and after Go live the user signs in first (Caffeine's admin) and
-    presses Register on the bot's page.
+    and `register` takes only an owner principal written into its code
+    (Caffeine's admin role goes to the first sign-in), which the user
+    reads off the bot's page after signing in.
 - The own and caffeine.ai prompts condense
   `../skills/duel-game-core/SKILL.md` with `references/going-live.md`
   (`gamePrompt.ts`), `references/frontend-for-existing-game.md` and
@@ -248,8 +249,9 @@ balance with a **Top up** page.
   canisters' `http_request` as an anonymous Candid query (no CORS, no
   cookie filtering), reading each frontend's
   `PUBLIC_CANISTER_ID:backend` from its asset canister's `ic_env`
-  cookie, or, without one, `backend_canister_id` from its `/env.json`
-  (a caffeine.ai app's), cached per page load.
+  cookie, or, without one, a caffeine.ai app's `backend` from its
+  `/duel.json` (a page for another app's game) or `backend_canister_id`
+  from its `/env.json` (the app's own backend), cached per page load.
 
 **Registering.** `GameFormModal.tsx` is the register/edit form. Its
 frontend field also takes a caffeine.ai app's live address

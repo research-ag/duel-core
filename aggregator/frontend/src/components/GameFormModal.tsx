@@ -118,42 +118,43 @@ export function GameFormModal({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(undefined);
-
-    const frontendInput = frontendCanisterId.trim();
-    let domain = customDomain.trim();
-    let frontendId: Principal;
-    try {
-      frontendId = Principal.fromText(frontendInput);
-    } catch {
-      const app = frontendInput.startsWith("https://")
-        ? await canisterOfCaffeineApp(frontendInput)
-        : undefined;
-      if (!app) {
-        setError(
-          frontendInput.startsWith("https://")
-            ? "No live caffeine.ai app answers at that address. Use its live address (https://<name>.caffeine.xyz) after Go live, or the canister id."
-            : "Frontend canister id must be a valid principal."
-        );
-        return;
-      }
-      frontendId = Principal.fromText(app);
-      domain ||= new URL(frontendInput).origin;
-    }
-
-    let bannerBytes: Uint8Array | undefined;
-    if (bannerFile) {
-      if (requirements && BigInt(bannerFile.size) > requirements.maxBytes) {
-        setError(`Banner must be at most ${requirements.maxBytes} bytes.`);
-        return;
-      }
-      bannerBytes = new Uint8Array(await bannerFile.arrayBuffer());
-    } else if (!isEdit) {
-      setError("A banner image is required.");
-      return;
-    }
-
+    // Saving from the first await on, so the form cannot close while an
+    // address is still being resolved and then register anyway.
     setSaving(true);
     try {
+      const frontendInput = frontendCanisterId.trim();
+      let domain = customDomain.trim();
+      let frontendId: Principal;
+      try {
+        frontendId = Principal.fromText(frontendInput);
+      } catch {
+        const app = frontendInput.startsWith("https://")
+          ? await canisterOfCaffeineApp(frontendInput)
+          : undefined;
+        if (!app) {
+          setError(
+            frontendInput.startsWith("https://")
+              ? "No live caffeine.ai app answers at that address. Use its live address (https://<name>.caffeine.xyz) after Go live, or the canister id."
+              : "Frontend canister id must be a valid principal."
+          );
+          return;
+        }
+        frontendId = Principal.fromText(app);
+        domain ||= new URL(frontendInput).origin;
+      }
+
+      let bannerBytes: Uint8Array | undefined;
+      if (bannerFile) {
+        if (requirements && BigInt(bannerFile.size) > requirements.maxBytes) {
+          setError(`Banner must be at most ${requirements.maxBytes} bytes.`);
+          return;
+        }
+        bannerBytes = new Uint8Array(await bannerFile.arrayBuffer());
+      } else if (!isEdit) {
+        setError("A banner image is required.");
+        return;
+      }
+
       const cloud = await cloudEngineProblem(frontendId.toText());
       if (cloud) {
         setError(cloud);
