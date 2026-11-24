@@ -43,9 +43,9 @@ Work in this order.
 
 3. This app is the bot alone. Keep this project's own setup and add mops add duel-game-core and mops add promtracker. The bot's page stays on this project's own frontend packages. Register and Unregister accept one caller, owner, a principal written into the backend code as the reference shows: this project's admin role goes to whoever signs in first, so it does not bind the bot to me.
 
-4. The bot's page shows its name, its canister id, and for each level a link that starts a game against it on the game's own page: ${url}/#new&b= followed by encodeURIComponent of "<this bot's canister id>:<level>" (Default for a bot without levels). It also has a sign-in with Internet Identity that shows my principal, and the buttons Register, which calls register with the game's backend ${backend} and the bot's name, and Unregister.
+4. The bot's page shows its name and its canister id; a try-out form that takes the invite link of an access-code table on the game (#t=<table>&c=<code>), the seat the bot takes and the level, and calls the bot's own play with the game's backend ${backend}, that table, seat and code; and for each level a link that starts a game against it on the game's own page, for players once the bot is live: ${url}/#new&b= followed by encodeURIComponent of "<this bot's canister id>:<level>" (Default for a bot without levels). It also has a sign-in with Internet Identity that shows my principal, and the buttons Register, which calls register with the game's backend ${backend} and the bot's name, and Unregister.
 
-5. Then I try it from your preview: its links seat this draft bot at a new table on the real game. Never register the draft. I sign in there and give you the principal it shows: put it into owner.
+5. Then I try the draft at access-code tables only: I open one with "Invite a friend" on the game's page and paste its invite link into your preview's try-out form. Never use the links for that, they open a table anyone can see. Never register the draft. I sign in there and give you the principal it shows: put it into owner.
 
 6. Do not go live until I ask, and not before owner is set. After Go live I sign in on the live bot's page; if it shows another principal, put that one into owner and I go live again. Then I press Register.
 

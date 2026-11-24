@@ -164,9 +164,11 @@ built on (`initialStep`, and `reachable` locking later steps).
     with icp-cli, each ending in the bot's own `register` call with the
     backend id filled in (a bot is never listed on this dashboard).
     Both test against a local copy of the game. In caffeine.ai the bot
-    is an app of its own: its draft page links to the game's page with
-    `#new&b=<bot>:<level>`, which seats the draft bot on the live game,
-    and `register` takes only an owner principal written into its code
+    is an app of its own: its draft page's try-out form seats the draft
+    bot at an access-code table the user opened on the live game (its
+    `#new&b=<bot>:<level>` links, which open a table anyone sees, are
+    for players), and `register` takes only an owner principal written
+    into its code
     (Caffeine's admin role goes to the first sign-in), which the user
     reads off the bot's page after signing in.
 - The own and caffeine.ai prompts condense

@@ -586,23 +586,33 @@ included, so neither binds the bot to its owner.
 
 6. The bot's page, on Caffeine's own frontend packages as they are
    (its generated `backend.ts`, `useActor` and sign-in; no
-   duel-game-core package): the bot's name, its canister id
-   (`backend_canister_id` from `/env.json`), and per level a link that
-   starts a game against it on the game's own page:
-   `<game address>/#new&b=` followed by
-   `encodeURIComponent("<bot canister id>:<level>")`, as the client
-   package's `linkFragment` writes it (`Default` for a bot without
-   levels). The link works before the bot is registered. A sign-in with
-   Internet Identity that shows the signed-in principal, and two
-   buttons, **Register** (`register(<backend id>, <name>)`) and
-   **Unregister**, which the bot accepts from `owner` alone.
+   duel-game-core package):
+   - The bot's name and its canister id (`backend_canister_id` from
+     `/env.json`).
+   - A try-out form: the invite link of an access-code table on the
+     game (`#t=<table>&c=<code>`), the seat the bot takes (`p1` or
+     `p2`, the one the table's creator left free) and the level. It
+     calls the bot's own `play` with the game's backend id, the table,
+     the seat, `?<code>` and the level, and shows the answer;
+     `#seatTaken` means the other seat.
+   - Per level, a link that starts a game against the bot on the
+     game's own page, for players once the bot is live:
+     `<game address>/#new&b=` followed by
+     `encodeURIComponent("<bot canister id>:<level>")`, as the client
+     package's `linkFragment` writes it (`Default` for a bot without
+     levels). It opens a table anyone can see before the bot sits down.
+   - A sign-in with Internet Identity that shows the signed-in
+     principal, and two buttons, **Register**
+     (`register(<backend id>, <name>)`) and **Unregister**, which the
+     bot accepts from `owner` alone.
 
-**Trying it.** On the draft's page the links seat the draft bot at a
-new table on the live game: play whole games at every level, the bot in
-either seat (the link takes `&s=p2` for the player to take the second
-seat), and leave when done. Never register the draft: its canister
-goes back to Caffeine's pool. The user signs in on the draft's page and
-gives you the principal it shows; that goes into `owner`.
+**Trying it.** Only at access-code tables, never through the links: on
+the game's own page the user opens a table with "Invite a friend" and
+copies its invite link, then pastes it into the draft's try-out form,
+which seats the draft bot there. Play whole games at every level, the
+bot in either seat, and leave when done. Never register the draft: its
+canister goes back to Caffeine's pool. The user signs in on the draft's
+page and gives you the principal it shows; that goes into `owner`.
 
 **Going live.** Only when the user asks, and only with `owner` set:
 Go live, then the user signs in on the live bot's page. When it shows

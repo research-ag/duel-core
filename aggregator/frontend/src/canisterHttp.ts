@@ -122,7 +122,7 @@ async function jsonBackend(
   path: string,
   field: string
 ): Promise<string | undefined> {
-  const text = await fetchText(frontend, path);
+  const text = await textOf(frontend, path);
   if (text === undefined) return undefined;
   try {
     const id: unknown = JSON.parse(text)[field];

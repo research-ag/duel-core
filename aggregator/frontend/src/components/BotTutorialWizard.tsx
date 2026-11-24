@@ -207,16 +207,16 @@ function BuildStep({ way }: { way: Way }) {
         <p>
           Caffeine's AI reads the game's rules, published by the game itself,
           and builds the bot with a page of its own. Its preview shows that
-          page: the bot's canister id, and for each level a link that starts a
-          game against the bot on the real game.
+          page, with a try-out form that seats the bot at a table of yours.
         </p>
         <p>
-          Play a few games through those links, at every level. Each one opens a
-          new table on the real game with the bot already seated; leave it when
-          you are done. Ask for changes until it plays the way you want. The
-          preview's bot is a temporary draft: it is not in the game's list of
-          bots, and nothing is spent up to here beyond the credits the AI's work
-          uses.
+          On the game's own page, open a table with “Invite a friend” and copy
+          its invite link, then paste it into the form: the bot sits down at
+          that table, which only the two of you can see. Play a few games that
+          way, at every level, and leave the table when you are done. Ask for
+          changes until it plays the way you want. The preview's bot is a
+          temporary draft: it is not in the game's list of bots, and nothing is
+          spent up to here beyond the credits the AI's work uses.
         </p>
         <p>
           Sign in on that page with Internet Identity and give the AI the
