@@ -124,13 +124,15 @@ built on (`initialStep`, and `reachable` locking later steps).
   other rule of that way lives in the skill, `cloud-session.md` and
   `going-live.md`), and `OWN_RULES`, the opening of the own way's
   prompts, which install the skill with `SKILL_INSTALL`. The caffeine.ai
-  prompts send Caffeine's AI to the skill's `references/caffeine.md` by
-  its raw GitHub address (`frontendPrompt.ts`'s `caffeineReference`; it
-  has no connector) and stop it when it cannot open it; they carry
-  only what that file cannot know (the game's ids, what the user
-  decides). `CloudSessionSetup.tsx`'s `CaffeineSetup` is that way's
-  set-up step; Caffeine's prices are the `CAFFEINE_*` constants. Each
-  prompt function takes the way.
+  prompts send Caffeine's AI to one file of the skill's
+  `references/caffeine/` by its raw GitHub address (`frontendPrompt.ts`'s
+  `caffeineReference` over `CAFFEINE_DIR`; it has no connector), which
+  names the others it needs, and stop it when one does not open or
+  comes back cut off (its fetch returns about the first 10,000
+  characters); they carry only what those files cannot know (the
+  game's ids, what the user decides). `CloudSessionSetup.tsx`'s
+  `CaffeineSetup` is that way's set-up step; Caffeine's prices are the
+  `CAFFEINE_*` constants. Each prompt function takes the way.
 - `TutorialWizard.tsx` ("Build a new game", all three ways) stands
   alone: how it works, the set-up, `gamePrompt.ts`'s prompt finished
   with the user's rules, trying it, going live and the register flow.
@@ -178,9 +180,9 @@ built on (`initialStep`, and `reachable` locking later steps).
   `references/going-live.md` (`gamePrompt.ts`),
   `references/frontend-for-existing-game.md` and
   `bot-for-existing-game.md`, which the hosty.live prompts hand the
-  work to; the caffeine.ai prompts hand it to `references/caffeine.md`
-  (the frontend one keeps the own way's steps around it). Change each
-  pair together.
+  work to; the caffeine.ai prompts hand it to `references/caffeine/`'s
+  `game.md`, `bot.md` and `frontend.md` (the frontend one keeps the own
+  way's steps around it). Change each pair together.
 
 **A listing's backend.** `GameInfoModal.tsx` (the card's info button)
 shows a listing's details and, one click further, its backend:

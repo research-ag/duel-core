@@ -52,7 +52,7 @@ it is due, and every ask is an inter-canister call: quick within a
 subnet, seconds across subnets. Look the subnet up before creating the
 bot's canister, then create it there (`bot-for-existing-game.md`, step
 6, has the commands). caffeine.ai picks a bot's subnet itself
-(`caffeine.md`, section 3).
+(`caffeine/bot-page.md`).
 
 ## Two shapes
 
