@@ -23,7 +23,10 @@ signed by the user. There are three setups, best first:
 | Suits            | anyone, from any device; nothing to install                                                    | a user who already runs a coding agent    | a user who already has an identity and cycles, or scripts |
 
 Setups 1 and 2 are the same route, through hosty.live (section 3);
-setup 3 is icp-cli all the way (section 4). Keep every canister of a
+setup 3 is icp-cli all the way (section 4). A game, bot or frontend
+built in caffeine.ai is none of these: Caffeine builds, hosts and pays
+for it, its Go live puts it online, and its module stays out of the
+module store (`caffeine.md`). Keep every canister of a
 project on one route. Either way the backend's module ends up in
 hosty.live's module store, where other people's frontends and bots
 fetch it by the canister's public module hash (backend README,
@@ -444,8 +447,11 @@ controller (`icp canister settings update <id> -n ic --add-controller
 The dashboard at https://games.ic0.info/ is where players find games.
 The user logs in there (Internet Identity) and registers the frontend
 by its canister id, with a title, a description and a banner, and, if
-hosty.live serves it under a custom domain, that domain. The dashboard
-reads the backend from the page's `ic_env` cookie, checks its
+hosty.live serves it under a custom domain, that domain. A caffeine.ai
+page registers by its address (`https://<name>.caffeine.xyz`), which
+the dashboard turns into the canister id. The dashboard reads the
+backend from the page's `ic_env` cookie (a caffeine.ai page: its
+`/env.json`), checks its
 `/semantics`, and offers "Make your own frontend" and "Build a bot" for
 it to everyone else. Until then a game is online but unlisted: only
 people who have its address find it.

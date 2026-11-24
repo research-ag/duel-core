@@ -1,11 +1,13 @@
 # Every dependency is bundled into app.js (see ../build.js), so
 # script-src needs no CDN allowance. img-src needs `blob:` for banner
-# images (see src/hooks/useBanner.ts). Permissions-Policy denies
+# images (see src/hooks/useBanner.ts). connect-src takes caffeine.xyz
+# for GameFormModal.tsx, which reads the canister id behind a caffeine.ai
+# app's address. Permissions-Policy denies
 # everything except same-origin clipboard-write, which
 # TutorialWizard.tsx's "Copy" buttons need.
 /*
   Cache-Control: public, max-age=0, must-revalidate
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://ic0.app https://*.ic0.app https://icp0.io https://*.icp0.io https://icp-api.io http://localhost:* http://127.0.0.1:*; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none';
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://ic0.app https://*.ic0.app https://icp0.io https://*.icp0.io https://icp-api.io https://*.caffeine.xyz http://localhost:* http://127.0.0.1:*; img-src 'self' data: blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none';
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff

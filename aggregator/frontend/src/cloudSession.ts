@@ -5,9 +5,10 @@
 // skills/duel-game-core/references/going-live.md, section 1, and
 // cloud-session.md. Keep them in step.
 
-/// The three ways through the guides: caffeine.ai alone; hosty.live,
-/// from a cloud session or an agent on the computer; or everything the
-/// user's own, icp-cli on their computer.
+/// The three ways through the guides: caffeine.ai alone (its AI builds,
+/// its preview tests, its Go live hosts); hosty.live, from a cloud session
+/// or an agent on the computer; or everything the user's own, icp-cli on
+/// their computer.
 export type Way = "caffeine" | "hosty" | "own";
 
 export const CONNECTOR_URL = "https://api.hosty.live/mcp";

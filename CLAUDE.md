@@ -409,8 +409,9 @@ deploys all of them to the IC.
   by MCP or web UI, or icp-cli and cycles, then the dashboard), a
   headless whole-game check (`play-test.mjs.template`), changing a live
   game (bot support, a leaderboard; the `check-upgrade.mjs.template`
-  stable-compatibility check against the module the canister runs), and
-  a new frontend or a bot for an already-deployed game. The
+  stable-compatibility check against the module the canister runs), a
+  new frontend or a bot for an already-deployed game, and all of it in
+  caffeine.ai (`references/caffeine.md`). The
   Host/app/index templates carry bot support and the leaderboard as
   commented lines marked BOTS/LEADERBOARD. Read it first for any
   game-building task, here or elsewhere.

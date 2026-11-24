@@ -1,12 +1,14 @@
 // "Build a bot": a canister player for a game already listed here, built
-// by an AI coding agent from botPrompt.ts's prompt. Two ways, picked at
-// the end of "How it works": through hosty.live (a Claude Code cloud
-// session first, or an agent on the computer) or everything the
-// developer's own (icp-cli, their key and cycles). The agent tests it
-// against a local copy of the game made from the module the backend runs,
-// then puts it online and has it register itself with the game (a bot is
-// never listed on this dashboard). Opened from a game's info dialog it starts filled in
-// for that game; from the header it starts by picking one.
+// by an AI builder from botPrompt.ts's prompt. Three ways, picked at the
+// end of "How it works": caffeine.ai (an app of its own, tried from its
+// preview on the real game, registered from its page after Go live),
+// through hosty.live (a Claude Code cloud session first, or an agent on
+// the computer) or everything the developer's own (icp-cli, their key and
+// cycles). The last two test it against a local copy of the game made
+// from the module the backend runs, then put it online and have it
+// register itself with the game (a bot is never listed on this
+// dashboard). Opened from a game's info dialog it starts filled in for
+// that game; from the header it starts by picking one.
 
 import { useState } from "react";
 
@@ -16,6 +18,7 @@ import type { Way } from "../cloudSession";
 import type { AggregatorActor, GameView, Target } from "../types";
 import { gameUrl } from "../types";
 import {
+  CaffeineSetup,
   DeploySessionNote,
   HostyCycles,
   HostySetup,
@@ -27,8 +30,6 @@ import { CodeBlock } from "./CodeBlock";
 import { GamePicker } from "./GamePicker";
 import { Wizard } from "./Wizard";
 import { WayPicker } from "./WayPicker";
-
-type BotWay = Exclude<Way, "caffeine">;
 
 const STEPS = [
   "Pick a game",
@@ -53,7 +54,7 @@ export function BotTutorialWizard({
   onClose: () => void;
 }) {
   const [target, setTarget] = useState(initial);
-  const [way, setWay] = useState<BotWay>();
+  const [way, setWay] = useState<Way>();
   return (
     <Wizard
       kicker="Build a bot"
@@ -97,10 +98,7 @@ export function BotTutorialWizard({
               }}
             />
           )}
-          {target &&
-            way &&
-            step === 2 &&
-            (way === "hosty" ? <HostySetup /> : <OwnSetup />)}
+          {target && way && step === 2 && <SetupStep way={way} />}
           {target && way && step === 3 && (
             <PromptStep target={target} way={way} />
           )}
@@ -118,8 +116,8 @@ function HowItWorksStep({
   way,
   onPick,
 }: {
-  way: BotWay | undefined;
-  onPick: (way: BotWay) => void;
+  way: Way | undefined;
+  onPick: (way: Way) => void;
 }) {
   return (
     <>
@@ -131,15 +129,21 @@ function HowItWorksStep({
         else. The game itself stays untouched.
       </p>
       <p>
-        You don't write it yourself. An AI coding tool does, from a prompt we
-        give you plus your own description of how the bot should play. It tests
-        the bot against a private copy of the game before anything goes online,
-        so a browser-based app builder can't make one. Pick your way:
+        You don't write it yourself. An AI does, from a prompt we give you plus
+        your own description of how the bot should play. Through hosty.live or
+        your own tools, it tests the bot against a private copy of the game
+        before anything goes online; in caffeine.ai you try it on the real game
+        from its preview. Pick your way:
       </p>
       <WayPicker
         picked={way}
         onPick={onPick}
         options={[
+          {
+            way: "caffeine",
+            title: "caffeine.ai",
+            note: "A website where you describe an app in a chat. Its AI builds the bot as an app of its own, you try it against the real game, and it goes live when you say so. A new account comes with $7.50 of credits; going live costs $2.",
+          },
           {
             way: "hosty",
             title: "Through hosty.live",
@@ -156,13 +160,21 @@ function HowItWorksStep({
   );
 }
 
-function PromptStep({ target, way }: { target: Target; way: BotWay }) {
+function SetupStep({ way }: { way: Way }) {
+  if (way === "hosty") return <HostySetup />;
+  if (way === "own") return <OwnSetup />;
+  return <CaffeineSetup what="the bot is an app of its own, apart from the game" />;
+}
+
+function PromptStep({ target, way }: { target: Target; way: Way }) {
   const prompt = botPrompt(target, way);
   return (
     <>
       <p>
-        This prompt is filled in for <strong>{target.game.title}</strong>. Paste
-        it into the session (on your computer: into your coding tool):
+        This prompt is filled in for <strong>{target.game.title}</strong>.{" "}
+        {way === "caffeine"
+          ? "Start a new app on caffeine.ai and paste it into its chat:"
+          : "Paste it into the session (on your computer: into your coding tool):"}
       </p>
       <CodeBlock
         code={prompt}
@@ -177,16 +189,37 @@ function PromptStep({ target, way }: { target: Target; way: BotWay }) {
       />
       <p className="hint">
         You don't need to understand the prompt. It points the AI at the game's
-        rules and at the framework's playbook for exactly this task: where the
-        game's program is, how to test, and what not to touch. The AI installs
-        the tools it needs, or tells you how.
+        rules and at the framework's playbook for exactly this task: how to
+        test, and what not to touch.
+        {way === "caffeine"
+          ? " If it asks questions first, answer them or say “just build it”."
+          : " The AI installs the tools it needs, or tells you how."}
       </p>
       {way === "hosty" && <OpenNote />}
     </>
   );
 }
 
-function BuildStep({ way }: { way: BotWay }) {
+function BuildStep({ way }: { way: Way }) {
+  if (way === "caffeine")
+    return (
+      <>
+        <p>
+          Caffeine's AI reads the game's rules, published by the game itself,
+          and builds the bot with a page of its own. Its preview shows that
+          page: the bot's canister id, and for each level a link that starts a
+          game against the bot on the real game.
+        </p>
+        <p>
+          Play a few games through those links, at every level. Each one opens a
+          new table on the real game with the bot already seated; leave it when
+          you are done. Ask for changes until it plays the way you want. The
+          preview's bot is a temporary draft: it is not in the game's list of
+          bots, and nothing is spent up to here beyond the credits the AI's work
+          uses.
+        </p>
+      </>
+    );
   return (
     <>
       <p>The AI works through it on its own:</p>
@@ -213,12 +246,26 @@ function BuildStep({ way }: { way: BotWay }) {
   );
 }
 
-function GoLiveStep({ target, way }: { target: Target; way: BotWay }) {
+function GoLiveStep({ target, way }: { target: Target; way: Way }) {
   const { game, backend } = target;
   const unregister = `icp canister call bot unregister '(principal "${backend}")' -e ic`;
   return (
     <>
-      {way === "hosty" ? (
+      {way === "caffeine" ? (
+        <>
+          <p>
+            Click <strong>Go live</strong> in caffeine.ai (4 credits, $2). Then
+            open the live bot's page and sign in with Internet Identity right
+            away: whoever signs in first becomes the bot's admin, the one who
+            may register it. Press <strong>Register</strong>: the bot joins the
+            game's list of bots under its name.
+          </p>
+          <p className="hint">
+            caffeine.ai picks the canister's subnet. If it is not the game's,
+            each of the bot's moves takes a few seconds.
+          </p>
+        </>
+      ) : way === "hosty" ? (
         <>
           <p>
             Before paying anything, ask the session which subnet the game is on.
@@ -275,7 +322,11 @@ function GoLiveStep({ target, way }: { target: Target; way: BotWay }) {
         </a>{" "}
         and challenge your bot from its list of bots. Registering again renames
         it; unregistering takes it off the list
-        {way === "hosty" ? " (ask your AI)." : ":"}
+        {way === "hosty"
+          ? " (ask your AI)."
+          : way === "caffeine"
+            ? " (Unregister on the bot's page)."
+            : ":"}
       </p>
       {way === "own" && <CodeBlock code={unregister} />}
     </>

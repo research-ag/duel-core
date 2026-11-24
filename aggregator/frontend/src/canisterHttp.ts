@@ -2,8 +2,9 @@
 // anonymous agent calls their `http_request` as a Candid query, so no
 // CORS and no `Set-Cookie` filtering stand in the way. Used to find the
 // backend a listed frontend plays (its asset canister's `ic_env`
-// cookie, read fresh every page load since a frontend can relink at any
-// time) and to read a duel-game-core backend's `/semantics`.
+// cookie, or a caffeine.ai app's `/env.json`, read fresh every page load
+// since a frontend can relink at any time) and to read a duel-game-core
+// backend's `/semantics`.
 
 import {
   Actor,
@@ -83,12 +84,17 @@ async function httpGet(canister: string, path: string): Promise<HttpResponse> {
   });
 }
 
-/// `PUBLIC_CANISTER_ID:backend` from the `ic_env` cookie the frontend's
-/// asset canister sets, or `undefined` when it sets none (another kind
-/// of hosting, or an unreachable canister).
+/// The backend a frontend plays: `PUBLIC_CANISTER_ID:backend` from the
+/// `ic_env` cookie its asset canister sets, else `backend_canister_id`
+/// from its `/env.json` (a caffeine.ai app's), or `undefined` when it
+/// names none (another kind of hosting, or an unreachable canister).
 export async function readBackendOf(
   frontend: string
 ): Promise<string | undefined> {
+  return (await cookieBackend(frontend)) ?? (await envJsonBackend(frontend));
+}
+
+async function cookieBackend(frontend: string): Promise<string | undefined> {
   const res = await httpGet(frontend, "/");
   for (const [name, value] of res.headers) {
     if (name.toLowerCase() !== "set-cookie" || !value.startsWith("ic_env="))
@@ -103,6 +109,41 @@ export async function readBackendOf(
     }
   }
   return undefined;
+}
+
+async function envJsonBackend(frontend: string): Promise<string | undefined> {
+  const text = await fetchText(frontend, "/env.json");
+  if (text === undefined) return undefined;
+  try {
+    const id: unknown = JSON.parse(text).backend_canister_id;
+    return typeof id === "string" ? Principal.fromText(id).toText() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/// The canister behind a caffeine.ai app's address
+/// (`https://<name>.caffeine.xyz`), from the `x-ic-canister-id` header
+/// every IC boundary node exposes to any origin; `undefined` for any
+/// other address, or none answering. `_headers`' CSP allows these hosts.
+export async function canisterOfCaffeineApp(
+  address: string
+): Promise<string | undefined> {
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" || !url.hostname.endsWith(".caffeine.xyz"))
+    return undefined;
+  try {
+    const res = await fetch(url.origin, { method: "HEAD" });
+    const id = res.headers.get("x-ic-canister-id");
+    return id ? Principal.fromText(id).toText() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const backends = new Map<string, Promise<string | undefined>>();

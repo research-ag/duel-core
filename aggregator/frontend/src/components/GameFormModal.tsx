@@ -1,7 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Principal } from "@icp-sdk/core/principal";
 
-import { onCloudEngine, readBackendOf } from "../canisterHttp";
+import {
+  canisterOfCaffeineApp,
+  onCloudEngine,
+  readBackendOf,
+} from "../canisterHttp";
 import { invalidateBanner, useBanner } from "../hooks/useBanner";
 import type {
   AggregatorActor,
@@ -115,12 +119,25 @@ export function GameFormModal({
     e.preventDefault();
     setError(undefined);
 
+    const frontendInput = frontendCanisterId.trim();
+    let domain = customDomain.trim();
     let frontendId: Principal;
     try {
-      frontendId = Principal.fromText(frontendCanisterId.trim());
+      frontendId = Principal.fromText(frontendInput);
     } catch {
-      setError("Frontend canister id must be a valid principal.");
-      return;
+      const app = frontendInput.startsWith("https://")
+        ? await canisterOfCaffeineApp(frontendInput)
+        : undefined;
+      if (!app) {
+        setError(
+          frontendInput.startsWith("https://")
+            ? "No live caffeine.ai app answers at that address. Use its live address (https://<name>.caffeine.xyz) after Go live, or the canister id."
+            : "Frontend canister id must be a valid principal."
+        );
+        return;
+      }
+      frontendId = Principal.fromText(app);
+      domain ||= new URL(frontendInput).origin;
     }
 
     let bannerBytes: Uint8Array | undefined;
@@ -135,7 +152,6 @@ export function GameFormModal({
       return;
     }
 
-    const domain = customDomain.trim();
     setSaving(true);
     try {
       const cloud = await cloudEngineProblem(frontendId.toText());
@@ -272,6 +288,10 @@ export function GameFormModal({
               required
               placeholder="rno2w-sqaaa-aaaaa-aaacq-cai"
             />
+            <span className="hint">
+              Its canister id, or a caffeine.ai app's live address
+              (https://&lt;name&gt;.caffeine.xyz)
+            </span>
           </div>
 
           <div className="field">

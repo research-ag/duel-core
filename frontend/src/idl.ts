@@ -7,9 +7,21 @@
 //     View: IDL.Record({ /* ... */ }),     // what one seat sees of the state
 //     Options: IDL.Record({}),             // a table's options
 //   }));
-//   const actor = Actor.createActor(idlFactory, { agent, canisterId });
+//   const actor = Actor.createActor<DuelActor>(idlFactory, { agent, canisterId });
 
 import type { IDL as IDLNS } from "@icp-sdk/core/candid";
+
+import type { BotsActor } from "./bots.js";
+import type { TransportActor } from "./transport.js";
+
+/// The `IDL` an interface factory is declared to receive: the type
+/// constructors only.
+export type CandidIDL = Parameters<IDLNS.InterfaceFactory>[0]["IDL"];
+
+/// The methods of an actor built on `makeIdlFactory`, for
+/// `Actor.createActor<DuelActor>`: what `connectTransport` and the bot and
+/// leaderboard overlays call.
+export type DuelActor = TransportActor & BotsActor;
 
 export type BuildGameTypes = (args: { IDL: typeof IDLNS }) => {
   Action: IDLNS.Type;
@@ -47,7 +59,7 @@ export function buildEngineTypes({
   View: GameView,
   Options,
 }: {
-  IDL: typeof IDLNS;
+  IDL: CandidIDL;
   Action: IDLNS.Type;
   View: IDLNS.Type;
   Options: IDLNS.Type;
@@ -194,9 +206,10 @@ export function buildEngineTypes({
 /// state is mutated only through the `duel_*` transport methods.
 /// `get_leaderboard`/`register_bot`/`unregister_bot`/`list_bots` are
 /// declared unconditionally; a client that never calls them pays nothing.
-export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
-  return ({ IDL }: { IDL: typeof IDLNS }) => {
-    const { Action, View, Options } = buildGameTypes({ IDL });
+export function makeIdlFactory(buildGameTypes: BuildGameTypes): IDLNS.InterfaceFactory {
+  return ({ IDL }) => {
+    // `Actor.createActor` passes the whole `IDL` namespace.
+    const { Action, View, Options } = buildGameTypes({ IDL: IDL as typeof IDLNS });
     const t = buildEngineTypes({ IDL, Action, View, Options });
 
     return IDL.Service({
@@ -222,7 +235,7 @@ export function makeIdlFactory(buildGameTypes: BuildGameTypes) {
 /// An `idlFactory` for a discovered bot's own `play(host, tableId, seat,
 /// code, complexity)`, called directly on the bot's canister (never through
 /// `transport.mo`). Reuses `buildEngineTypes` for `Seat`/`TableId`/`Err`.
-export function buildBotPlayIdlFactory({ IDL }: { IDL: typeof IDLNS }) {
+export function buildBotPlayIdlFactory({ IDL }: { IDL: CandidIDL }) {
   const t = buildEngineTypes({ IDL, Action: IDL.Null, View: IDL.Null, Options: IDL.Null });
   const JoinOk = IDL.Variant({ staged: t.Seat, started: t.Seat });
   const Res = IDL.Variant({ ok: JoinOk, err: t.Err });

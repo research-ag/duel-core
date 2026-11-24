@@ -1,11 +1,12 @@
 // A step-by-step guide for a developer who has NOT built a game yet — the
 // counterpart to GameFormModal's "register a game you already built" flow.
-// Two ways, picked at the end of "How it works": through hosty.live (a
-// Claude Code cloud session or an agent on the computer builds and tests
-// the game from gamePrompt.ts's prompt, free cloud engine canisters for
-// the first look, bought ones to go live), or everything the developer's
-// own (icp-cli, their key and cycles). Ends with the same registration
-// form the existing flow uses.
+// Three ways, picked at the end of "How it works": caffeine.ai (its AI
+// builds the game from gamePrompt.ts's prompt, the user plays its
+// preview, Go live hosts it), through hosty.live (a Claude Code cloud
+// session or an agent on the computer builds and tests the game, free
+// cloud engine canisters for the first look, bought ones to go live), or
+// everything the developer's own (icp-cli, their key and cycles). Ends
+// with the same registration form the existing flow uses.
 
 import { useState } from "react";
 
@@ -13,6 +14,7 @@ import { claudeCodeLink, ENV_NAME } from "../cloudSession";
 import type { Way } from "../cloudSession";
 import { gamePrompt } from "../gamePrompt";
 import {
+  CaffeineSetup,
   DeploySessionNote,
   HostyCycles,
   HostySetup,
@@ -23,8 +25,6 @@ import {
 import { CodeBlock } from "./CodeBlock";
 import { Wizard } from "./Wizard";
 import { WayPicker } from "./WayPicker";
-
-type GameWay = Exclude<Way, "caffeine">;
 
 const STEPS = [
   "How it works",
@@ -47,7 +47,7 @@ export function TutorialWizard({
   onClose: () => void;
   onRegister: () => void;
 }) {
-  const [way, setWay] = useState<GameWay>();
+  const [way, setWay] = useState<Way>();
   return (
     <Wizard
       kicker="Build a new game"
@@ -71,13 +71,13 @@ export function TutorialWizard({
               }}
             />
           )}
-          {way &&
-            step === 1 &&
-            (way === "hosty" ? <HostySetup /> : <OwnSetup />)}
+          {way && step === 1 && <SetupStep way={way} />}
           {way && step === 2 && <PromptStep way={way} />}
           {way && step === 3 && <TryStep way={way} />}
           {way && step === 4 && <GoLiveStep way={way} />}
-          {way && step === 5 && <RegisterStep isLoggedIn={isLoggedIn} />}
+          {way && step === 5 && (
+            <RegisterStep way={way} isLoggedIn={isLoggedIn} />
+          )}
         </>
       )}
     />
@@ -88,8 +88,8 @@ function HowItWorksStep({
   way,
   onPick,
 }: {
-  way: GameWay | undefined;
-  onPick: (way: GameWay) => void;
+  way: Way | undefined;
+  onPick: (way: Way) => void;
 }) {
   return (
     <>
@@ -103,6 +103,11 @@ function HowItWorksStep({
         picked={way}
         onPick={onPick}
         options={[
+          {
+            way: "caffeine",
+            title: "caffeine.ai",
+            note: "A website where you describe an app in a chat. Its AI builds the game, you play it in its preview, and it goes live when you say so. Nothing to install; a new account comes with $7.50 of credits, and going live costs $2.",
+          },
           {
             way: "hosty",
             title: "Through hosty.live",
@@ -119,12 +124,20 @@ function HowItWorksStep({
   );
 }
 
-function PromptStep({ way }: { way: GameWay }) {
+function SetupStep({ way }: { way: Way }) {
+  if (way === "hosty") return <HostySetup />;
+  if (way === "own") return <OwnSetup />;
+  return <CaffeineSetup what="the game is one app" />;
+}
+
+function PromptStep({ way }: { way: Way }) {
   const prompt = gamePrompt(way);
   return (
     <>
       <p>
-        Paste this into the session{way === "own" ? " (your coding tool)" : ""}:
+        {way === "caffeine"
+          ? "Start a new app on caffeine.ai and paste this into its chat:"
+          : `Paste this into the session${way === "own" ? " (your coding tool)" : ""}:`}
       </p>
       <CodeBlock
         code={prompt}
@@ -138,19 +151,24 @@ function PromptStep({ way }: { way: GameWay }) {
         }
       />
       <p className="hint">
-        The prompt points the AI at the framework's playbook, which has it build
-        every piece of the game and test it by playing whole games against
-        itself before it asks you to look.
+        {way === "caffeine"
+          ? "The prompt points Caffeine's AI at the framework's playbook for caffeine.ai, which has it build every piece of the game. If it asks questions first, answer them or say “just build it”."
+          : "The prompt points the AI at the framework's playbook, which has it build every piece of the game and test it by playing whole games against itself before it asks you to look."}
       </p>
       {way === "hosty" && <OpenNote />}
     </>
   );
 }
 
-function TryStep({ way }: { way: GameWay }) {
+function TryStep({ way }: { way: Way }) {
   return (
     <>
-      {way === "hosty" ? (
+      {way === "caffeine" ? (
+        <p>
+          When it has built the game, caffeine.ai shows it in its preview: a
+          draft, on temporary canisters of its own.
+        </p>
+      ) : way === "hosty" ? (
         <p>
           When its own tests pass, the AI puts the game on free{" "}
           <strong>cloud engine</strong> canisters in your hosty.live account (no
@@ -176,14 +194,29 @@ function TryStep({ way }: { way: GameWay }) {
           they cannot be registered here.
         </p>
       )}
+      {way === "caffeine" && (
+        <p className="hint">
+          The draft is for testing: after about two hours without changes
+          caffeine.ai starts it again empty, and it cannot be registered here.
+        </p>
+      )}
     </>
   );
 }
 
-function GoLiveStep({ way }: { way: GameWay }) {
+function GoLiveStep({ way }: { way: Way }) {
   return (
     <>
-      {way === "hosty" ? (
+      {way === "caffeine" ? (
+        <p>
+          Click <strong>Go live</strong> in caffeine.ai (4 credits, $2). The game
+          gets new, permanent canisters and its address,{" "}
+          <code>https://&lt;name&gt;.caffeine.xyz</code>. Later changes are
+          built in the same app and go live into the same canisters, keeping
+          the address and the players' tables (a change of the rules ends the
+          games in progress).
+        </p>
+      ) : way === "hosty" ? (
         <>
           <HostyCycles cost="A game costs about 2.5 TC (a few dollars), about 4 TC with a bot." />
           <p>
@@ -213,21 +246,39 @@ function GoLiveStep({ way }: { way: GameWay }) {
       )}
       <p>
         The game is online but unlisted: only who has its address finds it,
-        until you register it in the next step. Note the live{" "}
-        <strong>frontend canister id</strong> (the <code>xxxxx-…-cai</code>{" "}
-        code), which the registration asks for.
+        until you register it in the next step.{" "}
+        {way === "caffeine" ? (
+          <>
+            Note its live <strong>address</strong>, which the registration
+            asks for.
+          </>
+        ) : (
+          <>
+            Note the live <strong>frontend canister id</strong> (the{" "}
+            <code>xxxxx-…-cai</code> code), which the registration asks for.
+          </>
+        )}
       </p>
     </>
   );
 }
 
-function RegisterStep({ isLoggedIn }: { isLoggedIn: boolean }) {
+function RegisterStep({
+  way,
+  isLoggedIn,
+}: {
+  way: Way;
+  isLoggedIn: boolean;
+}) {
   return (
     <>
       <p>
         Last step — list your game on this dashboard so players can find it.
-        You'll need the frontend canister id from the previous step, a title, a
-        short description, and a banner image.
+        You'll need{" "}
+        {way === "caffeine"
+          ? "the live address from the previous step (paste it into the frontend canister field: the form finds the canister id and links the card to that address)"
+          : "the frontend canister id from the previous step"}
+        , a title, a short description, and a banner image.
       </p>
       {isLoggedIn ? (
         <p>Click "Register your game" below to open the registration form.</p>

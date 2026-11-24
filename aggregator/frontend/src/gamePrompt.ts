@@ -1,15 +1,16 @@
-// The prompt a developer hands to an AI coding agent to get a whole new
-// game built from their rules, one per way: through hosty.live (a Claude
-// Code cloud session first) or everything the user's own (icp-cli on
-// their computer). The procedure behind it is
-// skills/duel-game-core/SKILL.md and its references/going-live.md. Keep
-// them in step.
+// The prompt a developer hands to an AI builder to get a whole new game
+// built from their rules, one per way: caffeine.ai, through hosty.live
+// (a Claude Code cloud session first) or everything the user's own
+// (icp-cli on their computer). The procedure behind it is
+// skills/duel-game-core/SKILL.md and its references/going-live.md, and
+// references/caffeine.md for caffeine.ai. Keep them in step.
 
 import { loadSkill, OWN_RULES, SKILL_INSTALL } from "./cloudSession";
 import type { Way } from "./cloudSession";
-import { REPO } from "./frontendPrompt";
+import { caffeineReference, REPO } from "./frontendPrompt";
 
-export function gamePrompt(way: Exclude<Way, "caffeine">): string {
+export function gamePrompt(way: Way): string {
+  if (way === "caffeine") return caffeineGamePrompt();
   return way === "own" ? ownGamePrompt() : hostyGamePrompt();
 }
 
@@ -22,6 +23,24 @@ function hostyGamePrompt(): string {
   return `${OPENING}
 
 ${loadSkill()} Put the game live on mainnet only when I say so.
+
+${CLOSING}`;
+}
+
+function caffeineGamePrompt(): string {
+  return `${OPENING}
+
+Work in this order.
+
+1. ${caffeineReference(`1, "A game"`)}
+
+2. Keep this project's own setup: its mops.toml, MixinAuthorization, the migration chain and the React frontend. Add the framework to it: mops add duel-game-core and mops add promtracker, and the npm package @research-ag/duel-game-core in the frontend, with @icp-sdk/core at ^6.1.1 in both package.json files.
+
+3. Build the whole game: the rules with their SEMANTICS text (src/backend/lib/Rules.mo), the host (main.mo, mixins/DuelApi.mo and the first migration, as the reference shows them) and the page (a GamePlugin and the reference's wiring). Players need no sign-in. Make the design calls yourself; ask me only where my rules are genuinely ambiguous about the game itself.
+
+4. Then I play it in your preview from two browsers, or a normal and a private window: one opens a table with "Invite a friend", the other joins by its invite link. Every later change keeps the migrations as the reference's section 2 says.
+
+5. Do not go live until I say so. If I ask for bots or a leaderboard, the reference covers both.
 
 ${CLOSING}`;
 }

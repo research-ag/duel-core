@@ -31,7 +31,8 @@ rest:
 - **A browser-based builder** (caffeine.ai), which runs no shell and
   needs no hosty.live: skip the steps that say so; the semantics text
   is sufficient to build from, and the builder's own "go live" action
-  puts the page online (step 8).
+  puts the page online (step 8). In caffeine.ai, `caffeine.md`, section
+  4, has the project's wiring.
 
 ## 1. Resolve the backend id
 
@@ -157,7 +158,8 @@ is no `mops.toml`).
 
 In a builder with its own project layout (caffeine.ai: React, Vite),
 keep its layout and add the `@research-ag/duel-game-core` npm package
-to it. Never rewrite the wire protocol yourself.
+to it (in caffeine.ai with `@icp-sdk/core` at `^6.1.1`, `caffeine.md`,
+section 1, "Packages"). Never rewrite the wire protocol yourself.
 
 **Backend id in the frontend.** Read `PUBLIC_CANISTER_ID:backend` from
 the `ic_env` cookie when present (the live page once its canister
@@ -394,7 +396,7 @@ Without a way to deploy for the user, tell them the steps from the
 
 In a builder with its own "go live" action (caffeine.ai), tell the
 user to trigger it instead, and how to read the live page's address
-and its frontend canister id afterwards.
+afterwards: the dashboard registers a caffeine.ai page by that address.
 
 The user then registers the new frontend's canister id on the Duel
 dashboard as its own entry (`going-live.md`, section 5), with their

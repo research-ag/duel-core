@@ -1,23 +1,20 @@
-// The prompt a developer hands to an AI coding agent to get a bot for a
-// listed game, one per way: through hosty.live (a Claude Code cloud
-// session first) or everything the user's own (icp-cli on their
-// computer). The procedure behind it is
-// skills/duel-game-core/references/bot-for-existing-game.md. Keep the
-// two in step.
+// The prompt a developer hands to an AI builder to get a bot for a
+// listed game, one per way: caffeine.ai, through hosty.live (a Claude
+// Code cloud session first) or everything the user's own (icp-cli on
+// their computer). The procedure behind it is
+// skills/duel-game-core/references/bot-for-existing-game.md, and
+// references/caffeine.md for caffeine.ai. Keep them in step.
 
 import { loadSkill, OWN_RULES, SKILL_INSTALL } from "./cloudSession";
 import type { Way } from "./cloudSession";
-import { RAW, REPO } from "./frontendPrompt";
+import { caffeineReference, RAW, REPO } from "./frontendPrompt";
 import type { Target } from "./types";
 import { gameUrl } from "./types";
 
 const CLOSING = `Here is the bot I want (its name, how it should play, and any difficulty levels):
 `;
 
-export function botPrompt(
-  { game, backend }: Target,
-  way: Exclude<Way, "caffeine">
-): string {
+export function botPrompt({ game, backend }: Target, way: Way): string {
   const url = gameUrl(game);
   const ref = `${RAW}/skills/duel-game-core/references`;
   const subnetLookup = `curl -sf https://ic-api.internetcomputer.org/api/v3/canisters/${backend} | grep -o '"subnet_id":"[^"]*"'`;
@@ -32,6 +29,27 @@ The game is "${game.title}", playable at ${url}. Its backend canister is ${backe
     return `${intro}
 
 ${loadSkill("references/bot-for-existing-game.md")} Put nothing online and buy no canister until I ask.
+
+${CLOSING}`;
+
+  if (way === "caffeine")
+    return `${intro}
+
+Work in this order.
+
+1. Learn the game from https://${backend}.raw.icp0.io/semantics — plain text with the rules, who moves when, the variants, and the exact Candid types of View (what a seat sees, headed VIEW, or STATE in older games), Action and Options. This is the whole specification; there is no source code to read. Fetch any other path it mentions.
+
+2. ${caffeineReference(`3, "A bot for a game already deployed"`)}
+
+3. This app is the bot alone. Keep this project's own setup (with MixinAuthorization, whoever signs in first becomes the admin) and add mops add duel-game-core and mops add promtracker. The bot's page stays on this project's own frontend packages.
+
+4. The bot's page shows its name, its canister id, and for each level a link that starts a game against it on the game's own page: ${url}/#new&b=<this bot's canister id>:<level> (Default for a bot without levels). For me, signed in with Internet Identity as the admin: Register, which calls register with the game's backend ${backend} and the bot's name, and Unregister.
+
+5. Then I try it from your preview: its links seat this draft bot at a new table on the real game. Never register the draft.
+
+6. Do not go live until I ask. After Go live I sign in on the live bot's page first, then press Register.
+
+If the semantics page is missing, stop and tell me instead of guessing.
 
 ${CLOSING}`;
 

@@ -1,7 +1,8 @@
 // The setup steps the guides share (cloudSession.ts has the texts): the
 // hosty.live connector, then either a Claude Code cloud session (with the
 // API token way for a plan without connectors) or an agent on the
-// computer, and the cycles each way pays for going live with.
+// computer, and the cycles each way pays for going live with; a
+// caffeine.ai account; icp-cli on the computer.
 
 import { useState } from "react";
 
@@ -352,6 +353,29 @@ export function IcpIdentitySteps({ cycles }: { cycles: string }) {
         arrived:
         <CodeBlock code="icp cycles balance -e ic" />
       </li>
+    </>
+  );
+}
+
+/// A caffeine.ai account, and what its credits pay for.
+export function CaffeineSetup({ what }: { what: string }) {
+  return (
+    <>
+      <p>
+        Sign up at{" "}
+        <a href="https://caffeine.ai" target="_blank" rel="noreferrer">
+          caffeine.ai
+        </a>
+        . A new account starts on the Free plan with 15 welcome credits
+        ($7.50, valid for 30 days). Credits pay for the AI's work, charged by
+        how much it reads and writes, and <strong>Go live</strong> costs 4
+        credits ($2) for each app: {what}.
+      </p>
+      <p className="hint">
+        For more, buy credits or pick a plan with a monthly allowance from your
+        profile menu. Caffeine keeps a live app running and pays for it from
+        your credits.
+      </p>
     </>
   );
 }

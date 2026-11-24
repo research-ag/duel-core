@@ -2,7 +2,7 @@
 // game already listed here, written for someone who knows nothing about
 // the Internet Computer or coding. Three ways, picked at the end of "How
 // it works": caffeine.ai (chat, builds and hosts the app itself, paid
-// plan), hosty.live (a Claude Code cloud session or an agent on the
+// with its credits), hosty.live (a Claude Code cloud session or an agent on the
 // computer; a free cloud engine preview first, then a canister paid by
 // card), or everything the player's own (icp-cli, their key and cycles).
 // Opened from a game's info dialog it starts filled in for that game;
@@ -15,6 +15,7 @@ import type { Way } from "../cloudSession";
 import { frontendPrompt } from "../frontendPrompt";
 import type { AggregatorActor, GameView, Target } from "../types";
 import {
+  CaffeineSetup,
   DeploySessionNote,
   HostyCycles,
   HostySetup,
@@ -147,7 +148,7 @@ function HowItWorksStep({
           {
             way: "caffeine",
             title: "caffeine.ai",
-            note: "A website where you describe an app in a chat. It builds the page, shows it to you, and puts it online when you say so. Needs a paid plan.",
+            note: "A website where you describe an app in a chat. It builds the page, shows it to you, and puts it online when you say so. A new account comes with $7.50 of credits; going live costs $2.",
           },
           {
             way: "hosty",
@@ -168,17 +169,7 @@ function HowItWorksStep({
 function SetupStep({ way }: { way: Way }) {
   if (way === "hosty") return <HostySetup />;
   if (way === "own") return <OwnSetup />;
-  return (
-    <p>
-      Sign up at{" "}
-      <a href="https://caffeine.ai" target="_blank" rel="noreferrer">
-        caffeine.ai
-      </a>{" "}
-      and pick a plan from your profile menu. Building a new app and taking it
-      online need a paid plan: the cheapest is “Host” at $5 a month (paid by
-      card), which covers building and keeping the page online.
-    </p>
-  );
+  return <CaffeineSetup what="your page is one app" />;
 }
 
 function PromptStep({ target, way }: { target: Target; way: Way }) {
@@ -244,7 +235,7 @@ function BuildStep({ way }: { way: Way }) {
         play a game against yourself: start a table in one, join it from the
         other. Ask for changes until it is what you had in mind. Nothing has to
         be paid for up to here
-        {way === "caffeine" ? " beyond your plan" : ""}.
+        {way === "caffeine" ? " beyond the credits the AI's work uses" : ""}.
       </p>
       {way !== "own" && (
         <p className="hint">
@@ -261,11 +252,11 @@ function GoLiveStep({ way }: { way: Way }) {
   if (way === "caffeine")
     return (
       <p>
-        Click <strong>Go live</strong> (if you can't find it, ask the chat how
-        to put the app online). It puts the page online at a permanent address
-        and keeps it there as long as your plan is active. Then ask the chat:
-        “What is the address of my live app, and its frontend canister id?” —
-        write both down for the next step.
+        Click <strong>Go live</strong> (4 credits, $2; if you can't find it, ask
+        the chat how to put the app online). It puts the page online at a
+        permanent address, <code>https://&lt;name&gt;.caffeine.xyz</code>, and
+        keeps it running from your credits. Write the address down for the
+        next step.
       </p>
     );
   if (way === "own")
@@ -310,11 +301,12 @@ function RegisterStep({ isLoggedIn }: { isLoggedIn: boolean }) {
       <p>
         Last step: list your page here as an entry of its own, next to the
         original. The form asks for your page's <strong>canister id</strong>{" "}
-        (the <code>xxxxx-…-cai</code> code from the previous step), a title that
-        tells the two apart, a short description, and a banner image. If your
-        page has its own web address (caffeine.ai gives it one; hosty.live can
-        attach yours), put that in the “custom domain” field so players open it
-        there.
+        (the <code>xxxxx-…-cai</code> code from the previous step; for a
+        caffeine.ai page, its live address instead), a title that tells the two
+        apart, a short description, and a banner image. If your page has its
+        own web address (hosty.live can attach yours), put that in the “custom
+        domain” field so players open it there; a caffeine.ai address fills it
+        in by itself.
       </p>
       {isLoggedIn ? (
         <p>

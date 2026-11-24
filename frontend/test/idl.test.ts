@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { ActorSubclass } from "@icp-sdk/core/agent";
 import { IDL } from "@icp-sdk/core/candid";
-import { buildEngineTypes, makeIdlFactory } from "../src/idl.js";
+import type { BotsActor } from "../src/bots.js";
+import { buildBotPlayIdlFactory, buildEngineTypes, makeIdlFactory } from "../src/idl.js";
+import type { DuelActor } from "../src/idl.js";
+import type { TransportActor } from "../src/transport.js";
 
 /// A tiny sample game's own Candid types — stands in for a real
 /// GamePlugin.idlTypes(), exercising buildEngineTypes/makeIdlFactory the
@@ -45,6 +49,14 @@ test("makeIdlFactory produces a Service with get_leaderboard + bot discovery + t
   for (const forbidden of ["join", "submit", "rematch", "leave", "reset", "claimWin", "ackEnded"]) {
     assert.ok(!names.includes(forbidden), `service must not expose a plain "${forbidden}" method`);
   }
+});
+
+test("both factories type as the agent's InterfaceFactory, and an Actor.createActor<DuelActor> fits connectTransport and the overlays", () => {
+  // The types are the test: this file does not compile when either stops fitting.
+  const factories: IDL.InterfaceFactory[] = [makeIdlFactory(sampleGameTypes), buildBotPlayIdlFactory];
+  const fits = (actor: ActorSubclass<DuelActor>): [TransportActor, BotsActor] => [actor, actor];
+  assert.equal(factories.length, 2);
+  assert.equal(typeof fits, "function");
 });
 
 test("View round-trips through Candid encode/decode for a game's own State shape", () => {
