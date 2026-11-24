@@ -39,8 +39,10 @@ canister, against the live game.
    that the game falls silent and its timeouts apply). Re-implement
    from `RULES` only what the strategy needs, typically the legal moves.
    A random pick must not come from `step` and `seat` alone, or the bot
-   plays the same sequence every match: `make_move` passes `Time.now()`
-   as a second argument, and `chooseMove` hashes it with `req.seat`.
+   plays the same sequence every match. A bot that picks at random gives
+   `chooseMove` a second parameter, `now : Int`, which it hashes with
+   `req.seat`; `make_move` below then passes it
+   `BotLogic.chooseMove(req, Time.now())`, with `mo:core/Time` imported.
 4. **`src/backend/mixins/BotApi.mo`**:
 
    ```motoko

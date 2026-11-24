@@ -12,23 +12,23 @@ lines marked BOTS or LEADERBOARD in
 `references/caffeine/game-backend.md` go into `main.mo` (and
 `lib/BotIface.mo`), the page's in `references/caffeine/game-frontend.md`
 into `duel.ts` and `App.tsx`, and the first migration stays as it is.
-The new one:
+The new one, here for both; for one of them, keep only its lines:
 
 ```motoko
-import CanisterPlayers "mo:duel-game-core/canister_players";
-import Leaderboard "mo:duel-game-core/leaderboard";
+import CanisterPlayers "mo:duel-game-core/canister_players"; // BOTS
+import Leaderboard "mo:duel-game-core/leaderboard"; // LEADERBOARD
 
 module {
   public type OldActor = {};
   public type NewActor = {
-    bots : CanisterPlayers.Store;
-    leaderboard : Leaderboard.Board;
+    bots : CanisterPlayers.Store; // BOTS
+    leaderboard : Leaderboard.Board; // LEADERBOARD
   };
 
   public func migration(_ : OldActor) : NewActor {
     {
-      bots = CanisterPlayers.newStore();
-      leaderboard = Leaderboard.new(50, 1200);
+      bots = CanisterPlayers.newStore(); // BOTS
+      leaderboard = Leaderboard.new(50, 1200); // LEADERBOARD
     };
   };
 };
