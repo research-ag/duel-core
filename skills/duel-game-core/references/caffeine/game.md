@@ -70,7 +70,9 @@ settle these:
 serves it at `GET /semantics`, and it is all anyone else gets to build
 a frontend or a bot for the game: Caffeine keeps the module. Keep the
 template's section names and give the exact Candid of `View`, `Action`
-and `Options` (`Nat` is `nat`, `?T` is `opt T`, `[T]` is `vec T`),
+and `Options`, copied field by field from the types as they end up,
+never from memory (`Nat` is `nat`, `?T` is `opt T`, `[T]` is `vec T`):
+a name that differs breaks every bot and frontend built from it. Then
 what each field means and what a seat does not see, every rejection,
 every ending, and what a UI must work out itself. Keep it under 8,000
 characters, since a builder like this one reads about 10,000 of a page.
@@ -87,6 +89,11 @@ play a whole game: every kind of move, one illegal move (the backend's
 reason shows, nothing crashes), the ending, a rematch, a leave. Their
 own move appears the moment they click; the opponent's is marked when
 it lands.
+
+Caffeine's own browser check plays one seat, so it gets no further
+than a table waiting for an opponent: plan its checks that far (the
+lobby, a table opened from each seat, its waiting screen, leaving it)
+and leave the game itself to the user's two browsers.
 
 The preview runs a draft: canisters from a shared pool, reinstalled
 empty after about two hours idle, with ids that change. Nobody but the

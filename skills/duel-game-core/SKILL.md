@@ -226,7 +226,8 @@ From `templates/Rules.mo.template`, write `src/<YourGame>Rules.mo`:
   serves it at `GET /semantics`. The `.did` gives a third party the
   types but not what they mean, so this text is the only full
   description they build a frontend or a bot from. Give the exact
-  Candid of `View`, `Action` and `Options` (`Nat` is `nat`, `?T` is
+  Candid of `View`, `Action` and `Options`, copied from the types as
+  they end up, never from memory (`Nat` is `nat`, `?T` is
   `opt T`, `[T]` is `vec T`, a tuple is a positional record), what each
   field means and what a seat does not see, every rejection, every
   ending, and anything a UI must compute itself. The backend README's
