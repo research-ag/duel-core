@@ -13,8 +13,10 @@ package):
   the seat the bot takes (`p1` or `p2`, the one the table's creator
   left free) and the level. It reads the table and the code from the
   link with `readInvite` below, calls the bot's own `play` with the
-  game's backend id, the table, the seat, `?<code>` and the level, and
-  shows the answer; `#seatTaken` means the other seat.
+  game's backend id, the table, the seat, the code as `readInvite`
+  returns it (the generated `backend.ts` takes `opt text` as
+  `string | null`) and the level, and shows the answer; `#seatTaken`
+  means the other seat.
 - Per level, a link that starts a game against the bot on the game's
   own page, for players once the bot is listed: `playLink` below, with
   the bot's own canister id and the level exactly as `COMPLEXITIES`
