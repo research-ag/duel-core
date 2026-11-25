@@ -218,9 +218,10 @@ function BuildStep({ way }: { way: Way }) {
         <p>
           The preview's bot is a temporary draft, so it does not play the real
           game: its games would stay on the game's leaderboard after the draft
-          is gone. You try the bot once it is live, before anyone can pick it
-          (next step). Nothing is spent up to here beyond the credits the AI's
-          work uses.
+          is gone. Caffeine's own check cannot sign in either, so its last note
+          may say testing could not confirm a step. You try the bot once it is
+          live, before anyone can pick it (next step). Nothing is spent up to
+          here beyond the credits the AI's work uses.
         </p>
       </>
     );

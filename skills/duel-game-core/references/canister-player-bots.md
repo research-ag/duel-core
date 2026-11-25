@@ -16,7 +16,8 @@ its `Game.View`/`Game.Action`.
 
 - `game`, `seat`, `mode`, `step`: what a human's screen shows. `game`
   is the game's `View` for your seat, exactly what a human there sees,
-  never the hidden parts of the state. `step` counts applied actions
+  never the hidden parts of the state. `seat` is your side: never work
+  it out from `game`. `step` counts applied actions
   (`#turnBased`) or resolved rounds (`#simultaneous`); in a turn of
   several actions you are asked once per action, each time with the
   view as it then is.

@@ -32,7 +32,8 @@ canister, against the live game.
    (`[]` for one, listed as `Default`), and
    `chooseMove(req : TP.MoveRequest<Game.View, Game.Action>) : Game.Action`.
    `req` carries `game` (the bot's `View`, never the hidden state),
-   `seat`, `step` (actions applied so far, or rounds resolved),
+   `seat` (the bot's side: pass it to every function that needs it,
+   never work it out from the view), `step` (actions applied so far, or rounds resolved),
    `complexity` (switch on it; treat an unknown one as the default and
    never trap), `opponentLastMove` (`null` at step 0) and `retryReason`
    (on a second ask after an illegal reply, its rejection text; after
