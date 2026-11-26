@@ -54,7 +54,10 @@ React + TypeScript, esbuild.
 `api.ts` builds the actor (`ic-env.ts` is a local copy of
 `@research-ag/duel-game-core/ic-env.ts`'s logic). `hooks/useAuth.ts`
 wraps `AuthClient` (login required for writes; browsing is anonymous)
-and hands the login's identity to `wallet.ts`.
+and hands the login's identity to `wallet.ts`. It opens Internet
+Identity as a popup window, not a tab (a hidden dashboard tab's
+throttled timers miss the signer's 2 s heartbeat, which then closes
+the login), and `Header.tsx` shows a failed login's error.
 `hooks/useBanner.ts` fetches `getBanner` into a cached object URL
 (`invalidateBanner` after a banner edit).
 
