@@ -317,11 +317,16 @@ function GoLiveStep({ target, way }: { target: Target; way: Way }) {
             its place in the list.
           </p>
           <p className="hint">
-            For a game whose program is not published, the session installs the
-            bot without listing it. Open a table with “Invite a friend” on the
-            game's page and send the session its invite link: it seats the bot
-            there for you to play. When you are happy with it, tell the session
-            to register it, and approve that second deploy session.
+            For a game whose program is not published, tell the session this
+            instead:
+          </p>
+          <CodeBlock code="Put my bot live on mainnet through hosty.live (buy its canister), without registering it yet." />
+          <p className="hint">
+            It installs the bot without listing it. Open a table with “Invite a
+            friend” on the game's page and send the session its invite link: it
+            seats the bot there for you to play. When you are happy with it,
+            tell the session to register it, and approve that second deploy
+            session.
           </p>
           <DeploySessionNote />
         </>
