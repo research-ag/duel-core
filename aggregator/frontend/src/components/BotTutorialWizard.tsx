@@ -247,6 +247,14 @@ function BuildStep({ way }: { way: Way }) {
         {way === "hosty" &&
           " To watch it yourself before paying, ask for a free online try-out: a temporary copy of the game on hosty.live's cloud engine with your bot beside it (an empty copy, not the real game), or your bot in a free 24-hour canister playing the real game."}
       </p>
+      <p className="hint">
+        Some games' programs are not published in hosty.live's module store
+        (never one built in caffeine.ai, and any other whose developer has not
+        put it there). For those there is no private copy: the AI tests the
+        bot's move choices alone and tells you so, and you try the bot on the
+        real game once its canister is bought, before it joins the game's list
+        of bots (next step).
+      </p>
     </>
   );
 }
@@ -308,6 +316,12 @@ function GoLiveStep({ target, way }: { target: Target; way: Way }) {
             one is tested again and upgrades the same canister, so the bot keeps
             its place in the list.
           </p>
+          <p className="hint">
+            For a game whose program is not published, the session buys and
+            installs the bot first, seats it at a table you open with “Invite a
+            friend” for you to play against, and adds it to the list only once
+            you are happy with it.
+          </p>
           <DeploySessionNote />
         </>
       ) : (
@@ -333,6 +347,10 @@ function GoLiveStep({ target, way }: { target: Target; way: Way }) {
             bot (<code>.icp/data/mappings/ic.ids.json</code> has no{" "}
             <code>bot</code> entry), link the bot's canister id first:
             <CodeBlock code="icp canister link bot <bot id> -e ic" />
+            For a game whose program is not published, leave out the first line,
+            and run the last one only after you have played the bot on the game:
+            open a table with “Invite a friend” and ask the AI to seat the bot
+            there.
           </li>
         </ol>
       )}

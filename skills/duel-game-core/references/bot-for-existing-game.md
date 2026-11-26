@@ -14,14 +14,18 @@ Everything you need comes from the backend canister id:
 | -------------------------- | ------------------------------------------------------------------ |
 | Rules, `View`, `Action`    | `GET /semantics` on the backend                                    |
 | Whether it takes bots      | the `candid:service` metadata section                              |
-| The wasm, for a local copy | hosty.live's module store, by its module hash                      |
+| The wasm, for a local copy | hosty.live's module store, by its module hash, when it is there    |
 | `make_move`'s contract     | `canister-player-bots.md`, the backend README's "Canister players" |
 
 This needs `icp-cli` and `mops`: in a Claude Code cloud session's VM
 (`cloud-session.md` is its setup) or on the user's computer.
 A bot cannot be tested against the live game without first being
-deployed, so all testing is local (step 5), which a cloud session does
-as well as a computer. A builder without a shell has no route here.
+deployed, so testing is local (step 5), which a cloud session does as
+well as a computer. A game whose module is not in the store (every game
+built in caffeine.ai, and any other whose developer has not published
+it) has no local copy: its bot is tried as its own live canister before
+it registers ("Without the game's module", at the end). A builder
+without a shell has no route here.
 In caffeine.ai, which has no shell, follow `caffeine/bot.md` instead:
 the bot is tried as its live canister, on the live game.
 
@@ -31,7 +35,10 @@ Steps 1–3 of `frontend-for-existing-game.md`, unchanged, and the
 download at the top of its step 5 (step 2 below has this project's
 `icp.yaml`): the backend id (`BACKEND`), the semantics text,
 `backend.did`, and `backend.wasm` with its hash checked against the
-live `module_hash`. Every stop condition there applies here too.
+live `module_hash`. Every stop condition there applies here too, but
+one: when step 3's lookup answers `found: false`, tell the user why and
+relay its `hint` as that guide does, then go on as "Without the game's
+module" (at the end) says.
 
 Then check `backend.did` for `register_bot` and
 `join_table_as_canister`. Without them the game seats no canister
@@ -477,3 +484,44 @@ icp canister call bot unregister '(principal "<backend-id>")' -e ic
 
 Then the user challenges it from any frontend of the game, from its
 list of bots.
+
+## Without the game's module
+
+When the store does not hold the module the game runs (step 1's lookup
+answers `found: false`; a game built in caffeine.ai never has it there,
+since Caffeine keeps the module), there is no copy of the game to play
+against, locally or online. The bot is built from the semantics alone
+and tried as its own live canister, on the live game, before it
+registers:
+
+- Step 2 without `backend.wasm`, the `backend` canister and its link,
+  and without `Sparring.mo` and `sparring`: `icp.yaml` and
+  `[canisters]` hold `bot` alone, and step 6 skips the link line.
+- Step 5 is the unit tests alone: every complexity, the bot in each
+  seat, and every position where a slip costs the game. Neither of its
+  online ways applies (there is no copy to put on the cloud engine, and
+  a rental's games stay on the game's leaderboard under an id wiped a
+  day later).
+- Step 6, when the user asks, creates and installs the bot's canister
+  by either route and holds `register` back (through hosty.live it goes
+  into a deploy session of its own afterwards).
+- The user tries it on the game's own page: they open a table with
+  "Invite a friend" and give you its invite link,
+  `https://<game>/#t=<table>&c=<code>`. Seat the bot in the seat they
+  left free (`p2` below, when they took `p1`):
+
+  ```bash
+  icp canister call <bot-id> play '(principal "<backend-id>", <table> : nat, variant { p2 }, opt "<code>", "<complexity>")' -n ic --identity anonymous
+  ```
+
+  `play` takes any caller, so the same line works from a cloud session.
+  `(variant { ok = variant { started = ... } })` means the game began;
+  `#seatTaken` means the other seat. The user plays whole games at
+  every complexity, the bot in either seat, and leaves each table when
+  done. Nobody else sees an access-code table; its games count on the
+  leaderboard under the bot's own id, which stays.
+
+- Each fix is an upgrade of the same canister (step 6, "Every later
+  version", with the unit tests in place of the local games), then
+  another try. When the user is satisfied: `register`, then the
+  `list_bots` check.
