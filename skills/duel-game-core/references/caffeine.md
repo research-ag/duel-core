@@ -43,7 +43,9 @@ What differs from the rest of this skill:
 - **The module stays with Caffeine.** It is not in hosty.live's module
   store, so `/semantics` is all a third party gets: their frontends and
   bots are built from it and tested against the live game, on
-  access-code tables.
+  access-code tables, in caffeine.ai or with a shell
+  (`frontend-for-existing-game.md`, step 3; `bot-for-existing-game.md`,
+  "Without the game's module").
 - **Caffeine pays the cycles.** It tops up the live canisters from the
   owner's Caffeine credits.
 

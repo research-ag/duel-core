@@ -56,7 +56,7 @@ Work in this order.
 2. Learn the game from https://${backend}.raw.icp0.io/semantics — plain text with the rules, who moves when, the variants, and the exact Candid types of View (what a seat sees, headed VIEW, or STATE in older games), Action and Options. This is the whole specification; there is no source code to read. Fetch any other path it mentions.
 
 3. The full procedure for exactly this task is ${ref}/bot-for-existing-game.md — read it and follow it. What make_move receives, and how to choose the bot's shape, is in ${ref}/canister-player-bots.md. In short:
-   - Download the exact module the game runs: read its module_hash from icp canister status ${backend} -n ic -p --json (drop the 0x) as HASH, then curl -sf https://api.hosty.live/modules/$HASH -o backend.wasm (never with --compressed); its SHA-256 must equal HASH. Declare it as a canister named backend with the @dfinity/prebuilt recipe, so a private copy of the game runs locally next to the bot.
+   - Download the exact module the game runs: read its module_hash from icp canister status ${backend} -n ic -p --json (drop the 0x) as HASH, then curl -sf https://api.hosty.live/modules/$HASH -o backend.wasm (never with --compressed); its SHA-256 must equal HASH. Declare it as a canister named backend with the @dfinity/prebuilt recipe, so a private copy of the game runs locally next to the bot. If the download fails, the paragraph after step 7 says what to do.
    - Check icp canister metadata ${backend} candid:service -n ic for register_bot and join_table_as_canister. Without them the game takes no bots: stop and tell me.
    - Translate View (VIEW or STATE), Action and Options literally from the Candid in the semantics into Motoko, and the rules the strategy needs from its RULES section.
    - The bot serves GET /metrics with promtracker's system metrics, as the reference's Bot.mo does; the Duel dashboard shows its balance from there.
@@ -75,11 +75,12 @@ ${listBots}
      icp canister link backend ${backend} -e ic --force
      icp deploy bot -e ic --subnet <the game's subnet>
      ${register}
+   Without the game's module, leave out the link line, and between the deploy and register lines put the try on the real game (I open a table with "Invite a friend" and give you its invite link, you seat the bot there with its play method, I play it).
    Every upgrade goes into that recorded canister, without --subnet (the link only when .icp/data/mappings/ic.ids.json has no bot entry):
      icp canister link bot <bot id> -e ic
      icp deploy bot -e ic
 
-If the semantics page or the wasm is missing, or the hashes differ, stop and tell me instead of guessing. For a missing wasm, look the game up at https://api.hosty.live/modules/canister/${backend}: if it answers found: false, tell me its hint (the module store keeps a game's module, not the canister, and the hint says how the game's owner adds it); if it answers found: true, tell me the download failed, with the hashes, since the canister may have been upgraded since you read its module_hash.
+If the semantics page is missing, or the wasm's hash differs, stop and tell me instead of guessing. For a missing wasm, look the game up at https://api.hosty.live/modules/canister/${backend}. If it answers found: true, the download failed: tell me, with the hashes, since the canister may have been upgraded since you read its module_hash. If it answers found: false, hosty.live's module store does not hold the module the game runs: tell me its hint, then go on as the reference's last section, "Without the game's module", says. There is then no backend canister and no link to it, the unit tests are all of step 4, and register waits until I have tried the bot on the real game.
 
 ${CLOSING}`;
 }

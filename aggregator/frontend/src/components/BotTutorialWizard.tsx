@@ -247,6 +247,14 @@ function BuildStep({ way }: { way: Way }) {
         {way === "hosty" &&
           " To watch it yourself before paying, ask for a free online try-out: a temporary copy of the game on hosty.live's cloud engine with your bot beside it (an empty copy, not the real game), or your bot in a free 24-hour canister playing the real game."}
       </p>
+      <p className="hint">
+        Some games do not publish their program (games built in caffeine.ai
+        never do). The AI tells you when that is the case: it can then test
+        only the bot's move choices, not whole games
+        {way === "hosty" && ", and there is no free online try-out"}. You play
+        the bot on the real game yourself once its canister is paid for, before
+        it joins the game's list of bots (next step).
+      </p>
     </>
   );
 }
@@ -308,6 +316,18 @@ function GoLiveStep({ target, way }: { target: Target; way: Way }) {
             one is tested again and upgrades the same canister, so the bot keeps
             its place in the list.
           </p>
+          <p className="hint">
+            For a game whose program is not published, tell the session this
+            instead:
+          </p>
+          <CodeBlock code="Put my bot live on mainnet through hosty.live (buy its canister), without registering it yet." />
+          <p className="hint">
+            It installs the bot without listing it. Open a table with “Invite a
+            friend” on the game's page and send the session its invite link: it
+            seats the bot there for you to play. When you are happy with it,
+            tell the session to register it, and approve that second deploy
+            session.
+          </p>
           <DeploySessionNote />
         </>
       ) : (
@@ -328,7 +348,11 @@ function GoLiveStep({ target, way }: { target: Target; way: Way }) {
             <CodeBlock
               code={`icp canister link backend ${backend} -e ic --force\nicp deploy bot -e ic --subnet <the game's subnet>\nicp canister call bot register '(principal "${backend}", "<bot name>")' -e ic`}
             />
-            Later upgrades run <code>icp deploy bot -e ic</code> again, without{" "}
+            For a game whose program is not published, leave out the first line,
+            and run the last one only after you have played the bot on the game:
+            open a table with “Invite a friend”, give the AI its invite link and
+            ask it to seat the bot there. Later upgrades run{" "}
+            <code>icp deploy bot -e ic</code> again, without{" "}
             <code>--subnet</code>. If the project folder lost its record of the
             bot (<code>.icp/data/mappings/ic.ids.json</code> has no{" "}
             <code>bot</code> entry), link the bot's canister id first:
