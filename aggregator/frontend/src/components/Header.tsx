@@ -4,7 +4,7 @@ import type { Auth } from "../hooks/useAuth";
 import { useProfile } from "../hooks/useProfile";
 import { DisplayNameEditor } from "./DisplayNameEditor";
 import { WalletChip } from "./Wallet";
-import { Bot, BrandMark, Brush, Hammer, Key, Plus } from "./Icons";
+import { Bot, BrandMark, Brush, Close, Hammer, Key, Plus } from "./Icons";
 
 export function Header({
   auth,
@@ -108,6 +108,19 @@ export function Header({
           )}
         </nav>
       </div>
+      {auth.loginError && (
+        <p className="error login-error" role="alert">
+          <span>Login with Internet Identity failed: {auth.loginError}</span>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={auth.dismissLoginError}
+            aria-label="Dismiss"
+          >
+            <Close />
+          </button>
+        </p>
+      )}
     </header>
   );
 }

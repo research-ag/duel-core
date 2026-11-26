@@ -337,6 +337,19 @@ code {
   margin: 0 0.5rem;
 }
 
+.login-error {
+  width: min(var(--content), 100% - var(--gutter) * 2);
+  margin: 0 auto 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.login-error .icon-btn {
+  flex: none;
+}
+
 /* ------------------------------------------------------------- profile */
 
 .profile {
