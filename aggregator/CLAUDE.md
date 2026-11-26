@@ -167,14 +167,13 @@ built on (`initialStep`, and `reachable` locking later steps).
     with icp-cli, each ending in the bot's own `register` call with the
     backend id filled in (a bot is never listed on this dashboard).
     Those two ways test against a local copy of the game; for a game
-    whose module is not in hosty.live's store (every caffeine.ai game,
-    and any other whose developer has not published it)
-    the bot is unit-tested only and tried as its bought canister on the
-    live game before it registers (`bot-for-existing-game.md`, "Without
-    the game's module"). In
-    caffeine.ai the bot is an app of its own, tried as its live
-    canister before it is registered (a draft's games would stay on the
-    game's leaderboard, and a draft signs in under another principal):
+    whose module is not in hosty.live's store the bot is unit-tested
+    only and tried as its bought canister on the live game before it
+    registers (`bot-for-existing-game.md`, "Without the game's
+    module"). In caffeine.ai the bot is an app of its own, tried as its
+    live canister before it is registered (a draft's games would stay
+    on the game's leaderboard, and a draft signs in under another
+    principal):
     `register` takes only an owner principal written into its code
     (Caffeine's admin role goes to the first sign-in), which the user
     reads off the live page; then its try-out form seats it at an
