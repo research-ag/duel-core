@@ -75,6 +75,7 @@ ${listBots}
      icp canister link backend ${backend} -e ic --force
      icp deploy bot -e ic --subnet <the game's subnet>
      ${register}
+   Without the game's module, leave out the link line, and between the deploy and register lines put the try on the real game (I open a table with "Invite a friend", you seat the bot there with its play method, I play it).
    Every upgrade goes into that recorded canister, without --subnet (the link only when .icp/data/mappings/ic.ids.json has no bot entry):
      icp canister link bot <bot id> -e ic
      icp deploy bot -e ic

@@ -338,7 +338,12 @@ function GoLiveStep({ target, way }: { target: Target; way: Way }) {
             If it prints nothing, stop here and ask the AI. Otherwise put the
             subnet id it printed in place of{" "}
             <code>&lt;the game's subnet&gt;</code> below, and the name players
-            should see in place of <code>&lt;bot name&gt;</code>:
+            should see in place of <code>&lt;bot name&gt;</code>. For a game
+            whose program is not published, leave out{" "}
+            <code>icp canister link backend</code>, and run{" "}
+            <code>icp canister call bot register</code> only after you have
+            played the bot on the game: open a table with “Invite a friend” and
+            ask the AI to seat the bot there.
             <CodeBlock
               code={`icp canister link backend ${backend} -e ic --force\nicp deploy bot -e ic --subnet <the game's subnet>\nicp canister call bot register '(principal "${backend}", "<bot name>")' -e ic`}
             />
@@ -347,10 +352,6 @@ function GoLiveStep({ target, way }: { target: Target; way: Way }) {
             bot (<code>.icp/data/mappings/ic.ids.json</code> has no{" "}
             <code>bot</code> entry), link the bot's canister id first:
             <CodeBlock code="icp canister link bot <bot id> -e ic" />
-            For a game whose program is not published, leave out the first line,
-            and run the last one only after you have played the bot on the game:
-            open a table with “Invite a friend” and ask the AI to seat the bot
-            there.
           </li>
         </ol>
       )}
