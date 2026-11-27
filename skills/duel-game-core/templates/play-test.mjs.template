@@ -101,7 +101,6 @@ const pick = (xs) => xs[Math.floor(Math.random() * xs.length)];
 async function playOut(a, b) {
   let moves = 0;
   let illegalTried = false;
-  const rejectedAt = new Map();
   for (;;) {
     const states = [a, b].map((p) => p.client.getState());
     if (states.every(viewIs("debrief"))) return viewOf(states[0].status, "debrief");
@@ -110,26 +109,24 @@ async function playOut(a, b) {
       const v = viewOf(p.client.getState().status, "inGame");
       if (!v || v.youSubmitted || p.client.getState().pending) continue;
       const seat = tag(v.seat);
-      const key = `${p.name}:${v.gen}:${v.step}`;
-      const tried = rejectedAt.get(key) ?? [];
       const { enabled, disabled } = offeredMoves(v.game, seat);
       if (!illegalTried && disabled.length > 0) {
         illegalTried = true;
         const move = pick(disabled);
         const out = await p.client.submit(move);
-        if (out.ok) console.warn(`  ! ${p.name}: a disabled button's move ${show(move)} was accepted; legal() is stricter than the rules`);
-        else console.log(`  ${p.name}: illegal ${show(move)} rejected (${out.message ?? out.reason})`);
+        if (out.ok) throw new Error(`${p.name}: a disabled button's move ${show(move)} was accepted; legal() is stricter than the rules`);
+        console.log(`  ${p.name}: illegal ${show(move)} rejected (${out.message ?? out.reason})`);
         moved = true;
         continue;
       }
-      const choices = enabled.filter((m) => !tried.some((t) => show(t) === show(m)));
+      const choices = enabled;
       if (choices.length === 0) throw new Error(`${p.name} (${seat}) is due but no button offers a move it accepts; view ${show(v)}`);
       const move = pick(choices);
       if (plugin.applyLocal) plugin.applyLocal(v.game, seat, move);
       const out = await p.client.submit(move);
+      // a stale answer (the table moved on) is retried with the next view; a rejection is a bug
       if (!out.ok && out.reason === "rejected") {
-        console.warn(`  ! ${p.name}: offered move ${show(move)} rejected: ${out.message}`);
-        rejectedAt.set(key, [...tried, move]);
+        throw new Error(`${p.name}: offered move ${show(move)} rejected: ${out.message}; view ${show(v)}`);
       }
       if (++moves > MAX_MOVES) throw new Error(`no ending after ${MAX_MOVES} moves`);
       moved = true;
@@ -182,7 +179,8 @@ async function oneGame(options, label) {
   }
 }
 
-const choices = plugin.optionChoices?.() ?? [{ key: "default", options: {} }];
+const listed = plugin.optionChoices?.() ?? [];
+const choices = listed.length > 0 ? listed : [{ key: "default", options: {} }];
 console.log(`play-test against ${canisterId} on ${host}`);
 for (const c of choices) await oneGame(c.options, c.key);
 console.log("PLAY-TEST PASSED");

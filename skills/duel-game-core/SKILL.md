@@ -462,18 +462,18 @@ own move at once.
 
 ## Step 7: Project and deploy config
 
-| Template                     | Destination                  | Fill in                                        |
-| ---------------------------- | ---------------------------- | ---------------------------------------------- |
-| `mops.toml.template`         | `mops.toml`                  | `__GAME_SLUG__`                                |
-| `package.json.template`      | `frontend/package.json`      | `__GAME_SLUG__`                                |
-| `build.js.template`          | `frontend/build.js`          | `__PLUGIN_FILE__` (header comment only)        |
-| `icp.yaml.template`          | `icp.yaml`                   | nothing (rename a canister in `mops.toml` too) |
-| `publish_wasm.sh.template`   | `publish_wasm.sh`            | nothing (next to `icp.yaml`)                   |
-| `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`            |
-| `mcp.json.template`          | `.mcp.json`                  | nothing (token setup only, `cloud-session.md`) |
-| `BotIface.mo.template`       | `src/BotIface.mo`            | `__RULES_MODULE__` (bot support only)          |
-| `check-upgrade.mjs.template` | `frontend/check-upgrade.mjs` | `__HOST_FILE__` (`Host.mo`)                    |
-| `CLAUDE.md.template`         | `CLAUDE.md`                  | every `__...__`, at the first deploy           |
+| Template                     | Destination                  | Fill in                                                                           |
+| ---------------------------- | ---------------------------- | --------------------------------------------------------------------------------- |
+| `mops.toml.template`         | `mops.toml`                  | `__GAME_SLUG__`                                                                   |
+| `package.json.template`      | `frontend/package.json`      | `__GAME_SLUG__`                                                                   |
+| `build.js.template`          | `frontend/build.js`          | `__PLUGIN_FILE__` (header comment only)                                           |
+| `icp.yaml.template`          | `icp.yaml`                   | nothing (rename a canister in `mops.toml` too)                                    |
+| `publish_wasm.sh.template`   | `publish_wasm.sh`            | nothing (next to `icp.yaml`)                                                      |
+| `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`                                               |
+| `mcp.json.template`          | `.mcp.json`                  | nothing (token setup only, `cloud-session.md`)                                    |
+| `BotIface.mo.template`       | `src/BotIface.mo`            | `__RULES_MODULE__` (bot support only)                                             |
+| `check-upgrade.mjs.template` | `frontend/check-upgrade.mjs` | `__HOST_FILE__` (`Host.mo`)                                                       |
+| `CLAUDE.md.template`         | `CLAUDE.md`                  | every `__...__` at the first deploy; `__BACKEND_COMMIT__` at every backend deploy |
 
 ```bash
 mops install && mops test

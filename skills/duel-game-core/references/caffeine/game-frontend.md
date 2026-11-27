@@ -93,17 +93,24 @@ the overlays fill, then boots. `start()` owns everything inside them;
 React never re-renders them:
 
 ```tsx
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { bootDuel } from "./duel";
 
 let booted = false;
 
 export default function App() {
-  useEffect(() => {
+  const [bootError, setBootError] = useState<string | null>(null);
+  const boot = () => {
     if (booted) return;
     booted = true;
-    bootDuel().catch((e) => console.error("duel boot failed", e));
-  }, []);
+    setBootError(null);
+    bootDuel().catch((e) => {
+      console.error("duel boot failed", e);
+      booted = false; // a retry boots again
+      setBootError(e instanceof Error ? e.message : String(e));
+    });
+  };
+  useEffect(boot, []);
 
   return (
     <>
@@ -159,7 +166,16 @@ export default function App() {
       </div>
       <p id="error" className="error" hidden />
       <main id="screen">
-        <p className="muted">Connecting…</p>
+        {bootError ? (
+          <p role="alert">
+            Could not connect to the game: {bootError}{" "}
+            <button type="button" onClick={boot}>
+              Retry
+            </button>
+          </p>
+        ) : (
+          <p className="muted">Connecting…</p>
+        )}
       </main>
       <div id="bot-add-panel" hidden>
         <button type="button" id="bot-add-trigger" className="ghost">

@@ -113,11 +113,14 @@ stable.
 
 ## Keying your own memory
 
-- **Per match**: `(req.tableId, req.gen)`; `req.step == 0` is a cruder
-  signal for "fresh match".
-- **Per decision**: `(req.tableId, req.gen, req.seat, req.step)`, the
-  key a retry repeats (next section). The seat belongs in it: one bot
-  canister can hold both seats of a table under two complexities.
+- **Per match**: `(host, req.tableId, req.gen)`, where `host` is the
+  caller of `make_move`; `req.step == 0` is a cruder signal for "fresh
+  match". The host belongs in every key: one bot can play for several
+  game hosts (the live game and a copy of it, say), whose table ids
+  overlap.
+- **Per decision**: `(host, req.tableId, req.gen, req.seat, req.step)`,
+  the key a retry repeats (next section). The seat belongs in it: one
+  bot canister can hold both seats of a table under two complexities.
 - **Per opponent**: `req.opponent` (for a bot, one id per complexity;
   its principal to pool them).
 
@@ -134,7 +137,7 @@ step, and every further action of the bot's own turn in `#turnBased`
 (a turn of several actions, a repeat turn), carry the opponent move
 the bot has already seen. Learn from it only when the opponent has
 acted since the last ask: keep the step of that ask per
-`(tableId, gen, seat)`. In `#simultaneous` every new step holds an
+`(host, tableId, gen, seat)`. In `#simultaneous` every new step holds an
 opponent move; in `#turnBased` the step after the last ask was the
 bot's own action, so only a later one does.
 
@@ -170,17 +173,18 @@ actor {
 
   let lastAsked : Map.Map<Text, Nat> = Map.empty(); // step of the last ask, per seatKey
 
-  func seatKey(req : TP.MoveRequest<Rules.View, Rules.Action>) : Text {
-    req.tableId.toText() # "/" # req.gen.toText() # "/" # debug_show (req.seat);
+  // `host` is the game host that asks (make_move's caller): table ids overlap across hosts.
+  func seatKey(host : Principal, req : TP.MoveRequest<Rules.View, Rules.Action>) : Text {
+    host.toText() # "/" # req.tableId.toText() # "/" # req.gen.toText() # "/" # debug_show (req.seat);
   };
 
-  func decisionKey(req : TP.MoveRequest<Rules.View, Rules.Action>) : Text {
-    seatKey(req) # "/" # req.step.toText();
+  func decisionKey(host : Principal, req : TP.MoveRequest<Rules.View, Rules.Action>) : Text {
+    seatKey(host, req) # "/" # req.step.toText();
   };
 
   // True when the opponent acted since this seat's last ask; records this ask.
-  func opponentMovedSince(req : TP.MoveRequest<Rules.View, Rules.Action>) : Bool {
-    let moved = switch (lastAsked.get(seatKey(req))) {
+  func opponentMovedSince(host : Principal, req : TP.MoveRequest<Rules.View, Rules.Action>) : Bool {
+    let moved = switch (lastAsked.get(seatKey(host, req))) {
       case null true;
       case (?prev) {
         switch (req.mode) {
@@ -189,7 +193,7 @@ actor {
         };
       };
     };
-    lastAsked.add(seatKey(req), req.step);
+    lastAsked.add(seatKey(host, req), req.step);
     moved;
   };
 
@@ -233,11 +237,11 @@ actor {
     };
   };
 
-  public func make_move(req : TP.MoveRequest<Rules.View, Rules.Action>) : async Rules.Action {
-    if (opponentMovedSince(req)) learnFrom(req); // a retry or a re-ask saw this move already
+  public shared ({ caller }) func make_move(req : TP.MoveRequest<Rules.View, Rules.Action>) : async Rules.Action {
+    if (opponentMovedSince(caller, req)) learnFrom(req); // a retry or a re-ask saw this move already
     let m = modelFor(opponentKey(req));
     let chosen : Rules.Action = if (m.rockCount > m.paperCount) #paper else #rock; // your strategy over `m`
-    myMoves.add(decisionKey(req), chosen); // a retry overwrites, never appends
+    myMoves.add(decisionKey(caller, req), chosen); // a retry overwrites, never appends
     chosen;
   };
 
@@ -266,7 +270,8 @@ Linux) so `mops test` can run it.
   field for it, by design.
 - Don't force-unwrap `opponentLastMove`/`lastStepDurationNs`; both are
   `null` on step 0, and a trap counts as silence.
-- Don't key per-match state by `step` alone; pair it with `gen`.
+- Don't key per-match state by `step` alone; pair it with `gen`, and
+  every key with the host that asks.
 - Don't expect the full state: `game` is the `View`. A hidden-information
   game's bot plays from what it may see, like everyone else.
 - Don't default to the stateful shape.
