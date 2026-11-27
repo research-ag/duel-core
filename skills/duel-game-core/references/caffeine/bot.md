@@ -6,7 +6,7 @@ answers. Here it is a Caffeine app of its own, with
 `mops add duel-game-core` and `mops add promtracker`. This file is its
 backend; `references/caffeine/bot-page.md` is its page and how it goes
 live. Every file of this skill is at
-`https://raw.githubusercontent.com/research-ag/duel-core/main/skills/duel-game-core/<path>`,
+`https://api.hosty.live/skills/duel-game-core/<path>`,
 and these two are all a bot needs.
 
 Caffeine runs no shell and installs no prebuilt module, so there is no

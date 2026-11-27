@@ -65,14 +65,15 @@ Read each one only when you get there:
   id alone.
 
 **Where these files are.** Installed, they sit next to this `SKILL.md`.
-Loaded through hosty.live's connector (`hosty_get_skill { url }`), read
-one with `hosty_get_skill { url, path }` (`path:
-"templates/Host.mo.template"`), or save it with `curl -sSfL -o
-<destination> <download URL>` from the index. Saving needs a network
-that reaches `raw.githubusercontent.com`, which a cloud session's often
-does not. A new session loads the skill again the same way. Over the
-web, each file is at
-`https://raw.githubusercontent.com/research-ag/duel-core/main/skills/duel-game-core/<path>`.
+Through hosty.live's connector, which serves its reviewed copy of this
+skill, `hosty_get_skill { skill: "duel-game-core" }` returns this file
+with the index; read one with `hosty_get_skill { skill:
+"duel-game-core", path }` (`path: "templates/Host.mo.template"`), or
+save it with `curl -sSfL -o <destination> <download URL>` from the
+index. Saving needs a network that reaches `api.hosty.live`, which a
+cloud session's may not. A new session loads the skill again the same
+way. Over the web, each file is at
+`https://api.hosty.live/skills/duel-game-core/<path>`.
 
 ## Step 1: Get the packages into the project
 

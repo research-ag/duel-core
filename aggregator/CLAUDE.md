@@ -121,7 +121,7 @@ built on (`initialStep`, and `reachable` locking later steps).
   not sent, in a browser or in the Claude app on a phone (which takes no
   environment). The own and caffeine.ai ways have no link.
 - The texts are in `cloudSession.ts`: `loadSkill`, the one paragraph
-  every hosty.live prompt carries (load the skill from `SKILL_URL` with
+  every hosty.live prompt carries (load the skill by `SKILL_NAME` with
   the connector's `hosty_get_skill`, or one of its references for the
   task, and what to say when the `hosty_*` tools are missing; every
   other rule of that way lives in the skill, `cloud-session.md` and

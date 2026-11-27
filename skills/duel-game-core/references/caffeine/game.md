@@ -7,7 +7,7 @@ skills (`caffeine-app`, `writing-motoko`, `migrating-motoko-actors`)
 still apply; these files say what the game needs on top of them.
 
 Every file of this skill is at
-`https://raw.githubusercontent.com/research-ag/duel-core/main/skills/duel-game-core/<path>`.
+`https://api.hosty.live/skills/duel-game-core/<path>`.
 A game takes five, each short enough for one fetch: this one,
 `references/caffeine/game-backend.md`,
 `references/caffeine/game-frontend.md`, `templates/Rules.mo.template`

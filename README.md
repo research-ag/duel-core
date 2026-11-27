@@ -50,9 +50,9 @@ npx skills add research-ag/duel-core --skill duel-game-core
 ```
 
 An agent with the hosty.live connector needs no install: it loads the
-skill with `hosty_get_skill { url:
-"https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core" }`,
-which is what the Duel dashboard's prompts ask for.
+skill with `hosty_get_skill { skill: "duel-game-core" }`, which is what
+the Duel dashboard's prompts ask for. hosty.live serves a reviewed copy
+of the skill, refreshed from this repository after each change to it.
 
 Putting a game online needs no prior Internet Computer knowledge and
 nothing installed on your computer. A Claude Code cloud session

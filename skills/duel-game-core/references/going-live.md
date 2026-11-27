@@ -165,7 +165,8 @@ Tell the user what they are getting, as the start of this file
 describes it: free and redeployable as often as the game changes, but
 not permanent, and not listed on the Duel dashboard. Everything below
 (installs, uploads, environment variables, snapshots,
-`hosty_call_canister`) works on them without a deploy session; cycles,
+`hosty_query_canister`, `hosty_call_canister`) works on them without a
+deploy session; cycles,
 top-ups and `icp`/`dfx` do not apply. When the slots
 are full, `hosty_delete_canister { canisterId }` frees one; confirm with
 the user first, since everything on it is lost. Without an engine
