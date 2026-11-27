@@ -52,7 +52,7 @@ Empty output: a caffeine.ai page publishes its backend in `/duel.json`
 instead (`caffeine/frontend.md`):
 
 ```bash
-curl -s <game-url>/duel.json | grep -o '"backend" *: *"[a-z0-9-]*cai"' | grep -o '[a-z0-9-]*cai'
+node -e 'fetch(process.argv[1] + "/duel.json").then((r) => r.json()).then((j) => j.backend && console.log(j.backend)).catch(() => {})' <game-url>
 ```
 
 When both are empty, that frontend does not publish its backend; ask

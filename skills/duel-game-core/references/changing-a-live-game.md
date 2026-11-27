@@ -67,7 +67,9 @@ before building anything to deploy:
   tree you are about to change:
   `git merge-base --is-ancestor <commit> HEAD`. If it is not, the live
   game holds work this tree lacks (an unmerged `claude/...` branch, as
-  a rule): find that branch, or stop and ask.
+  a rule): find that branch, or stop and ask. If it is, read
+  `git diff <commit> HEAD` for the backend's files: a later commit can
+  still undo a live fix. Ask about anything that looks reverted.
 - Without a recorded commit, build the backend from the tree and
   compare the module's sha256 with `module.hash` from the lookup (the
   bytes as installed: the `.wasm.gz` when a gzipped module was
@@ -75,9 +77,11 @@ before building anything to deploy:
   hash proves nothing by itself (another compiler or package version
   gives other bytes), so stop and ask which version is the game's.
 
-When you are done, write or update the game's `CLAUDE.md` in its
-directory from the template, with the commit the deployed backend was
-built from, and merge into the default branch (or open a pull request
+Build the backend you deploy from a committed, clean tree
+(`git status --porcelain` prints nothing), so that the commit you
+record is the code that runs. When you are done, write or update the
+game's `CLAUDE.md` in its directory from the template, with that
+commit, and merge into the default branch (or open a pull request
 there, as the user prefers).
 
 ## 3. The backend
