@@ -65,14 +65,15 @@ Read each one only when you get there:
   id alone.
 
 **Where these files are.** Installed, they sit next to this `SKILL.md`.
-Loaded through hosty.live's connector (`hosty_get_skill { url }`), read
-one with `hosty_get_skill { url, path }` (`path:
-"templates/Host.mo.template"`), or save it with `curl -sSfL -o
-<destination> <download URL>` from the index. Saving needs a network
-that reaches `raw.githubusercontent.com`, which a cloud session's often
-does not. A new session loads the skill again the same way. Over the
-web, each file is at
-`https://raw.githubusercontent.com/research-ag/duel-core/main/skills/duel-game-core/<path>`.
+Through hosty.live's connector, which serves its reviewed copy of this
+skill, `hosty_get_skill { skill: "duel-game-core" }` returns this file
+with the index; read one with `hosty_get_skill { skill:
+"duel-game-core", path }` (`path: "templates/Host.mo.template"`), or
+save it with `curl -sSfL -o <destination> <download URL>` from the
+index. Saving needs a network that reaches `api.hosty.live`, which a
+cloud session's may not. A new session loads the skill again the same
+way. Over the web, each file is at
+`https://api.hosty.live/skills/duel-game-core/<path>`.
 
 ## Step 1: Get the packages into the project
 
@@ -461,18 +462,18 @@ own move at once.
 
 ## Step 7: Project and deploy config
 
-| Template                     | Destination                  | Fill in                                        |
-| ---------------------------- | ---------------------------- | ---------------------------------------------- |
-| `mops.toml.template`         | `mops.toml`                  | `__GAME_SLUG__`                                |
-| `package.json.template`      | `frontend/package.json`      | `__GAME_SLUG__`                                |
-| `build.js.template`          | `frontend/build.js`          | `__PLUGIN_FILE__` (header comment only)        |
-| `icp.yaml.template`          | `icp.yaml`                   | nothing (rename a canister in `mops.toml` too) |
-| `publish_wasm.sh.template`   | `publish_wasm.sh`            | nothing (next to `icp.yaml`)                   |
-| `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`            |
-| `mcp.json.template`          | `.mcp.json`                  | nothing (token setup only, `cloud-session.md`) |
-| `BotIface.mo.template`       | `src/BotIface.mo`            | `__RULES_MODULE__` (bot support only)          |
-| `check-upgrade.mjs.template` | `frontend/check-upgrade.mjs` | `__HOST_FILE__` (`Host.mo`)                    |
-| `CLAUDE.md.template`         | `CLAUDE.md`                  | every `__...__`, at the first deploy           |
+| Template                     | Destination                  | Fill in                                                                           |
+| ---------------------------- | ---------------------------- | --------------------------------------------------------------------------------- |
+| `mops.toml.template`         | `mops.toml`                  | `__GAME_SLUG__`                                                                   |
+| `package.json.template`      | `frontend/package.json`      | `__GAME_SLUG__`                                                                   |
+| `build.js.template`          | `frontend/build.js`          | `__PLUGIN_FILE__` (header comment only)                                           |
+| `icp.yaml.template`          | `icp.yaml`                   | nothing (rename a canister in `mops.toml` too)                                    |
+| `publish_wasm.sh.template`   | `publish_wasm.sh`            | nothing (next to `icp.yaml`)                                                      |
+| `play-test.mjs.template`     | `frontend/play-test.mjs`     | `__GAME_TITLE__`, `__PLUGIN_FILE__`                                               |
+| `mcp.json.template`          | `.mcp.json`                  | nothing (token setup only, `cloud-session.md`)                                    |
+| `BotIface.mo.template`       | `src/BotIface.mo`            | `__RULES_MODULE__` (bot support only)                                             |
+| `check-upgrade.mjs.template` | `frontend/check-upgrade.mjs` | `__HOST_FILE__` (`Host.mo`)                                                       |
+| `CLAUDE.md.template`         | `CLAUDE.md`                  | every `__...__` at the first deploy; `__BACKEND_COMMIT__` at every backend deploy |
 
 ```bash
 mops install && mops test

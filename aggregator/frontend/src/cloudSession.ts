@@ -109,10 +109,9 @@ Check the script with bash -n, but do not run it in this session. Leave every se
 export const SKILL_INSTALL =
   "npx skills add research-ag/duel-core --skill duel-game-core -a claude-code -y --copy";
 
-/// The skill on the hosty.live way: hosty.live's connector loads it from
-/// this address (hosty_get_skill), wherever the agent runs.
-export const SKILL_URL =
-  "https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core";
+/// The skill on the hosty.live way: hosty.live's connector serves its copy
+/// under this name (hosty_get_skill), wherever the agent runs.
+export const SKILL_NAME = "duel-game-core";
 
 /// How every hosty.live prompt hands the work to the skill, which carries
 /// every rule the work needs (cloud-session.md, going-live.md): load it,
@@ -120,11 +119,11 @@ export const SKILL_URL =
 /// tools the skill is out of reach, so connecting is the user's step,
 /// from the guide's Set up page (cloud session, computer, API token).
 export function loadSkill(reference?: string): string {
-  const url = `"url": "${SKILL_URL}"`;
+  const skill = `"skill": "${SKILL_NAME}"`;
   const follow = reference
-    ? `, then its ${reference} ({ ${url}, "path": "${reference}" }), and follow that reference: it is the procedure for exactly this task`
+    ? `, then its ${reference} ({ ${skill}, "path": "${reference}" }), and follow that reference: it is the procedure for exactly this task`
     : ", and follow it";
-  return `Load the duel-game-core skill with hosty.live's hosty_get_skill tool, { ${url} }${follow}. If the hosty_* tools are missing, tell me so and never offer me a sign-in: connecting hosty.live is my step, on the Duel dashboard guide's Set up page.`;
+  return `Load the duel-game-core skill with hosty.live's hosty_get_skill tool, { ${skill} }${follow}. If the hosty_* tools are missing, tell me so and never offer me a sign-in: connecting hosty.live is my step, on the Duel dashboard guide's Set up page.`;
 }
 
 /// The opening lines of every prompt on the user's own way: no hosty.live,

@@ -167,15 +167,14 @@ already at the root stays there. Keep each project's `CLAUDE.md` and
 `README.md` in its directory, and run its commands from there.
 
 The skill comes through the connector, not from the repository. Every
-session loads it with `hosty_get_skill { url:
-"https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core" }`,
-and each file it names with `{ url, path }` (`SKILL.md`, "Where these
-files are"). So that a later session finds it without the Duel
+session loads it with `hosty_get_skill { skill: "duel-game-core" }`,
+and each file it names with `{ skill: "duel-game-core", path }`
+(`SKILL.md`, "Where these files are"). So that a later session finds it without the Duel
 dashboard's prompt, the repository's root `CLAUDE.md` names it. Create
 the file when it is missing, or add this line to it:
 
 ```markdown
-Games, frontends and bots here are built on duel-game-core: before working on one, load its skill with hosty.live's `hosty_get_skill { url: "https://github.com/research-ag/duel-core/tree/main/skills/duel-game-core" }`.
+Games, frontends and bots here are built on duel-game-core: before working on one, load its skill with hosty.live's `hosty_get_skill { skill: "duel-game-core" }`.
 ```
 
 Claude Code also loads a copy in `.claude/skills/duel-game-core/` from

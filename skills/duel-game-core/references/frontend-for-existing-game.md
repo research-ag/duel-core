@@ -48,8 +48,15 @@ curl -sI <game-url>/ \
   | sed 's/.*%3D//; s/%2D/-/g'
 ```
 
-Empty output means that frontend does not publish its backend; ask the
-user for the backend canister id.
+Empty output: a caffeine.ai page publishes its backend in `/duel.json`
+instead (`caffeine/frontend.md`):
+
+```bash
+node -e 'fetch(process.argv[1] + "/duel.json").then((r) => r.json()).then((j) => j.backend && console.log(j.backend)).catch(() => {})' <game-url>
+```
+
+When both are empty, that frontend does not publish its backend; ask
+the user for the backend canister id.
 
 ```bash
 BACKEND=<backend-id>

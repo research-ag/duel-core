@@ -3,7 +3,7 @@
 A page of its own for a duel-game-core game someone else runs: it plays
 that game's live backend, so its players meet the original's at the
 same tables. Every file of this skill is at
-`https://raw.githubusercontent.com/research-ag/duel-core/main/skills/duel-game-core/<path>`;
+`https://api.hosty.live/skills/duel-game-core/<path>`;
 this one, `references/caffeine/game-frontend.md` (the page, written for
 a game's own frontend) and `templates/plugin.js.template` are all it
 takes. Caffeine's own backend stays as its template made it, unused.
